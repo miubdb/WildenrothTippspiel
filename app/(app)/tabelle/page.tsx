@@ -128,9 +128,16 @@ export default async function TabellePage() {
 
         {/* Rows */}
         {standings.map((s, idx) => {
+          const pos = idx + 1
+          const total = standings.length
           const isWildenroth = s.teamName.includes('Wildenroth')
-          const isTop3 = idx < 3
-          const isRelegation = idx >= standings.length - 3
+          // Zones for 14-team Kreisklasse:
+          // Platz 1: Aufstieg direkt, Platz 2: Aufstieg Relegation
+          // Platz 11-12: Abstieg Relegation, Platz 13-14: Direktabstieg
+          const isPromotion = pos === 1
+          const isPromotionPlayoff = pos === 2
+          const isDirect = total >= 14 && pos >= total - 1         // 13-14
+          const isPlayoff = total >= 14 && pos >= total - 3 && pos <= total - 2  // 11-12
           return (
             <div
               key={s.teamId}
@@ -140,13 +147,17 @@ export default async function TabellePage() {
             >
               {/* Position */}
               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                isTop3
-                  ? 'bg-red-700 text-white'
-                  : isRelegation
-                  ? 'bg-orange-100 text-orange-600'
+                isPromotion
+                  ? 'bg-green-600 text-white'
+                  : isPromotionPlayoff
+                  ? 'bg-green-200 text-green-800'
+                  : isDirect
+                  ? 'bg-red-500 text-white'
+                  : isPlayoff
+                  ? 'bg-orange-200 text-orange-700'
                   : 'text-gray-400'
               }`}>
-                {idx + 1}
+                {pos}
               </div>
 
               {/* Team */}
@@ -197,12 +208,20 @@ export default async function TabellePage() {
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3">
         <div className="flex flex-wrap gap-3 text-xs text-gray-500">
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded-full bg-red-700" />
-            <span>Aufstiegsplätze (Platz 1–3)</span>
+            <div className="w-4 h-4 rounded-full bg-green-600" />
+            <span>Aufstieg (Platz 1)</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded-full bg-orange-100 border border-orange-200" />
-            <span>Abstiegszone</span>
+            <div className="w-4 h-4 rounded-full bg-green-200" />
+            <span>Aufstiegsrelegation (Platz 2)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded-full bg-orange-200" />
+            <span>Abstiegsrelegation (Platz 11–12)</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-4 h-4 rounded-full bg-red-500" />
+            <span>Direktabstieg (Platz 13–14)</span>
           </div>
         </div>
       </div>

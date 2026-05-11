@@ -20,6 +20,12 @@ function settleBet(
       if (total <= 2.5 && selection === 'under') return 'won'
       return 'lost'
     }
+    case 'over_under_3_5': {
+      const total = homeScore + awayScore
+      if (total > 3.5 && selection === 'over_3.5') return 'won'
+      if (total <= 3.5 && selection === 'under_3.5') return 'won'
+      return 'lost'
+    }
     case 'btts': {
       const bothScored = homeScore > 0 && awayScore > 0
       if (bothScored && selection === 'yes') return 'won'

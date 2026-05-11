@@ -194,6 +194,21 @@ export function BettingMatchCard({ match, odds, allMatches }: BettingMatchCardPr
                   </div>
                 </div>
                 <div>
+                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Über/Unter 3,5 Tore</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <OddsButton
+                      label="Über 3,5" odds={odds.over_3_5}
+                      selected={isSelected('over_under_3_5', 'over_3.5')}
+                      onClick={() => add('over_under_3_5', 'Über/Unter 3,5', 'over_3.5', 'Über 3,5', odds.over_3_5)}
+                    />
+                    <OddsButton
+                      label="Unter 3,5" odds={odds.under_3_5}
+                      selected={isSelected('over_under_3_5', 'under_3.5')}
+                      onClick={() => add('over_under_3_5', 'Über/Unter 3,5', 'under_3.5', 'Unter 3,5', odds.under_3_5)}
+                    />
+                  </div>
+                </div>
+                <div>
                   <div className="text-xs text-gray-400 mb-1.5 font-medium">Beide Teams treffen</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton

@@ -58,6 +58,29 @@ export default async function TippsPage({
     }
   }
 
+  // Bet counter for current matchday
+  const { data: { user } } = await supabase.auth.getUser()
+  const matchdayMatchIds = matchdayMatches.map((m) => m.id)
+  let betCountForMatchday = 0
+  if (user && matchdayMatchIds.length > 0) {
+    const [{ count: singleCount }, { data: comboLegs }] = await Promise.all([
+      supabase
+        .from('bets')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .is('combo_id', null)
+        .in('match_id', matchdayMatchIds),
+      supabase
+        .from('bets')
+        .select('combo_id')
+        .eq('user_id', user.id)
+        .not('combo_id', 'is', null)
+        .in('match_id', matchdayMatchIds),
+    ])
+    const distinctCombos = new Set((comboLegs ?? []).map((b) => b.combo_id)).size
+    betCountForMatchday = (singleCount ?? 0) + distinctCombos
+  }
+
   return (
     <div className="px-4 py-4 space-y-4">
       {/* Matchday Header */}
@@ -69,9 +92,17 @@ export default async function TippsPage({
             </div>
             <div className="text-2xl font-black mt-0.5">{currentMatchday}. Spieltag</div>
           </div>
-          <div className="text-right">
-            <div className="text-red-200 text-xs font-medium">Spiele</div>
-            <div className="text-xl font-bold">{matchdayMatches.length}</div>
+          <div className="text-right flex gap-4">
+            <div>
+              <div className="text-red-200 text-xs font-medium">Spiele</div>
+              <div className="text-xl font-bold">{matchdayMatches.length}</div>
+            </div>
+            <div>
+              <div className="text-red-200 text-xs font-medium">Wetten</div>
+              <div className={`text-xl font-bold ${betCountForMatchday >= 2 ? 'text-yellow-300' : ''}`}>
+                {betCountForMatchday}/2
+              </div>
+            </div>
           </div>
         </div>
 

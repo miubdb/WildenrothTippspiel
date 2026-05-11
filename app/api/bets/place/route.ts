@@ -67,6 +67,42 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Enforce max 2 bet actions per matchday
+  const matchdayIds = [...new Set(matches.map((m) => m.matchday))]
+  for (const matchday of matchdayIds) {
+    // Count single bets (combo_id IS NULL) for this matchday
+    const { count: singleCount } = await supabase
+      .from('bets')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .is('combo_id', null)
+      .in('match_id', matches.filter((m) => m.matchday === matchday).map((m) => m.id))
+
+    // Count distinct combo bets for this matchday via their legs
+    const { data: comboLegs } = await supabase
+      .from('bets')
+      .select('combo_id')
+      .eq('user_id', user.id)
+      .not('combo_id', 'is', null)
+      .in('match_id', matches.filter((m) => m.matchday === matchday).map((m) => m.id))
+
+    const distinctCombos = new Set((comboLegs ?? []).map((b) => b.combo_id)).size
+    const existingCount = (singleCount ?? 0) + distinctCombos
+
+    // New bets this submission for this matchday
+    const newCount = mode === 'combo' ? 1 : selections.filter((s) => {
+      const m = matches.find((match) => match.id === s.matchId)
+      return m?.matchday === matchday
+    }).length
+
+    if (existingCount + newCount > 2) {
+      return NextResponse.json(
+        { error: `Maximal 2 Wetten pro Spieltag erlaubt. Du hast bereits ${existingCount} Wette(n) für Spieltag ${matchday} platziert.` },
+        { status: 400 }
+      )
+    }
+  }
+
   // Get user profile and balance
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
@@ -121,7 +157,7 @@ export async function POST(request: NextRequest) {
       match_id: s.matchId,
       market_type: s.marketType,
       selection: s.selection,
-      stake: 0,
+      stake: null,
       odds_value: s.oddsValue,
       status: 'pending',
       payout: null,
