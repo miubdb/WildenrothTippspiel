@@ -6,7 +6,7 @@ import type { BetSlipItem, MarketType } from '@/types'
 type BetSlipMode = 'single' | 'combo'
 
 interface StakeMap {
-  [key: string]: number  // key: `${matchId}-${marketType}`
+  [key: string]: number
 }
 
 interface BetSlipContextValue {
@@ -23,6 +23,36 @@ interface BetSlipContextValue {
   totalComboOdds: number
   potentialPayout: number
   isComboValid: boolean
+}
+
+/** Returns true when two selections from the same match can never both win */
+function hasContradiction(a: BetSlipItem, b: BetSlipItem): boolean {
+  if (a.matchId !== b.matchId) return false
+  if (a.marketType === b.marketType) return false
+
+  const has = (m: string, s: string) =>
+    (a.marketType === m && a.selection === s) || (b.marketType === m && b.selection === s)
+
+  // 1X2 ↔ Double Chance
+  if (has('1x2', 'home') && has('double_chance', 'x2')) return true
+  if (has('1x2', 'away') && has('double_chance', '1x')) return true
+  if (has('1x2', 'draw') && has('double_chance', '12')) return true
+
+  // Exact score contradictions
+  const exact = a.marketType === 'exact_score' ? a : b.marketType === 'exact_score' ? b : null
+  if (exact) {
+    const [hg, ag] = exact.selection.split(':').map(Number)
+    const t = hg + ag
+    if (has('1x2', 'home') && ag > hg) return true
+    if (has('1x2', 'away') && hg >= ag) return true
+    if (has('1x2', 'draw') && hg !== ag) return true
+    if (has('over_under_3_5', 'over_3.5') && t <= 3) return true
+    if (has('over_under_3_5', 'under_3.5') && t >= 4) return true
+    if (has('btts', 'yes') && (hg === 0 || ag === 0)) return true
+    if (has('btts', 'no') && hg > 0 && ag > 0) return true
+  }
+
+  return false
 }
 
 const BetSlipContext = createContext<BetSlipContextValue | null>(null)
@@ -47,12 +77,10 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
 
   const addSelection = useCallback((item: BetSlipItem) => {
     setSelections((prev) => {
-      // Replace if same match + market already in slip
       const existing = prev.findIndex(
         (s) => s.matchId === item.matchId && s.marketType === item.marketType
       )
       if (existing >= 0) {
-        // If same selection, remove it (toggle off)
         if (prev[existing].selection === item.selection) {
           return prev.filter((_, i) => i !== existing)
         }
@@ -85,9 +113,9 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     setStakes((prev) => ({ ...prev, [slipKey(matchId, marketType)]: stake }))
   }, [])
 
-  // Combo is valid only if each selection is from a different match
+  // Combo is invalid if any two selections are mutually exclusive outcomes
   const isComboValid = mode !== 'combo' ||
-    new Set(selections.map((s) => s.matchId)).size === selections.length
+    !selections.some((a, i) => selections.slice(i + 1).some(b => hasContradiction(a, b)))
 
   const totalComboOdds = selections.reduce((acc, s) => acc * s.oddsValue, 1)
   const potentialPayout = mode === 'combo'

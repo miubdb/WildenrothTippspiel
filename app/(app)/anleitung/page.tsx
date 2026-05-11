@@ -3,7 +3,6 @@ export const revalidate = 86400
 export default function AnleitungPage() {
   return (
     <div className="px-4 py-4 space-y-4">
-      {/* Header */}
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4">
         <div className="text-red-200 text-xs font-medium uppercase tracking-wide">SpVgg Wildenroth</div>
         <div className="text-2xl font-black mt-0.5">So funktioniert's</div>
@@ -17,15 +16,26 @@ export default function AnleitungPage() {
         </p>
       </Section>
 
-      <Section title="Wie tippe ich?" emoji="🎯">
-        <Step n={1} text="Gehe auf die Tipps-Seite und wähle einen Spieltag aus." />
-        <Step n={2} text="Klicke auf eines der Ergebnisfelder (z.B. '1', 'X' oder '2' für Sieg, Unentschieden, Niederlage)." />
-        <Step n={3} text="Gib deinen Einsatz im Wettschein ein." />
-        <Step n={4} text="Klicke auf 'Wette platzieren' — fertig!" />
-        <p className="mt-2 text-sm text-gray-600 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
-          ⚠️ Tipps können nur bis zum <strong>ersten Spiel des Spieltags</strong> abgegeben werden.
-          Danach ist kein Tippen mehr möglich.
+      <Section title="Wann kann ich tippen?" emoji="⏰">
+        <p>
+          Für jeden Spieltag öffnet das Tippfenster am <strong>Montag um 12:00 Uhr</strong> der
+          jeweiligen Spielwoche. Tipps sind dann bis zum <strong>Anpfiff des ersten Spiels</strong>
+          möglich — danach ist der Spieltag gesperrt.
         </p>
+        <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-sm">
+          ⚠️ Vor Montag 12:00 Uhr sind die Quoten noch nicht freigegeben, da sie sich nach den
+          Ergebnissen des Wochenendes anpassen.
+        </div>
+        <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
+          <strong>Maximal 2 Wetten pro Spieltag</strong> — Einzelwetten und Kombiwetten zusammen gezählt.
+        </div>
+      </Section>
+
+      <Section title="Wie tippe ich?" emoji="🎯">
+        <Step n={1} text="Gehe auf die Tipps-Seite und wähle den aktuellen Spieltag aus." />
+        <Step n={2} text="Tippe auf einen der Wettmärkte (z.B. '1' für Heimsieg oder 'Über 3,5')." />
+        <Step n={3} text="Dein Tipp landet im Wettschein. Du kannst bis zu 2 Tipps pro Spieltag platzieren." />
+        <Step n={4} text="Gib deinen Einsatz ein und klicke auf 'Wette platzieren' — fertig!" />
       </Section>
 
       <Section title="Wettmärkte" emoji="📋">
@@ -39,11 +49,20 @@ export default function AnleitungPage() {
           ]}
         />
         <MarketCard
-          title="Über/Unter 2,5 Tore"
-          description="Egal wer gewinnt — werden mehr oder weniger als 3 Tore fallen?"
+          title="Doppelte Chance"
+          description="Zwei von drei Ausgängen abdecken — sicherer, aber mit niedrigerer Quote."
           items={[
-            { label: 'Über 2,5', desc: 'Mindestens 3 Tore insgesamt (z.B. 2:1, 3:0, 2:2)' },
-            { label: 'Unter 2,5', desc: 'Höchstens 2 Tore insgesamt (z.B. 1:0, 0:0, 1:1)' },
+            { label: '1X', desc: 'Heimsieg oder Unentschieden' },
+            { label: '12', desc: 'Heimsieg oder Auswärtssieg (kein Unentschieden)' },
+            { label: 'X2', desc: 'Unentschieden oder Auswärtssieg' },
+          ]}
+        />
+        <MarketCard
+          title="Über/Unter 3,5 Tore"
+          description="Egal wer gewinnt — werden mehr oder weniger als 4 Tore fallen?"
+          items={[
+            { label: 'Über 3,5', desc: 'Mindestens 4 Tore insgesamt (z.B. 3:1, 4:0, 2:2)' },
+            { label: 'Unter 3,5', desc: 'Höchstens 3 Tore insgesamt (z.B. 1:0, 2:1, 1:1)' },
           ]}
         />
         <MarketCard
@@ -65,23 +84,28 @@ export default function AnleitungPage() {
 
       <Section title="Kombiwetten" emoji="🔗">
         <p>
-          Du kannst mehrere Tipps aus verschiedenen Spielen kombinieren. Die Quoten werden
-          miteinander multipliziert — das ergibt höhere Gewinne, aber auch ein höheres Risiko.
+          Sobald du 2 Tipps aus <strong>verschiedenen Spielen</strong> auswählst, wechselt der
+          Wettschein automatisch in den Kombimodus. Die Quoten werden dann miteinander multipliziert.
         </p>
         <div className="mt-2 bg-gray-50 rounded-xl px-4 py-3 text-sm space-y-1">
           <div className="font-semibold text-gray-700">Beispiel Kombiwette:</div>
           <div className="text-gray-600">Wildenroth Sieg @ 1,45</div>
-          <div className="text-gray-600">Über 2,5 Tore @ 1,30</div>
+          <div className="text-gray-600">Über 3,5 Tore @ 1,80</div>
           <div className="flex items-center justify-between border-t border-gray-200 pt-1 mt-1">
             <span className="text-gray-600">Gesamt-Quote:</span>
-            <span className="font-bold text-red-700">1,45 × 1,30 = <strong>1,89</strong></span>
+            <span className="font-bold text-red-700">1,45 × 1,80 = <strong>2,61</strong></span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-gray-600">Einsatz 50 € → Gewinn:</span>
-            <span className="font-bold text-green-600">94,35 €</span>
+            <span className="text-gray-600">Einsatz 20 € → Auszahlung:</span>
+            <span className="font-bold text-green-600">52,20 €</span>
           </div>
         </div>
         <p className="mt-2 text-xs text-gray-500">
+          Hinweis: Widersprüchliche Tipps auf dasselbe Spiel (z.B. Heimsieg + X2) können nicht
+          kombiniert werden. Tipps aus demselben Spiel auf verträgliche Märkte (z.B. Heimsieg + Über 3,5)
+          sind erlaubt.
+        </p>
+        <p className="mt-1 text-xs text-gray-500">
           Bei der Kombiwette verlierst du deinen gesamten Einsatz, wenn auch nur ein Tipp falsch ist.
         </p>
       </Section>
@@ -95,36 +119,14 @@ export default function AnleitungPage() {
           <QuoteExample odds={2.50} explanation="Ausgeglichenes Duell — ca. 50/50" />
           <QuoteExample odds={6.00} explanation="Außenseiter — geringe Chance, aber hoher Gewinn" />
         </div>
-        <p className="mt-2 text-sm font-semibold text-gray-700">
-          Gewinn = Einsatz × Quote
-        </p>
+        <p className="mt-2 text-sm font-semibold text-gray-700">Gewinn = Einsatz × Quote</p>
         <p className="text-sm text-gray-500">
           Beispiel: 20 € × Quote 2,50 = <strong>50 € Auszahlung</strong> (30 € Gewinn)
         </p>
-      </Section>
-
-      <Section title="Quotenberechnung" emoji="🔢">
-        <p>
-          Die Quoten werden automatisch aus den bisherigen Saisondaten berechnet:
+        <p className="mt-2 text-xs text-gray-400">
+          Die Quoten werden automatisch auf Basis der Saisondaten berechnet und jeden Montag
+          für den neuen Spieltag aktualisiert.
         </p>
-        <ul className="mt-2 space-y-1.5 text-sm">
-          <li className="flex gap-2">
-            <span>📈</span>
-            <span><strong>Stärke:</strong> Punkte pro Spiel beider Teams (je mehr Punkte, desto favorisiert)</span>
-          </li>
-          <li className="flex gap-2">
-            <span>🏠</span>
-            <span><strong>Heimvorteil:</strong> Heimteams erhalten einen Bonus</span>
-          </li>
-          <li className="flex gap-2">
-            <span>⚽</span>
-            <span><strong>Torquoten:</strong> Basierend auf Torschnitt der Teams (Poisson-Verteilung)</span>
-          </li>
-          <li className="flex gap-2">
-            <span>🔄</span>
-            <span><strong>Aktualisierung:</strong> Quoten werden nach jedem Spieltag neu berechnet</span>
-          </li>
-        </ul>
       </Section>
 
       <Section title="App auf Handy installieren" emoji="📱">

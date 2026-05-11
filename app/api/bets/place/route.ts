@@ -39,14 +39,35 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Keine Auswahlen.' }, { status: 400 })
   }
 
-  // Combo: each selection must be from a different match
+  // Combo: reject mutually exclusive selections
   if (mode === 'combo') {
-    const matchIds = selections.map((s) => s.matchId)
-    if (new Set(matchIds).size !== matchIds.length) {
-      return NextResponse.json(
-        { error: 'Ungültige Kombiwette – zwei Wetten vom selben Spiel können nicht kombiniert werden.' },
-        { status: 400 }
-      )
+    for (let i = 0; i < selections.length; i++) {
+      for (let j = i + 1; j < selections.length; j++) {
+        const a = selections[i], b = selections[j]
+        if (a.matchId !== b.matchId || a.marketType === b.marketType) continue
+        const has = (m: string, s: string) =>
+          (a.marketType === m && a.selection === s) || (b.marketType === m && b.selection === s)
+        let bad = false
+        if (has('1x2', 'home') && has('double_chance', 'x2')) bad = true
+        if (has('1x2', 'away') && has('double_chance', '1x')) bad = true
+        if (has('1x2', 'draw') && has('double_chance', '12')) bad = true
+        const exact = a.marketType === 'exact_score' ? a : b.marketType === 'exact_score' ? b : null
+        if (exact) {
+          const [hg, ag] = exact.selection.split(':').map(Number)
+          const t = hg + ag
+          if (has('1x2', 'home') && ag > hg) bad = true
+          if (has('1x2', 'away') && hg >= ag) bad = true
+          if (has('1x2', 'draw') && hg !== ag) bad = true
+          if (has('over_under_3_5', 'over_3.5') && t <= 3) bad = true
+          if (has('over_under_3_5', 'under_3.5') && t >= 4) bad = true
+          if (has('btts', 'yes') && (hg === 0 || ag === 0)) bad = true
+          if (has('btts', 'no') && hg > 0 && ag > 0) bad = true
+        }
+        if (bad) return NextResponse.json(
+          { error: 'Ungültige Kombiwette – widersprüchliche Wetten für dasselbe Spiel.' },
+          { status: 400 }
+        )
+      }
     }
   }
 

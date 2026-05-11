@@ -3,10 +3,32 @@ import { BettingMatchCard } from '@/components/BettingMatchCard'
 import { BetSlip } from '@/components/BetSlip'
 import { MatchdayScroller } from '@/components/MatchdayScroller'
 import type { Match } from '@/types'
-import { calculateOdds, getTeamRecord } from '@/lib/odds'
+import { calculateOdds } from '@/lib/odds'
 import Link from 'next/link'
 
 export const revalidate = 60
+
+const SELECTION_DISPLAY: Record<string, Record<string, string>> = {
+  '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
+  double_chance: { '1x': '1X', x2: 'X2', '12': '12' },
+  over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
+  btts: { yes: 'Beide treffen', no: 'Nicht beide' },
+}
+
+function socialSelLabel(marketType: string, selection: string) {
+  if (marketType === 'exact_score') return selection
+  return SELECTION_DISPLAY[marketType]?.[selection] ?? selection
+}
+
+/** Returns the Monday 12:00 of the ISO week containing the given date */
+function bettingOpenTime(firstMatchDate: Date): Date {
+  const day = firstMatchDate.getDay() // 0=Sun..6=Sat
+  const daysBack = day === 0 ? 6 : day - 1
+  const monday = new Date(firstMatchDate)
+  monday.setDate(monday.getDate() - daysBack)
+  monday.setHours(12, 0, 0, 0)
+  return monday
+}
 
 export default async function TippsPage({
   searchParams,
@@ -33,7 +55,6 @@ export default async function TippsPage({
 
   const allMatchdays = [...new Set(allMatches.map((m) => m.matchday))].sort((a, b) => a - b)
 
-  // First scheduled matchday as default
   const firstScheduled = allMatches
     .filter((m) => m.status === 'scheduled')
     .map((m) => m.matchday)
@@ -51,19 +72,24 @@ export default async function TippsPage({
   const deadline = matchdayMatches[0] ? new Date(matchdayMatches[0].match_date) : null
   const isDeadlinePassed = deadline ? deadline <= new Date() : false
 
-  // Only use current season matches for odds/form (exclude old seasons, friendlies, cup games)
+  // Betting window: opens Monday 12:00 of match week
+  const bettingOpens = deadline ? bettingOpenTime(deadline) : null
+  const isBettingOpen = !bettingOpens || new Date() >= bettingOpens
+
   const SEASON_START = '2025-08-01'
   const seasonMatches = allMatches.filter((m) => m.match_date >= SEASON_START)
 
-  // Calculate odds dynamically for scheduled matches
+  // Odds only when betting window is open and match is scheduled
   const oddsMap: Record<number, ReturnType<typeof calculateOdds>> = {}
-  for (const m of matchdayMatches) {
-    if (m.status === 'scheduled') {
-      oddsMap[m.id] = calculateOdds(seasonMatches, m.home_team_id, m.away_team_id)
+  if (isBettingOpen) {
+    for (const m of matchdayMatches) {
+      if (m.status === 'scheduled') {
+        oddsMap[m.id] = calculateOdds(seasonMatches, m.home_team_id, m.away_team_id)
+      }
     }
   }
 
-  // Quick standings positions (pts-based, current season)
+  // Standings positions
   const teamPtsMap = new Map<number, { pts: number; gd: number; gf: number }>()
   for (const m of seasonMatches) {
     if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
@@ -74,33 +100,52 @@ export default async function TippsPage({
     if (hs > as_) h.pts += 3; else if (hs < as_) a.pts += 3; else { h.pts++; a.pts++ }
     teamPtsMap.set(m.home_team_id, h); teamPtsMap.set(m.away_team_id, a)
   }
-  const sortedTeams = [...teamPtsMap.entries()]
-    .sort(([, a], [, b]) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
+  const sortedTeams = [...teamPtsMap.entries()].sort(([, a], [, b]) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
   const positions: Record<number, number> = {}
   sortedTeams.forEach(([id], idx) => { positions[id] = idx + 1 })
 
-  // Bet counter for current matchday
   const { data: { user } } = await supabase.auth.getUser()
   const matchdayMatchIds = matchdayMatches.map((m) => m.id)
+
+  // Own bet counter
   let betCountForMatchday = 0
   if (user && matchdayMatchIds.length > 0) {
     const [{ count: singleCount }, { data: comboLegs }] = await Promise.all([
-      supabase
-        .from('bets')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .is('combo_id', null)
-        .in('match_id', matchdayMatchIds),
-      supabase
-        .from('bets')
-        .select('combo_id')
-        .eq('user_id', user.id)
-        .not('combo_id', 'is', null)
-        .in('match_id', matchdayMatchIds),
+      supabase.from('bets').select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id).is('combo_id', null).in('match_id', matchdayMatchIds),
+      supabase.from('bets').select('combo_id')
+        .eq('user_id', user.id).not('combo_id', 'is', null).in('match_id', matchdayMatchIds),
     ])
     const distinctCombos = new Set((comboLegs ?? []).map((b) => b.combo_id)).size
     betCountForMatchday = (singleCount ?? 0) + distinctCombos
   }
+
+  // Social bets: visible after first match kicks off (RLS policy allows this)
+  type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number }
+  type SocialProfile = { id: string; display_name: string | null; username: string }
+  let socialBets: SocialBet[] = []
+  let socialProfiles: SocialProfile[] = []
+
+  if (isDeadlinePassed && matchdayMatchIds.length > 0) {
+    const { data: rawSocial } = await supabase
+      .from('bets')
+      .select('id, market_type, selection, odds_value, status, combo_id, user_id, match_id')
+      .in('match_id', matchdayMatchIds)
+      .neq('user_id', user?.id ?? '')
+
+    if (rawSocial && rawSocial.length > 0) {
+      socialBets = rawSocial
+      const uids = [...new Set(rawSocial.map(b => b.user_id))]
+      const { data: pData } = await supabase
+        .from('profiles')
+        .select('id, display_name, username')
+        .in('id', uids)
+      socialProfiles = pData ?? []
+    }
+  }
+
+  // Build match label map for social section
+  const matchMap = new Map(matchdayMatches.map(m => [m.id, m]))
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -108,9 +153,7 @@ export default async function TippsPage({
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-red-200 text-xs font-medium uppercase tracking-wide">
-              Spieltag
-            </div>
+            <div className="text-red-200 text-xs font-medium uppercase tracking-wide">Spieltag</div>
             <div className="text-2xl font-black mt-0.5">{currentMatchday}. Spieltag</div>
           </div>
           <div className="text-right flex gap-4">
@@ -127,33 +170,35 @@ export default async function TippsPage({
           </div>
         </div>
 
-        {deadline && !isDeadlinePassed && matchdayMatches.some((m) => m.status === 'scheduled') && (
+        {/* Betting window not yet open */}
+        {!isBettingOpen && !isDeadlinePassed && bettingOpens && (
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2">
-            <div className="text-red-200 text-xs">Annahmeschluss</div>
+            <div className="text-red-200 text-xs">Wetten öffnen am</div>
             <div className="text-white font-semibold text-sm">
-              {deadline.toLocaleDateString('de-DE', {
-                weekday: 'long',
-                day: '2-digit',
-                month: '2-digit',
-              })}{' '}
-              um{' '}
-              {deadline.toLocaleTimeString('de-DE', {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}{' '}
-              Uhr
+              {bettingOpens.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit' })} um 12:00 Uhr
             </div>
           </div>
         )}
 
-        {isDeadlinePassed && matchdayMatches.some((m) => m.status === 'scheduled') && (
+        {/* Betting open: show deadline */}
+        {isBettingOpen && deadline && !isDeadlinePassed && matchdayMatches.some(m => m.status === 'scheduled') && (
+          <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2">
+            <div className="text-red-200 text-xs">Annahmeschluss</div>
+            <div className="text-white font-semibold text-sm">
+              {deadline.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit' })}{' '}
+              um {deadline.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr
+            </div>
+          </div>
+        )}
+
+        {isDeadlinePassed && matchdayMatches.some(m => m.status === 'scheduled') && (
           <div className="mt-3 bg-red-900/60 rounded-xl px-3 py-2 text-red-200 text-xs font-medium">
             Annahmeschluss überschritten — keine neuen Tipps möglich
           </div>
         )}
       </div>
 
-      {/* Matchday Selector — auto-scrolls to current matchday */}
+      {/* Matchday Selector */}
       <MatchdayScroller activeIndex={allMatchdays.indexOf(currentMatchday)}>
         {allMatchdays.map((md) => {
           const mdMatches = allMatches.filter((m) => m.matchday === md)
@@ -191,7 +236,7 @@ export default async function TippsPage({
             <BettingMatchCard
               key={match.id}
               match={match}
-              odds={match.status === 'scheduled' ? (oddsMap[match.id] ?? null) : null}
+              odds={match.status === 'scheduled' && isBettingOpen ? (oddsMap[match.id] ?? null) : null}
               allMatches={seasonMatches}
               historyMatches={allMatches}
               positions={positions}
@@ -200,7 +245,110 @@ export default async function TippsPage({
         </div>
       )}
 
+      {/* Social Bets — visible once matchday has started */}
+      {isDeadlinePassed && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <h2 className="font-bold text-gray-900">Tipps der anderen</h2>
+            {socialProfiles.length > 0 ? (
+              <p className="text-xs text-gray-400 mt-0.5">{socialProfiles.length} Spieler haben getippt</p>
+            ) : (
+              <p className="text-xs text-gray-400 mt-0.5">Noch keine Tipps von Mitspielern</p>
+            )}
+          </div>
+
+          {socialProfiles.length === 0 ? (
+            <div className="px-4 py-6 text-center text-gray-400 text-sm">
+              Keine Tipps vorhanden
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {socialProfiles.map(profile => {
+                const userBets = socialBets.filter(b => b.user_id === profile.id)
+                const shownCombos = new Set<string>()
+                const initial = (profile.display_name || profile.username)[0].toUpperCase()
+                const singlesCount = userBets.filter(b => !b.combo_id).length
+                const combosCount = new Set(userBets.filter(b => b.combo_id).map(b => b.combo_id)).size
+                const actionCount = singlesCount + combosCount
+
+                return (
+                  <div key={profile.id} className="px-4 py-3">
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                        <span className="text-red-700 font-bold text-sm">{initial}</span>
+                      </div>
+                      <span className="font-semibold text-gray-900 text-sm flex-1">
+                        {profile.display_name || profile.username}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        {actionCount} {actionCount === 1 ? 'Wette' : 'Wetten'}
+                      </span>
+                    </div>
+
+                    <div className="pl-10 space-y-1.5">
+                      {userBets.map(bet => {
+                        if (bet.combo_id) {
+                          if (shownCombos.has(bet.combo_id)) return null
+                          shownCombos.add(bet.combo_id)
+                          const legs = userBets.filter(b => b.combo_id === bet.combo_id)
+                          const comboOdds = legs.reduce((acc, l) => acc * l.odds_value, 1)
+                          return (
+                            <div key={bet.combo_id} className="bg-blue-50 border border-blue-100 rounded-xl p-2.5">
+                              <div className="text-xs font-semibold text-blue-700 mb-1.5">
+                                🔗 Kombiwette · {legs.length} Tipps · @{comboOdds.toFixed(2)}
+                              </div>
+                              {legs.map(leg => {
+                                const m = matchMap.get(leg.match_id)
+                                const ht = m?.home_team?.short_name ?? m?.home_team?.name?.split(' ').slice(-1)[0] ?? '?'
+                                const at = m?.away_team?.short_name ?? m?.away_team?.name?.split(' ').slice(-1)[0] ?? '?'
+                                return (
+                                  <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5">
+                                    <StatusDot status={leg.status} />
+                                    <span className="text-gray-400">{ht}–{at}</span>
+                                    <span className="font-medium text-gray-800">{socialSelLabel(leg.market_type, leg.selection)}</span>
+                                    <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2)}</span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )
+                        }
+
+                        const m = matchMap.get(bet.match_id)
+                        const ht = m?.home_team?.short_name ?? m?.home_team?.name?.split(' ').slice(-1)[0] ?? '?'
+                        const at = m?.away_team?.short_name ?? m?.away_team?.name?.split(' ').slice(-1)[0] ?? '?'
+                        return (
+                          <div key={bet.id} className={`flex items-center gap-2 text-xs rounded-xl px-2.5 py-2 ${
+                            bet.status === 'won' ? 'bg-green-50 border border-green-100' :
+                            bet.status === 'lost' ? 'bg-red-50 border border-red-100' :
+                            'bg-gray-50 border border-gray-100'
+                          }`}>
+                            <StatusDot status={bet.status} />
+                            <span className="text-gray-400">{ht}–{at}</span>
+                            <span className="font-medium text-gray-800 flex-1">{socialSelLabel(bet.market_type, bet.selection)}</span>
+                            <span className="text-red-600 font-bold">@{bet.odds_value.toFixed(2)}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       <BetSlip />
     </div>
+  )
+}
+
+function StatusDot({ status }: { status: string }) {
+  return (
+    <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${
+      status === 'won' ? 'bg-green-500' :
+      status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'
+    }`} />
   )
 }
