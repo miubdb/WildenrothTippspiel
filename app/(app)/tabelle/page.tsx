@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
-import { getForm, getTeamPPG } from '@/lib/odds'
+import { getForm } from '@/lib/odds'
 
 export const revalidate = 60
 
@@ -19,6 +19,47 @@ interface Standing {
   form: ('W' | 'D' | 'L')[]
 }
 
+function sortByBFV(group: Standing[], matches: Match[]): Standing[] {
+  // Build H2H mini-table within tied group
+  const groupIds = new Set(group.map((s) => s.teamId))
+  const h2hMatches = matches.filter(
+    (m) =>
+      m.status === 'finished' &&
+      groupIds.has(m.home_team_id) &&
+      groupIds.has(m.away_team_id)
+  )
+  type H2H = { pts: number; gf: number; ga: number; awayGF: number }
+  const h2h = new Map<number, H2H>()
+  for (const s of group) h2h.set(s.teamId, { pts: 0, gf: 0, ga: 0, awayGF: 0 })
+
+  for (const m of h2hMatches) {
+    const hs = m.home_score ?? 0; const as_ = m.away_score ?? 0
+    const home = h2h.get(m.home_team_id)!
+    const away = h2h.get(m.away_team_id)!
+    home.gf += hs; home.ga += as_
+    away.gf += as_; away.ga += hs
+    away.awayGF += as_
+    if (hs > as_) home.pts += 3
+    else if (hs === as_) { home.pts++; away.pts++ }
+    else away.pts += 3
+  }
+
+  return [...group].sort((a, b) => {
+    const ah = h2h.get(a.teamId)!; const bh = h2h.get(b.teamId)!
+    // 1. H2H points
+    if (bh.pts !== ah.pts) return bh.pts - ah.pts
+    // 2. H2H goal difference
+    const agd = ah.gf - ah.ga; const bgd = bh.gf - bh.ga
+    if (bgd !== agd) return bgd - agd
+    // 3. H2H away goals
+    if (bh.awayGF !== ah.awayGF) return bh.awayGF - ah.awayGF
+    // 4. Overall goal difference
+    if (b.gd !== a.gd) return b.gd - a.gd
+    // 5. Overall goals scored
+    return b.gf - a.gf
+  })
+}
+
 function computeStandings(matches: Match[]): Standing[] {
   const teamMap = new Map<number, { name: string }>()
   for (const m of matches) {
@@ -27,40 +68,41 @@ function computeStandings(matches: Match[]): Standing[] {
   }
 
   const stats = new Map<number, Omit<Standing, 'teamName' | 'ppg' | 'form'>>()
-
   for (const [id] of teamMap) {
     stats.set(id, { teamId: id, played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0 })
   }
 
   for (const m of matches) {
     if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
-    const hs = m.home_score
-    const as_ = m.away_score
-
-    const home = stats.get(m.home_team_id)!
-    const away = stats.get(m.away_team_id)!
+    const hs = m.home_score; const as_ = m.away_score
+    const home = stats.get(m.home_team_id)!; const away = stats.get(m.away_team_id)!
     home.played++; away.played++
     home.gf += hs; home.ga += as_; home.gd = home.gf - home.ga
     away.gf += as_; away.ga += hs; away.gd = away.gf - away.ga
-
     if (hs > as_) { home.w++; home.pts += 3; away.l++ }
     else if (hs < as_) { away.w++; away.pts += 3; home.l++ }
     else { home.d++; away.d++; home.pts++; away.pts++ }
   }
 
-  return [...stats.values()]
-    .map((s) => ({
-      ...s,
-      teamName: teamMap.get(s.teamId)?.name ?? `Team ${s.teamId}`,
-      ppg: s.played > 0 ? Math.round((s.pts / s.played) * 100) / 100 : 0,
-      form: getForm(matches, s.teamId, 5),
-    }))
-    .sort((a, b) =>
-      b.pts - a.pts ||
-      b.gd - a.gd ||
-      b.gf - a.gf ||
-      a.teamName.localeCompare(b.teamName)
-    )
+  const rows: Standing[] = [...stats.values()].map((s) => ({
+    ...s,
+    teamName: teamMap.get(s.teamId)?.name ?? `Team ${s.teamId}`,
+    ppg: s.played > 0 ? Math.round((s.pts / s.played) * 100) / 100 : 0,
+    form: getForm(matches, s.teamId, 5),
+  }))
+
+  // Sort by pts first, then apply BFV tiebreaker within tied groups
+  rows.sort((a, b) => b.pts - a.pts)
+  const result: Standing[] = []
+  let i = 0
+  while (i < rows.length) {
+    let j = i + 1
+    while (j < rows.length && rows[j].pts === rows[i].pts) j++
+    const group = rows.slice(i, j)
+    result.push(...(group.length > 1 ? sortByBFV(group, matches) : group))
+    i = j
+  }
+  return result
 }
 
 export default async function TabellePage() {
@@ -75,11 +117,14 @@ export default async function TabellePage() {
     )
     .order('match_date', { ascending: true })
 
-  const matches: Match[] = (rawMatches ?? []).map((m) => ({
+  const allRaw: Match[] = (rawMatches ?? []).map((m) => ({
     ...m,
     home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
     away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
   }))
+
+  // Only current season matches for standings and form
+  const matches = allRaw.filter((m) => m.match_date >= '2025-08-01')
 
   const standings = computeStandings(matches)
   const wildenrothPos = standings.findIndex((s) => s.teamName.includes('Wildenroth')) + 1

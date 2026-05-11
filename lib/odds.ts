@@ -154,21 +154,21 @@ export function calculateOdds(
   const homeHomePPG = getTeamHomePPG(matches, homeTeamId)
   const awayAwayPPG = getTeamAwayPPG(matches, awayTeamId)
 
-  // Form factor: L5 points / 15 (max), blended 30%
+  // Form factor: L5 points / 15 (max), blended 45% — recent form has high weight
   const homeFormFactor = getFormPts(matches, homeTeamId, 5) / 15  // 0..1
   const awayFormFactor = getFormPts(matches, awayTeamId, 5) / 15
 
   // Combined strength (PPG max ~3, form also scaled to 3)
-  const homeStr = 0.70 * homeHomePPG + 0.30 * homeFormFactor * 3
-  const awayStr = 0.70 * awayAwayPPG + 0.30 * awayFormFactor * 3
+  const homeStr = 0.55 * homeHomePPG + 0.45 * homeFormFactor * 3
+  const awayStr = 0.55 * awayAwayPPG + 0.45 * awayFormFactor * 3
 
   const total = homeStr + awayStr || 2.0 // avoid div by zero
   const pHomeRaw = homeStr / total
   const pAwayRaw = awayStr / total
 
-  // Draw prob: higher when evenly matched, drops off for big mismatch
+  // Draw prob: drops faster for lopsided matchups
   const mismatch = Math.abs(pHomeRaw - pAwayRaw)
-  const pDraw = Math.max(0.08, 0.26 - 0.42 * mismatch)
+  const pDraw = Math.max(0.06, 0.22 - 0.44 * mismatch)
   const pHome = pHomeRaw * (1 - pDraw)
   const pAway = pAwayRaw * (1 - pDraw)
 

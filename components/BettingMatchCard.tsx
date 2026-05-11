@@ -201,21 +201,6 @@ export function BettingMatchCard({ match, odds, allMatches }: BettingMatchCardPr
             {activeTab === 'goals' && (
               <div className="space-y-2">
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Über/Unter 2,5 Tore</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <OddsButton
-                      label="Über 2,5" odds={odds.over_2_5}
-                      selected={isSelected('over_under', 'over')}
-                      onClick={() => add('over_under', 'Über/Unter 2,5', 'over', 'Über 2,5', odds.over_2_5)}
-                    />
-                    <OddsButton
-                      label="Unter 2,5" odds={odds.under_2_5}
-                      selected={isSelected('over_under', 'under')}
-                      onClick={() => add('over_under', 'Über/Unter 2,5', 'under', 'Unter 2,5', odds.under_2_5)}
-                    />
-                  </div>
-                </div>
-                <div>
                   <div className="text-xs text-gray-400 mb-1.5 font-medium">Über/Unter 3,5 Tore</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton

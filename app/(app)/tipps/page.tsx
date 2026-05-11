@@ -50,11 +50,15 @@ export default async function TippsPage({
   const deadline = matchdayMatches[0] ? new Date(matchdayMatches[0].match_date) : null
   const isDeadlinePassed = deadline ? deadline <= new Date() : false
 
+  // Only use current season matches for odds/form (exclude old seasons, friendlies, cup games)
+  const SEASON_START = '2025-08-01'
+  const seasonMatches = allMatches.filter((m) => m.match_date >= SEASON_START)
+
   // Calculate odds dynamically for scheduled matches
   const oddsMap: Record<number, ReturnType<typeof calculateOdds>> = {}
   for (const m of matchdayMatches) {
     if (m.status === 'scheduled') {
-      oddsMap[m.id] = calculateOdds(allMatches, m.home_team_id, m.away_team_id)
+      oddsMap[m.id] = calculateOdds(seasonMatches, m.home_team_id, m.away_team_id)
     }
   }
 
@@ -171,7 +175,7 @@ export default async function TippsPage({
               key={match.id}
               match={match}
               odds={match.status === 'scheduled' ? (oddsMap[match.id] ?? null) : null}
-              allMatches={allMatches}
+              allMatches={seasonMatches}
             />
           ))}
         </div>
