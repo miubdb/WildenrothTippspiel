@@ -93,7 +93,7 @@ function getFormPts(matches: Match[], teamId: number, n: number): number {
   return form.reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0)
 }
 
-/** Average goals scored per game */
+/** Average goals scored per game (all games, used as fallback) */
 function avgScored(matches: Match[], teamId: number): number {
   const games = matches.filter(
     (m) =>
@@ -108,7 +108,7 @@ function avgScored(matches: Match[], teamId: number): number {
   return total / games.length
 }
 
-/** Average goals conceded per game */
+/** Average goals conceded per game (all games, used as fallback) */
 function avgConceded(matches: Match[], teamId: number): number {
   const games = matches.filter(
     (m) =>
@@ -121,6 +121,34 @@ function avgConceded(matches: Match[], teamId: number): number {
     return acc + (isHome ? (m.away_score ?? 0) : (m.home_score ?? 0))
   }, 0)
   return total / games.length
+}
+
+/** Goals scored AT HOME per home game */
+function avgScoredHome(matches: Match[], teamId: number): number {
+  const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
+  if (games.length < 2) return avgScored(matches, teamId)
+  return games.reduce((acc, m) => acc + (m.home_score ?? 0), 0) / games.length
+}
+
+/** Goals conceded AT HOME per home game */
+function avgConcededHome(matches: Match[], teamId: number): number {
+  const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
+  if (games.length < 2) return avgConceded(matches, teamId)
+  return games.reduce((acc, m) => acc + (m.away_score ?? 0), 0) / games.length
+}
+
+/** Goals scored AWAY per away game */
+function avgScoredAway(matches: Match[], teamId: number): number {
+  const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
+  if (games.length < 2) return avgScored(matches, teamId)
+  return games.reduce((acc, m) => acc + (m.away_score ?? 0), 0) / games.length
+}
+
+/** Goals conceded AWAY per away game */
+function avgConcededAway(matches: Match[], teamId: number): number {
+  const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
+  if (games.length < 2) return avgConceded(matches, teamId)
+  return games.reduce((acc, m) => acc + (m.home_score ?? 0), 0) / games.length
 }
 
 /** Team record for display */
@@ -150,9 +178,12 @@ export function calculateOdds(
   homeTeamId: number,
   awayTeamId: number
 ): OddsData {
-  // --- Strength: home/away specific PPG + recent form ---
-  const homeHomePPG = getTeamHomePPG(matches, homeTeamId)
-  const awayAwayPPG = getTeamAwayPPG(matches, awayTeamId)
+  // --- Strength: overall PPG base, home boost only if genuine ---
+  const homeOverallPPG = getTeamPPG(matches, homeTeamId)
+  const homeHomePPG    = getTeamHomePPG(matches, homeTeamId)
+  // Home advantage only when team is demonstrably stronger at home
+  const homeBasePPG    = Math.max(homeHomePPG, homeOverallPPG)
+  const awayBasePPG    = getTeamAwayPPG(matches, awayTeamId)
 
   // Form factor: L5 points / 15 (max) → multiplier 0.65..1.35
   const homeFormFactor = getFormPts(matches, homeTeamId, 5) / 15  // 0..1
@@ -161,8 +192,8 @@ export function calculateOdds(
   const awayFormMult = 0.65 + 0.70 * awayFormFactor
 
   // Multiplicative model: PPG dominates, form adjusts ±35%
-  const homeStr = homeHomePPG * homeFormMult
-  const awayStr = awayAwayPPG * awayFormMult
+  const homeStr = homeBasePPG * homeFormMult
+  const awayStr = awayBasePPG * awayFormMult
 
   const total = homeStr + awayStr || 2.0 // avoid div by zero
   const pHomeRaw = homeStr / total
@@ -180,11 +211,11 @@ export function calculateOdds(
   const drawOdds    = toOdds(pDraw / overround)
   const awayWinOdds = toOdds(pAway / overround)
 
-  // --- xG: team attack vs opponent defence, shrunk towards ~1.6 ---
-  const LEAGUE_XG = 1.6  // representative league average per team
-  const SHRINK     = 0.25
-  const rawHomeXG = (avgScored(matches, homeTeamId) + avgConceded(matches, awayTeamId)) / 2
-  const rawAwayXG = (avgScored(matches, awayTeamId) + avgConceded(matches, homeTeamId)) / 2
+  // --- xG: home attack at home vs away defence away (context-specific) ---
+  const LEAGUE_XG = 1.8
+  const SHRINK     = 0.15
+  const rawHomeXG = (avgScoredHome(matches, homeTeamId) + avgConcededAway(matches, awayTeamId)) / 2
+  const rawAwayXG = (avgScoredAway(matches, awayTeamId) + avgConcededHome(matches, homeTeamId)) / 2
   const homeXG = (1 - SHRINK) * rawHomeXG + SHRINK * LEAGUE_XG
   const awayXG = (1 - SHRINK) * rawAwayXG + SHRINK * LEAGUE_XG
 
@@ -246,8 +277,8 @@ export function getExactScoreOdds(
 ): { score: string; odds: number }[] {
   const LEAGUE_XG = 1.8
   const SHRINK    = 0.15
-  const rawHomeXG = (avgScored(matches, homeTeamId) + avgConceded(matches, awayTeamId)) / 2
-  const rawAwayXG = (avgScored(matches, awayTeamId) + avgConceded(matches, homeTeamId)) / 2
+  const rawHomeXG = (avgScoredHome(matches, homeTeamId) + avgConcededAway(matches, awayTeamId)) / 2
+  const rawAwayXG = (avgScoredAway(matches, awayTeamId) + avgConcededHome(matches, homeTeamId)) / 2
   const homeXG = (1 - SHRINK) * rawHomeXG + SHRINK * LEAGUE_XG
   const awayXG = (1 - SHRINK) * rawAwayXG + SHRINK * LEAGUE_XG
 

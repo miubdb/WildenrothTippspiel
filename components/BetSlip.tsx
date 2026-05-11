@@ -19,6 +19,7 @@ export function BetSlip() {
     clearSlip,
     totalComboOdds,
     potentialPayout,
+    isComboValid,
   } = useBetSlip()
 
   const [open, setOpen] = useState(false)
@@ -317,6 +318,12 @@ export function BetSlip() {
                 </div>
               )}
 
+              {mode === 'combo' && !isComboValid && (
+                <div className="mb-3 bg-orange-50 text-orange-700 text-xs px-3 py-2 rounded-lg border border-orange-200 font-medium">
+                  Ungültige Kombiwette — zwei Wetten vom selben Spiel können nicht kombiniert werden.
+                </div>
+              )}
+
               {error && (
                 <div className="mb-3 bg-red-50 text-red-700 text-xs px-3 py-2 rounded-lg border border-red-100">
                   {error}
@@ -325,7 +332,7 @@ export function BetSlip() {
 
               <button
                 onClick={placebet}
-                disabled={loading || count === 0}
+                disabled={loading || count === 0 || !isComboValid}
                 className="w-full py-4 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-bold rounded-xl transition-colors text-base flex items-center justify-center gap-2 active:scale-95"
               >
                 {loading ? (

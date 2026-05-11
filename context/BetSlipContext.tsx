@@ -22,6 +22,7 @@ interface BetSlipContextValue {
   setComboStake: (stake: number) => void
   totalComboOdds: number
   potentialPayout: number
+  isComboValid: boolean
 }
 
 const BetSlipContext = createContext<BetSlipContextValue | null>(null)
@@ -84,6 +85,10 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     setStakes((prev) => ({ ...prev, [slipKey(matchId, marketType)]: stake }))
   }, [])
 
+  // Combo is valid only if each selection is from a different match
+  const isComboValid = mode !== 'combo' ||
+    new Set(selections.map((s) => s.matchId)).size === selections.length
+
   const totalComboOdds = selections.reduce((acc, s) => acc * s.oddsValue, 1)
   const potentialPayout = mode === 'combo'
     ? comboStake * totalComboOdds
@@ -107,6 +112,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
         setComboStake,
         totalComboOdds,
         potentialPayout,
+        isComboValid,
       }}
     >
       {children}

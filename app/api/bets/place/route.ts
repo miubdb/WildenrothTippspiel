@@ -39,6 +39,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Keine Auswahlen.' }, { status: 400 })
   }
 
+  // Combo: each selection must be from a different match
+  if (mode === 'combo') {
+    const matchIds = selections.map((s) => s.matchId)
+    if (new Set(matchIds).size !== matchIds.length) {
+      return NextResponse.json(
+        { error: 'Ungültige Kombiwette – zwei Wetten vom selben Spiel können nicht kombiniert werden.' },
+        { status: 400 }
+      )
+    }
+  }
+
   // Fetch matches to validate deadline
   const matchIds = [...new Set(selections.map((s) => s.matchId))]
   const { data: matches } = await supabase
