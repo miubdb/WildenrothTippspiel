@@ -156,22 +156,44 @@ export function BettingMatchCard({ match, odds, allMatches }: BettingMatchCardPr
           <div className="px-4 py-3">
             {/* 1X2 */}
             {activeTab === '1x2' && (
-              <div className="grid grid-cols-3 gap-2">
-                <OddsButton
-                  label="1" sublabel="Heimsieg" odds={odds.home_win}
-                  selected={isSelected('1x2', 'home')}
-                  onClick={() => add('1x2', '1X2', 'home', 'Heimsieg', odds.home_win)}
-                />
-                <OddsButton
-                  label="X" sublabel="Unentsch." odds={odds.draw}
-                  selected={isSelected('1x2', 'draw')}
-                  onClick={() => add('1x2', '1X2', 'draw', 'Unentschieden', odds.draw)}
-                />
-                <OddsButton
-                  label="2" sublabel="Auswärts" odds={odds.away_win}
-                  selected={isSelected('1x2', 'away')}
-                  onClick={() => add('1x2', '1X2', 'away', 'Auswärtssieg', odds.away_win)}
-                />
+              <div className="space-y-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <OddsButton
+                    label="1" sublabel="Heimsieg" odds={odds.home_win}
+                    selected={isSelected('1x2', 'home')}
+                    onClick={() => add('1x2', '1X2', 'home', 'Heimsieg', odds.home_win)}
+                  />
+                  <OddsButton
+                    label="X" sublabel="Unentsch." odds={odds.draw}
+                    selected={isSelected('1x2', 'draw')}
+                    onClick={() => add('1x2', '1X2', 'draw', 'Unentschieden', odds.draw)}
+                  />
+                  <OddsButton
+                    label="2" sublabel="Auswärts" odds={odds.away_win}
+                    selected={isSelected('1x2', 'away')}
+                    onClick={() => add('1x2', '1X2', 'away', 'Auswärtssieg', odds.away_win)}
+                  />
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Doppelte Chance</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <OddsButton
+                      label="1X" sublabel="Heim/Unent." odds={odds.odds_1x}
+                      selected={isSelected('double_chance', '1x')}
+                      onClick={() => add('double_chance', 'Doppelte Chance', '1x', '1X', odds.odds_1x)}
+                    />
+                    <OddsButton
+                      label="12" sublabel="Kein Unent." odds={odds.odds_12}
+                      selected={isSelected('double_chance', '12')}
+                      onClick={() => add('double_chance', 'Doppelte Chance', '12', '12', odds.odds_12)}
+                    />
+                    <OddsButton
+                      label="X2" sublabel="Unent./Ausw." odds={odds.odds_x2}
+                      selected={isSelected('double_chance', 'x2')}
+                      onClick={() => add('double_chance', 'Doppelte Chance', 'x2', 'X2', odds.odds_x2)}
+                    />
+                  </div>
+                </div>
               </div>
             )}
 

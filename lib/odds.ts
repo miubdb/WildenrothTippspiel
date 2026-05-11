@@ -215,10 +215,18 @@ export function calculateOdds(
   const bttsYesOdds = toOdds(pBttsYes)
   const bttsNoOdds  = toOdds(1 - pBttsYes)
 
+  // --- Double Chance ---
+  const odds_1x = toOdds((pHome + pDraw) / overround)
+  const odds_x2 = toOdds((pDraw + pAway) / overround)
+  const odds_12 = toOdds((pHome + pAway) / overround)
+
   return {
     home_win:  homeWinOdds,
     draw:      drawOdds,
     away_win:  awayWinOdds,
+    odds_1x,
+    odds_x2,
+    odds_12,
     over_2_5:  over25Odds,
     under_2_5: under25Odds,
     over_3_5:  over35Odds,

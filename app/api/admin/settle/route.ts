@@ -14,6 +14,12 @@ function settleBet(
       if (homeScore < awayScore && selection === 'away') return 'won'
       return 'lost'
     }
+    case 'double_chance': {
+      if (selection === '1x' && homeScore >= awayScore) return 'won'
+      if (selection === 'x2' && awayScore >= homeScore) return 'won'
+      if (selection === '12' && homeScore !== awayScore) return 'won'
+      return 'lost'
+    }
     case 'over_under': {
       const total = homeScore + awayScore
       if (total > 2.5 && selection === 'over') return 'won'

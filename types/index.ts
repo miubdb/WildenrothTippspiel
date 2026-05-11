@@ -1,4 +1,4 @@
-export type MarketType = '1x2' | 'over_under' | 'over_under_3_5' | 'btts' | 'exact_score'
+export type MarketType = '1x2' | 'double_chance' | 'over_under' | 'over_under_3_5' | 'btts' | 'exact_score'
 
 export type MatchStatus = 'scheduled' | 'live' | 'finished' | 'cancelled'
 
@@ -88,6 +88,9 @@ export interface OddsData {
   home_win: number
   draw: number
   away_win: number
+  odds_1x: number
+  odds_x2: number
+  odds_12: number
   over_2_5: number
   under_2_5: number
   over_3_5: number
