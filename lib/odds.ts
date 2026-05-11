@@ -154,13 +154,15 @@ export function calculateOdds(
   const homeHomePPG = getTeamHomePPG(matches, homeTeamId)
   const awayAwayPPG = getTeamAwayPPG(matches, awayTeamId)
 
-  // Form factor: L5 points / 15 (max), blended 45% — recent form has high weight
+  // Form factor: L5 points / 15 (max) → multiplier 0.65..1.35
   const homeFormFactor = getFormPts(matches, homeTeamId, 5) / 15  // 0..1
   const awayFormFactor = getFormPts(matches, awayTeamId, 5) / 15
+  const homeFormMult = 0.65 + 0.70 * homeFormFactor  // 0.65 (terrible form) – 1.35 (perfect form)
+  const awayFormMult = 0.65 + 0.70 * awayFormFactor
 
-  // Combined strength (PPG max ~3, form also scaled to 3)
-  const homeStr = 0.55 * homeHomePPG + 0.45 * homeFormFactor * 3
-  const awayStr = 0.55 * awayAwayPPG + 0.45 * awayFormFactor * 3
+  // Multiplicative model: PPG dominates, form adjusts ±35%
+  const homeStr = homeHomePPG * homeFormMult
+  const awayStr = awayAwayPPG * awayFormMult
 
   const total = homeStr + awayStr || 2.0 // avoid div by zero
   const pHomeRaw = homeStr / total
@@ -242,8 +244,8 @@ export function getExactScoreOdds(
   homeTeamId: number,
   awayTeamId: number
 ): { score: string; odds: number }[] {
-  const LEAGUE_XG = 1.6
-  const SHRINK    = 0.30
+  const LEAGUE_XG = 1.8
+  const SHRINK    = 0.15
   const rawHomeXG = (avgScored(matches, homeTeamId) + avgConceded(matches, awayTeamId)) / 2
   const rawAwayXG = (avgScored(matches, awayTeamId) + avgConceded(matches, homeTeamId)) / 2
   const homeXG = (1 - SHRINK) * rawHomeXG + SHRINK * LEAGUE_XG

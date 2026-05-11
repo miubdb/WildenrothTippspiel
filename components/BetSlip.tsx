@@ -115,7 +115,7 @@ export function BetSlip() {
           <span className="w-6 h-6 bg-white text-red-700 rounded-full flex items-center justify-center font-bold text-xs">
             {count}
           </span>
-          Wettschein
+          {mode === 'combo' ? 'Kombiwette' : 'Wettschein'}
         </button>
       )}
 

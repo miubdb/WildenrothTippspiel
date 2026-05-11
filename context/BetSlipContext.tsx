@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import type { BetSlipItem, MarketType } from '@/types'
 
 type BetSlipMode = 'single' | 'combo'
@@ -31,6 +31,15 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<BetSlipMode>('single')
   const [stakes, setStakes] = useState<StakeMap>({})
   const [comboStake, setComboStake] = useState<number>(10)
+  const prevCountRef = useRef(0)
+
+  useEffect(() => {
+    const prev = prevCountRef.current
+    const curr = selections.length
+    if (curr >= 2 && prev < 2) setMode('combo')
+    else if (curr <= 1 && prev > 1) setMode('single')
+    prevCountRef.current = curr
+  }, [selections.length])
 
   const slipKey = (matchId: number, marketType: MarketType) =>
     `${matchId}-${marketType}`
