@@ -1,15 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
 import { BettingMatchCard } from '@/components/BettingMatchCard'
 import { BetSlip } from '@/components/BetSlip'
-import type { Match, Odds } from '@/types'
+import type { Match } from '@/types'
+import { calculateOdds } from '@/lib/odds'
+import Link from 'next/link'
 
 export const revalidate = 60
 
-export default async function TippsPage() {
+export default async function TippsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ matchday?: string }>
+}) {
+  const params = await searchParams
   const supabase = await createClient()
 
-  // Fetch all matches with team info
-  const { data: allMatches } = await supabase
+  const { data: allMatchesRaw } = await supabase
     .from('matches')
     .select(
       `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status,
@@ -18,50 +24,39 @@ export default async function TippsPage() {
     )
     .order('match_date', { ascending: true })
 
-  const matches: Match[] = (allMatches ?? []).map((m) => ({
+  const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
     ...m,
     home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
     away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
   }))
 
-  // Find current matchday: first matchday with scheduled matches
-  const scheduledMatchdays = [
-    ...new Set(
-      matches
-        .filter((m) => m.status === 'scheduled')
-        .map((m) => m.matchday)
-    ),
-  ].sort((a, b) => a - b)
+  const allMatchdays = [...new Set(allMatches.map((m) => m.matchday))].sort((a, b) => a - b)
 
+  // First scheduled matchday as default
+  const firstScheduled = allMatches
+    .filter((m) => m.status === 'scheduled')
+    .map((m) => m.matchday)
+    .sort((a, b) => a - b)[0]
+
+  const defaultMatchday = firstScheduled ?? Math.max(...allMatchdays)
+  const requestedMd = params.matchday ? parseInt(params.matchday, 10) : null
   const currentMatchday =
-    scheduledMatchdays[0] ??
-    Math.max(...matches.map((m) => m.matchday), 1)
+    requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
 
-  const matchdayMatches = matches.filter((m) => m.matchday === currentMatchday)
+  const matchdayMatches = allMatches
+    .filter((m) => m.matchday === currentMatchday)
+    .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
 
-  // Find deadline = first game of matchday
-  const sortedByDate = [...matchdayMatches].sort(
-    (a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime()
-  )
-  const firstGame = sortedByDate[0]
-  const deadline = firstGame ? new Date(firstGame.match_date) : null
-
-  // Fetch odds for this matchday's matches
-  const matchIds = matchdayMatches.map((m) => m.id)
-  const { data: oddsData } = await supabase
-    .from('odds')
-    .select('*')
-    .in('match_id', matchIds)
-
-  const oddsMap: Record<number, Odds> = {}
-  for (const o of oddsData ?? []) {
-    oddsMap[o.match_id] = o
-  }
-
+  const deadline = matchdayMatches[0] ? new Date(matchdayMatches[0].match_date) : null
   const isDeadlinePassed = deadline ? deadline <= new Date() : false
 
-  // Matchday navigation info
-  const allMatchdays = [...new Set(matches.map((m) => m.matchday))].sort((a, b) => a - b)
+  // Calculate odds dynamically for scheduled matches
+  const oddsMap: Record<number, ReturnType<typeof calculateOdds>> = {}
+  for (const m of matchdayMatches) {
+    if (m.status === 'scheduled') {
+      oddsMap[m.id] = calculateOdds(allMatches, m.home_team_id, m.away_team_id)
+    }
+  }
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -70,7 +65,7 @@ export default async function TippsPage() {
         <div className="flex items-center justify-between">
           <div>
             <div className="text-red-200 text-xs font-medium uppercase tracking-wide">
-              Aktueller Spieltag
+              Spieltag
             </div>
             <div className="text-2xl font-black mt-0.5">{currentMatchday}. Spieltag</div>
           </div>
@@ -80,7 +75,7 @@ export default async function TippsPage() {
           </div>
         </div>
 
-        {deadline && !isDeadlinePassed && (
+        {deadline && !isDeadlinePassed && matchdayMatches.some((m) => m.status === 'scheduled') && (
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2">
             <div className="text-red-200 text-xs">Annahmeschluss</div>
             <div className="text-white font-semibold text-sm">
@@ -88,7 +83,6 @@ export default async function TippsPage() {
                 weekday: 'long',
                 day: '2-digit',
                 month: '2-digit',
-                year: 'numeric',
               })}{' '}
               um{' '}
               {deadline.toLocaleTimeString('de-DE', {
@@ -100,54 +94,58 @@ export default async function TippsPage() {
           </div>
         )}
 
-        {isDeadlinePassed && (
-          <div className="mt-3 bg-red-900/60 rounded-xl px-3 py-2">
-            <div className="text-red-200 text-xs font-medium">
-              Annahmeschluss überschritten – keine neuen Tipps möglich
-            </div>
+        {isDeadlinePassed && matchdayMatches.some((m) => m.status === 'scheduled') && (
+          <div className="mt-3 bg-red-900/60 rounded-xl px-3 py-2 text-red-200 text-xs font-medium">
+            Annahmeschluss überschritten — keine neuen Tipps möglich
           </div>
         )}
       </div>
 
       {/* Matchday Selector */}
-      {allMatchdays.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4">
-          {allMatchdays.map((md) => (
-            <a
+      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-none">
+        {allMatchdays.map((md) => {
+          const mdMatches = allMatches.filter((m) => m.matchday === md)
+          const hasScheduled = mdMatches.some((m) => m.status === 'scheduled')
+          const allFinished = mdMatches.every((m) => m.status === 'finished')
+          return (
+            <Link
               key={md}
               href={`/tipps?matchday=${md}`}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+              className={`flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full text-xs font-bold transition-colors ${
                 md === currentMatchday
-                  ? 'bg-red-700 text-white'
-                  : 'bg-white text-gray-600 border border-gray-200 hover:border-red-300'
+                  ? 'bg-white text-red-700 shadow'
+                  : allFinished
+                  ? 'bg-red-800/40 text-red-300'
+                  : hasScheduled
+                  ? 'bg-red-600 text-white ring-1 ring-red-400'
+                  : 'bg-red-800/40 text-red-300'
               }`}
             >
-              {md}. Spieltag
-            </a>
-          ))}
-        </div>
-      )}
+              {md}
+            </Link>
+          )
+        })}
+      </div>
 
       {/* Match Cards */}
       {matchdayMatches.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <div className="text-4xl mb-3">⚽</div>
-          <div className="font-medium">Keine Spiele verfügbar</div>
-          <div className="text-sm mt-1">Bald werden neue Spiele angezeigt</div>
+          <div className="font-medium">Keine Spiele</div>
         </div>
       ) : (
         <div className="space-y-3">
-          {sortedByDate.map((match) => (
+          {matchdayMatches.map((match) => (
             <BettingMatchCard
               key={match.id}
               match={match}
-              odds={oddsMap[match.id] ?? null}
+              odds={match.status === 'scheduled' ? (oddsMap[match.id] ?? null) : null}
+              allMatches={allMatches}
             />
           ))}
         </div>
       )}
 
-      {/* Bet Slip (floating) */}
       <BetSlip />
     </div>
   )

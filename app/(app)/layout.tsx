@@ -63,8 +63,10 @@ export default async function AppLayout({
         <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 safe-bottom">
           <div className="flex items-stretch max-w-lg mx-auto">
             <NavItem href="/tipps" label="Tipps" icon={TippsIcon} />
+            <NavItem href="/tabelle" label="Tabelle" icon={TabelleIcon} />
             <NavItem href="/leaderboard" label="Rangliste" icon={RanglisteIcon} />
             <NavItem href="/profil" label="Profil" icon={ProfilIcon} />
+            <NavItem href="/anleitung" label="Hilfe" icon={HilfeIcon} />
           </div>
         </nav>
       </div>
@@ -112,6 +114,22 @@ function ProfilIcon({ className }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+    </svg>
+  )
+}
+
+function TabelleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18M10 6h4M10 18h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
+    </svg>
+  )
+}
+
+function HilfeIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   )
 }

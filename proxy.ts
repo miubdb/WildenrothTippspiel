@@ -7,7 +7,7 @@ export async function proxy(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  const protectedRoutes = ['/tipps', '/leaderboard', '/profil', '/admin']
+  const protectedRoutes = ['/tipps', '/leaderboard', '/profil', '/admin', '/tabelle', '/anleitung']
   const isProtected = protectedRoutes.some((route) => pathname.startsWith(route))
 
   if (isProtected && !user) {
