@@ -166,9 +166,9 @@ export function calculateOdds(
   const pHomeRaw = homeStr / total
   const pAwayRaw = awayStr / total
 
-  // Draw prob: drops faster for lopsided matchups
+  // Draw prob: realistic floor for amateur football (~13%), drops off for mismatches
   const mismatch = Math.abs(pHomeRaw - pAwayRaw)
-  const pDraw = Math.max(0.06, 0.22 - 0.44 * mismatch)
+  const pDraw = Math.max(0.13, 0.28 - 0.30 * mismatch)
   const pHome = pHomeRaw * (1 - pDraw)
   const pAway = pAwayRaw * (1 - pDraw)
 

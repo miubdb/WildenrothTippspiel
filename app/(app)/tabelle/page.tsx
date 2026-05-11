@@ -2,6 +2,11 @@ import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
 
+function shortTeamName(name: string): string {
+  // Strip common club prefixes only at the START of the name
+  return name.replace(/^(SpVgg|SpFr|TSV|FC|SV|VfL|1\.\s*SC|SC)\s+/i, '').trim()
+}
+
 export const revalidate = 60
 
 interface Standing {
@@ -208,7 +213,7 @@ export default async function TabellePage() {
               {/* Team */}
               <div>
                 <div className={`text-sm font-semibold leading-tight ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
-                  {s.teamName.replace('SpVgg ', '').replace('TSV ', '').replace('SC ', '').replace('FC ', '').replace('SV ', '').replace('SpFr ', '').replace('VfL ', '').replace('1. SC ', '')}
+                  {shortTeamName(s.teamName)}
                   {isWildenroth && <span className="ml-1 text-xs text-red-400">⚽</span>}
                 </div>
                 {/* Form */}
@@ -281,7 +286,7 @@ export default async function TabellePage() {
             <div key={s.teamId} className="flex items-center px-4 py-2.5 gap-3">
               <div className="text-sm font-bold text-gray-300 w-4">{i + 1}</div>
               <div className="flex-1 text-sm font-medium text-gray-800">
-                {s.teamName.replace('SpVgg ', '').replace('TSV ', '')}
+                {shortTeamName(s.teamName)}
               </div>
               <div className="text-sm font-bold text-gray-900">{s.gf}</div>
               <div className="text-xs text-gray-400">Tore</div>

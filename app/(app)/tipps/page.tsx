@@ -1,8 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { BettingMatchCard } from '@/components/BettingMatchCard'
 import { BetSlip } from '@/components/BetSlip'
+import { MatchdayScroller } from '@/components/MatchdayScroller'
 import type { Match } from '@/types'
-import { calculateOdds } from '@/lib/odds'
+import { calculateOdds, getTeamRecord } from '@/lib/odds'
 import Link from 'next/link'
 
 export const revalidate = 60
@@ -61,6 +62,22 @@ export default async function TippsPage({
       oddsMap[m.id] = calculateOdds(seasonMatches, m.home_team_id, m.away_team_id)
     }
   }
+
+  // Quick standings positions (pts-based, current season)
+  const teamPtsMap = new Map<number, { pts: number; gd: number; gf: number }>()
+  for (const m of seasonMatches) {
+    if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
+    const hs = m.home_score; const as_ = m.away_score
+    const h = teamPtsMap.get(m.home_team_id) ?? { pts: 0, gd: 0, gf: 0 }
+    const a = teamPtsMap.get(m.away_team_id) ?? { pts: 0, gd: 0, gf: 0 }
+    h.gf += hs; h.gd += hs - as_; a.gf += as_; a.gd += as_ - hs
+    if (hs > as_) h.pts += 3; else if (hs < as_) a.pts += 3; else { h.pts++; a.pts++ }
+    teamPtsMap.set(m.home_team_id, h); teamPtsMap.set(m.away_team_id, a)
+  }
+  const sortedTeams = [...teamPtsMap.entries()]
+    .sort(([, a], [, b]) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
+  const positions: Record<number, number> = {}
+  sortedTeams.forEach(([id], idx) => { positions[id] = idx + 1 })
 
   // Bet counter for current matchday
   const { data: { user } } = await supabase.auth.getUser()
@@ -136,8 +153,8 @@ export default async function TippsPage({
         )}
       </div>
 
-      {/* Matchday Selector */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4 scrollbar-none">
+      {/* Matchday Selector — auto-scrolls to current matchday */}
+      <MatchdayScroller activeIndex={allMatchdays.indexOf(currentMatchday)}>
         {allMatchdays.map((md) => {
           const mdMatches = allMatches.filter((m) => m.matchday === md)
           const hasScheduled = mdMatches.some((m) => m.status === 'scheduled')
@@ -160,7 +177,7 @@ export default async function TippsPage({
             </Link>
           )
         })}
-      </div>
+      </MatchdayScroller>
 
       {/* Match Cards */}
       {matchdayMatches.length === 0 ? (
@@ -176,6 +193,8 @@ export default async function TippsPage({
               match={match}
               odds={match.status === 'scheduled' ? (oddsMap[match.id] ?? null) : null}
               allMatches={seasonMatches}
+              historyMatches={allMatches}
+              positions={positions}
             />
           ))}
         </div>

@@ -162,14 +162,14 @@ export default function AdminPage() {
   }
 
   const settledMatches = matches.filter((m) => m.status === 'finished')
-  const pendingMatches = matches.filter((m) => {
-    if (m.status !== 'scheduled') return false
-    return new Date(m.match_date) <= new Date()
-  })
-  const upcomingMatches = matches.filter((m) => {
-    if (m.status !== 'scheduled') return false
-    return new Date(m.match_date) > new Date()
-  })
+  // Past scheduled games awaiting result entry
+  const pendingMatches = matches.filter(
+    (m) => m.status === 'scheduled' && new Date(m.match_date) <= new Date()
+  )
+  // Future games — shown read-only, but with optional early result entry for rescheduled games
+  const upcomingMatches = matches.filter(
+    (m) => m.status === 'scheduled' && new Date(m.match_date) > new Date()
+  )
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -246,15 +246,26 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Upcoming matches */}
+            {/* Upcoming matches — also allow early settle for rescheduled games */}
             {upcomingMatches.length > 0 && (
               <div>
                 <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">
                   Bevorstehende Spiele ({upcomingMatches.length})
                 </h2>
+                <p className="text-xs text-gray-400 mb-2">
+                  Verlegt? Ergebnis kann auch vorab eingetragen werden.
+                </p>
                 <div className="space-y-2">
                   {upcomingMatches.map((match) => (
-                    <MatchRow key={match.id} match={match} />
+                    <MatchSettleCard
+                      key={match.id}
+                      match={match}
+                      score={scores[match.id] ?? { home: '', away: '' }}
+                      onChange={(side, val) => handleScoreChange(match.id, side, val)}
+                      onSettle={() => settleMatch(match.id)}
+                      loading={settleLoading === match.id}
+                      isUpcoming
+                    />
                   ))}
                 </div>
               </div>
@@ -397,12 +408,14 @@ function MatchSettleCard({
   onChange,
   onSettle,
   loading,
+  isUpcoming,
 }: {
   match: MatchRow
   score: { home: string; away: string }
   onChange: (side: 'home' | 'away', val: string) => void
   onSettle: () => void
   loading: boolean
+  isUpcoming?: boolean
 }) {
   const matchDate = new Date(match.match_date)
   const dateStr = matchDate.toLocaleDateString('de-DE', {
@@ -412,10 +425,10 @@ function MatchSettleCard({
   })
 
   return (
-    <div className="bg-white rounded-xl border border-orange-200 shadow-sm p-4">
+    <div className={`bg-white rounded-xl border shadow-sm p-4 ${isUpcoming ? 'border-blue-200' : 'border-orange-200'}`}>
       <div className="flex items-center justify-between mb-3">
-        <div className="text-xs text-orange-600 font-medium bg-orange-50 px-2 py-1 rounded-lg">
-          Spieltag {match.matchday}
+        <div className={`text-xs font-medium px-2 py-1 rounded-lg ${isUpcoming ? 'text-blue-600 bg-blue-50' : 'text-orange-600 bg-orange-50'}`}>
+          Spieltag {match.matchday}{isUpcoming ? ' · Verlegt?' : ''}
         </div>
         <div className="text-xs text-gray-500">{dateStr}</div>
       </div>

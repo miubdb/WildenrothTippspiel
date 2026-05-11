@@ -10,11 +10,13 @@ interface BettingMatchCardProps {
   match: Match
   odds: OddsData | null
   allMatches: Match[]
+  historyMatches?: Match[]          // full multi-season history for H2H
+  positions?: Record<number, number> // teamId → table position
 }
 
 type Tab = '1x2' | 'goals' | 'exact' | 'detail'
 
-export function BettingMatchCard({ match, odds, allMatches }: BettingMatchCardProps) {
+export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions }: BettingMatchCardProps) {
   const { selections, addSelection } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
@@ -54,8 +56,9 @@ export function BettingMatchCard({ match, odds, allMatches }: BettingMatchCardPr
   const homeRecord = getTeamRecord(allMatches, match.home_team_id)
   const awayRecord = getTeamRecord(allMatches, match.away_team_id)
 
-  // Last 3 meetings
-  const h2h = allMatches
+  // H2H: use full history if provided, otherwise fall back to season matches
+  const h2hSource = historyMatches ?? allMatches
+  const h2h = h2hSource
     .filter(
       (m) =>
         m.status === 'finished' &&
@@ -63,7 +66,7 @@ export function BettingMatchCard({ match, odds, allMatches }: BettingMatchCardPr
           (m.home_team_id === match.away_team_id && m.away_team_id === match.home_team_id))
     )
     .sort((a, b) => new Date(b.match_date).getTime() - new Date(a.match_date).getTime())
-    .slice(0, 3)
+    .slice(0, 5)
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -105,15 +108,27 @@ export function BettingMatchCard({ match, odds, allMatches }: BettingMatchCardPr
       {showDetail && (
         <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <TeamStat label={homeName} record={homeRecord} />
-            <TeamStat label={awayName} record={awayRecord} />
+            <TeamStat
+              label={homeName}
+              record={homeRecord}
+              position={positions?.[match.home_team_id]}
+            />
+            <TeamStat
+              label={awayName}
+              record={awayRecord}
+              position={positions?.[match.away_team_id]}
+            />
           </div>
           {h2h.length > 0 && (
             <div>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Direktvergleich</div>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                Direktvergleich (letzte {h2h.length})
+              </div>
               <div className="space-y-1">
                 {h2h.map((m) => {
                   const isHome = m.home_team_id === match.home_team_id
+                  const hShort = m.home_team?.short_name ?? m.home_team?.name?.split(' ').slice(-1)[0] ?? '?'
+                  const aShort = m.away_team?.short_name ?? m.away_team?.name?.split(' ').slice(-1)[0] ?? '?'
                   return (
                     <div key={m.id} className="flex items-center justify-between text-xs text-gray-600 bg-white rounded-lg px-3 py-1.5">
                       <span className="text-gray-400">
@@ -121,8 +136,8 @@ export function BettingMatchCard({ match, odds, allMatches }: BettingMatchCardPr
                       </span>
                       <span className="font-medium">
                         {isHome
-                          ? `${homeName.split(' ').pop()} ${m.home_score}:${m.away_score} ${awayName.split(' ').pop()}`
-                          : `${homeName.split(' ').pop()} ${m.away_score}:${m.home_score} ${awayName.split(' ').pop()}`}
+                          ? `${hShort} ${m.home_score}:${m.away_score} ${aShort}`
+                          : `${aShort} ${m.away_score}:${m.home_score} ${hShort}`}
                       </span>
                     </div>
                   )
@@ -236,7 +251,14 @@ export function BettingMatchCard({ match, odds, allMatches }: BettingMatchCardPr
             {/* Exact Score */}
             {activeTab === 'exact' && (
               <div>
-                <div className="text-xs text-gray-400 mb-2 font-medium">Tippe das genaue Ergebnis</div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs text-gray-400 font-medium">Genaues Ergebnis</div>
+                  <div className="text-[10px] text-gray-400 font-medium">
+                    <span className="text-red-700">{match.home_team?.short_name ?? homeName.split(' ').slice(-1)[0]}</span>
+                    {' : '}
+                    <span className="text-gray-500">{match.away_team?.short_name ?? awayName.split(' ').slice(-1)[0]}</span>
+                  </div>
+                </div>
                 <div className="grid grid-cols-4 gap-1.5">
                   {exactScores.map(({ score, odds: o }) => (
                     <button
@@ -290,10 +312,25 @@ function FormBadges({ form }: { form: ('W' | 'D' | 'L')[] }) {
   )
 }
 
-function TeamStat({ label, record }: { label: string; record: ReturnType<typeof getTeamRecord> }) {
+function TeamStat({
+  label,
+  record,
+  position,
+}: {
+  label: string
+  record: ReturnType<typeof getTeamRecord>
+  position?: number
+}) {
   return (
     <div className="bg-white rounded-xl p-2.5 text-xs">
-      <div className="font-semibold text-gray-700 truncate mb-1.5">{label}</div>
+      <div className="flex items-center gap-1 mb-1.5">
+        {position && (
+          <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-500 font-bold text-[10px] flex items-center justify-center flex-shrink-0">
+            {position}
+          </span>
+        )}
+        <div className="font-semibold text-gray-700 truncate">{label}</div>
+      </div>
       <div className="grid grid-cols-3 gap-1 text-center">
         <div>
           <div className="text-green-600 font-bold text-sm">{record.w}</div>
