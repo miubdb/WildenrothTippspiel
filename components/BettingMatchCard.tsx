@@ -75,7 +75,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   function add(marketType: string, marketLabel: string, selection: string, selectionLabel: string, oddsValue: number) {
     if (isAgainstWildenroth(marketType, selection)) {
       setWildenrothBlockMsg(true)
-      setTimeout(() => setWildenrothBlockMsg(false), 3500)
+      setTimeout(() => setWildenrothBlockMsg(false), 8000)
       return
     }
     addSelection({ matchId: match.id, matchLabel, marketType: marketType as never, marketLabel, selection, selectionLabel, oddsValue })
@@ -189,7 +189,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         <div className="border-t border-red-100 bg-red-50 px-4 py-3 flex items-start gap-2">
           <span className="text-lg flex-shrink-0">⚽🚫</span>
           <div className="text-xs text-red-700 leading-snug">
-            <span className="font-bold">Befangenheit erkannt!</span> Als Wildenroth-Spieler darfst du nicht gegen dein eigenes Team wetten – das wäre Wettbewerbsverzerrung! 😄 Nur Wildenroth-Siege tippen erlaubt!
+            <span className="font-bold">Befangenheit erkannt!</span> Als Wildenroth-Spieler oder -Trainer darfst du nicht gegen dein eigenes Team wetten – das wäre Wettbewerbsverzerrung! 😄 Nur Wildenroth-Siege tippen erlaubt!
           </div>
         </div>
       )}

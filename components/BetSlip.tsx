@@ -27,6 +27,11 @@ export function BetSlip() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
+  // Local string state for stake inputs so the user can freely edit (clear, overwrite, etc.)
+  // without the controlled component immediately re-parsing and jumping back.
+  const [inputValues, setInputValues] = useState<Record<string, string>>({})
+  const [comboInputValue, setComboInputValue] = useState('')
+
   const count = selections.length
 
   if (count === 0) return null
@@ -37,6 +42,47 @@ export function BetSlip() {
 
   function getStake(matchId: number, marketType: MarketType): number {
     return stakes[slipKey(matchId, marketType)] ?? 10
+  }
+
+  function getInputValue(matchId: number, marketType: MarketType): string {
+    return inputValues[slipKey(matchId, marketType)] ?? String(getStake(matchId, marketType))
+  }
+
+  function handleStakeButton(matchId: number, marketType: MarketType, amt: number) {
+    setStake(matchId, marketType, amt)
+    setInputValues((v) => ({ ...v, [slipKey(matchId, marketType)]: String(amt) }))
+  }
+
+  function handleStakeChange(matchId: number, marketType: MarketType, raw: string) {
+    setInputValues((v) => ({ ...v, [slipKey(matchId, marketType)]: raw }))
+    const n = parseFloat(raw)
+    if (!isNaN(n) && n >= 1) setStake(matchId, marketType, n)
+  }
+
+  function handleStakeBlur(matchId: number, marketType: MarketType) {
+    const raw = inputValues[slipKey(matchId, marketType)] ?? ''
+    const n = parseFloat(raw)
+    const validated = !isNaN(n) && n >= 1 ? n : (getStake(matchId, marketType) || 10)
+    setStake(matchId, marketType, validated)
+    setInputValues((v) => ({ ...v, [slipKey(matchId, marketType)]: String(validated) }))
+  }
+
+  function handleComboStakeChange(raw: string) {
+    setComboInputValue(raw)
+    const n = parseFloat(raw)
+    if (!isNaN(n) && n >= 1) setComboStake(n)
+  }
+
+  function handleComboStakeBlur() {
+    const n = parseFloat(comboInputValue)
+    const validated = !isNaN(n) && n >= 1 ? n : (comboStake || 10)
+    setComboStake(validated)
+    setComboInputValue(String(validated))
+  }
+
+  function handleComboButton(amt: number) {
+    setComboStake(amt)
+    setComboInputValue(String(amt))
   }
 
   const totalSingleStake = selections.reduce(
@@ -232,7 +278,7 @@ export function BetSlip() {
                         {[5, 10, 25, 50].map((amt) => (
                           <button
                             key={amt}
-                            onClick={() => setStake(s.matchId, s.marketType, amt)}
+                            onClick={() => handleStakeButton(s.matchId, s.marketType, amt)}
                             className={`text-xs px-2 py-1 rounded-lg font-medium transition-colors ${
                               getStake(s.matchId, s.marketType) === amt
                                 ? 'bg-red-700 text-white'
@@ -246,10 +292,9 @@ export function BetSlip() {
                           type="number"
                           min="1"
                           max="250"
-                          value={getStake(s.matchId, s.marketType)}
-                          onChange={(e) =>
-                            setStake(s.matchId, s.marketType, parseFloat(e.target.value) || 1)
-                          }
+                          value={getInputValue(s.matchId, s.marketType)}
+                          onChange={(e) => handleStakeChange(s.matchId, s.marketType, e.target.value)}
+                          onBlur={() => handleStakeBlur(s.matchId, s.marketType)}
                           className="w-16 text-center py-1 px-1 border border-gray-200 rounded-lg text-xs font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500"
                         />
                       </div>
@@ -281,7 +326,7 @@ export function BetSlip() {
                       {[5, 10, 25, 50].map((amt) => (
                         <button
                           key={amt}
-                          onClick={() => setComboStake(amt)}
+                          onClick={() => handleComboButton(amt)}
                           className={`text-xs px-2 py-1.5 rounded-lg font-medium transition-colors ${
                             comboStake === amt
                               ? 'bg-red-700 text-white'
@@ -295,8 +340,9 @@ export function BetSlip() {
                         type="number"
                         min="1"
                         max="500"
-                        value={comboStake}
-                        onChange={(e) => setComboStake(parseFloat(e.target.value) || 1)}
+                        value={comboInputValue || String(comboStake)}
+                        onChange={(e) => handleComboStakeChange(e.target.value)}
+                        onBlur={handleComboStakeBlur}
                         className="w-16 text-center py-1.5 px-1 border border-gray-200 rounded-lg text-xs font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500 bg-white"
                       />
                     </div>
