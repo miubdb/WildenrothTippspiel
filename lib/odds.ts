@@ -1,8 +1,20 @@
 import type { Match, OddsData } from '@/types'
 
+// ---------- Constants ----------
+
 const HOUSE_MARGIN = 0.12
 const MIN_ODDS = 1.05
-const MAX_ODDS = 20.0
+const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
+
+// Per-team league baselines (Kreisklasse: ~3.0-3.5 goals/game total)
+const LEAGUE_HOME_XG = 1.80
+const LEAGUE_AWAY_XG = 1.40
+
+// Bayesian prior weight: K equivalent games of prior belief.
+// With K=4 and 0 real games → 100% league avg; with 4 games → 50/50; with 8 → 33% prior
+const XG_PRIOR = 4
+
+// ---------- Math helpers ----------
 
 function clamp(odds: number): number {
   return Math.max(MIN_ODDS, Math.min(MAX_ODDS, odds))
@@ -12,11 +24,17 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100
 }
 
+/**
+ * Convert a raw probability to bookmaker odds.
+ * Formula: Q = 1 / (p × (1 + margin))
+ * Implied-prob sum = Σ p×(1+m) = 1×(1+m) > 1 → no arbitrage possible.
+ */
 function toOdds(prob: number): number {
+  if (prob <= 0) return MAX_ODDS
   return clamp(round2(1 / (prob * (1 + HOUSE_MARGIN))))
 }
 
-/** Poisson probability mass function */
+/** Poisson probability mass function (log-space for numerical stability) */
 function poisson(lambda: number, k: number): number {
   if (lambda <= 0) return k === 0 ? 1 : 0
   let logP = k * Math.log(lambda) - lambda
@@ -24,14 +42,29 @@ function poisson(lambda: number, k: number): number {
   return Math.exp(logP)
 }
 
-// ---------- Team statistics ----------
+/**
+ * Build a home×away score probability matrix using independent Poisson for each team.
+ * All downstream markets are derived from this single matrix for full consistency.
+ */
+function buildScoreMatrix(homeXG: number, awayXG: number, maxGoals = 8): number[][] {
+  const matrix: number[][] = []
+  for (let h = 0; h <= maxGoals; h++) {
+    matrix[h] = []
+    for (let a = 0; a <= maxGoals; a++) {
+      matrix[h][a] = poisson(homeXG, h) * poisson(awayXG, a)
+    }
+  }
+  return matrix
+}
+
+// ---------- Team statistics (used in standings / form display) ----------
 
 /** Points per game at HOME only */
 function getTeamHomePPG(matches: Match[], teamId: number): number {
   const games = matches.filter(
     (m) => m.status === 'finished' && m.home_team_id === teamId
   )
-  if (games.length < 3) return getTeamPPG(matches, teamId) // fallback
+  if (games.length < 3) return getTeamPPG(matches, teamId)
   const pts = games.reduce((acc, m) => {
     const hs = m.home_score ?? 0; const as_ = m.away_score ?? 0
     return acc + (hs > as_ ? 3 : hs === as_ ? 1 : 0)
@@ -44,7 +77,7 @@ function getTeamAwayPPG(matches: Match[], teamId: number): number {
   const games = matches.filter(
     (m) => m.status === 'finished' && m.away_team_id === teamId
   )
-  if (games.length < 3) return getTeamPPG(matches, teamId) // fallback
+  if (games.length < 3) return getTeamPPG(matches, teamId)
   const pts = games.reduce((acc, m) => {
     const hs = m.home_score ?? 0; const as_ = m.away_score ?? 0
     return acc + (as_ > hs ? 3 : hs === as_ ? 1 : 0)
@@ -68,7 +101,7 @@ export function getTeamPPG(matches: Match[], teamId: number): number {
   return pts / games.length
 }
 
-/** Last N results as W/D/L */
+/** Last N results as W/D/L (oldest first) */
 export function getForm(matches: Match[], teamId: number, n = 5): ('W' | 'D' | 'L')[] {
   const games = matches
     .filter(
@@ -87,71 +120,7 @@ export function getForm(matches: Match[], teamId: number, n = 5): ('W' | 'D' | '
   }).reverse()
 }
 
-/** Points from last N games */
-function getFormPts(matches: Match[], teamId: number, n: number): number {
-  const form = getForm(matches, teamId, n)
-  return form.reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0)
-}
-
-/** Average goals scored per game (all games, used as fallback) */
-function avgScored(matches: Match[], teamId: number): number {
-  const games = matches.filter(
-    (m) =>
-      m.status === 'finished' &&
-      (m.home_team_id === teamId || m.away_team_id === teamId)
-  )
-  if (games.length === 0) return 1.5
-  const total = games.reduce((acc, m) => {
-    const isHome = m.home_team_id === teamId
-    return acc + (isHome ? (m.home_score ?? 0) : (m.away_score ?? 0))
-  }, 0)
-  return total / games.length
-}
-
-/** Average goals conceded per game (all games, used as fallback) */
-function avgConceded(matches: Match[], teamId: number): number {
-  const games = matches.filter(
-    (m) =>
-      m.status === 'finished' &&
-      (m.home_team_id === teamId || m.away_team_id === teamId)
-  )
-  if (games.length === 0) return 1.5
-  const total = games.reduce((acc, m) => {
-    const isHome = m.home_team_id === teamId
-    return acc + (isHome ? (m.away_score ?? 0) : (m.home_score ?? 0))
-  }, 0)
-  return total / games.length
-}
-
-/** Goals scored AT HOME per home game */
-function avgScoredHome(matches: Match[], teamId: number): number {
-  const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
-  if (games.length < 2) return avgScored(matches, teamId)
-  return games.reduce((acc, m) => acc + (m.home_score ?? 0), 0) / games.length
-}
-
-/** Goals conceded AT HOME per home game */
-function avgConcededHome(matches: Match[], teamId: number): number {
-  const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
-  if (games.length < 2) return avgConceded(matches, teamId)
-  return games.reduce((acc, m) => acc + (m.away_score ?? 0), 0) / games.length
-}
-
-/** Goals scored AWAY per away game */
-function avgScoredAway(matches: Match[], teamId: number): number {
-  const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
-  if (games.length < 2) return avgScored(matches, teamId)
-  return games.reduce((acc, m) => acc + (m.away_score ?? 0), 0) / games.length
-}
-
-/** Goals conceded AWAY per away game */
-function avgConcededAway(matches: Match[], teamId: number): number {
-  const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
-  if (games.length < 2) return avgConceded(matches, teamId)
-  return games.reduce((acc, m) => acc + (m.home_score ?? 0), 0) / games.length
-}
-
-/** Team record for display */
+/** Team record for display in match card */
 export function getTeamRecord(matches: Match[], teamId: number) {
   const games = matches.filter(
     (m) =>
@@ -171,113 +140,130 @@ export function getTeamRecord(matches: Match[], teamId: number) {
   return { played: games.length, w, d, l, gf, ga, gd: gf - ga, pts: w * 3 + d }
 }
 
-// ---------- Main calculation ----------
+// ---------- xG estimation with Bayesian shrinkage ----------
+
+/**
+ * Bayesian shrinkage toward league mean.
+ * raw: observed average | leagueAvg: prior | n: observed games
+ */
+function bayesianXG(raw: number, leagueAvg: number, n: number): number {
+  return (n * raw + XG_PRIOR * leagueAvg) / (n + XG_PRIOR)
+}
+
+/** Goals scored per home game for teamId */
+function homeGoalsScored(matches: Match[], teamId: number): { avg: number; n: number } {
+  const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
+  if (games.length === 0) return { avg: LEAGUE_HOME_XG, n: 0 }
+  return { avg: games.reduce((s, m) => s + (m.home_score ?? 0), 0) / games.length, n: games.length }
+}
+
+/** Goals conceded per away game for teamId (= how many the home team scored against them) */
+function awayGoalsConceded(matches: Match[], teamId: number): { avg: number; n: number } {
+  const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
+  if (games.length === 0) return { avg: LEAGUE_HOME_XG, n: 0 }
+  return { avg: games.reduce((s, m) => s + (m.home_score ?? 0), 0) / games.length, n: games.length }
+}
+
+/** Goals scored per away game for teamId */
+function awayGoalsScored(matches: Match[], teamId: number): { avg: number; n: number } {
+  const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
+  if (games.length === 0) return { avg: LEAGUE_AWAY_XG, n: 0 }
+  return { avg: games.reduce((s, m) => s + (m.away_score ?? 0), 0) / games.length, n: games.length }
+}
+
+/** Goals conceded per home game for teamId (= how many the away team scored against them) */
+function homeGoalsConceded(matches: Match[], teamId: number): { avg: number; n: number } {
+  const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
+  if (games.length === 0) return { avg: LEAGUE_AWAY_XG, n: 0 }
+  return { avg: games.reduce((s, m) => s + (m.away_score ?? 0), 0) / games.length, n: games.length }
+}
+
+/**
+ * Compute match-specific expected goals from a combined attack/defense model.
+ *
+ * rawHomeXG = mean of (home team's avg goals scored at home, away team's avg goals conceded away)
+ * rawAwayXG = mean of (away team's avg goals scored away, home team's avg goals conceded at home)
+ *
+ * Both are then shrunk toward the league average with Bayesian weight XG_PRIOR.
+ */
+function getMatchXG(
+  matches: Match[],
+  homeTeamId: number,
+  awayTeamId: number
+): { homeXG: number; awayXG: number } {
+  const homeAtk = homeGoalsScored(matches, homeTeamId)
+  const awayDef = awayGoalsConceded(matches, awayTeamId)
+  const awayAtk = awayGoalsScored(matches, awayTeamId)
+  const homeDef = homeGoalsConceded(matches, homeTeamId)
+
+  // Combine attack/defense evidence and average games for shrinkage weight
+  const rawHomeXG = (homeAtk.avg + awayDef.avg) / 2
+  const rawAwayXG = (awayAtk.avg + homeDef.avg) / 2
+  const homeN = (homeAtk.n + awayDef.n) / 2
+  const awayN = (awayAtk.n + homeDef.n) / 2
+
+  return {
+    homeXG: Math.max(0.3, bayesianXG(rawHomeXG, LEAGUE_HOME_XG, homeN)),
+    awayXG: Math.max(0.3, bayesianXG(rawAwayXG, LEAGUE_AWAY_XG, awayN)),
+  }
+}
+
+// ---------- Main calculation (all markets from one unified Poisson model) ----------
 
 export function calculateOdds(
   matches: Match[],
   homeTeamId: number,
   awayTeamId: number
 ): OddsData {
-  // --- Strength: context-specific PPG (home/away records with fallback to overall) ---
-  const homeBasePPG = getTeamHomePPG(matches, homeTeamId)
-  const awayBasePPG = getTeamAwayPPG(matches, awayTeamId)
+  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId)
+  const matrix = buildScoreMatrix(homeXG, awayXG)
 
-  // Form factor: L5 points / 15 (max) → multiplier 0.65..1.35
-  const homeFormFactor = getFormPts(matches, homeTeamId, 5) / 15  // 0..1
-  const awayFormFactor = getFormPts(matches, awayTeamId, 5) / 15
-  const homeFormMult = 0.65 + 0.70 * homeFormFactor  // 0.65 (terrible form) – 1.35 (perfect form)
-  const awayFormMult = 0.65 + 0.70 * awayFormFactor
+  // Aggregate raw probabilities from the joint score distribution
+  let pHome = 0, pDraw = 0, pAway = 0
+  let pOver25 = 0, pOver35 = 0
+  let pBtts = 0
 
-  // Multiplicative model: PPG dominates, form adjusts ±35%
-  const homeStr = homeBasePPG * homeFormMult
-  const awayStr = awayBasePPG * awayFormMult
-
-  const total = homeStr + awayStr || 2.0 // avoid div by zero
-  const pHomeRaw = homeStr / total
-  const pAwayRaw = awayStr / total
-
-  // Draw prob: realistic floor for amateur football (~13%), drops off for mismatches
-  const mismatch = Math.abs(pHomeRaw - pAwayRaw)
-  const pDraw = Math.max(0.13, 0.28 - 0.30 * mismatch)
-  const pHome = pHomeRaw * (1 - pDraw)
-  const pAway = pAwayRaw * (1 - pDraw)
-
-  // Normalize implied probabilities + house margin
-  const overround = pHome + pDraw + pAway
-  const homeWinOdds = toOdds(pHome / overround)
-  const drawOdds    = toOdds(pDraw / overround)
-  const awayWinOdds = toOdds(pAway / overround)
-
-  // --- xG: home attack at home vs away defence away (context-specific) ---
-  const LEAGUE_XG = 1.8
-  const SHRINK     = 0.15
-  const rawHomeXG = (avgScoredHome(matches, homeTeamId) + avgConcededAway(matches, awayTeamId)) / 2
-  const rawAwayXG = (avgScoredAway(matches, awayTeamId) + avgConcededHome(matches, homeTeamId)) / 2
-  const homeXG = (1 - SHRINK) * rawHomeXG + SHRINK * LEAGUE_XG
-  const awayXG = (1 - SHRINK) * rawAwayXG + SHRINK * LEAGUE_XG
-
-  // --- Over/Under 2.5 ---
-  let pOver25 = 0
-  for (let h = 0; h <= 9; h++) {
-    for (let a = 0; a <= 9; a++) {
-      if (h + a > 2) pOver25 += poisson(homeXG, h) * poisson(awayXG, a)
+  for (let h = 0; h <= 8; h++) {
+    for (let a = 0; a <= 8; a++) {
+      const p = matrix[h][a]
+      if (h > a) pHome += p
+      else if (h === a) pDraw += p
+      else pAway += p
+      if (h + a > 2) pOver25 += p
+      if (h + a > 3) pOver35 += p
+      if (h > 0 && a > 0) pBtts += p
     }
   }
-  pOver25 = Math.max(0.05, Math.min(0.97, pOver25))
-  const over25Odds  = toOdds(pOver25)
-  const under25Odds = toOdds(1 - pOver25)
 
-  // --- Over/Under 3.5 ---
-  let pOver35 = 0
-  for (let h = 0; h <= 9; h++) {
-    for (let a = 0; a <= 9; a++) {
-      if (h + a > 3) pOver35 += poisson(homeXG, h) * poisson(awayXG, a)
-    }
-  }
-  pOver35 = Math.max(0.05, Math.min(0.97, pOver35))
-  const over35Odds  = toOdds(pOver35)
-  const under35Odds = toOdds(1 - pOver35)
+  // Double chance: derived consistently from the same 1X2 probabilities
+  const p1x = pHome + pDraw
+  const px2 = pDraw + pAway
+  const p12 = pHome + pAway
 
-  // --- BTTS ---
-  const pBttsYes = Math.max(0.05, Math.min(0.97,
-    (1 - poisson(homeXG, 0)) * (1 - poisson(awayXG, 0))
-  ))
-  const bttsYesOdds = toOdds(pBttsYes)
-  const bttsNoOdds  = toOdds(1 - pBttsYes)
-
-  // --- Double Chance ---
-  const odds_1x = toOdds((pHome + pDraw) / overround)
-  const odds_x2 = toOdds((pDraw + pAway) / overround)
-  const odds_12 = toOdds((pHome + pAway) / overround)
-
+  // Apply consistent bookmaker margin to every market via toOdds()
   return {
-    home_win:  homeWinOdds,
-    draw:      drawOdds,
-    away_win:  awayWinOdds,
-    odds_1x,
-    odds_x2,
-    odds_12,
-    over_2_5:  over25Odds,
-    under_2_5: under25Odds,
-    over_3_5:  over35Odds,
-    under_3_5: under35Odds,
-    btts_yes:  bttsYesOdds,
-    btts_no:   bttsNoOdds,
+    home_win:  toOdds(pHome),
+    draw:      toOdds(pDraw),
+    away_win:  toOdds(pAway),
+    odds_1x:   toOdds(p1x),
+    odds_x2:   toOdds(px2),
+    odds_12:   toOdds(p12),
+    over_2_5:  toOdds(pOver25),
+    under_2_5: toOdds(1 - pOver25),
+    over_3_5:  toOdds(pOver35),
+    under_3_5: toOdds(1 - pOver35),
+    btts_yes:  toOdds(pBtts),
+    btts_no:   toOdds(1 - pBtts),
   }
 }
 
-/** Exact-score odds grid (Poisson, 23 common scores) */
+/** Exact-score odds grid derived from the same Poisson model as calculateOdds */
 export function getExactScoreOdds(
   matches: Match[],
   homeTeamId: number,
   awayTeamId: number
 ): { score: string; odds: number }[] {
-  const LEAGUE_XG = 1.8
-  const SHRINK    = 0.15
-  const rawHomeXG = (avgScoredHome(matches, homeTeamId) + avgConcededAway(matches, awayTeamId)) / 2
-  const rawAwayXG = (avgScoredAway(matches, awayTeamId) + avgConcededHome(matches, homeTeamId)) / 2
-  const homeXG = (1 - SHRINK) * rawHomeXG + SHRINK * LEAGUE_XG
-  const awayXG = (1 - SHRINK) * rawAwayXG + SHRINK * LEAGUE_XG
+  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId)
 
   const scores: [number, number][] = [
     [0, 0], [1, 0], [0, 1],
@@ -290,11 +276,8 @@ export function getExactScoreOdds(
     [5, 0], [0, 5],
   ]
 
-  return scores.map(([h, a]) => {
-    const prob = poisson(homeXG, h) * poisson(awayXG, a)
-    return {
-      score: `${h}:${a}`,
-      odds: clamp(round2(prob > 0 ? (1 / prob) * (1 + HOUSE_MARGIN) : MAX_ODDS)),
-    }
-  })
+  return scores.map(([h, a]) => ({
+    score: `${h}:${a}`,
+    odds: toOdds(poisson(homeXG, h) * poisson(awayXG, a)),
+  }))
 }

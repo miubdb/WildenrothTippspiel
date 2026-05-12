@@ -140,17 +140,21 @@ export default async function TippsPage({
 
   const matchdayMatchIds = matchdayMatches.map((m) => m.id)
 
-  // Own bet counter
-  let betCountForMatchday = 0
+  // Own bet counter (split normal vs risky)
+  let normalBetCount = 0
+  let riskyBetCount = 0
   if (user && matchdayMatchIds.length > 0) {
-    const [{ count: singleCount }, { data: comboLegs }] = await Promise.all([
+    const [normalSingles, riskyBets, comboLegs] = await Promise.all([
       supabase.from('bets').select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id).is('combo_id', null).in('match_id', matchdayMatchIds),
+        .eq('user_id', user.id).eq('is_risky', false).is('combo_id', null).in('match_id', matchdayMatchIds),
+      supabase.from('bets').select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id).eq('is_risky', true).in('match_id', matchdayMatchIds),
       supabase.from('bets').select('combo_id')
         .eq('user_id', user.id).not('combo_id', 'is', null).in('match_id', matchdayMatchIds),
     ])
-    const distinctCombos = new Set((comboLegs ?? []).map((b) => b.combo_id)).size
-    betCountForMatchday = (singleCount ?? 0) + distinctCombos
+    const distinctCombos = new Set((comboLegs.data ?? []).map((b) => b.combo_id)).size
+    normalBetCount = (normalSingles.count ?? 0) + distinctCombos
+    riskyBetCount = riskyBets.count ?? 0
   }
 
   // Social bets: visible after first match kicks off (RLS policy allows this)
@@ -189,15 +193,21 @@ export default async function TippsPage({
             <div className="text-red-200 text-xs font-medium uppercase tracking-wide">Spieltag</div>
             <div className="text-2xl font-black mt-0.5">{currentMatchday}. Spieltag</div>
           </div>
-          <div className="text-right flex gap-4">
+          <div className="text-right flex gap-3">
             <div>
               <div className="text-red-200 text-xs font-medium">Spiele</div>
               <div className="text-xl font-bold">{matchdayMatches.length}</div>
             </div>
             <div>
-              <div className="text-red-200 text-xs font-medium">Wetten</div>
-              <div className={`text-xl font-bold ${betCountForMatchday >= 2 ? 'text-yellow-300' : ''}`}>
-                {betCountForMatchday}/2
+              <div className="text-red-200 text-xs font-medium">Normal</div>
+              <div className={`text-xl font-bold ${normalBetCount >= 2 ? 'text-yellow-300' : ''}`}>
+                {normalBetCount}/2
+              </div>
+            </div>
+            <div>
+              <div className="text-red-200 text-xs font-medium flex items-center gap-0.5">🎲 Risky</div>
+              <div className={`text-xl font-bold ${riskyBetCount >= 1 ? 'text-yellow-300' : ''}`}>
+                {riskyBetCount}/1
               </div>
             </div>
           </div>

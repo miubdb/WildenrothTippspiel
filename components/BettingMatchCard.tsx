@@ -10,8 +10,8 @@ interface BettingMatchCardProps {
   match: Match
   odds: OddsData | null
   allMatches: Match[]
-  historyMatches?: Match[]          // full multi-season history for H2H
-  positions?: Record<number, number> // teamId → table position
+  historyMatches?: Match[]
+  positions?: Record<number, number>
   isWildenrothPlayer?: boolean
   wildenrothTeamId?: number | null
 }
@@ -22,6 +22,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   const { selections, addSelection } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
+  const [wildenrothBlockMsg, setWildenrothBlockMsg] = useState(false)
 
   const homeName = match.home_team?.name ?? 'Heim'
   const awayName = match.away_team?.name ?? 'Gast'
@@ -35,6 +36,27 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     hour: '2-digit', minute: '2-digit',
   })
 
+  const isScheduled = match.status === 'scheduled'
+
+  const matchInvolvesWildenroth = wildenrothTeamId != null &&
+    (match.home_team_id === wildenrothTeamId || match.away_team_id === wildenrothTeamId)
+  const wildenrothIsHome = match.home_team_id === wildenrothTeamId
+
+  /** Returns true when this selection would bet against Wildenroth winning */
+  function isAgainstWildenroth(marketType: string, selection: string): boolean {
+    if (!isWildenrothPlayer || !matchInvolvesWildenroth) return false
+    if (marketType === '1x2') {
+      // Block only the opponent's direct win; draws are allowed
+      return wildenrothIsHome ? selection === 'away' : selection === 'home'
+    }
+    if (marketType === 'exact_score') {
+      const [h, a] = selection.split(':').map(Number)
+      // Block exact scores where opponent wins
+      return wildenrothIsHome ? a > h : h > a
+    }
+    return false
+  }
+
   function isSelected(marketType: string, selection: string) {
     return selections.some(
       (s) => s.matchId === match.id && s.marketType === marketType && s.selection === selection
@@ -42,15 +64,13 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   }
 
   function add(marketType: string, marketLabel: string, selection: string, selectionLabel: string, oddsValue: number) {
+    if (isAgainstWildenroth(marketType, selection)) {
+      setWildenrothBlockMsg(true)
+      setTimeout(() => setWildenrothBlockMsg(false), 3500)
+      return
+    }
     addSelection({ matchId: match.id, matchLabel, marketType: marketType as never, marketLabel, selection, selectionLabel, oddsValue })
   }
-
-  const isScheduled = match.status === 'scheduled'
-
-  // Wildenroth conflict-of-interest block
-  const matchInvolvesWildenroth = wildenrothTeamId != null &&
-    (match.home_team_id === wildenrothTeamId || match.away_team_id === wildenrothTeamId)
-  const isBlocked = isWildenrothPlayer && matchInvolvesWildenroth
 
   // Exact score grid (calculated client-side)
   const exactScores = isScheduled && odds
@@ -155,21 +175,18 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         </div>
       )}
 
-      {/* Wildenroth conflict-of-interest banner */}
-      {isBlocked && isScheduled && odds && (
-        <div className="border-t border-red-100 bg-red-50 px-4 py-4 text-center">
-          <div className="text-2xl mb-1">⚽🚫</div>
-          <div className="font-bold text-red-700 text-sm mb-1">Befangenheit erkannt!</div>
-          <div className="text-xs text-red-600 leading-snug">
-            Als Wildenroth-Spieler/-Trainer darfst du hier natürlich nicht gegen dein eigenes Team wetten –
-            das wäre ja Wettbewerbsverzerrung! 😄<br/>
-            <span className="font-semibold">Nur für Wildenroth tippen erlaubt!</span>
+      {/* Wildenroth conflict-of-interest toast (shown when a blocked selection is tapped) */}
+      {wildenrothBlockMsg && (
+        <div className="border-t border-red-100 bg-red-50 px-4 py-3 flex items-start gap-2">
+          <span className="text-lg flex-shrink-0">⚽🚫</span>
+          <div className="text-xs text-red-700 leading-snug">
+            <span className="font-bold">Befangenheit erkannt!</span> Als Wildenroth-Spieler darfst du nicht gegen dein eigenes Team wetten – das wäre Wettbewerbsverzerrung! 😄 Nur Wildenroth-Siege tippen erlaubt!
           </div>
         </div>
       )}
 
       {/* Betting Markets */}
-      {isScheduled && odds && !isBlocked && (
+      {isScheduled && odds && (
         <div className="border-t border-gray-100">
           {/* Tab Bar */}
           <div className="flex border-b border-gray-100">
@@ -303,7 +320,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         </div>
       )}
 
-      {!isScheduled && !isBlocked && (
+      {!isScheduled && (
         <div className="border-t border-gray-100 px-4 py-2">
           <div className="text-center text-xs text-gray-400">
             {match.status === 'finished' ? 'Spiel beendet' : 'Annahmeschluss überschritten'}

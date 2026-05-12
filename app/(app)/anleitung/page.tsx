@@ -5,7 +5,7 @@ export default function AnleitungPage() {
     <div className="px-4 py-4 space-y-4">
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4">
         <div className="text-red-200 text-xs font-medium uppercase tracking-wide">SpVgg Wildenroth</div>
-        <div className="text-2xl font-black mt-0.5">So funktioniert's</div>
+        <div className="text-2xl font-black mt-0.5">So funktioniert&apos;s</div>
         <div className="text-red-200 text-sm mt-1">Alles was du über das Tippspiel wissen musst</div>
       </div>
 
@@ -14,6 +14,9 @@ export default function AnleitungPage() {
           Du startest mit <strong>1.000 € Spielguthaben</strong> und versuchst, durch clevere Tipps
           möglichst viel daraus zu machen. Wer am Ende der Saison das höchste Guthaben hat, gewinnt!
         </p>
+        <div className="mt-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800">
+          💰 Jeden <strong>Montag um 12:00 Uhr</strong> bekommt jeder Spieler automatisch <strong>10 € Taschengeld</strong> gutgeschrieben — damit auch nach einer Pechsträhne weitergemacht werden kann.
+        </div>
       </Section>
 
       <Section title="Wann kann ich tippen?" emoji="⏰">
@@ -23,19 +26,41 @@ export default function AnleitungPage() {
           möglich — danach ist der Spieltag gesperrt.
         </p>
         <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-sm">
-          ⚠️ Vor Montag 12:00 Uhr sind die Quoten noch nicht freigegeben, da sie sich nach den
-          Ergebnissen des Wochenendes anpassen.
+          ⚠️ Vor Montag 12:00 Uhr sind die Quoten noch nicht freigegeben. Die Quoten werden dann
+          eingefroren — Ergebnisse die später eingetragen werden beeinflussen die Quoten des laufenden
+          Spieltags nicht mehr.
         </div>
-        <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
-          <strong>Maximal 2 Wetten pro Spieltag</strong> — Einzelwetten und Kombiwetten zusammen gezählt.
+        <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 space-y-1">
+          <div><strong>Maximal 2 normale Wetten pro Spieltag</strong> — Einzelwetten und Kombiwetten zusammen gezählt.</div>
+          <div><strong>+ 1 Risky Wette</strong> zusätzlich möglich (nur Einzelwette, Quote muss über 20,00 sein).</div>
         </div>
+        <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700">
+          💶 <strong>Maximaleinsatz: 250 € pro Wette</strong> (Einzelwette oder Kombiwette).
+        </div>
+      </Section>
+
+      <Section title="🎲 Risky Wette" emoji="🎲">
+        <p>
+          Neben deinen 2 normalen Wetten hast du pro Spieltag einen <strong>zusätzlichen Risky-Slot</strong>.
+          Damit darfst du genau eine weitere Einzelwette platzieren — aber nur wenn die Quote
+          <strong> über 20,00</strong> liegt.
+        </p>
+        <div className="mt-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 text-sm text-purple-800 space-y-1">
+          <div>✅ Erlaubt: Einzelwette mit Quote &gt; 20,00 (z.B. genaues Ergebnis, krasser Außenseiter)</div>
+          <div>❌ Nicht erlaubt: Kombiwetten, Quoten ≤ 20,00</div>
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          Der Wettschein zeigt automatisch einen lila Hinweis, wenn eine Auswahl als Risky Wette zählt.
+          Im Spieltags-Header siehst du immer deinen aktuellen Stand (Normal: 0/2 · 🎲 Risky: 0/1).
+        </p>
       </Section>
 
       <Section title="Wie tippe ich?" emoji="🎯">
         <Step n={1} text="Gehe auf die Tipps-Seite und wähle den aktuellen Spieltag aus." />
         <Step n={2} text="Tippe auf einen der Wettmärkte (z.B. '1' für Heimsieg oder 'Über 3,5')." />
-        <Step n={3} text="Dein Tipp landet im Wettschein. Du kannst bis zu 2 Tipps pro Spieltag platzieren." />
-        <Step n={4} text="Gib deinen Einsatz ein und klicke auf 'Wette platzieren' — fertig!" />
+        <Step n={3} text="Dein Tipp landet im Wettschein unten. Du kannst mehrere Tipps hinzufügen." />
+        <Step n={4} text="Gib deinen Einsatz ein (max. 250 €) und klicke auf 'Wette platzieren' — fertig!" />
+        <Step n={5} text="Ergebnisse und Auszahlungen werden nach Spielende automatisch berechnet." />
       </Section>
 
       <Section title="Tipps der anderen sehen" emoji="👥">
@@ -43,7 +68,7 @@ export default function AnleitungPage() {
           Sobald der Annahmeschluss abgelaufen ist, kannst du in der <strong>Rangliste</strong> sehen,
           welche Wetten die anderen Mitspieler platziert haben — so bleibt es bis zum Anpfiff spannend.
         </p>
-        <Step n={1} text={'Gehe zur Rangliste und tippe oben auf den Tab „Spieltag“.'} />
+        <Step n={1} text={'Gehe zur Rangliste und tippe oben auf den Tab „Spieltag".'} />
         <Step n={2} text="Dort siehst du alle Tipps aller Teilnehmer für den aktuellen Spieltag — mit Einsatz, Quote und möglicher Auszahlung." />
         <Step n={3} text="In der Ranglisten-Ansicht kannst du auf den Pfeil neben einer Person tippen, um deren Tipps direkt aufzuklappen." />
         <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-800">
@@ -88,9 +113,10 @@ export default function AnleitungPage() {
         />
         <MarketCard
           title="Genaues Ergebnis"
-          description="Die schwierigste, aber lukrativste Wette — tippe das exakte Endergebnis."
+          description="Die schwierigste, aber lukrativste Wette — tippe das exakte Endergebnis. Wahrscheinlichere Ergebnisse haben niedrigere Quoten; seltene Ergebnisse können deutlich über 20,00 liegen."
           items={[
-            { label: 'Beispiel', desc: '2:1 — Heimteam gewinnt 2:1' },
+            { label: '1:0', desc: 'Typisch häufiges Ergebnis → niedrigere Quote' },
+            { label: '4:2', desc: 'Seltenes Ergebnis → hohe Quote, zählt als Risky Wette' },
           ]}
         />
       </Section>
@@ -114,9 +140,8 @@ export default function AnleitungPage() {
           </div>
         </div>
         <p className="mt-2 text-xs text-gray-500">
-          Hinweis: Widersprüchliche Tipps auf dasselbe Spiel (z.B. Heimsieg + X2) können nicht
-          kombiniert werden. Tipps aus demselben Spiel auf verträgliche Märkte (z.B. Heimsieg + Über 3,5)
-          sind erlaubt.
+          Widersprüchliche Tipps auf dasselbe Spiel (z.B. Heimsieg + X2) können nicht
+          kombiniert werden. Verträgliche Märkte (z.B. Heimsieg + Über 3,5) sind erlaubt.
         </p>
         <p className="mt-1 text-xs text-gray-500">
           Bei der Kombiwette verlierst du deinen gesamten Einsatz, wenn auch nur ein Tipp falsch ist.
@@ -125,20 +150,42 @@ export default function AnleitungPage() {
 
       <Section title="Quoten verstehen" emoji="📊">
         <p>
-          Die Quoten zeigen dir, wie wahrscheinlich ein Ergebnis ist und was du im Gewinnfall erhältst.
+          Die Quoten werden aus einem einheitlichen statistischen Modell berechnet — alle Märkte
+          (1X2, Doppelte Chance, Über/Unter, Genaues Ergebnis) basieren auf derselben
+          Torwahrscheinlichkeitsverteilung. Das garantiert interne Konsistenz.
         </p>
         <div className="mt-2 space-y-2">
           <QuoteExample odds={1.20} explanation="Klarer Favorit — hohe Wahrscheinlichkeit, aber kleiner Gewinn" />
           <QuoteExample odds={2.50} explanation="Ausgeglichenes Duell — ca. 50/50" />
           <QuoteExample odds={6.00} explanation="Außenseiter — geringe Chance, aber hoher Gewinn" />
+          <QuoteExample odds={20.00} explanation="Sehr unwahrscheinlich — z.B. seltenes Genaues Ergebnis" />
         </div>
         <p className="mt-2 text-sm font-semibold text-gray-700">Gewinn = Einsatz × Quote</p>
         <p className="text-sm text-gray-500">
           Beispiel: 20 € × Quote 2,50 = <strong>50 € Auszahlung</strong> (30 € Gewinn)
         </p>
-        <p className="mt-2 text-xs text-gray-400">
-          Die Quoten werden automatisch auf Basis der Saisondaten berechnet und jeden Montag
-          für den neuen Spieltag aktualisiert.
+        <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-500 space-y-1">
+          <div>📐 <strong>Wie werden Quoten berechnet?</strong></div>
+          <div>1. Für jedes Team werden erwartete Tore (xG) aus Heim-/Auswärtsstatistiken geschätzt, mit starker Regression zur Ligadurchschnitt (1,80 heim / 1,40 auswärts).</div>
+          <div>2. Aus den xG-Werten entsteht eine Poisson-Torverteilung für alle möglichen Ergebnisse.</div>
+          <div>3. Alle Märkte (1X2, Doppelte Chance, Über/Unter, BTTS, Genaues Ergebnis) werden direkt aus dieser Verteilung abgeleitet.</div>
+          <div>4. Die Buchmachermarge (12 %) wird einheitlich auf alle Quoten aufgeschlagen — Arbitrage ist damit ausgeschlossen.</div>
+          <div>5. Ab Montag 12:00 Uhr werden die Quoten eingefroren und nicht mehr durch neue Ergebnisse beeinflusst.</div>
+        </div>
+      </Section>
+
+      <Section title="SpVgg Wildenroth-Spieler" emoji="⚽">
+        <p>
+          Spieler, die als <strong>Wildenroth-Spieler oder Trainer</strong> markiert sind, dürfen
+          aus Fairnessgründen nicht auf einen <em>Sieg des Gegners</em> von Wildenroth wetten.
+        </p>
+        <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
+          ⚽🚫 Wenn du versuchst, auf einen Auswärtssieg des Gegners zu tippen, erscheint eine
+          freundliche Erinnerung — die Wette wird dann nicht hinzugefügt.
+        </div>
+        <p className="mt-2 text-xs text-gray-500">
+          Alle anderen Wetten (Wildenroth-Sieg, Unentschieden, Tormärkte, genaue Ergebnisse für
+          Wildenroth) sind weiterhin erlaubt.
         </p>
       </Section>
 
