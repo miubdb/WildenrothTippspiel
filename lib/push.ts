@@ -1,13 +1,17 @@
 import webpush from 'web-push'
 import { createClient } from '@/lib/supabase/server'
 
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT!,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-)
+function initVapid() {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT!,
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+    process.env.VAPID_PRIVATE_KEY!
+  )
+}
 
 export async function sendPushToUser(userId: string, title: string, body: string, url = '/tipps') {
+  if (!process.env.VAPID_SUBJECT || !process.env.VAPID_PRIVATE_KEY) return
+  initVapid()
   const supabase = await createClient()
   const { data: subs } = await supabase
     .from('push_subscriptions')
