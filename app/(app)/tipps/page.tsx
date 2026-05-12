@@ -98,12 +98,63 @@ export default async function TippsPage({
       )
     : seasonMatches
 
-  // Odds only when betting window is open and match is scheduled
+  // Odds: computed live until Monday 12:00, then frozen in DB forever.
+  // First request at/after bettingOpens writes frozen_at; subsequent reads use DB values.
   const oddsMap: Record<number, ReturnType<typeof calculateOdds>> = {}
   if (isBettingOpen) {
-    for (const m of matchdayMatches) {
-      if (m.status === 'scheduled') {
-        oddsMap[m.id] = calculateOdds(oddsMatches, m.home_team_id, m.away_team_id)
+    const scheduledMatchIds = matchdayMatches.filter(m => m.status === 'scheduled').map(m => m.id)
+
+    // Load any already-frozen rows from DB
+    const { data: frozenRows } = scheduledMatchIds.length > 0
+      ? await supabase.from('odds').select('*').in('match_id', scheduledMatchIds).not('frozen_at', 'is', null)
+      : { data: [] }
+
+    const frozenSet = new Set((frozenRows ?? []).map(r => r.match_id))
+
+    for (const row of frozenRows ?? []) {
+      oddsMap[row.match_id] = {
+        home_win:  Number(row.home_win),
+        draw:      Number(row.draw),
+        away_win:  Number(row.away_win),
+        odds_1x:   Number(row.odds_1x),
+        odds_x2:   Number(row.odds_x2),
+        odds_12:   Number(row.odds_12),
+        over_2_5:  Number(row.over_2_5),
+        under_2_5: Number(row.under_2_5),
+        over_3_5:  Number(row.over_3_5),
+        under_3_5: Number(row.under_3_5),
+        btts_yes:  Number(row.btts_yes),
+        btts_no:   Number(row.btts_no),
+      }
+    }
+
+    // Compute + persist odds for any scheduled match not yet frozen
+    const toFreeze = matchdayMatches.filter(m => m.status === 'scheduled' && !frozenSet.has(m.id))
+    if (toFreeze.length > 0) {
+      const now = new Date().toISOString()
+      for (const m of toFreeze) {
+        const odds = calculateOdds(oddsMatches, m.home_team_id, m.away_team_id)
+        oddsMap[m.id] = odds
+        // Upsert: safe to call concurrently — snapshot cutoff is deterministic,
+        // so any two simultaneous requests produce identical values.
+        await supabase.from('odds').upsert({
+          match_id:  m.id,
+          matchday:  m.matchday,
+          frozen_at: now,
+          updated_at: now,
+          home_win:  odds.home_win,
+          draw:      odds.draw,
+          away_win:  odds.away_win,
+          odds_1x:   odds.odds_1x,
+          odds_x2:   odds.odds_x2,
+          odds_12:   odds.odds_12,
+          over_2_5:  odds.over_2_5,
+          under_2_5: odds.under_2_5,
+          over_3_5:  odds.over_3_5,
+          under_3_5: odds.under_3_5,
+          btts_yes:  odds.btts_yes,
+          btts_no:   odds.btts_no,
+        }, { onConflict: 'match_id' })
       }
     }
   }
