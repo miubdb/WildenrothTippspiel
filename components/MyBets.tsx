@@ -82,6 +82,17 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsPr
 
   if (singles.length === 0 && combos.length === 0) return null
 
+  // Risky bet = the single bet or combo with the highest effective odds (if > 20).
+  const comboEffOdds = new Map(combos.map(c => [c.id, c.legs.reduce((acc, l) => acc * l.odds_value, 1)]))
+  const allUnits = [
+    ...singles.map(b => ({ kind: 'single' as const, id: b.id, odds: b.odds_value })),
+    ...combos.map(c => ({ kind: 'combo' as const, id: c.id, odds: comboEffOdds.get(c.id) ?? 0 })),
+  ]
+  const maxOdds = allUnits.reduce((m, u) => Math.max(m, u.odds), 0)
+  const riskyUnit = maxOdds > 20 ? (allUnits.find(u => u.odds === maxOdds) ?? null) : null
+  const riskyBetId = riskyUnit?.kind === 'single' ? riskyUnit.id : null
+  const riskyComboId = riskyUnit?.kind === 'combo' ? riskyUnit.id : null
+
   async function cancelBet(betId?: number, comboId?: number) {
     const key = betId ? `bet-${betId}` : `combo-${comboId}`
     setCancellingId(key)
@@ -138,7 +149,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsPr
                     <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
                       {MARKET_LABEL[bet.market_type] ?? bet.market_type}
                     </span>
-                    {bet.is_risky && <span className="text-[10px] text-purple-700 font-bold">🎲</span>}
+                    {bet.id === riskyBetId && <span className="text-[10px] text-purple-700 font-bold">🎲</span>}
                     <span className="text-xs font-semibold text-gray-900">{selLabel(bet.market_type, bet.selection)}</span>
                     <span className="text-xs text-red-600 font-bold">@{fmtOdds(bet.odds_value)}</span>
                   </div>
@@ -170,14 +181,13 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsPr
           const isCancelling = cancellingId === key
           const comboOdds = combo.legs.reduce((acc, l) => acc * l.odds_value, 1)
           const potentialWin = combo.stake * comboOdds
-          const isRisky = combo.legs.some(l => l.is_risky)
           return (
             <div key={combo.id} className={`px-4 py-3 ${
               combo.status === 'won' ? 'bg-green-50/50' : combo.status === 'lost' ? 'bg-red-50/30' : ''
             }`}>
               <div className="flex items-center gap-2 mb-1.5">
                 <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
-                  {isRisky ? '🎲 RISKY' : '🔗 KOMBI'}
+                  {combo.id === riskyComboId ? '🎲 RISKY' : '🔗 KOMBI'}
                 </span>
                 <span className="text-xs text-gray-500">{combo.legs.length} Tipps</span>
                 <span className="text-xs text-red-600 font-bold">@{fmtOdds(comboOdds)}</span>

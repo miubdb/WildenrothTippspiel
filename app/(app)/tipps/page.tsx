@@ -236,13 +236,6 @@ export default async function TippsPage({
       .in('match_id', matchdayMatchIds)
 
     if (ownBets && ownBets.length > 0) {
-      normalBetCount =
-        ownBets.filter(b => !b.combo_id && !b.is_risky).length +
-        new Set(ownBets.filter(b => b.combo_id && !b.is_risky).map(b => b.combo_id)).size
-      riskyBetCount =
-        ownBets.filter(b => !b.combo_id && b.is_risky).length +
-        new Set(ownBets.filter(b => b.combo_id && b.is_risky).map(b => b.combo_id)).size
-
       userSingles = (ownBets as OwnBet[]).filter(b => !b.combo_id)
       const comboIds = [...new Set(ownBets.filter(b => b.combo_id).map(b => Number(b.combo_id)))]
       if (comboIds.length > 0) {
@@ -257,6 +250,15 @@ export default async function TippsPage({
           legs: (ownBets as OwnBet[]).filter(b => Number(b.combo_id) === cb.id),
         }))
       }
+
+      // Compute counts dynamically: risky = the single bet/combo with the highest
+      // effective odds (if > 20); all others are normal.
+      const singleOdds = userSingles.map(b => b.odds_value)
+      const comboOdds = userCombos.map(c => c.legs.reduce((acc, l) => acc * l.odds_value, 1))
+      const allOdds = [...singleOdds, ...comboOdds]
+      const maxOdds = allOdds.length > 0 ? Math.max(...allOdds) : 0
+      riskyBetCount = maxOdds > 20 ? 1 : 0
+      normalBetCount = allOdds.length - riskyBetCount
     }
   }
 

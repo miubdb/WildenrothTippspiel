@@ -372,7 +372,7 @@ export function BetSlip() {
               {isRiskyEligible && (
                 <div className="mb-3 bg-purple-50 text-purple-700 text-xs px-3 py-2 rounded-lg border border-purple-200 font-bold flex items-center gap-2">
                   <span className="text-base">🎲</span>
-                  <span>Quote über 20 – zählt nicht zu den 2 normalen Wetten.</span>
+                  <span>Hohe Quote – die Wette mit der höchsten Quote belegt den Risky-Slot (max. 1 je Spieltag).</span>
                 </div>
               )}
 

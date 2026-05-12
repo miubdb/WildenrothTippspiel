@@ -23,8 +23,8 @@ export default function AnleitungPage() {
         <div className="space-y-1.5 text-sm">
           <div className="flex gap-2"><span className="text-red-700 font-bold flex-shrink-0">Öffnet:</span><span>Montag 12:00 Uhr der Spielwoche</span></div>
           <div className="flex gap-2"><span className="text-red-700 font-bold flex-shrink-0">Schluss:</span><span>Anpfiff des ersten Spiels</span></div>
-          <div className="flex gap-2"><span className="text-red-700 font-bold flex-shrink-0">Limit:</span><span>Max. 3 Wetten pro Spieltag, davon max. 2 mit Quote ≤ 20,00; max. 250 € Einsatz</span></div>
-          <div className="flex gap-2"><span className="text-red-700 font-bold flex-shrink-0">Risky:</span><span>Wetten mit Quote &gt; 20,00 können mehrfach vorkommen – sie blockieren sich nicht gegenseitig</span></div>
+          <div className="flex gap-2"><span className="text-red-700 font-bold flex-shrink-0">Limit:</span><span>Max. 2 normale + 1 Risky Wette pro Spieltag, max. 250 € Einsatz</span></div>
+          <div className="flex gap-2"><span className="text-red-700 font-bold flex-shrink-0">Risky:</span><span>Die Wette mit der höchsten Quote (muss &gt; 20,00 sein) belegt den Risky-Slot</span></div>
           <div className="flex gap-2"><span className="text-blue-700 font-bold flex-shrink-0">Storno:</span><span>Platzierte Wetten können bis zum ersten Anpfiff storniert werden — der Einsatz wird sofort zurückgebucht</span></div>
         </div>
       </Section>
