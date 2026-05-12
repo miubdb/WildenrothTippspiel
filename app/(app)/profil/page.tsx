@@ -98,14 +98,19 @@ export default async function ProfilPage() {
     }
   }
 
-  // Stats (singles only)
-  const singles = bets.filter(b => !b.combo_id)
-  const totalBets = singles.length
-  const wonBets = singles.filter(b => b.status === 'won').length
-  const lostBets = singles.filter(b => b.status === 'lost').length
-  const pendingBets = singles.filter(b => b.status === 'pending').length
-  const totalStaked = singles.reduce((acc, b) => acc + (b.stake ?? 0), 0)
-  const totalPayout = bets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0)
+  // Stats (all bets; combo counted as one bet via combo_bets)
+  const singleBets = bets.filter(b => !b.combo_id)
+  const totalBets = singleBets.length + comboBetsMap.size
+  const wonBets = singleBets.filter(b => b.status === 'won').length +
+    [...comboBetsMap.values()].filter(cb => cb.status === 'won').length
+  const lostBets = singleBets.filter(b => b.status === 'lost').length +
+    [...comboBetsMap.values()].filter(cb => cb.status === 'lost').length
+  const pendingBets = singleBets.filter(b => b.status === 'pending').length +
+    [...comboBetsMap.values()].filter(cb => cb.status === 'pending').length
+  const totalStaked = singleBets.reduce((acc, b) => acc + (b.stake ?? 0), 0) +
+    [...comboBetsMap.values()].reduce((acc, cb) => acc + cb.stake, 0)
+  const totalPayout = singleBets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0) +
+    [...comboBetsMap.values()].filter(cb => cb.status === 'won').reduce((acc, cb) => acc + (cb.payout ?? 0), 0)
   const profit = profile.balance - 1000
 
   // Balance history: reconstruct from settled bets ordered by match date
@@ -284,8 +289,8 @@ type ComboBetData = { id: string; stake: number; total_odds: number; status: str
 function matchLabel(bet: BetRow) {
   const m = bet.match
   if (!m) return 'Unbekanntes Spiel'
-  const h = m.home_team?.short_name ?? m.home_team?.name ?? '?'
-  const a = m.away_team?.short_name ?? m.away_team?.name ?? '?'
+  const h = m.home_team?.name ?? '?'
+  const a = m.away_team?.name ?? '?'
   return `${h} – ${a}`
 }
 
@@ -369,9 +374,9 @@ function ComboBetCard({ legs, cb }: { legs: BetRow[]; cb: ComboBetData | undefin
   const potentialPayout = stake * totalOdds
 
   const borderColor = status === 'won' ? 'border-l-green-500' :
-    status === 'lost' ? 'border-l-red-400' : 'border-l-blue-400'
+    status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
   const bgColor = status === 'won' ? 'bg-green-50' :
-    status === 'lost' ? 'bg-red-50/40' : 'bg-blue-50/30'
+    status === 'lost' ? 'bg-red-50/40' : 'bg-white'
 
   return (
     <div className={`px-4 py-3 border-l-4 ${borderColor} ${bgColor}`}>

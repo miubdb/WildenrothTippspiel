@@ -53,7 +53,7 @@ export type MatchdayStats = Record<string, number | null>
 
 function matchName(bet: BetRow) {
   if (!bet.match) return '—'
-  return `${bet.match.home_team.short_name} – ${bet.match.away_team.short_name}`
+  return `${bet.match.home_team.name} – ${bet.match.away_team.name}`
 }
 
 function scoreStr(bet: BetRow) {
@@ -113,8 +113,8 @@ function ComboBetMini({ legs, cb }: { legs: BetRow[]; cb: ComboMeta | undefined 
   const stake = cb?.stake ?? 0
   const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
   const potential = (stake * totalOdds).toFixed(2)
-  const borderColor = status === 'won' ? 'border-l-green-500' : status === 'lost' ? 'border-l-red-400' : 'border-l-blue-400'
-  const bgColor = status === 'won' ? 'bg-green-50' : status === 'lost' ? 'bg-red-50/40' : 'bg-blue-50/30'
+  const borderColor = status === 'won' ? 'border-l-green-500' : status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
+  const bgColor = status === 'won' ? 'bg-green-50' : status === 'lost' ? 'bg-red-50/40' : 'bg-white'
   return (
     <div className={`py-2 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
       <div className="flex items-center gap-2.5 mb-1.5">
@@ -197,7 +197,7 @@ function UserBets({ bets, combos, noDataLabel, reactions, currentUserId }: {
 type HistoryBet = {
   id: number; market_type: string; selection: string; stake: number | null; odds_value: number
   status: string; payout: number | null; combo_id: number | null; created_at: string
-  match: { matchday: number; home_score: number | null; away_score: number | null; status: string; home_team: { short_name: string }; away_team: { short_name: string } } | null
+  match: { matchday: number; home_score: number | null; away_score: number | null; status: string; home_team: { name: string }; away_team: { name: string } } | null
 }
 type HistoryCombo = { id: number; stake: number; total_odds: number; status: string; payout: number | null }
 
@@ -259,7 +259,7 @@ function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => v
             return items.map((item, i) => {
               if (item.kind === 'single') {
                 const b = item.bet
-                const ml = b.match ? `${b.match.home_team.short_name} – ${b.match.away_team.short_name}` : '—'
+                const ml = b.match ? `${b.match.home_team.name} – ${b.match.away_team.name}` : '—'
                 const score = b.match?.home_score != null ? `${b.match.home_score}:${b.match.away_score}` : null
                 const borderColor = b.status === 'won' ? 'border-l-green-500' : b.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
                 const bgColor = b.status === 'won' ? 'bg-green-50' : b.status === 'lost' ? 'bg-red-50/40' : 'bg-white'
@@ -282,8 +282,8 @@ function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => v
               const cb = item.cb
               const status = cb?.status ?? 'pending'
               const totalOdds = cb?.total_odds ?? item.legs.reduce((a, l) => a * l.odds_value, 1)
-              const borderColor = status === 'won' ? 'border-l-green-500' : status === 'lost' ? 'border-l-red-400' : 'border-l-blue-400'
-              const bgColor = status === 'won' ? 'bg-green-50' : status === 'lost' ? 'bg-red-50/40' : 'bg-blue-50/30'
+              const borderColor = status === 'won' ? 'border-l-green-500' : status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
+              const bgColor = status === 'won' ? 'bg-green-50' : status === 'lost' ? 'bg-red-50/40' : 'bg-white'
               return (
                 <div key={i} className={`py-2 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
                   <div className="flex items-center gap-2 mb-1">
@@ -299,7 +299,7 @@ function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => v
                     {item.legs.map(leg => (
                       <div key={leg.id} className="text-xs text-gray-500 flex gap-1">
                         <div className={`w-2 h-2 rounded-full mt-0.5 flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'}`} />
-                        <span className="truncate">{leg.match ? `${leg.match.home_team.short_name} – ${leg.match.away_team.short_name}` : '—'}</span>
+                        <span className="truncate">{leg.match ? `${leg.match.home_team.name} – ${leg.match.away_team.name}` : '—'}</span>
                         <span className="font-medium text-gray-700 flex-shrink-0">{selLabel(leg.market_type, leg.selection)}</span>
                       </div>
                     ))}

@@ -1,6 +1,6 @@
 import type { Match, OddsData } from '@/types'
 
-const HOUSE_MARGIN = 0.10
+const HOUSE_MARGIN = 0.12
 const MIN_ODDS = 1.05
 const MAX_ODDS = 20.0
 
@@ -13,7 +13,7 @@ function round2(n: number): number {
 }
 
 function toOdds(prob: number): number {
-  return clamp(round2(1 / (prob / (1 + HOUSE_MARGIN))))
+  return clamp(round2(1 / (prob * (1 + HOUSE_MARGIN))))
 }
 
 /** Poisson probability mass function */
@@ -178,12 +178,9 @@ export function calculateOdds(
   homeTeamId: number,
   awayTeamId: number
 ): OddsData {
-  // --- Strength: overall PPG base, home boost only if genuine ---
-  const homeOverallPPG = getTeamPPG(matches, homeTeamId)
-  const homeHomePPG    = getTeamHomePPG(matches, homeTeamId)
-  // Home advantage only when team is demonstrably stronger at home
-  const homeBasePPG    = Math.max(homeHomePPG, homeOverallPPG)
-  const awayBasePPG    = getTeamAwayPPG(matches, awayTeamId)
+  // --- Strength: context-specific PPG (home/away records with fallback to overall) ---
+  const homeBasePPG = getTeamHomePPG(matches, homeTeamId)
+  const awayBasePPG = getTeamAwayPPG(matches, awayTeamId)
 
   // Form factor: L5 points / 15 (max) → multiplier 0.65..1.35
   const homeFormFactor = getFormPts(matches, homeTeamId, 5) / 15  // 0..1

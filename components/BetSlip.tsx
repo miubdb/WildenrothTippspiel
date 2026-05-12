@@ -44,6 +44,9 @@ export function BetSlip() {
     0
   )
 
+  const isRiskyEligible =
+    mode === 'single' && selections.length === 1 && selections[0].oddsValue > 20
+
   async function placebet() {
     setError(null)
     setSuccess(null)
@@ -59,6 +62,7 @@ export function BetSlip() {
       })),
       mode,
       comboStake,
+      isRisky: isRiskyEligible,
     }
 
     try {
@@ -240,7 +244,7 @@ export function BetSlip() {
                         <input
                           type="number"
                           min="1"
-                          max="500"
+                          max="250"
                           value={getStake(s.matchId, s.marketType)}
                           onChange={(e) =>
                             setStake(s.matchId, s.marketType, parseFloat(e.target.value) || 1)
@@ -315,6 +319,13 @@ export function BetSlip() {
                     <div className="text-xs text-gray-500">Möglicher Gewinn</div>
                     <div className="font-bold text-green-600">{potentialPayout.toFixed(2)}€</div>
                   </div>
+                </div>
+              )}
+
+              {isRiskyEligible && (
+                <div className="mb-3 bg-purple-50 text-purple-700 text-xs px-3 py-2 rounded-lg border border-purple-200 font-bold flex items-center gap-2">
+                  <span className="text-base">🎲</span>
+                  <span>Risky Wette – Quote über 20! Wird als 3. Wett-Slot gewertet.</span>
                 </div>
               )}
 

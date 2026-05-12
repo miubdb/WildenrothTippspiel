@@ -90,12 +90,20 @@ export default async function TippsPage({
   const SEASON_START = '2025-08-01'
   const seasonMatches = allMatches.filter((m) => m.match_date >= SEASON_START)
 
+  // Odds snapshot: freeze odds at Monday 12:00 — only use matches finished before that cutoff
+  const oddsSnapshotCutoff = bettingOpens ?? deadline
+  const oddsMatches = oddsSnapshotCutoff
+    ? seasonMatches.filter(
+        (m) => m.status !== 'finished' || new Date(m.match_date) < oddsSnapshotCutoff
+      )
+    : seasonMatches
+
   // Odds only when betting window is open and match is scheduled
   const oddsMap: Record<number, ReturnType<typeof calculateOdds>> = {}
   if (isBettingOpen) {
     for (const m of matchdayMatches) {
       if (m.status === 'scheduled') {
-        oddsMap[m.id] = calculateOdds(seasonMatches, m.home_team_id, m.away_team_id)
+        oddsMap[m.id] = calculateOdds(oddsMatches, m.home_team_id, m.away_team_id)
       }
     }
   }
@@ -116,6 +124,20 @@ export default async function TippsPage({
   sortedTeams.forEach(([id], idx) => { positions[id] = idx + 1 })
 
   const { data: { user } } = await supabase.auth.getUser()
+
+  // Fetch user profile (for Wildenroth player flag)
+  const isWildenrothPlayer = user ? await supabase
+    .from('profiles')
+    .select('is_wildenroth')
+    .eq('id', user.id)
+    .single()
+    .then(({ data }) => data?.is_wildenroth ?? false) : false
+
+  // Find Wildenroth team ID
+  const wildenrothTeam = allMatches.flatMap(m => [m.home_team, m.away_team])
+    .find(t => t?.name?.includes('Wildenroth'))
+  const wildenrothTeamId = wildenrothTeam?.id ?? null
+
   const matchdayMatchIds = matchdayMatches.map((m) => m.id)
 
   // Own bet counter
@@ -251,6 +273,8 @@ export default async function TippsPage({
               allMatches={seasonMatches}
               historyMatches={allMatches}
               positions={positions}
+              isWildenrothPlayer={isWildenrothPlayer}
+              wildenrothTeamId={wildenrothTeamId}
             />
           ))}
         </div>
@@ -310,8 +334,8 @@ export default async function TippsPage({
                               </div>
                               {legs.map(leg => {
                                 const m = matchMap.get(leg.match_id)
-                                const ht = m?.home_team?.short_name ?? m?.home_team?.name?.split(' ').slice(-1)[0] ?? '?'
-                                const at = m?.away_team?.short_name ?? m?.away_team?.name?.split(' ').slice(-1)[0] ?? '?'
+                                const ht = m?.home_team?.name ?? '?'
+                                const at = m?.away_team?.name ?? '?'
                                 return (
                                   <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5">
                                     <StatusDot status={leg.status} />
@@ -326,8 +350,8 @@ export default async function TippsPage({
                         }
 
                         const m = matchMap.get(bet.match_id)
-                        const ht = m?.home_team?.short_name ?? m?.home_team?.name?.split(' ').slice(-1)[0] ?? '?'
-                        const at = m?.away_team?.short_name ?? m?.away_team?.name?.split(' ').slice(-1)[0] ?? '?'
+                        const ht = m?.home_team?.name ?? '?'
+                        const at = m?.away_team?.name ?? '?'
                         return (
                           <div key={bet.id} className={`flex items-center gap-2 text-xs rounded-xl px-2.5 py-2 ${
                             bet.status === 'won' ? 'bg-green-50 border border-green-100' :

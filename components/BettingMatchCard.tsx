@@ -12,11 +12,13 @@ interface BettingMatchCardProps {
   allMatches: Match[]
   historyMatches?: Match[]          // full multi-season history for H2H
   positions?: Record<number, number> // teamId → table position
+  isWildenrothPlayer?: boolean
+  wildenrothTeamId?: number | null
 }
 
 type Tab = '1x2' | 'goals' | 'exact' | 'detail'
 
-export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions }: BettingMatchCardProps) {
+export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId }: BettingMatchCardProps) {
   const { selections, addSelection } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
@@ -44,6 +46,11 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   }
 
   const isScheduled = match.status === 'scheduled'
+
+  // Wildenroth conflict-of-interest block
+  const matchInvolvesWildenroth = wildenrothTeamId != null &&
+    (match.home_team_id === wildenrothTeamId || match.away_team_id === wildenrothTeamId)
+  const isBlocked = isWildenrothPlayer && matchInvolvesWildenroth
 
   // Exact score grid (calculated client-side)
   const exactScores = isScheduled && odds
@@ -148,8 +155,21 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         </div>
       )}
 
+      {/* Wildenroth conflict-of-interest banner */}
+      {isBlocked && isScheduled && odds && (
+        <div className="border-t border-red-100 bg-red-50 px-4 py-4 text-center">
+          <div className="text-2xl mb-1">⚽🚫</div>
+          <div className="font-bold text-red-700 text-sm mb-1">Befangenheit erkannt!</div>
+          <div className="text-xs text-red-600 leading-snug">
+            Als Wildenroth-Spieler/-Trainer darfst du hier natürlich nicht gegen dein eigenes Team wetten –
+            das wäre ja Wettbewerbsverzerrung! 😄<br/>
+            <span className="font-semibold">Nur für Wildenroth tippen erlaubt!</span>
+          </div>
+        </div>
+      )}
+
       {/* Betting Markets */}
-      {isScheduled && odds && (
+      {isScheduled && odds && !isBlocked && (
         <div className="border-t border-gray-100">
           {/* Tab Bar */}
           <div className="flex border-b border-gray-100">
@@ -283,7 +303,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         </div>
       )}
 
-      {!isScheduled && (
+      {!isScheduled && !isBlocked && (
         <div className="border-t border-gray-100 px-4 py-2">
           <div className="text-center text-xs text-gray-400">
             {match.status === 'finished' ? 'Spiel beendet' : 'Annahmeschluss überschritten'}

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+const MAX_STAKE = 250
+
 interface PlaceBetSelection {
   matchId: number
   marketType: string
@@ -13,6 +15,7 @@ interface PlaceBetBody {
   selections: PlaceBetSelection[]
   mode: 'single' | 'combo'
   comboStake: number
+  isRisky?: boolean
 }
 
 export async function POST(request: NextRequest) {
@@ -33,10 +36,46 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
 
-  const { selections, mode, comboStake } = body
+  const { selections, mode, comboStake, isRisky } = body
 
   if (!selections || selections.length === 0) {
     return NextResponse.json({ error: 'Keine Auswahlen.' }, { status: 400 })
+  }
+
+  // Validate stakes
+  if (mode === 'combo') {
+    if (comboStake > MAX_STAKE) {
+      return NextResponse.json(
+        { error: `Maximaler Einsatz pro Wette: ${MAX_STAKE}€.` },
+        { status: 400 }
+      )
+    }
+  } else {
+    for (const s of selections) {
+      const stake = s.stake || 10
+      if (stake > MAX_STAKE) {
+        return NextResponse.json(
+          { error: `Maximaler Einsatz pro Wette: ${MAX_STAKE}€.` },
+          { status: 400 }
+        )
+      }
+    }
+  }
+
+  // Risky Wette validation: only single mode, exactly 1 selection, odds > 20
+  if (isRisky) {
+    if (mode !== 'single' || selections.length !== 1) {
+      return NextResponse.json(
+        { error: 'Risky Wette muss eine einzelne Wette sein.' },
+        { status: 400 }
+      )
+    }
+    if (selections[0].oddsValue <= 20) {
+      return NextResponse.json(
+        { error: 'Risky Wette erfordert eine Quote über 20.' },
+        { status: 400 }
+      )
+    }
   }
 
   // Combo: reject mutually exclusive selections
@@ -71,7 +110,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Fetch matches to validate deadline
+  // Fetch current selection matches to validate deadline and get matchdays
   const matchIds = [...new Set(selections.map((s) => s.matchId))]
   const { data: matches } = await supabase
     .from('matches')
@@ -99,16 +138,36 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Enforce max 2 bet actions per matchday
+  // Enforce bet limit per matchday (2 normal + 1 risky)
   const matchdayIds = [...new Set(matches.map((m) => m.matchday))]
   for (const matchday of matchdayIds) {
-    // Count single bets (combo_id IS NULL) for this matchday
+    // Fetch ALL match IDs for this matchday (not just current selection)
+    const { data: allMatchdayMatches } = await supabase
+      .from('matches')
+      .select('id')
+      .eq('matchday', matchday)
+
+    const allMatchdayIds = (allMatchdayMatches ?? []).map((m) => m.id)
+
+    if (allMatchdayIds.length === 0) continue
+
+    // Count existing normal single bets for this matchday
     const { count: singleCount } = await supabase
       .from('bets')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
+      .eq('is_risky', false)
       .is('combo_id', null)
-      .in('match_id', matches.filter((m) => m.matchday === matchday).map((m) => m.id))
+      .in('match_id', allMatchdayIds)
+
+    // Count existing risky bets for this matchday
+    const { count: riskyCount } = await supabase
+      .from('bets')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .eq('is_risky', true)
+      .is('combo_id', null)
+      .in('match_id', allMatchdayIds)
 
     // Count distinct combo bets for this matchday via their legs
     const { data: comboLegs } = await supabase
@@ -116,22 +175,33 @@ export async function POST(request: NextRequest) {
       .select('combo_id')
       .eq('user_id', user.id)
       .not('combo_id', 'is', null)
-      .in('match_id', matches.filter((m) => m.matchday === matchday).map((m) => m.id))
+      .in('match_id', allMatchdayIds)
 
     const distinctCombos = new Set((comboLegs ?? []).map((b) => b.combo_id)).size
-    const existingCount = (singleCount ?? 0) + distinctCombos
+    const existingNormalCount = (singleCount ?? 0) + distinctCombos
+    const existingRiskyCount = riskyCount ?? 0
 
-    // New bets this submission for this matchday
-    const newCount = mode === 'combo' ? 1 : selections.filter((s) => {
-      const m = matches.find((match) => match.id === s.matchId)
-      return m?.matchday === matchday
-    }).length
+    if (isRisky) {
+      // Risky bet: only 1 allowed per matchday, and existing normal slots don't matter
+      if (existingRiskyCount >= 1) {
+        return NextResponse.json(
+          { error: `Du hast bereits eine Risky Wette für Spieltag ${matchday} platziert.` },
+          { status: 400 }
+        )
+      }
+    } else {
+      // Normal bet: max 2 per matchday
+      const newNormalCount = mode === 'combo' ? 1 : selections.filter((s) => {
+        const m = matches.find((match) => match.id === s.matchId)
+        return m?.matchday === matchday
+      }).length
 
-    if (existingCount + newCount > 2) {
-      return NextResponse.json(
-        { error: `Maximal 2 Wetten pro Spieltag erlaubt. Du hast bereits ${existingCount} Wette(n) für Spieltag ${matchday} platziert.` },
-        { status: 400 }
-      )
+      if (existingNormalCount + newNormalCount > 2) {
+        return NextResponse.json(
+          { error: `Maximal 2 Wetten pro Spieltag erlaubt. Du hast bereits ${existingNormalCount} Wette(n) für Spieltag ${matchday} platziert.` },
+          { status: 400 }
+        )
+      }
     }
   }
 
@@ -165,7 +235,6 @@ export async function POST(request: NextRequest) {
   if (mode === 'combo') {
     const totalOdds = selections.reduce((acc, s) => acc * s.oddsValue, 1)
 
-    // Create combo bet
     const { data: comboBet, error: comboError } = await supabase
       .from('combo_bets')
       .insert({
@@ -183,7 +252,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Fehler beim Erstellen der Kombiwette.' }, { status: 500 })
     }
 
-    // Insert individual bet legs (no stake on legs for combo)
     const betRows = selections.map((s) => ({
       user_id: user.id,
       match_id: s.matchId,
@@ -194,6 +262,7 @@ export async function POST(request: NextRequest) {
       status: 'pending',
       payout: null,
       combo_id: comboBet.id,
+      is_risky: false,
     }))
 
     const { error: betsError } = await supabase.from('bets').insert(betRows)
@@ -202,7 +271,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Fehler beim Speichern der Wetten.' }, { status: 500 })
     }
   } else {
-    // Single bets
     const betRows = selections.map((s) => ({
       user_id: user.id,
       match_id: s.matchId,
@@ -213,6 +281,7 @@ export async function POST(request: NextRequest) {
       status: 'pending',
       payout: null,
       combo_id: null,
+      is_risky: isRisky ?? false,
     }))
 
     const { error: betsError } = await supabase.from('bets').insert(betRows)
