@@ -16,7 +16,7 @@ interface BettingMatchCardProps {
   wildenrothTeamId?: number | null
 }
 
-type Tab = '1x2' | 'goals' | 'exact' | 'detail'
+type Tab = '1x2' | 'goals' | 'exact' | 'handicap'
 
 export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId }: BettingMatchCardProps) {
   const { selections, addSelection } = useBetSlip()
@@ -199,7 +199,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         <div className="border-t border-gray-100">
           {/* Tab Bar */}
           <div className="flex border-b border-gray-100">
-            {([['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis']] as [Tab, string][]).map(([tab, label]) => (
+            {([['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'HDP']] as [Tab, string][]).map(([tab, label]) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -277,6 +277,36 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   </div>
                 </div>
                 <div>
+                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Über/Unter 5,5 Tore</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <OddsButton
+                      label="Über 5,5" odds={odds.over_5_5}
+                      selected={isSelected('over_under_5_5', 'over_5.5')}
+                      onClick={() => add('over_under_5_5', 'Über/Unter 5,5', 'over_5.5', 'Über 5,5', odds.over_5_5)}
+                    />
+                    <OddsButton
+                      label="Unter 5,5" odds={odds.under_5_5}
+                      selected={isSelected('over_under_5_5', 'under_5.5')}
+                      onClick={() => add('over_under_5_5', 'Über/Unter 5,5', 'under_5.5', 'Unter 5,5', odds.under_5_5)}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Über/Unter 7,5 Tore</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <OddsButton
+                      label="Über 7,5" odds={odds.over_7_5}
+                      selected={isSelected('over_under_7_5', 'over_7.5')}
+                      onClick={() => add('over_under_7_5', 'Über/Unter 7,5', 'over_7.5', 'Über 7,5', odds.over_7_5)}
+                    />
+                    <OddsButton
+                      label="Unter 7,5" odds={odds.under_7_5}
+                      selected={isSelected('over_under_7_5', 'under_7.5')}
+                      onClick={() => add('over_under_7_5', 'Über/Unter 7,5', 'under_7.5', 'Unter 7,5', odds.under_7_5)}
+                    />
+                  </div>
+                </div>
+                <div>
                   <div className="text-xs text-gray-400 mb-1.5 font-medium">Beide Teams treffen</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
@@ -322,6 +352,57 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                       </span>
                     </button>
                   ))}
+                </div>
+                <div className="mt-1.5 text-[10px] text-gray-400 text-center">
+                  Nur Ergebnisse mit Quote ≤ 50 werden angezeigt
+                </div>
+              </div>
+            )}
+
+            {/* Handicap */}
+            {activeTab === 'handicap' && (
+              <div className="space-y-2">
+                <div>
+                  <div className="text-xs text-gray-400 mb-1.5 font-medium">
+                    Asiatisches Handicap –1,5 / +1,5
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <OddsButton
+                      label={`${match.home_team?.short_name ?? '1'} –1,5`}
+                      sublabel="Sieg mit 2+ Toren"
+                      odds={odds.hdp_home_minus_1_5}
+                      selected={isSelected('handicap', 'home_minus_1_5')}
+                      onClick={() => add('handicap', 'Handicap', 'home_minus_1_5', `${homeName} –1,5`, odds.hdp_home_minus_1_5)}
+                    />
+                    <OddsButton
+                      label={`${match.away_team?.short_name ?? '2'} +1,5`}
+                      sublabel="Sieg, X oder 1-Tor-Ndl."
+                      odds={odds.hdp_away_plus_1_5}
+                      selected={isSelected('handicap', 'away_plus_1_5')}
+                      onClick={() => add('handicap', 'Handicap', 'away_plus_1_5', `${awayName} +1,5`, odds.hdp_away_plus_1_5)}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-400 mb-1.5 font-medium">
+                    Asiatisches Handicap –2,5 / +2,5
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <OddsButton
+                      label={`${match.home_team?.short_name ?? '1'} –2,5`}
+                      sublabel="Sieg mit 3+ Toren"
+                      odds={odds.hdp_home_minus_2_5}
+                      selected={isSelected('handicap', 'home_minus_2_5')}
+                      onClick={() => add('handicap', 'Handicap', 'home_minus_2_5', `${homeName} –2,5`, odds.hdp_home_minus_2_5)}
+                    />
+                    <OddsButton
+                      label={`${match.away_team?.short_name ?? '2'} +2,5`}
+                      sublabel="Sieg, X oder max. 2-Ndl."
+                      odds={odds.hdp_away_plus_2_5}
+                      selected={isSelected('handicap', 'away_plus_2_5')}
+                      onClick={() => add('handicap', 'Handicap', 'away_plus_2_5', `${awayName} +2,5`, odds.hdp_away_plus_2_5)}
+                    />
+                  </div>
                 </div>
               </div>
             )}

@@ -43,14 +43,29 @@ function hasContradiction(a: BetSlipItem, b: BetSlipItem): boolean {
   if (exact) {
     const [hg, ag] = exact.selection.split(':').map(Number)
     const t = hg + ag
+    const diff = hg - ag
     if (has('1x2', 'home') && ag > hg) return true
     if (has('1x2', 'away') && hg >= ag) return true
     if (has('1x2', 'draw') && hg !== ag) return true
     if (has('over_under_3_5', 'over_3.5') && t <= 3) return true
     if (has('over_under_3_5', 'under_3.5') && t >= 4) return true
+    if (has('over_under_5_5', 'over_5.5') && t <= 5) return true
+    if (has('over_under_5_5', 'under_5.5') && t >= 6) return true
+    if (has('over_under_7_5', 'over_7.5') && t <= 7) return true
+    if (has('over_under_7_5', 'under_7.5') && t >= 8) return true
     if (has('btts', 'yes') && (hg === 0 || ag === 0)) return true
     if (has('btts', 'no') && hg > 0 && ag > 0) return true
+    if (has('handicap', 'home_minus_1_5') && diff < 2) return true
+    if (has('handicap', 'away_plus_1_5') && diff >= 2) return true
+    if (has('handicap', 'home_minus_2_5') && diff < 3) return true
+    if (has('handicap', 'away_plus_2_5') && diff >= 3) return true
   }
+
+  // Handicap vs 1X2 contradictions
+  if (has('handicap', 'home_minus_1_5') && has('1x2', 'draw')) return true
+  if (has('handicap', 'home_minus_1_5') && has('1x2', 'away')) return true
+  if (has('handicap', 'home_minus_2_5') && has('1x2', 'draw')) return true
+  if (has('handicap', 'home_minus_2_5') && has('1x2', 'away')) return true
 
   return false
 }

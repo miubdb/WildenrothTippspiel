@@ -39,6 +39,26 @@ function settleBet(
       if (!bothScored && selection === 'no') return 'won'
       return 'lost'
     }
+    case 'over_under_5_5': {
+      const total = homeScore + awayScore
+      if (total > 5.5 && selection === 'over_5.5') return 'won'
+      if (total <= 5.5 && selection === 'under_5.5') return 'won'
+      return 'lost'
+    }
+    case 'over_under_7_5': {
+      const total = homeScore + awayScore
+      if (total > 7.5 && selection === 'over_7.5') return 'won'
+      if (total <= 7.5 && selection === 'under_7.5') return 'won'
+      return 'lost'
+    }
+    case 'handicap': {
+      const diff = homeScore - awayScore
+      if (selection === 'home_minus_1_5') return diff >= 2 ? 'won' : 'lost'
+      if (selection === 'away_plus_1_5')  return diff <= 1 ? 'won' : 'lost'
+      if (selection === 'home_minus_2_5') return diff >= 3 ? 'won' : 'lost'
+      if (selection === 'away_plus_2_5')  return diff <= 2 ? 'won' : 'lost'
+      return 'lost'
+    }
     case 'exact_score': {
       // selection format: "2:1"
       const parts = selection.split(':')

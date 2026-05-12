@@ -24,7 +24,7 @@ interface InviteCode {
   created_at: string
 }
 
-type Tab = 'results' | 'invites' | 'odds'
+type Tab = 'results' | 'bets' | 'invites' | 'odds'
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('results')
@@ -207,17 +207,17 @@ export default function AdminPage() {
 
         {/* Tab Bar */}
         <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm">
-          {(['results', 'invites', 'odds'] as Tab[]).map((t) => (
+          {(['results', 'bets', 'invites', 'odds'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${
+              className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
                 tab === t
                   ? 'bg-red-700 text-white shadow'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {t === 'results' ? 'Ergebnisse' : t === 'invites' ? 'Einladungen' : 'Quoten'}
+              {t === 'results' ? 'Ergebnisse' : t === 'bets' ? 'Tipps' : t === 'invites' ? 'Einladungen' : 'Quoten'}
             </button>
           ))}
         </div>
@@ -290,6 +290,9 @@ export default function AdminPage() {
             )}
           </div>
         )}
+
+        {/* Bets Tab */}
+        {tab === 'bets' && <AdminBetsTab matches={matches} />}
 
         {/* Invites Tab */}
         {tab === 'invites' && (
@@ -399,6 +402,124 @@ export default function AdminPage() {
         )}
       </div>
     </div>
+  )
+}
+
+const MARKET_LABELS: Record<string, string> = {
+  '1x2': '1X2', double_chance: 'DC', over_under: 'O/U 2,5',
+  over_under_3_5: 'O/U 3,5', over_under_5_5: 'O/U 5,5', over_under_7_5: 'O/U 7,5',
+  btts: 'BTTS', exact_score: 'Ergebnis', handicap: 'HDP',
+}
+
+function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
+  const allMatchdays = [...new Set(matches.map(m => m.matchday))].sort((a, b) => a - b)
+  const firstScheduled = matches.find(m => m.status === 'scheduled')?.matchday
+  const [selectedMd, setSelectedMd] = useState<number>(firstScheduled ?? allMatchdays[allMatchdays.length - 1] ?? 1)
+  const [bets, setBets] = useState<{ id: string; user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; is_risky: boolean; stake: number | null }[]>([])
+  const [profiles, setProfiles] = useState<{ id: string; display_name: string | null; username: string }[]>([])
+  const [matchMap, setMatchMap] = useState<Record<number, { home: string; away: string }>>({})
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`/api/admin/bets?matchday=${selectedMd}`)
+      .then(r => r.json())
+      .then(data => { setBets(data.bets ?? []); setProfiles(data.profiles ?? []); setMatchMap(data.matchMap ?? {}) })
+      .finally(() => setLoading(false))
+  }, [selectedMd])
+
+  const profileMap = Object.fromEntries(profiles.map(p => [p.id, p.display_name || p.username]))
+  const byUser = profiles.map(p => ({
+    profile: p,
+    bets: bets.filter(b => b.user_id === p.id),
+  }))
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 flex-wrap">
+        {allMatchdays.map(md => (
+          <button key={md} onClick={() => setSelectedMd(md)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              md === selectedMd ? 'bg-red-700 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
+            }`}>
+            ST {md}
+          </button>
+        ))}
+      </div>
+
+      {loading && <div className="text-center py-8 text-gray-400 text-sm">Lade Tipps…</div>}
+
+      {!loading && byUser.length === 0 && (
+        <div className="text-center py-8 text-gray-400 text-sm">Keine Tipps für Spieltag {selectedMd}</div>
+      )}
+
+      {!loading && byUser.map(({ profile, bets: userBets }) => {
+        if (userBets.length === 0) return null
+        const shownCombos = new Set<string>()
+        return (
+          <div key={profile.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+              <span className="w-7 h-7 rounded-full bg-red-100 flex items-center justify-center text-red-700 font-bold text-xs flex-shrink-0">
+                {(profile.display_name || profile.username)[0].toUpperCase()}
+              </span>
+              <span className="font-semibold text-sm text-gray-900">{profileMap[profile.id]}</span>
+              <span className="ml-auto text-xs text-gray-400">{userBets.filter(b => !b.combo_id).length} Einzel · {new Set(userBets.filter(b => b.combo_id).map(b => b.combo_id)).size} Kombi</span>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {userBets.map(bet => {
+                if (bet.combo_id) {
+                  if (shownCombos.has(bet.combo_id)) return null
+                  shownCombos.add(bet.combo_id)
+                  const legs = userBets.filter(b => b.combo_id === bet.combo_id)
+                  const comboOdds = legs.reduce((acc, l) => acc * l.odds_value, 1)
+                  return (
+                    <div key={bet.combo_id} className="px-4 py-2.5">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
+                          {bet.is_risky ? '🎲 RISKY' : '🔗 KOMBI'}
+                        </span>
+                        <span className="text-xs text-gray-500">{legs.length} Tipps · @{comboOdds.toFixed(2)}</span>
+                        <StatusChip status={bet.status} />
+                      </div>
+                      {legs.map(leg => (
+                        <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5 pl-2">
+                          <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
+                          <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
+                          <span className="font-medium text-gray-800">{leg.selection}</span>
+                          <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
+                return (
+                  <div key={bet.id} className="px-4 py-2.5 flex items-center gap-2 text-xs">
+                    <span className="text-gray-400">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
+                    <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
+                    <span className="font-medium text-gray-800">{bet.selection}</span>
+                    {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
+                    <span className="text-red-600 font-bold ml-auto">@{bet.odds_value.toFixed(2)}</span>
+                    <span className="text-gray-400">{bet.stake != null ? `${bet.stake}€` : ''}</span>
+                    <StatusChip status={bet.status} />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function StatusChip({ status }: { status: string }) {
+  return (
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+      status === 'won' ? 'bg-green-100 text-green-700' :
+      status === 'lost' ? 'bg-red-100 text-red-600' : 'bg-yellow-50 text-yellow-700'
+    }`}>
+      {status === 'won' ? 'Gewonnen' : status === 'lost' ? 'Verloren' : 'Offen'}
+    </span>
   )
 }
 

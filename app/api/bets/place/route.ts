@@ -92,14 +92,27 @@ export async function POST(request: NextRequest) {
         if (exact) {
           const [hg, ag] = exact.selection.split(':').map(Number)
           const t = hg + ag
+          const diff = hg - ag
           if (has('1x2', 'home') && ag > hg) bad = true
           if (has('1x2', 'away') && hg >= ag) bad = true
           if (has('1x2', 'draw') && hg !== ag) bad = true
           if (has('over_under_3_5', 'over_3.5') && t <= 3) bad = true
           if (has('over_under_3_5', 'under_3.5') && t >= 4) bad = true
+          if (has('over_under_5_5', 'over_5.5') && t <= 5) bad = true
+          if (has('over_under_5_5', 'under_5.5') && t >= 6) bad = true
+          if (has('over_under_7_5', 'over_7.5') && t <= 7) bad = true
+          if (has('over_under_7_5', 'under_7.5') && t >= 8) bad = true
           if (has('btts', 'yes') && (hg === 0 || ag === 0)) bad = true
           if (has('btts', 'no') && hg > 0 && ag > 0) bad = true
+          if (has('handicap', 'home_minus_1_5') && diff < 2) bad = true
+          if (has('handicap', 'away_plus_1_5') && diff >= 2) bad = true
+          if (has('handicap', 'home_minus_2_5') && diff < 3) bad = true
+          if (has('handicap', 'away_plus_2_5') && diff >= 3) bad = true
         }
+        if (has('handicap', 'home_minus_1_5') && has('1x2', 'draw')) bad = true
+        if (has('handicap', 'home_minus_1_5') && has('1x2', 'away')) bad = true
+        if (has('handicap', 'home_minus_2_5') && has('1x2', 'draw')) bad = true
+        if (has('handicap', 'home_minus_2_5') && has('1x2', 'away')) bad = true
         if (bad) return NextResponse.json(
           { error: 'Ungültige Kombiwette – widersprüchliche Wetten für dasselbe Spiel.' },
           { status: 400 }

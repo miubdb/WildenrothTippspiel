@@ -123,8 +123,16 @@ export default async function TippsPage({
         under_2_5: Number(row.under_2_5),
         over_3_5:  Number(row.over_3_5),
         under_3_5: Number(row.under_3_5),
+        over_5_5:  Number(row.over_5_5),
+        under_5_5: Number(row.under_5_5),
+        over_7_5:  Number(row.over_7_5),
+        under_7_5: Number(row.under_7_5),
         btts_yes:  Number(row.btts_yes),
         btts_no:   Number(row.btts_no),
+        hdp_home_minus_1_5: Number(row.hdp_home_minus_1_5),
+        hdp_away_plus_1_5:  Number(row.hdp_away_plus_1_5),
+        hdp_home_minus_2_5: Number(row.hdp_home_minus_2_5),
+        hdp_away_plus_2_5:  Number(row.hdp_away_plus_2_5),
       }
     }
 
@@ -152,8 +160,16 @@ export default async function TippsPage({
           under_2_5: odds.under_2_5,
           over_3_5:  odds.over_3_5,
           under_3_5: odds.under_3_5,
+          over_5_5:  odds.over_5_5,
+          under_5_5: odds.under_5_5,
+          over_7_5:  odds.over_7_5,
+          under_7_5: odds.under_7_5,
           btts_yes:  odds.btts_yes,
           btts_no:   odds.btts_no,
+          hdp_home_minus_1_5: odds.hdp_home_minus_1_5,
+          hdp_away_plus_1_5:  odds.hdp_away_plus_1_5,
+          hdp_home_minus_2_5: odds.hdp_home_minus_2_5,
+          hdp_away_plus_2_5:  odds.hdp_away_plus_2_5,
         }, { onConflict: 'match_id' })
       }
     }

@@ -96,11 +96,12 @@ export default function AnleitungPage() {
           ]}
         />
         <MarketCard
-          title="Über/Unter 3,5 Tore"
-          description="Egal wer gewinnt — werden mehr oder weniger als 4 Tore fallen?"
+          title="Über/Unter Tore"
+          description="Werden mehr oder weniger Tore fallen — egal wer gewinnt. Drei Linien stehen zur Wahl."
           items={[
-            { label: 'Über 3,5', desc: 'Mindestens 4 Tore insgesamt (z.B. 3:1, 4:0, 2:2)' },
-            { label: 'Unter 3,5', desc: 'Höchstens 3 Tore insgesamt (z.B. 1:0, 2:1, 1:1)' },
+            { label: 'Ü/U 3,5', desc: 'Min. 4 Tore (Über) oder max. 3 Tore (Unter)' },
+            { label: 'Ü/U 5,5', desc: 'Min. 6 Tore (Über) oder max. 5 Tore (Unter)' },
+            { label: 'Ü/U 7,5', desc: 'Min. 8 Tore (Über) oder max. 7 Tore (Unter) — für echte Torjäger' },
           ]}
         />
         <MarketCard
@@ -112,11 +113,21 @@ export default function AnleitungPage() {
           ]}
         />
         <MarketCard
-          title="Genaues Ergebnis"
-          description="Die schwierigste, aber lukrativste Wette — tippe das exakte Endergebnis. Wahrscheinlichere Ergebnisse haben niedrigere Quoten; seltene Ergebnisse können deutlich über 20,00 liegen."
+          title="Asiatisches Handicap"
+          description="Eine Mannschaft erhält einen virtuellen Vorsprung. Halbe-Tore vermeiden Push (Rückgabe)."
           items={[
-            { label: '1:0', desc: 'Typisch häufiges Ergebnis → niedrigere Quote' },
-            { label: '4:2', desc: 'Seltenes Ergebnis → hohe Quote, zählt als Risky Wette' },
+            { label: '–1,5', desc: 'Heimsieg mit mind. 2 Toren Unterschied — hohe Quote bei Außenseitern' },
+            { label: '+1,5', desc: 'Auswärtsteam braucht kein Sieg — reicht, wenn Heimteam nicht mit 2+ gewinnt' },
+            { label: '–2,5', desc: 'Heimsieg mit mind. 3 Toren Unterschied' },
+            { label: '+2,5', desc: 'Auswärtsteam braucht max. 2 Tore Rückstand' },
+          ]}
+        />
+        <MarketCard
+          title="Genaues Ergebnis"
+          description="Die schwierigste, aber lukrativste Wette — tippe das exakte Endergebnis. Nur Ergebnisse mit Quote ≤ 50 werden angezeigt (sehr unwahrscheinliche Scorelines werden ausgeblendet)."
+          items={[
+            { label: '1:0', desc: 'Häufiges Ergebnis → niedrigere Quote (~7–10)' },
+            { label: '3:1', desc: 'Selteneres Ergebnis → höhere Quote (~20–35)' },
           ]}
         />
       </Section>

@@ -256,8 +256,9 @@ export function calculateOdds(
 
   // Aggregate raw probabilities from the joint score distribution
   let pHome = 0, pDraw = 0, pAway = 0
-  let pOver25 = 0, pOver35 = 0
+  let pOver25 = 0, pOver35 = 0, pOver55 = 0, pOver75 = 0
   let pBtts = 0
+  let pHomeMinus15 = 0, pHomeMinus25 = 0
 
   for (let h = 0; h <= 8; h++) {
     for (let a = 0; a <= 8; a++) {
@@ -267,7 +268,11 @@ export function calculateOdds(
       else pAway += p
       if (h + a > 2) pOver25 += p
       if (h + a > 3) pOver35 += p
+      if (h + a > 5) pOver55 += p
+      if (h + a > 7) pOver75 += p
       if (h > 0 && a > 0) pBtts += p
+      if (h - a >= 2) pHomeMinus15 += p
+      if (h - a >= 3) pHomeMinus25 += p
     }
   }
 
@@ -288,12 +293,29 @@ export function calculateOdds(
     under_2_5: toOdds(1 - pOver25),
     over_3_5:  toOdds(pOver35),
     under_3_5: toOdds(1 - pOver35),
+    over_5_5:  toOdds(pOver55),
+    under_5_5: toOdds(1 - pOver55),
+    over_7_5:  toOdds(pOver75),
+    under_7_5: toOdds(1 - pOver75),
     btts_yes:  toOdds(pBtts),
     btts_no:   toOdds(1 - pBtts),
+    hdp_home_minus_1_5: toOdds(pHomeMinus15),
+    hdp_away_plus_1_5:  toOdds(1 - pHomeMinus15),
+    hdp_home_minus_2_5: toOdds(pHomeMinus25),
+    hdp_away_plus_2_5:  toOdds(1 - pHomeMinus25),
   }
 }
 
-/** Exact-score odds grid derived from the same Poisson model as calculateOdds */
+/**
+ * Exact-score odds derived from the same Poisson model as calculateOdds.
+ * Only scores with odds ≤ MAX_EXACT_ODDS are offered — scores above that
+ * threshold are so unlikely (P < ~1.8%) they add noise without meaningful value.
+ * Consistent with 1X2: the house margin factor is identical for every score,
+ * so the sum of exact-score implied probabilities for any subset is always ≤
+ * the corresponding 1X2 implied probability. No arbitrage across markets is possible.
+ */
+const MAX_EXACT_ODDS = 50
+
 export function getExactScoreOdds(
   matches: Match[],
   homeTeamId: number,
@@ -301,19 +323,19 @@ export function getExactScoreOdds(
 ): { score: string; odds: number }[] {
   const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId)
 
-  const scores: [number, number][] = [
-    [0, 0], [1, 0], [0, 1],
-    [1, 1], [2, 0], [0, 2],
-    [2, 1], [1, 2], [2, 2],
-    [3, 0], [0, 3], [3, 1],
-    [1, 3], [3, 2], [2, 3],
-    [4, 0], [0, 4], [4, 1],
-    [1, 4], [4, 2], [2, 4],
-    [5, 0], [0, 5],
-  ]
+  const results: { score: string; odds: number; total: number; homeGoals: number }[] = []
 
-  return scores.map(([h, a]) => ({
-    score: `${h}:${a}`,
-    odds: toOdds(poisson(homeXG, h) * poisson(awayXG, a)),
-  }))
+  for (let h = 0; h <= 7; h++) {
+    for (let a = 0; a <= 7; a++) {
+      const o = toOdds(poisson(homeXG, h) * poisson(awayXG, a))
+      if (o <= MAX_EXACT_ODDS) {
+        results.push({ score: `${h}:${a}`, odds: o, total: h + a, homeGoals: h })
+      }
+    }
+  }
+
+  // Sort: fewest total goals first; within same total, more home goals first
+  results.sort((a, b) => a.total - b.total || b.homeGoals - a.homeGoals)
+
+  return results.map(({ score, odds }) => ({ score, odds }))
 }
