@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { BetSlipProvider } from '@/context/BetSlipContext'
@@ -32,9 +33,9 @@ export default async function AppLayout({
         {/* Top Header */}
         <header className="bg-red-700 text-white sticky top-0 z-40 safe-top shadow-lg">
           <div className="flex items-center justify-between px-4 py-3 max-w-lg mx-auto">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center">
-                <span className="text-red-700 font-black text-xs leading-none">SpVgg</span>
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center overflow-hidden shadow-sm flex-shrink-0">
+                <Image src="/icon-192.png" alt="SpVgg Wildenroth" width={36} height={36} className="object-contain" />
               </div>
               <div>
                 <span className="font-bold text-sm leading-tight block">Wildenroth</span>
