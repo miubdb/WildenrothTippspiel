@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PushSubscribeButton } from '@/components/PushSubscribeButton'
+import { ProfileEditForm } from '@/components/ProfileEditForm'
 
 export const revalidate = 60
 
@@ -244,6 +245,12 @@ export default async function ProfilPage() {
           </div>
         )}
       </div>
+
+      {/* Profile Edit */}
+      <ProfileEditForm
+        displayName={profile.display_name || profile.username}
+        username={profile.username}
+      />
 
       <SignOutButton />
     </div>

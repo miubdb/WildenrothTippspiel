@@ -40,12 +40,14 @@ export default function AnleitungPage() {
 
       <Section title="Tipps der anderen sehen" emoji="👥">
         <p>
-          Sobald das <strong>erste Spiel eines Spieltags angepfiffen</strong> wird, kannst du auf der
-          Tipps-Seite sehen, welche Wetten die anderen Mitspieler für diesen Spieltag platziert haben —
-          natürlich erst nach Deadline, damit niemand seine Tipps anpassen kann.
+          Sobald der Annahmeschluss abgelaufen ist, kannst du in der <strong>Rangliste</strong> sehen,
+          welche Wetten die anderen Mitspieler platziert haben — so bleibt es bis zum Anpfiff spannend.
         </p>
+        <Step n={1} text={'Gehe zur Rangliste und tippe oben auf den Tab „Spieltag“.'} />
+        <Step n={2} text="Dort siehst du alle Tipps aller Teilnehmer für den aktuellen Spieltag — mit Einsatz, Quote und möglicher Auszahlung." />
+        <Step n={3} text="In der Ranglisten-Ansicht kannst du auf den Pfeil neben einer Person tippen, um deren Tipps direkt aufzuklappen." />
         <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-800">
-          Du findest die Tipps der anderen direkt unterhalb der Spiele auf der <strong>Tipps-Seite</strong>, wenn der Spieltag bereits läuft.
+          Du kannst auf Wetten anderer mit Emojis reagieren (👏 🔥 😬 😎 💀) — tippe dazu auf das <strong>+</strong> unter einer Wette.
         </div>
       </Section>
 
