@@ -307,10 +307,11 @@ export default async function TabellePage() {
               <div className={`font-semibold text-sm mb-2 ${s.teamName.includes('Wildenroth') ? 'text-red-700' : 'text-gray-800'}`}>
                 {s.teamName}
               </div>
-              <div className="grid grid-cols-5 gap-1 text-center text-xs">
+              <div className="grid grid-cols-6 gap-1 text-center text-xs">
                 <StatCell label="Punkte" value={String(s.pts)} highlight={s.teamName.includes('Wildenroth')} />
                 <StatCell label="Siege" value={String(s.w)} />
                 <StatCell label="Unent." value={String(s.d)} />
+                <StatCell label="Niederl." value={String(s.l)} />
                 <StatCell label="Tordiff." value={s.gd >= 0 ? `+${s.gd}` : String(s.gd)} />
                 <StatCell label="P/Spiel" value={s.ppg.toFixed(2)} />
               </div>
