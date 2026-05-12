@@ -363,7 +363,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             {activeTab === 'handicap' && (
               <div className="space-y-2">
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Handicap (0:1)</div>
+                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Handicap –1,5 / +1,5</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
                       label="Heim –1,5"
@@ -374,7 +374,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                     />
                     <OddsButton
                       label="Gast +1,5"
-                      sublabel="Nicht mit 2+ verlieren"
+                      sublabel="Verliert nicht mit 2+"
                       odds={odds.hdp_away_plus_1_5}
                       selected={isSelected('handicap', 'away_plus_1_5')}
                       onClick={() => add('handicap', 'Handicap', 'away_plus_1_5', `${awayName} +1,5`, odds.hdp_away_plus_1_5)}
@@ -382,7 +382,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Handicap (0:2)</div>
+                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Handicap –2,5 / +2,5</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
                       label="Heim –2,5"
@@ -393,7 +393,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                     />
                     <OddsButton
                       label="Gast +2,5"
-                      sublabel="Nicht mit 3+ verlieren"
+                      sublabel="Verliert nicht mit 3+"
                       odds={odds.hdp_away_plus_2_5}
                       selected={isSelected('handicap', 'away_plus_2_5')}
                       onClick={() => add('handicap', 'Handicap', 'away_plus_2_5', `${awayName} +2,5`, odds.hdp_away_plus_2_5)}
