@@ -6,14 +6,16 @@ const HOUSE_MARGIN = 0.12
 const MIN_ODDS = 1.05
 const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
 
-// Per-team league baselines (Kreisklasse: ~2.25 goals/game total).
-// Small home/away gap keeps away-favorites from being over-penalised by the prior.
-const LEAGUE_HOME_XG = 1.20
-const LEAGUE_AWAY_XG = 1.05
+// Per-team league baselines (Kreisklasse: ~2.35 goals/game total).
+// Moderate home/away gap; baselines kept conservative so BTTS and O/U
+// don't floor even for genuinely high-scoring matchups.
+const LEAGUE_HOME_XG = 1.25
+const LEAGUE_AWAY_XG = 1.10
 
 // Bayesian prior weight: K equivalent games of prior belief.
-// With K=4: at 0 games → 100% prior; at 4 games → 50/50; at 8 games → 67% actual data.
-const XG_PRIOR = 4
+// With K=6: at 0 games → 100% prior; at 6 games → 50/50; at 12 games → 67% actual data.
+// Higher K keeps rates closer to 1.0 to prevent the product model from exploding.
+const XG_PRIOR = 6
 
 // ---------- Math helpers ----------
 
@@ -141,16 +143,14 @@ export function getTeamRecord(matches: Match[], teamId: number) {
   return { played: games.length, w, d, l, gf, ga, gd: gf - ga, pts: w * 3 + d }
 }
 
-// ---------- xG estimation — multiplicative Dixon-Coles model with Bayesian shrinkage ----------
+// ---------- xG estimation — geometric-mean attack/defense model with Bayesian shrinkage ----------
 
 /**
- * Bayesian strength rate relative to the league average.
- * Returns how many times above/below league average this observation is,
- * shrunk toward 1.0 with XG_PRIOR equivalent games of prior belief.
- * With n=0 the result is always 1.0 (pure prior = league average).
+ * Bayesian shrinkage toward league mean.
+ * raw: observed average | leagueAvg: prior | n: observed games
  */
-function bayesianRate(raw: number, leagueAvg: number, n: number): number {
-  return (n * raw + XG_PRIOR * leagueAvg) / ((n + XG_PRIOR) * leagueAvg)
+function bayesianXG(raw: number, leagueAvg: number, n: number): number {
+  return (n * raw + XG_PRIOR * leagueAvg) / (n + XG_PRIOR)
 }
 
 /** Goals scored per home game for teamId */
@@ -182,19 +182,20 @@ function homeGoalsConceded(matches: Match[], teamId: number): { avg: number; n: 
 }
 
 /**
- * Multiplicative Dixon-Coles xG model with Bayesian shrinkage.
+ * Geometric-mean xG model with a single Bayesian shrinkage pass.
  *
- * Each team's attack and defense is expressed as a rate relative to the
- * league average (1.0 = average), shrunk toward 1.0 with XG_PRIOR games.
+ * Why geometric mean instead of arithmetic mean or full product:
+ * - Arithmetic mean `(atk + def) / 2` underestimates compounding quality mismatches.
+ * - Full product `L × atkRate × defRate` overestimates them — two rates of 1.8×
+ *   combine to 3.24×, producing absurdly short O/U and BTTS odds.
+ * - Geometric mean `sqrt(atk × def)` threads the needle: for equal values it is
+ *   identical to the arithmetic mean, but for unequal values it stays lower
+ *   (AM ≥ GM by the AM–GM inequality), preventing rate-product explosions.
+ *   A strong attacker vs a strong defence still yields moderate xG, which is
+ *   physically correct. A strong attacker vs a weak defence still yields
+ *   amplified xG, giving genuine spread between different matchups.
  *
- * homeXG = LEAGUE_HOME_XG × homeAtkRate × awayDefRate
- * awayXG = LEAGUE_AWAY_XG × awayAtkRate × homeDefRate
- *
- * Advantages over the additive mean approach:
- * - Quality mismatches compound: a strong attacker vs a weak defense gets
- *   amplified rather than averaged, creating more spread across matchups.
- * - Home advantage is driven by real home/away data, not a hard-coded gap.
- * - BTTS and O/U naturally vary more between structurally different games.
+ * A single Bayesian shrinkage is then applied to the combined raw estimate.
  */
 function getMatchXG(
   matches: Match[],
@@ -206,15 +207,16 @@ function getMatchXG(
   const awayAtk = awayGoalsScored(matches, awayTeamId)    // away team goals scored away
   const homeDef = homeGoalsConceded(matches, homeTeamId)  // home team goals conceded at home
 
-  // Rates relative to league baseline; n=0 → rate=1.0 (full prior)
-  const homeAtkRate = bayesianRate(homeAtk.avg, LEAGUE_HOME_XG, homeAtk.n)
-  const awayDefRate = bayesianRate(awayDef.avg, LEAGUE_HOME_XG, awayDef.n)
-  const awayAtkRate = bayesianRate(awayAtk.avg, LEAGUE_AWAY_XG, awayAtk.n)
-  const homeDefRate = bayesianRate(homeDef.avg, LEAGUE_AWAY_XG, homeDef.n)
+  // Geometric mean of the two raw signals, then shrink toward the league baseline.
+  // Average the sample sizes for the combined effective-data weight.
+  const rawHomeXG = Math.sqrt(homeAtk.avg * awayDef.avg)
+  const rawAwayXG = Math.sqrt(awayAtk.avg * homeDef.avg)
+  const homeN = (homeAtk.n + awayDef.n) / 2
+  const awayN = (awayAtk.n + homeDef.n) / 2
 
   return {
-    homeXG: Math.max(0.20, LEAGUE_HOME_XG * homeAtkRate * awayDefRate),
-    awayXG: Math.max(0.20, LEAGUE_AWAY_XG * awayAtkRate * homeDefRate),
+    homeXG: Math.max(0.25, bayesianXG(rawHomeXG, LEAGUE_HOME_XG, homeN)),
+    awayXG: Math.max(0.25, bayesianXG(rawAwayXG, LEAGUE_AWAY_XG, awayN)),
   }
 }
 
