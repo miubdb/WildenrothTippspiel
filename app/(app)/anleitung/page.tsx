@@ -38,6 +38,17 @@ export default function AnleitungPage() {
         <Step n={4} text="Gib deinen Einsatz ein und klicke auf 'Wette platzieren' — fertig!" />
       </Section>
 
+      <Section title="Tipps der anderen sehen" emoji="👥">
+        <p>
+          Sobald das <strong>erste Spiel eines Spieltags angepfiffen</strong> wird, kannst du auf der
+          Tipps-Seite sehen, welche Wetten die anderen Mitspieler für diesen Spieltag platziert haben —
+          natürlich erst nach Deadline, damit niemand seine Tipps anpassen kann.
+        </p>
+        <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-800">
+          Du findest die Tipps der anderen direkt unterhalb der Spiele auf der <strong>Tipps-Seite</strong>, wenn der Spieltag bereits läuft.
+        </div>
+      </Section>
+
       <Section title="Wettmärkte" emoji="📋">
         <MarketCard
           title="1X2 — Spielausgang"
@@ -132,10 +143,10 @@ export default function AnleitungPage() {
       <Section title="App auf Handy installieren" emoji="📱">
         <div className="space-y-3">
           <div>
-            <div className="font-semibold text-gray-700 text-sm mb-1">📱 iPhone (Safari)</div>
+            <div className="font-semibold text-gray-700 text-sm mb-1">🍎 iPhone / iPad</div>
             <ol className="text-sm text-gray-600 space-y-1 list-decimal list-inside">
-              <li>Diese Seite in Safari öffnen</li>
-              <li>Unten auf das Teilen-Symbol tippen (Kasten mit Pfeil)</li>
+              <li>Diese Seite in <strong>Safari oder Chrome</strong> öffnen</li>
+              <li>Auf das Teilen-Symbol tippen (Safari: unten Mitte; Chrome: oben rechts drei Punkte)</li>
               <li>„Zum Home-Bildschirm" wählen</li>
               <li>„Hinzufügen" bestätigen</li>
             </ol>
