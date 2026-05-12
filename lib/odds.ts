@@ -6,15 +6,13 @@ const HOUSE_MARGIN = 0.12
 const MIN_ODDS = 1.05
 const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
 
-// Per-team league baselines (Kreisklasse: ~2.5 goals/game total).
-// Small home/away gap (1.30 vs 1.20) so clear away-favorites aren't over-penalised
-// by a heavy home-advantage prior.
-const LEAGUE_HOME_XG = 1.30
-const LEAGUE_AWAY_XG = 1.20
+// Per-team league baselines (Kreisklasse: ~2.25 goals/game total).
+// Small home/away gap keeps away-favorites from being over-penalised by the prior.
+const LEAGUE_HOME_XG = 1.20
+const LEAGUE_AWAY_XG = 1.05
 
 // Bayesian prior weight: K equivalent games of prior belief.
-// With K=4 and 0 real games → 100% league avg; with 4 games → 50/50; with 8 → 67% actual data.
-// Lower K lets genuine team strength dominate sooner.
+// With K=4: at 0 games → 100% prior; at 4 games → 50/50; at 8 games → 67% actual data.
 const XG_PRIOR = 4
 
 // ---------- Math helpers ----------
@@ -143,14 +141,16 @@ export function getTeamRecord(matches: Match[], teamId: number) {
   return { played: games.length, w, d, l, gf, ga, gd: gf - ga, pts: w * 3 + d }
 }
 
-// ---------- xG estimation with Bayesian shrinkage ----------
+// ---------- xG estimation — multiplicative Dixon-Coles model with Bayesian shrinkage ----------
 
 /**
- * Bayesian shrinkage toward league mean.
- * raw: observed average | leagueAvg: prior | n: observed games
+ * Bayesian strength rate relative to the league average.
+ * Returns how many times above/below league average this observation is,
+ * shrunk toward 1.0 with XG_PRIOR equivalent games of prior belief.
+ * With n=0 the result is always 1.0 (pure prior = league average).
  */
-function bayesianXG(raw: number, leagueAvg: number, n: number): number {
-  return (n * raw + XG_PRIOR * leagueAvg) / (n + XG_PRIOR)
+function bayesianRate(raw: number, leagueAvg: number, n: number): number {
+  return (n * raw + XG_PRIOR * leagueAvg) / ((n + XG_PRIOR) * leagueAvg)
 }
 
 /** Goals scored per home game for teamId */
@@ -160,7 +160,7 @@ function homeGoalsScored(matches: Match[], teamId: number): { avg: number; n: nu
   return { avg: games.reduce((s, m) => s + (m.home_score ?? 0), 0) / games.length, n: games.length }
 }
 
-/** Goals conceded per away game for teamId (= how many the home team scored against them) */
+/** Goals conceded per away game for teamId (scored by the opposing home team) */
 function awayGoalsConceded(matches: Match[], teamId: number): { avg: number; n: number } {
   const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
   if (games.length === 0) return { avg: LEAGUE_HOME_XG, n: 0 }
@@ -174,7 +174,7 @@ function awayGoalsScored(matches: Match[], teamId: number): { avg: number; n: nu
   return { avg: games.reduce((s, m) => s + (m.away_score ?? 0), 0) / games.length, n: games.length }
 }
 
-/** Goals conceded per home game for teamId (= how many the away team scored against them) */
+/** Goals conceded per home game for teamId (scored by the opposing away team) */
 function homeGoalsConceded(matches: Match[], teamId: number): { avg: number; n: number } {
   const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
   if (games.length === 0) return { avg: LEAGUE_AWAY_XG, n: 0 }
@@ -182,32 +182,39 @@ function homeGoalsConceded(matches: Match[], teamId: number): { avg: number; n: 
 }
 
 /**
- * Compute match-specific expected goals from a combined attack/defense model.
+ * Multiplicative Dixon-Coles xG model with Bayesian shrinkage.
  *
- * rawHomeXG = mean of (home team's avg goals scored at home, away team's avg goals conceded away)
- * rawAwayXG = mean of (away team's avg goals scored away, home team's avg goals conceded at home)
+ * Each team's attack and defense is expressed as a rate relative to the
+ * league average (1.0 = average), shrunk toward 1.0 with XG_PRIOR games.
  *
- * Both are then shrunk toward the league average with Bayesian weight XG_PRIOR.
+ * homeXG = LEAGUE_HOME_XG × homeAtkRate × awayDefRate
+ * awayXG = LEAGUE_AWAY_XG × awayAtkRate × homeDefRate
+ *
+ * Advantages over the additive mean approach:
+ * - Quality mismatches compound: a strong attacker vs a weak defense gets
+ *   amplified rather than averaged, creating more spread across matchups.
+ * - Home advantage is driven by real home/away data, not a hard-coded gap.
+ * - BTTS and O/U naturally vary more between structurally different games.
  */
 function getMatchXG(
   matches: Match[],
   homeTeamId: number,
   awayTeamId: number
 ): { homeXG: number; awayXG: number } {
-  const homeAtk = homeGoalsScored(matches, homeTeamId)
-  const awayDef = awayGoalsConceded(matches, awayTeamId)
-  const awayAtk = awayGoalsScored(matches, awayTeamId)
-  const homeDef = homeGoalsConceded(matches, homeTeamId)
+  const homeAtk = homeGoalsScored(matches, homeTeamId)    // home team goals scored at home
+  const awayDef = awayGoalsConceded(matches, awayTeamId)  // away team goals conceded away
+  const awayAtk = awayGoalsScored(matches, awayTeamId)    // away team goals scored away
+  const homeDef = homeGoalsConceded(matches, homeTeamId)  // home team goals conceded at home
 
-  // Combine attack/defense evidence and average games for shrinkage weight
-  const rawHomeXG = (homeAtk.avg + awayDef.avg) / 2
-  const rawAwayXG = (awayAtk.avg + homeDef.avg) / 2
-  const homeN = (homeAtk.n + awayDef.n) / 2
-  const awayN = (awayAtk.n + homeDef.n) / 2
+  // Rates relative to league baseline; n=0 → rate=1.0 (full prior)
+  const homeAtkRate = bayesianRate(homeAtk.avg, LEAGUE_HOME_XG, homeAtk.n)
+  const awayDefRate = bayesianRate(awayDef.avg, LEAGUE_HOME_XG, awayDef.n)
+  const awayAtkRate = bayesianRate(awayAtk.avg, LEAGUE_AWAY_XG, awayAtk.n)
+  const homeDefRate = bayesianRate(homeDef.avg, LEAGUE_AWAY_XG, homeDef.n)
 
   return {
-    homeXG: Math.max(0.3, bayesianXG(rawHomeXG, LEAGUE_HOME_XG, homeN)),
-    awayXG: Math.max(0.3, bayesianXG(rawAwayXG, LEAGUE_AWAY_XG, awayN)),
+    homeXG: Math.max(0.20, LEAGUE_HOME_XG * homeAtkRate * awayDefRate),
+    awayXG: Math.max(0.20, LEAGUE_AWAY_XG * awayAtkRate * homeDefRate),
   }
 }
 

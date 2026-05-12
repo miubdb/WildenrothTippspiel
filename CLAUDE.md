@@ -2,18 +2,23 @@
 
 ## Odds model (lib/odds.ts)
 
-**1X2 win probabilities** — multiplicative strength model:
-- `homeBasePPG = Math.max(homeHomePPG, overallPPG)` — home boost only if team is genuinely stronger at home
-- `awayBasePPG = getTeamAwayPPG(...)` — uses actual away record (falls back to overall if < 3 away games)
-- `formMult = 0.65 + 0.70 * (formPts_L5 / 15)` — range 0.65 (no form) to 1.35 (perfect form)
-- `str = basePPG * formMult`
-- Draw: `max(0.13, 0.28 - 0.30 * |pHome - pAway|)` — floor 13%, falls for mismatches
-- House margin: 10% overround applied via `toOdds(prob / (1 + 0.10))`
+**Unified Poisson model** — all markets (1X2, DC, O/U, BTTS, Exact Score) derive from a single
+`buildScoreMatrix(homeXG, awayXG)` call. No separate PPG model for 1X2.
 
-**xG / goal markets** (O/U 3.5, BTTS, Exact Score) — context-specific Poisson:
-- `rawHomeXG = (avgScoredHome(home) + avgConcededAway(away)) / 2`
-- `rawAwayXG = (avgScoredAway(away) + avgConcededHome(home)) / 2`
-- Shrinkage: `xG = 0.85 * raw + 0.15 * 1.8` (league mean 1.8 goals/game)
-- avgScored/Conceded Home/Away fall back to overall if < 2 home/away games
+**xG calculation — multiplicative Dixon-Coles with Bayesian shrinkage:**
+- `homeXG = LEAGUE_HOME_XG × homeAtkRate × awayDefRate`
+- `awayXG = LEAGUE_AWAY_XG × awayAtkRate × homeDefRate`
+- Each rate = `bayesianRate(raw, leagueAvg, n)` = `(n*raw + K*leagueAvg) / ((n+K)*leagueAvg)`
+  → shrunk toward 1.0 with K=4 (XG_PRIOR) equivalent games
+- `homeAtkRate`: home goals scored / LEAGUE_HOME_XG baseline
+- `awayDefRate`: goals conceded away by away team / LEAGUE_HOME_XG baseline
+- `awayAtkRate`: away goals scored / LEAGUE_AWAY_XG baseline
+- `homeDefRate`: goals conceded at home by home team / LEAGUE_AWAY_XG baseline
+- Floor: `Math.max(0.20, ...)`
+- Constants: `LEAGUE_HOME_XG = 1.20`, `LEAGUE_AWAY_XG = 1.05`, `HOUSE_MARGIN = 0.12`
+
+**Why multiplicative over additive mean:**
+Quality mismatches compound (strong attacker vs weak defense → amplified xG), BTTS and O/U
+naturally vary more between different matchups, home advantage is data-driven not hardcoded.
 
 **Season filter:** only matches with `match_date >= '2025-08-01'` count for odds and standings.
