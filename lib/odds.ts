@@ -6,13 +6,13 @@ const HOUSE_MARGIN = 0.12
 const MIN_ODDS = 1.05
 const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
 
-// Per-team league baselines (Kreisklasse: ~3.0-3.5 goals/game total)
-const LEAGUE_HOME_XG = 1.80
-const LEAGUE_AWAY_XG = 1.40
+// Per-team league baselines (Kreisklasse: ~2.6 goals/game total, more clean sheets than pro leagues)
+const LEAGUE_HOME_XG = 1.50
+const LEAGUE_AWAY_XG = 1.10
 
 // Bayesian prior weight: K equivalent games of prior belief.
-// With K=4 and 0 real games → 100% league avg; with 4 games → 50/50; with 8 → 33% prior
-const XG_PRIOR = 4
+// With K=5 and 0 real games → 100% league avg; with 5 games → 50/50; with 10 → 33% prior
+const XG_PRIOR = 5
 
 // ---------- Math helpers ----------
 

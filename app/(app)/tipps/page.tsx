@@ -144,17 +144,19 @@ export default async function TippsPage({
   let normalBetCount = 0
   let riskyBetCount = 0
   if (user && matchdayMatchIds.length > 0) {
-    const [normalSingles, riskyBets, comboLegs] = await Promise.all([
+    const [normalSingles, normalComboLegs, riskyLegs] = await Promise.all([
       supabase.from('bets').select('id', { count: 'exact', head: true })
         .eq('user_id', user.id).eq('is_risky', false).is('combo_id', null).in('match_id', matchdayMatchIds),
-      supabase.from('bets').select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id).eq('is_risky', true).in('match_id', matchdayMatchIds),
       supabase.from('bets').select('combo_id')
-        .eq('user_id', user.id).not('combo_id', 'is', null).in('match_id', matchdayMatchIds),
+        .eq('user_id', user.id).eq('is_risky', false).not('combo_id', 'is', null).in('match_id', matchdayMatchIds),
+      supabase.from('bets').select('combo_id')
+        .eq('user_id', user.id).eq('is_risky', true).in('match_id', matchdayMatchIds),
     ])
-    const distinctCombos = new Set((comboLegs.data ?? []).map((b) => b.combo_id)).size
-    normalBetCount = (normalSingles.count ?? 0) + distinctCombos
-    riskyBetCount = riskyBets.count ?? 0
+    const distinctNormalCombos = new Set((normalComboLegs.data ?? []).map((b) => b.combo_id)).size
+    normalBetCount = (normalSingles.count ?? 0) + distinctNormalCombos
+    const riskySingles = (riskyLegs.data ?? []).filter((b) => !b.combo_id).length
+    const riskyComboIds = new Set((riskyLegs.data ?? []).filter((b) => b.combo_id).map((b) => b.combo_id)).size
+    riskyBetCount = riskySingles + riskyComboIds
   }
 
   // Social bets: visible after first match kicks off (RLS policy allows this)

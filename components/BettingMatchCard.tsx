@@ -49,6 +49,13 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       // Block only the opponent's direct win; draws are allowed
       return wildenrothIsHome ? selection === 'away' : selection === 'home'
     }
+    if (marketType === 'double_chance') {
+      // Block DC options that exclude a Wildenroth win entirely:
+      // - x2 (draw or away win) when Wildenroth is home → Wildenroth can't win
+      // - 1x (home or draw) when Wildenroth is away → Wildenroth can't win
+      // - 12 covers both wins → Wildenroth win IS possible → allowed
+      return wildenrothIsHome ? selection === 'x2' : selection === '1x'
+    }
     if (marketType === 'exact_score') {
       const [h, a] = selection.split(':').map(Number)
       // Block exact scores where opponent wins

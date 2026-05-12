@@ -45,7 +45,8 @@ export function BetSlip() {
   )
 
   const isRiskyEligible =
-    mode === 'single' && selections.length === 1 && selections[0].oddsValue > 20
+    (mode === 'single' && selections.length === 1 && selections[0].oddsValue > 20) ||
+    (mode === 'combo' && isComboValid && totalComboOdds > 20)
 
   async function placebet() {
     setError(null)

@@ -32,7 +32,7 @@ export default function AnleitungPage() {
         </div>
         <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 space-y-1">
           <div><strong>Maximal 2 normale Wetten pro Spieltag</strong> — Einzelwetten und Kombiwetten zusammen gezählt.</div>
-          <div><strong>+ 1 Risky Wette</strong> zusätzlich möglich (nur Einzelwette, Quote muss über 20,00 sein).</div>
+          <div><strong>+ 1 Risky Wette</strong> zusätzlich möglich (Einzel- oder Kombiwette, Gesamtquote muss über 20,00 sein).</div>
         </div>
         <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700">
           💶 <strong>Maximaleinsatz: 250 € pro Wette</strong> (Einzelwette oder Kombiwette).
@@ -42,12 +42,12 @@ export default function AnleitungPage() {
       <Section title="🎲 Risky Wette" emoji="🎲">
         <p>
           Neben deinen 2 normalen Wetten hast du pro Spieltag einen <strong>zusätzlichen Risky-Slot</strong>.
-          Damit darfst du genau eine weitere Einzelwette platzieren — aber nur wenn die Quote
-          <strong> über 20,00</strong> liegt.
+          Damit darfst du eine weitere Wette platzieren — Einzelwette oder Kombiwette — aber nur wenn die
+          <strong> Gesamtquote über 20,00</strong> liegt.
         </p>
         <div className="mt-2 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2 text-sm text-purple-800 space-y-1">
-          <div>✅ Erlaubt: Einzelwette mit Quote &gt; 20,00 (z.B. genaues Ergebnis, krasser Außenseiter)</div>
-          <div>❌ Nicht erlaubt: Kombiwetten, Quoten ≤ 20,00</div>
+          <div>✅ Erlaubt: Einzelwette oder Kombiwette mit Gesamtquote &gt; 20,00</div>
+          <div>❌ Nicht erlaubt: Gesamtquote ≤ 20,00</div>
         </div>
         <p className="mt-2 text-xs text-gray-500">
           Der Wettschein zeigt automatisch einen lila Hinweis, wenn eine Auswahl als Risky Wette zählt.
@@ -150,9 +150,8 @@ export default function AnleitungPage() {
 
       <Section title="Quoten verstehen" emoji="📊">
         <p>
-          Die Quoten werden aus einem einheitlichen statistischen Modell berechnet — alle Märkte
-          (1X2, Doppelte Chance, Über/Unter, Genaues Ergebnis) basieren auf derselben
-          Torwahrscheinlichkeitsverteilung. Das garantiert interne Konsistenz.
+          Jede Quote zeigt an, wie wahrscheinlich ein Ergebnis ist — und wie viel du gewinnst. Je höher
+          die Quote, desto seltener tritt das Ereignis ein.
         </p>
         <div className="mt-2 space-y-2">
           <QuoteExample odds={1.20} explanation="Klarer Favorit — hohe Wahrscheinlichkeit, aber kleiner Gewinn" />
@@ -164,28 +163,19 @@ export default function AnleitungPage() {
         <p className="text-sm text-gray-500">
           Beispiel: 20 € × Quote 2,50 = <strong>50 € Auszahlung</strong> (30 € Gewinn)
         </p>
-        <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs text-gray-500 space-y-1">
-          <div>📐 <strong>Wie werden Quoten berechnet?</strong></div>
-          <div>1. Für jedes Team werden erwartete Tore (xG) aus Heim-/Auswärtsstatistiken geschätzt, mit starker Regression zur Ligadurchschnitt (1,80 heim / 1,40 auswärts).</div>
-          <div>2. Aus den xG-Werten entsteht eine Poisson-Torverteilung für alle möglichen Ergebnisse.</div>
-          <div>3. Alle Märkte (1X2, Doppelte Chance, Über/Unter, BTTS, Genaues Ergebnis) werden direkt aus dieser Verteilung abgeleitet.</div>
-          <div>4. Die Buchmachermarge (12 %) wird einheitlich auf alle Quoten aufgeschlagen — Arbitrage ist damit ausgeschlossen.</div>
-          <div>5. Ab Montag 12:00 Uhr werden die Quoten eingefroren und nicht mehr durch neue Ergebnisse beeinflusst.</div>
-        </div>
       </Section>
 
       <Section title="SpVgg Wildenroth-Spieler" emoji="⚽">
         <p>
           Spieler, die als <strong>Wildenroth-Spieler oder Trainer</strong> markiert sind, dürfen
-          aus Fairnessgründen nicht auf einen <em>Sieg des Gegners</em> von Wildenroth wetten.
+          aus Fairnessgründen nicht auf einen <em>Sieg des Gegners</em> wetten.
         </p>
-        <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700">
-          ⚽🚫 Wenn du versuchst, auf einen Auswärtssieg des Gegners zu tippen, erscheint eine
-          freundliche Erinnerung — die Wette wird dann nicht hinzugefügt.
+        <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 space-y-1">
+          <div>⚽🚫 Gesperrt: Sieg des Gegners (1X2), Doppelte Chance ohne Wildenroth-Sieg (z.B. X2 wenn Wildenroth Heim), genaues Ergebnis mit Gegner-Sieg</div>
+          <div>✅ Erlaubt: Wildenroth-Sieg, Unentschieden, Tormärkte, genaue Ergebnisse mit Wildenroth-Sieg oder Unentschieden</div>
         </div>
         <p className="mt-2 text-xs text-gray-500">
-          Alle anderen Wetten (Wildenroth-Sieg, Unentschieden, Tormärkte, genaue Ergebnisse für
-          Wildenroth) sind weiterhin erlaubt.
+          Wenn du eine gesperrte Auswahl antippst, erscheint eine freundliche Erinnerung — die Wette wird nicht hinzugefügt.
         </p>
       </Section>
 
