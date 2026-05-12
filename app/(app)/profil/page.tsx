@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { PushSubscribeButton } from '@/components/PushSubscribeButton'
 
 export const revalidate = 60
 
@@ -106,6 +107,43 @@ export default async function ProfilPage() {
   const totalPayout = bets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0)
   const profit = profile.balance - 1000
 
+  // Balance history: reconstruct from settled bets ordered by match date
+  const settledBets = [...bets]
+    .filter(b => b.status !== 'pending' && b.match?.match_date)
+    .sort((a, b) => new Date(a.match!.match_date).getTime() - new Date(b.match!.match_date).getTime())
+
+  // Also fetch combo_bets settled for chart
+  const comboSettled = [...comboBetsMap.values()].filter(cb => cb.status !== 'pending')
+
+  // Combine events: single bet placements/settlements and combo settlements
+  type BalanceEvent = { date: string; delta: number }
+  const events: BalanceEvent[] = []
+  const processedCombos = new Set<string>()
+
+  for (const b of settledBets) {
+    if (!b.match?.match_date) continue
+    if (b.combo_id) {
+      if (!processedCombos.has(b.combo_id)) {
+        processedCombos.add(b.combo_id)
+        const cb = comboBetsMap.get(b.combo_id)
+        if (cb && cb.status !== 'pending') {
+          // stake deducted at placement (not tracked here), payout added on win
+          events.push({ date: b.match.match_date, delta: cb.status === 'won' ? (cb.payout ?? 0) - cb.stake : -cb.stake })
+        }
+      }
+    } else {
+      const stake = b.stake ?? 0
+      const payout = b.payout ?? 0
+      events.push({ date: b.match.match_date, delta: b.status === 'won' ? payout - stake : -stake })
+    }
+  }
+
+  events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  const balancePoints: number[] = [1000]
+  for (const e of events) {
+    balancePoints.push(balancePoints[balancePoints.length - 1] + e.delta)
+  }
+
   return (
     <div className="px-4 py-4 space-y-4">
       {/* Profile Header */}
@@ -164,6 +202,24 @@ export default async function ProfilPage() {
           </div>
         </div>
       </div>
+
+      {/* Balance Chart */}
+      {balancePoints.length >= 2 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
+            <h2 className="font-bold text-gray-900">Guthaben-Verlauf</h2>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${profit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+              {profit >= 0 ? '+' : ''}{profit.toFixed(0)} €
+            </span>
+          </div>
+          <div className="px-4 py-3">
+            <BalanceSparkline points={balancePoints} />
+          </div>
+        </div>
+      )}
+
+      {/* Push Notifications */}
+      <PushSubscribeButton />
 
       {/* Bet History */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -379,5 +435,47 @@ function SignOutButton() {
         Abmelden
       </button>
     </form>
+  )
+}
+
+function BalanceSparkline({ points }: { points: number[] }) {
+  const W = 320
+  const H = 72
+  const pad = 4
+  const min = Math.min(...points)
+  const max = Math.max(...points)
+  const range = max - min || 1
+
+  const xs = points.map((_, i) => pad + (i / (points.length - 1)) * (W - 2 * pad))
+  const ys = points.map((v) => H - pad - ((v - min) / range) * (H - 2 * pad))
+
+  const pathD = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ')
+  const fillD = `${pathD} L${xs[xs.length - 1].toFixed(1)},${H} L${xs[0].toFixed(1)},${H} Z`
+
+  const isUp = points[points.length - 1] >= points[0]
+  const color = isUp ? '#16a34a' : '#dc2626'
+  const fillColor = isUp ? '#dcfce7' : '#fee2e2'
+
+  const baseline = H - pad - ((1000 - min) / range) * (H - 2 * pad)
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none">
+        {/* Baseline at 1000 */}
+        <line x1={pad} y1={baseline.toFixed(1)} x2={W - pad} y2={baseline.toFixed(1)} stroke="#e5e7eb" strokeWidth="1" strokeDasharray="4,3" />
+        {/* Fill */}
+        <path d={fillD} fill={fillColor} opacity="0.5" />
+        {/* Line */}
+        <path d={pathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Last point dot */}
+        <circle cx={xs[xs.length - 1].toFixed(1)} cy={ys[ys.length - 1].toFixed(1)} r="3" fill={color} />
+      </svg>
+      <div className="flex justify-between text-xs text-gray-400 mt-1 px-1">
+        <span>Start: 1.000 €</span>
+        <span className={isUp ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+          Aktuell: {points[points.length - 1].toFixed(0)} €
+        </span>
+      </div>
+    </div>
   )
 }

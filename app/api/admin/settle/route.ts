@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { sendPushToUser } from '@/lib/push'
 
 function settleBet(
   marketType: string,
@@ -184,7 +185,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Apply balance updates
+  // Apply balance updates + push notifications
+  const pushNotifications: Promise<void>[] = []
+
   for (const [userId, amount] of Object.entries(userBalanceUpdates)) {
     if (amount <= 0) continue
     const { data: currentProfile } = await supabase
@@ -199,7 +202,26 @@ export async function POST(request: NextRequest) {
       .from('profiles')
       .update({ balance: currentProfile.balance + amount })
       .eq('id', userId)
+
+    pushNotifications.push(
+      sendPushToUser(userId, '🎉 Wette gewonnen!', `+${amount.toFixed(2)} € wurden deinem Konto gutgeschrieben.`, '/profil')
+    )
   }
+
+  // Notify losers (users with settled bets that lost and no balance gain)
+  const loserIds = new Set(
+    pendingBets
+      .filter(b => b.combo_id === null)
+      .map(b => b.user_id)
+      .filter(uid => !userBalanceUpdates[uid])
+  )
+  for (const uid of loserIds) {
+    pushNotifications.push(
+      sendPushToUser(uid, '😬 Wette verloren', 'Deine Wette wurde leider nicht gewonnen. Viel Glück beim nächsten Spieltag!', '/tipps')
+    )
+  }
+
+  await Promise.allSettled(pushNotifications)
 
   return NextResponse.json({
     success: true,
