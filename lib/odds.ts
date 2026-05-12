@@ -13,9 +13,16 @@ const LEAGUE_HOME_XG = 1.25
 const LEAGUE_AWAY_XG = 1.10
 
 // Bayesian prior weight: K equivalent games of prior belief.
-// With K=6: at 0 games → 100% prior; at 6 games → 50/50; at 12 games → 67% actual data.
-// Higher K keeps rates closer to 1.0 to prevent the product model from exploding.
-const XG_PRIOR = 6
+// With K=5: at 0 games → 100% prior; at 5 games → 50/50; at 10 games → 67% actual data.
+// Kept moderate so real team data shines through without the geometric product exploding.
+const XG_PRIOR = 5
+
+// Form multiplier from the last 5 finished games — moderate ±20% adjustment.
+// Pure season-long attack/defense averages can't capture momentum, so an
+// in-form team gets a meaningful xG boost beyond what their season totals show.
+const FORM_GAMES = 5
+const FORM_MULT_BASE = 0.80
+const FORM_MULT_RANGE = 0.40 // result range [0.80, 1.20]
 
 // ---------- Math helpers ----------
 
@@ -182,20 +189,36 @@ function homeGoalsConceded(matches: Match[], teamId: number): { avg: number; n: 
 }
 
 /**
- * Geometric-mean xG model with a single Bayesian shrinkage pass.
+ * Form multiplier from the last FORM_GAMES finished matches (W=3, D=1, L=0).
+ * Maps the form ratio [0, 1] linearly to [FORM_MULT_BASE, FORM_MULT_BASE+FORM_MULT_RANGE].
+ * Needs at least 3 games of history to apply — otherwise neutral (1.0).
  *
- * Why geometric mean instead of arithmetic mean or full product:
+ * Season-long attack/defense averages alone don't reflect momentum. A top-of-table
+ * team riding a streak (or a struggling team in a slump) shows up in form first,
+ * before the season averages catch up. The multiplier injects that signal into
+ * the team's own xG so real, current sporting differences come through clearly.
+ */
+function getTeamFormMult(matches: Match[], teamId: number): number {
+  const form = getForm(matches, teamId, FORM_GAMES)
+  if (form.length < 3) return 1.0
+  const pts = form.reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0)
+  return FORM_MULT_BASE + FORM_MULT_RANGE * (pts / (form.length * 3))
+}
+
+/**
+ * Geometric-mean xG model with Bayesian shrinkage and form adjustment.
+ *
+ * Why geometric mean (not arithmetic, not full product):
  * - Arithmetic mean `(atk + def) / 2` underestimates compounding quality mismatches.
  * - Full product `L × atkRate × defRate` overestimates them — two rates of 1.8×
  *   combine to 3.24×, producing absurdly short O/U and BTTS odds.
- * - Geometric mean `sqrt(atk × def)` threads the needle: for equal values it is
- *   identical to the arithmetic mean, but for unequal values it stays lower
- *   (AM ≥ GM by the AM–GM inequality), preventing rate-product explosions.
- *   A strong attacker vs a strong defence still yields moderate xG, which is
- *   physically correct. A strong attacker vs a weak defence still yields
- *   amplified xG, giving genuine spread between different matchups.
+ * - Geometric mean `sqrt(atk × def)` threads the needle: identical to the
+ *   arithmetic mean for equal values, lower for unequal values (AM–GM inequality),
+ *   so a strong attacker vs a strong defence still yields moderate xG (correct).
  *
- * A single Bayesian shrinkage is then applied to the combined raw estimate.
+ * Bayesian shrinkage (K=5) is applied to the combined raw estimate. A team-form
+ * multiplier (±20%) then modulates each team's own xG to reflect recent momentum
+ * that the season-long averages haven't fully absorbed yet.
  */
 function getMatchXG(
   matches: Match[],
@@ -207,16 +230,17 @@ function getMatchXG(
   const awayAtk = awayGoalsScored(matches, awayTeamId)    // away team goals scored away
   const homeDef = homeGoalsConceded(matches, homeTeamId)  // home team goals conceded at home
 
-  // Geometric mean of the two raw signals, then shrink toward the league baseline.
-  // Average the sample sizes for the combined effective-data weight.
   const rawHomeXG = Math.sqrt(homeAtk.avg * awayDef.avg)
   const rawAwayXG = Math.sqrt(awayAtk.avg * homeDef.avg)
   const homeN = (homeAtk.n + awayDef.n) / 2
   const awayN = (awayAtk.n + homeDef.n) / 2
 
+  const homeFormMult = getTeamFormMult(matches, homeTeamId)
+  const awayFormMult = getTeamFormMult(matches, awayTeamId)
+
   return {
-    homeXG: Math.max(0.25, bayesianXG(rawHomeXG, LEAGUE_HOME_XG, homeN)),
-    awayXG: Math.max(0.25, bayesianXG(rawAwayXG, LEAGUE_AWAY_XG, awayN)),
+    homeXG: Math.max(0.25, bayesianXG(rawHomeXG, LEAGUE_HOME_XG, homeN) * homeFormMult),
+    awayXG: Math.max(0.25, bayesianXG(rawAwayXG, LEAGUE_AWAY_XG, awayN) * awayFormMult),
   }
 }
 

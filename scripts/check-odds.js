@@ -8,9 +8,11 @@
 const LEAGUE_HOME_XG = 1.25
 const LEAGUE_AWAY_XG = 1.10
 const HOUSE_MARGIN = 0.12
-const XG_PRIOR = 6
+const XG_PRIOR = 5
 const MIN_ODDS = 1.05
 const MAX_ODDS = 100.0
+const FORM_MULT_BASE = 0.80
+const FORM_MULT_RANGE = 0.40
 
 // ---- core math (mirrors lib/odds.ts) ----
 
@@ -59,15 +61,24 @@ function calcMarkets(homeXG, awayXG) {
   }
 }
 
-/** Geometric-mean raw xG, then single Bayesian shrinkage */
-function matchXG(homeAtkAvg, homeAtkN, awayDefAvg, awayDefN, awayAtkAvg, awayAtkN, homeDefAvg, homeDefN) {
+function formMult(pts, games) {
+  if (games < 3) return 1.0
+  return FORM_MULT_BASE + FORM_MULT_RANGE * (pts / (games * 3))
+}
+
+/** Geometric-mean raw xG, Bayesian shrinkage, form multiplier */
+function matchXG(homeAtkAvg, homeAtkN, awayDefAvg, awayDefN, awayAtkAvg, awayAtkN, homeDefAvg, homeDefN,
+                 homeFormPts = -1, awayFormPts = -1) {
   const rawH = Math.sqrt(homeAtkAvg * awayDefAvg)
   const rawA = Math.sqrt(awayAtkAvg * homeDefAvg)
   const nH = (homeAtkN + awayDefN) / 2
   const nA = (awayAtkN + homeDefN) / 2
+  // homeFormPts=-1 → no form data (multiplier 1.0); else pts out of 15 in last 5 games
+  const fH = homeFormPts < 0 ? 1.0 : formMult(homeFormPts, 5)
+  const fA = awayFormPts < 0 ? 1.0 : formMult(awayFormPts, 5)
   return {
-    homeXG: Math.max(0.25, bayesianXG(rawH, LEAGUE_HOME_XG, nH)),
-    awayXG: Math.max(0.25, bayesianXG(rawA, LEAGUE_AWAY_XG, nA)),
+    homeXG: Math.max(0.25, bayesianXG(rawH, LEAGUE_HOME_XG, nH) * fH),
+    awayXG: Math.max(0.25, bayesianXG(rawA, LEAGUE_AWAY_XG, nA) * fA),
   }
 }
 
@@ -98,19 +109,36 @@ console.log('\n=== 2. No data → pure prior ===')
   assert('no-data awayXG = LEAGUE_AWAY_XG', Math.abs(awayXG - LEAGUE_AWAY_XG) < 0.001, `got ${awayXG}`)
 }
 
-console.log('\n=== 3. Clear away favourite (Wildenroth scenario) ===')
+console.log('\n=== 3. Clear away favourite (Wildenroth scenario, no form data) ===')
 {
   // Strong away team vs weak home team (typical for top-vs-bottom)
   const { homeXG, awayXG } = matchXG(0.8, 5, 0.4, 5, 2.5, 5, 2.0, 5)
   const m = calcMarkets(homeXG, awayXG)
   console.log(`  homeXG=${homeXG.toFixed(2)} awayXG=${awayXG.toFixed(2)}`)
   console.log(`  1X2: ${m.oddsHome}/${m.oddsDraw}/${m.oddsAway}  O/U3.5: ${m.oddsOver35}  BTTS: ${m.oddsBtts}`)
-  assert('away win probability >45%', m.pAway > 45, `${m.pAway}%`)
+  assert('away win probability >50%', m.pAway > 50, `${m.pAway}%`)
   assert('away odds < home odds (away is favourite)', m.oddsAway < m.oddsHome, `away=${m.oddsAway} home=${m.oddsHome}`)
   assert('O/U 3.5 Over NOT extreme (> 2.20)', m.oddsOver35 > 2.20, `got ${m.oddsOver35}`)
   assert('BTTS Yes NOT extreme (> 1.50)', m.oddsBtts > 1.50, `got ${m.oddsBtts}`)
   assert('Draw probability still meaningful (> 15%)', m.pDraw > 15, `${m.pDraw}%`)
   assert('Draw odds NOT absurd (< 10.00)', m.oddsDraw < 10.00, `got ${m.oddsDraw}`)
+}
+
+console.log('\n=== 3b. Clear away favourite WITH form (Hechendorf vs Schöngeising) ===')
+{
+  // Hechendorf modest form (1W 1D 3L = 4 pts), Schöngeising strong form (4W 1D = 13 pts)
+  const { homeXG, awayXG } = matchXG(1.0, 6, 0.5, 6, 2.3, 6, 2.0, 6, 4, 13)
+  const m = calcMarkets(homeXG, awayXG)
+  console.log(`  homeXG=${homeXG.toFixed(2)} awayXG=${awayXG.toFixed(2)}`)
+  console.log(`  1X2: ${m.oddsHome}/${m.oddsDraw}/${m.oddsAway}  O/U3.5: ${m.oddsOver35}  BTTS: ${m.oddsBtts}`)
+  console.log(`  probs: home=${m.pHome}% draw=${m.pDraw}% away=${m.pAway}%`)
+  assert('form-boosted favourite > 58% win', m.pAway > 58, `${m.pAway}%`)
+  assert('away odds < 1.60 when form & stats both favour', m.oddsAway < 1.60, `got ${m.oddsAway}`)
+  // Compare with no-form version to confirm form is having effect
+  const noForm = matchXG(1.0, 6, 0.5, 6, 2.3, 6, 2.0, 6).awayXG
+  const withForm = awayXG
+  assert('form pushes favourite xG meaningfully higher', withForm > noForm * 1.08,
+    `noForm=${noForm.toFixed(2)} withForm=${withForm.toFixed(2)}`)
 }
 
 console.log('\n=== 4. Balanced near-home-advantage game (Fürstenfeldbruck scenario) ===')
@@ -143,6 +171,26 @@ console.log('\n=== 6. Geometric mean: mismatch effect preserved ===')
     `mismatch=${mismatch.awayXG.toFixed(2)} balanced=${balanced.awayXG.toFixed(2)}`)
   assert('mismatch home xG < balanced home xG (weak home is weaker)', mismatch.homeXG < balanced.homeXG,
     `mismatch=${mismatch.homeXG.toFixed(2)} balanced=${balanced.homeXG.toFixed(2)}`)
+}
+
+console.log('\n=== 6b. Form multiplier sanity ===')
+{
+  // Both teams equally average but very different forms
+  const sameStats = (formH, formA) => matchXG(LEAGUE_HOME_XG, 5, LEAGUE_HOME_XG, 5, LEAGUE_AWAY_XG, 5, LEAGUE_AWAY_XG, 5, formH, formA)
+  const equal = sameStats(7, 7)          // both at avg form (~0.987 mult)
+  const homeHot = sameStats(15, 0)       // home perfect, away terrible
+  const awayHot = sameStats(0, 15)       // home terrible, away perfect
+  assert('equal-form balanced game ≈ no-form game', Math.abs(equal.homeXG - LEAGUE_HOME_XG) < 0.05,
+    `homeXG=${equal.homeXG.toFixed(3)}`)
+  assert('hot home team xG > balanced home xG', homeHot.homeXG > equal.homeXG * 1.15,
+    `hot=${homeHot.homeXG.toFixed(2)} eq=${equal.homeXG.toFixed(2)}`)
+  assert('cold home team xG < balanced home xG', awayHot.homeXG < equal.homeXG * 0.90,
+    `cold=${awayHot.homeXG.toFixed(2)} eq=${equal.homeXG.toFixed(2)}`)
+  assert('hot away team xG > balanced away xG', awayHot.awayXG > equal.awayXG * 1.15,
+    `hot=${awayHot.awayXG.toFixed(2)} eq=${equal.awayXG.toFixed(2)}`)
+  assert('form is symmetric (max boost ≈ 1.20×, min ≈ 0.80×)',
+    Math.abs((homeHot.homeXG / awayHot.homeXG) - (1.20 / 0.80)) < 0.05,
+    `ratio=${(homeHot.homeXG/awayHot.homeXG).toFixed(3)} expected=1.500`)
 }
 
 console.log('\n=== 7. No arbitrage ===')
