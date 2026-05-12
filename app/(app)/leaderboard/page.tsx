@@ -1,203 +1,93 @@
 import { createClient } from '@/lib/supabase/server'
+import { LeaderboardClient } from './LeaderboardClient'
+import type { BetRow, ComboMeta } from './LeaderboardClient'
 
-export const revalidate = 120
+type ComboMap = Record<string, ComboMeta>
+
+export const revalidate = 60
 
 export default async function LeaderboardPage() {
   const supabase = await createClient()
 
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, username, display_name, balance')
-    .order('balance', { ascending: false })
+  const [
+    { data: profiles },
+    { data: { user } },
+    { data: allMatchesRaw },
+  ] = await Promise.all([
+    supabase.from('profiles').select('id, username, display_name, balance').order('balance', { ascending: false }),
+    supabase.auth.getUser(),
+    supabase
+      .from('matches')
+      .select('id, matchday, match_date, status')
+      .order('match_date', { ascending: true }),
+  ])
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const allMatches = allMatchesRaw ?? []
 
-  const STARTING_BALANCE = 1000
+  // Determine current matchday: first with scheduled matches, or most recent
+  const allMatchdays = [...new Set(allMatches.map(m => m.matchday))].sort((a, b) => a - b)
+  const firstScheduledMd = allMatches
+    .filter(m => m.status === 'scheduled')
+    .map(m => m.matchday)
+    .sort((a, b) => a - b)[0]
+  const currentMatchday = firstScheduledMd ?? (allMatchdays.length > 0 ? Math.max(...allMatchdays) : null)
 
-  return (
-    <div className="px-4 py-4">
-      {/* Header */}
-      <div className="bg-gradient-to-br from-red-700 to-red-900 text-white rounded-2xl px-5 py-5 shadow-sm mb-4">
-        <div className="text-red-200 text-xs font-medium uppercase tracking-wide mb-1">
-          Saison 2024/25
-        </div>
-        <h1 className="text-2xl font-black">Rangliste</h1>
-        <p className="text-red-200 text-sm mt-1">
-          {profiles?.length ?? 0} Teilnehmer · Startkapital 1.000€
-        </p>
-      </div>
+  const matchdayMatches = currentMatchday != null
+    ? allMatches.filter(m => m.matchday === currentMatchday).sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+    : []
 
-      {/* Top 3 Podium */}
-      {profiles && profiles.length >= 3 && (
-        <div className="flex items-end justify-center gap-3 mb-5 px-2">
-          {/* 2nd place */}
-          <PodiumCard
-            rank={2}
-            profile={profiles[1]}
-            isCurrentUser={profiles[1].id === user?.id}
-            startingBalance={STARTING_BALANCE}
-            height="h-24"
-          />
-          {/* 1st place */}
-          <PodiumCard
-            rank={1}
-            profile={profiles[0]}
-            isCurrentUser={profiles[0].id === user?.id}
-            startingBalance={STARTING_BALANCE}
-            height="h-32"
-            featured
-          />
-          {/* 3rd place */}
-          <PodiumCard
-            rank={3}
-            profile={profiles[2]}
-            isCurrentUser={profiles[2].id === user?.id}
-            startingBalance={STARTING_BALANCE}
-            height="h-20"
-          />
-        </div>
-      )}
+  const firstMatch = matchdayMatches[0]
+  const isDeadlinePassed = firstMatch ? new Date(firstMatch.match_date) <= new Date() : false
+  const matchdayMatchIds = matchdayMatches.map(m => m.id)
 
-      {/* Full Leaderboard */}
-      <div className="space-y-2">
-        {(profiles ?? []).map((profile, idx) => {
-          const rank = idx + 1
-          const profit = profile.balance - STARTING_BALANCE
-          const isMe = profile.id === user?.id
-          const isTop3 = rank <= 3
+  // Fetch bets for this matchday (RLS allows own always, others after kickoff)
+  let matchdayBets: BetRow[] = []
+  const combosObj: ComboMap = {}
 
-          return (
-            <div
-              key={profile.id}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl border transition-all ${
-                isMe
-                  ? 'bg-red-50 border-red-200 shadow-sm'
-                  : 'bg-white border-gray-100 hover:border-gray-200'
-              }`}
-            >
-              {/* Rank */}
-              <div className="w-8 flex-shrink-0 text-center">
-                {isTop3 ? (
-                  <span className="text-lg">{rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'}</span>
-                ) : (
-                  <span className="text-sm font-bold text-gray-400">{rank}</span>
-                )}
-              </div>
+  if (matchdayMatchIds.length > 0 && user) {
+    const { data: betsRaw } = await supabase
+      .from('bets')
+      .select(
+        `id, user_id, market_type, selection, stake, odds_value, status, payout, combo_id,
+         match:matches(id, home_score, away_score, status,
+           home_team:teams!matches_home_team_id_fkey(name, short_name),
+           away_team:teams!matches_away_team_id_fkey(name, short_name)
+         )`
+      )
+      .in('match_id', matchdayMatchIds)
 
-              {/* Avatar */}
-              <div
-                className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-sm ${
-                  isMe ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600'
-                }`}
-              >
-                {(profile.display_name || profile.username || '?')[0].toUpperCase()}
-              </div>
+    matchdayBets = (betsRaw ?? []).map(b => ({
+      ...b,
+      match: (() => {
+        const m = Array.isArray(b.match) ? b.match[0] : b.match
+        if (!m) return null
+        return {
+          ...m,
+          home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
+          away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
+        }
+      })(),
+    })) as BetRow[]
 
-              {/* Name */}
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-gray-900 truncate text-sm">
-                  {profile.display_name || profile.username}
-                  {isMe && (
-                    <span className="ml-1.5 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">
-                      Du
-                    </span>
-                  )}
-                </div>
-                <div className="text-xs text-gray-400">@{profile.username}</div>
-              </div>
-
-              {/* Balance & Profit */}
-              <div className="text-right flex-shrink-0">
-                <div className="font-bold text-gray-900 text-sm">
-                  {profile.balance.toLocaleString('de-DE', {
-                    style: 'currency',
-                    currency: 'EUR',
-                    minimumFractionDigits: 2,
-                  })}
-                </div>
-                <div
-                  className={`text-xs font-medium ${
-                    profit > 0
-                      ? 'text-green-600'
-                      : profit < 0
-                      ? 'text-red-600'
-                      : 'text-gray-400'
-                  }`}
-                >
-                  {profit >= 0 ? '+' : ''}
-                  {profit.toLocaleString('de-DE', {
-                    style: 'currency',
-                    currency: 'EUR',
-                    minimumFractionDigits: 2,
-                  })}
-                </div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {(!profiles || profiles.length === 0) && (
-        <div className="text-center py-16 text-gray-400">
-          <div className="text-4xl mb-3">🏆</div>
-          <div className="font-medium">Noch keine Teilnehmer</div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function PodiumCard({
-  rank,
-  profile,
-  isCurrentUser,
-  startingBalance,
-  height,
-  featured = false,
-}: {
-  rank: number
-  profile: { id: string; username: string; display_name: string; balance: number }
-  isCurrentUser: boolean
-  startingBalance: number
-  height: string
-  featured?: boolean
-}) {
-  const profit = profile.balance - startingBalance
-  const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'
+    // Fetch combo metadata
+    const comboIds = [...new Set(matchdayBets.filter(b => b.combo_id).map(b => b.combo_id as string))]
+    if (comboIds.length > 0) {
+      const { data: cbData } = await supabase
+        .from('combo_bets')
+        .select('id, stake, total_odds, status, payout')
+        .in('id', comboIds)
+      for (const cb of cbData ?? []) combosObj[cb.id] = cb
+    }
+  }
 
   return (
-    <div className={`flex-1 flex flex-col items-center`}>
-      <div
-        className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg mb-2 ${
-          isCurrentUser ? 'bg-red-700 text-white ring-2 ring-red-300' : 'bg-gray-200 text-gray-700'
-        } ${featured ? 'w-14 h-14 text-xl' : ''}`}
-      >
-        {(profile.display_name || profile.username || '?')[0].toUpperCase()}
-      </div>
-      <div className="text-center mb-1">
-        <div className="text-xs font-semibold text-gray-800 truncate max-w-20">
-          {profile.display_name || profile.username}
-        </div>
-        <div
-          className={`text-xs font-medium ${
-            profit >= 0 ? 'text-green-600' : 'text-red-600'
-          }`}
-        >
-          {profit >= 0 ? '+' : ''}
-          {profit.toFixed(0)}€
-        </div>
-      </div>
-      <div
-        className={`${height} w-full rounded-t-xl flex items-end justify-center pb-2 ${
-          rank === 1
-            ? 'bg-yellow-100 border-2 border-yellow-300'
-            : rank === 2
-            ? 'bg-gray-100 border-2 border-gray-300'
-            : 'bg-orange-50 border-2 border-orange-200'
-        }`}
-      >
-        <span className="text-2xl">{medal}</span>
-      </div>
-    </div>
+    <LeaderboardClient
+      profiles={profiles ?? []}
+      currentUserId={user?.id ?? null}
+      matchdayBets={matchdayBets}
+      matchdayNumber={currentMatchday}
+      combos={combosObj}
+      isDeadlinePassed={isDeadlinePassed}
+    />
   )
 }

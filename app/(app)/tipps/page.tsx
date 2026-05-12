@@ -20,14 +20,25 @@ function socialSelLabel(marketType: string, selection: string) {
   return SELECTION_DISPLAY[marketType]?.[selection] ?? selection
 }
 
-/** Returns the Monday 12:00 of the ISO week containing the given date */
+/** Returns Monday 12:00 Europe/Berlin of the week containing firstMatchDate */
 function bettingOpenTime(firstMatchDate: Date): Date {
-  const day = firstMatchDate.getDay() // 0=Sun..6=Sat
-  const daysBack = day === 0 ? 6 : day - 1
-  const monday = new Date(firstMatchDate)
-  monday.setDate(monday.getDate() - daysBack)
-  monday.setHours(12, 0, 0, 0)
-  return monday
+  // Get date string in Berlin timezone (sv locale → YYYY-MM-DD)
+  const berlinDate = firstMatchDate.toLocaleDateString('sv', { timeZone: 'Europe/Berlin' })
+  const [y, m, d] = berlinDate.split('-').map(Number)
+  // Weekday in Berlin (UTC date for YYYY-MM-DD has correct weekday)
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay() // 0=Sun..6=Sat
+  const daysBack = dow === 0 ? 6 : dow - 1
+  const mondayD = d - daysBack
+  const mondayStr = `${y}-${String(m).padStart(2, '0')}-${String(mondayD).padStart(2, '0')}`
+  // Determine Berlin UTC offset at Monday noon and convert to UTC
+  const probe = new Date(`${mondayStr}T12:00:00Z`)
+  const berlinHour = parseInt(
+    new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', hour12: false }).format(probe),
+    10
+  )
+  // berlinHour is Berlin clock when UTC=12; to get Berlin=12: utcHour = 12 - (berlinHour - 12)
+  const utcHour = 24 - berlinHour
+  return new Date(`${mondayStr}T${String(utcHour).padStart(2, '0')}:00:00Z`)
 }
 
 export default async function TippsPage({
@@ -175,7 +186,7 @@ export default async function TippsPage({
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2">
             <div className="text-red-200 text-xs">Wetten öffnen am</div>
             <div className="text-white font-semibold text-sm">
-              {bettingOpens.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit' })} um 12:00 Uhr
+              {bettingOpens.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })} um 12:00 Uhr
             </div>
           </div>
         )}
@@ -185,8 +196,8 @@ export default async function TippsPage({
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2">
             <div className="text-red-200 text-xs">Annahmeschluss</div>
             <div className="text-white font-semibold text-sm">
-              {deadline.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit' })}{' '}
-              um {deadline.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr
+              {deadline.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })}{' '}
+              um {deadline.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })} Uhr
             </div>
           </div>
         )}
