@@ -168,11 +168,16 @@ export default function AnleitungPage() {
       <Section title="SpVgg Wildenroth-Spieler" emoji="⚽">
         <p>
           Spieler, die als <strong>Wildenroth-Spieler oder Trainer</strong> markiert sind, dürfen
-          aus Fairnessgründen nicht auf einen <em>Sieg des Gegners</em> wetten.
+          bei Spielen von Wildenroth <em>ausschließlich</em> auf einen klaren <strong>Sieg von Wildenroth</strong> tippen.
+          Unentschieden und Niederlagen sind ebenfalls verboten — es zählt nur der Sieg.
         </p>
+        <div className="mt-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800 space-y-1">
+          <div>✅ Erlaubt: Wildenroth gewinnt (1X2), genaues Ergebnis mit Wildenroth-Sieg (z.B. 2:0, 3:1)</div>
+          <div>✅ Erlaubt: Tormärkte (Über/Unter, Beide treffen) — die sagen nichts über den Sieger aus</div>
+        </div>
         <div className="mt-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 space-y-1">
-          <div>⚽🚫 Gesperrt: Sieg des Gegners (1X2), Doppelte Chance ohne Wildenroth-Sieg (z.B. X2 wenn Wildenroth Heim), genaues Ergebnis mit Gegner-Sieg</div>
-          <div>✅ Erlaubt: Wildenroth-Sieg, Unentschieden, Tormärkte, genaue Ergebnisse mit Wildenroth-Sieg oder Unentschieden</div>
+          <div>⚽🚫 Gesperrt: Unentschieden (X), Sieg des Gegners, alle Doppelte-Chance-Picks</div>
+          <div>⚽🚫 Gesperrt: Genaue Ergebnisse mit Unentschieden (0:0, 1:1 …) oder Niederlage</div>
         </div>
         <p className="mt-2 text-xs text-gray-500">
           Wenn du eine gesperrte Auswahl antippst, erscheint eine freundliche Erinnerung — die Wette wird nicht hinzugefügt.

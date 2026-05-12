@@ -42,24 +42,26 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     (match.home_team_id === wildenrothTeamId || match.away_team_id === wildenrothTeamId)
   const wildenrothIsHome = match.home_team_id === wildenrothTeamId
 
-  /** Returns true when this selection would bet against Wildenroth winning */
+  /**
+   * Returns true when this selection is not a clear Wildenroth win.
+   * Rule: Wildenroth players may ONLY tip outcomes where their team wins outright.
+   * Draws, opponent wins, and any pick that includes either are all blocked.
+   */
   function isAgainstWildenroth(marketType: string, selection: string): boolean {
     if (!isWildenrothPlayer || !matchInvolvesWildenroth) return false
     if (marketType === '1x2') {
-      // Block only the opponent's direct win; draws are allowed
-      return wildenrothIsHome ? selection === 'away' : selection === 'home'
+      // Only the own-team win is allowed; draw (X) and opponent win (2/1) are both blocked
+      return wildenrothIsHome ? selection !== 'home' : selection !== 'away'
     }
     if (marketType === 'double_chance') {
-      // Block DC options that exclude a Wildenroth win entirely:
-      // - x2 (draw or away win) when Wildenroth is home → Wildenroth can't win
-      // - 1x (home or draw) when Wildenroth is away → Wildenroth can't win
-      // - 12 covers both wins → Wildenroth win IS possible → allowed
-      return wildenrothIsHome ? selection === 'x2' : selection === '1x'
+      // Every DC option covers either a draw or the opponent winning → all blocked.
+      // 1x includes draw, x2 includes draw+away, 12 includes opponent win.
+      return true
     }
     if (marketType === 'exact_score') {
       const [h, a] = selection.split(':').map(Number)
-      // Block exact scores where opponent wins
-      return wildenrothIsHome ? a > h : h > a
+      // Block draws (h === a) and opponent wins; only clear own-team wins allowed
+      return wildenrothIsHome ? a >= h : h >= a
     }
     return false
   }
