@@ -59,59 +59,107 @@ export type ComboMeta = {
   payout: number | null
 }
 
-function StatusDot({ status }: { status: string }) {
-  if (status === 'won') return <span className="text-green-500 font-bold text-xs">✓</span>
-  if (status === 'lost') return <span className="text-red-500 font-bold text-xs">✗</span>
-  return <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 inline-block" />
+function matchName(bet: BetRow) {
+  if (!bet.match) return '—'
+  return `${bet.match.home_team.short_name} – ${bet.match.away_team.short_name}`
 }
 
-function BetChip({ bet, combos }: { bet: BetRow; combos: Record<string, ComboMeta> }) {
-  const label = selLabel(bet.market_type, bet.selection)
-  const matchName = bet.match
-    ? `${bet.match.home_team.short_name} – ${bet.match.away_team.short_name}`
-    : '—'
-  const score = bet.match?.home_score != null && bet.match?.away_score != null
-    ? ` (${bet.match.home_score}:${bet.match.away_score})`
-    : ''
+function scoreStr(bet: BetRow) {
+  if (bet.match?.home_score == null) return null
+  return `${bet.match.home_score}:${bet.match.away_score}`
+}
 
-  if (bet.combo_id) {
-    const cb = combos[bet.combo_id]
-    const potential = cb ? (cb.stake * cb.total_odds).toFixed(2) : null
-    return (
-      <div className="text-xs text-gray-700 flex items-start gap-1.5 py-0.5">
-        <StatusDot status={cb?.status ?? 'pending'} />
+function StatusIcon({ status }: { status: string }) {
+  if (status === 'won') return (
+    <div className="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+      <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+      </svg>
+    </div>
+  )
+  if (status === 'lost') return (
+    <div className="w-7 h-7 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
+      <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+      </svg>
+    </div>
+  )
+  return (
+    <div className="w-7 h-7 rounded-full bg-yellow-400 flex items-center justify-center flex-shrink-0">
+      <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    </div>
+  )
+}
+
+function SingleBetMini({ bet }: { bet: BetRow }) {
+  const score = scoreStr(bet)
+  const potential = (bet.stake * bet.odds_value).toFixed(2)
+  const borderColor = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
+  const bgColor = bet.status === 'won' ? 'bg-green-50' : bet.status === 'lost' ? 'bg-red-50/40' : 'bg-white'
+
+  return (
+    <div className={`flex items-center gap-2.5 py-2 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
+      <StatusIcon status={bet.status} />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs text-gray-400 truncate">{matchName(bet)}</div>
+        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+          <span className="text-xs bg-gray-100 text-gray-500 px-1 py-0.5 rounded">{MARKET_LABEL[bet.market_type] ?? bet.market_type}</span>
+          <span className="text-xs font-semibold text-gray-900">{selLabel(bet.market_type, bet.selection)}</span>
+        </div>
+        {score && <div className="text-xs text-gray-400 mt-0.5">Ergebnis: <span className="font-semibold text-gray-600">{score}</span></div>}
+      </div>
+      <div className="text-right flex-shrink-0">
+        <div className="text-xs font-black text-red-700">@{bet.odds_value.toFixed(2)}</div>
+        <div className="text-xs text-gray-400">{bet.stake.toFixed(0)} €</div>
+        {bet.status === 'won' && bet.payout != null && <div className="text-xs font-bold text-green-600">+{bet.payout.toFixed(2)} €</div>}
+        {bet.status === 'pending' && <div className="text-xs text-gray-400">→ {potential} €</div>}
+        {bet.status === 'lost' && <div className="text-xs text-red-400 line-through">{bet.stake.toFixed(2)} €</div>}
+      </div>
+    </div>
+  )
+}
+
+function ComboBetMini({ legs, cb }: { legs: BetRow[]; cb: ComboMeta | undefined }) {
+  const status = cb?.status ?? 'pending'
+  const stake = cb?.stake ?? 0
+  const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
+  const potential = (stake * totalOdds).toFixed(2)
+  const borderColor = status === 'won' ? 'border-l-green-500' : status === 'lost' ? 'border-l-red-400' : 'border-l-blue-400'
+  const bgColor = status === 'won' ? 'bg-green-50' : status === 'lost' ? 'bg-red-50/40' : 'bg-blue-50/30'
+
+  return (
+    <div className={`py-2 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
+      {/* Header */}
+      <div className="flex items-center gap-2.5 mb-1.5">
+        <StatusIcon status={status} />
         <div className="flex-1">
-          <span className="text-purple-700 font-semibold">Kombi</span>
-          {' · '}{matchName}{score}{' · '}{label}
-          {' '}
-          <span className="text-gray-400">@ {bet.odds_value.toFixed(2)}</span>
-          {cb && (
-            <span className="text-gray-400">
-              {' · '}Einsatz {cb.stake.toFixed(0)} €
-              {cb.status === 'pending' && potential && ` → ${potential} € möglich`}
-              {cb.status === 'won' && cb.payout != null && ` → ${cb.payout.toFixed(2)} € gewonnen`}
-              {cb.status === 'lost' && ' → verloren'}
-            </span>
-          )}
+          <div className="text-xs font-bold text-gray-900 flex items-center gap-1">
+            <span className="text-blue-600">🔗</span> Kombiwette · {legs.length} Tipps
+          </div>
+          <div className="text-xs text-gray-400">Quote {totalOdds.toFixed(2)} · Einsatz {stake.toFixed(0)} €</div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          {status === 'won' && cb?.payout != null && <div className="text-xs font-black text-green-600">+{cb.payout.toFixed(2)} €</div>}
+          {status === 'pending' && <div className="text-xs text-gray-500">→ {potential} €</div>}
+          {status === 'lost' && <div className="text-xs text-red-400 line-through">{stake.toFixed(2)} €</div>}
         </div>
       </div>
-    )
-  }
-
-  const potential = (bet.stake * bet.odds_value).toFixed(2)
-  return (
-    <div className="text-xs text-gray-700 flex items-start gap-1.5 py-0.5">
-      <StatusDot status={bet.status} />
-      <div className="flex-1">
-        {matchName}{score}{' · '}{label}
-        {' '}
-        <span className="text-gray-400">@ {bet.odds_value.toFixed(2)}</span>
-        <span className="text-gray-400">
-          {' · '}{bet.stake.toFixed(0)} €
-          {bet.status === 'pending' && ` → ${potential} € möglich`}
-          {bet.status === 'won' && bet.payout != null && ` → ${bet.payout.toFixed(2)} € gewonnen`}
-          {bet.status === 'lost' && ' → verloren'}
-        </span>
+      {/* Legs */}
+      <div className="pl-9 space-y-1">
+        {legs.map(leg => {
+          const score = scoreStr(leg)
+          return (
+            <div key={leg.id} className="flex items-center gap-1.5 text-xs">
+              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'}`} />
+              <span className="text-gray-500 truncate flex-1">{matchName(leg)}</span>
+              <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection)}</span>
+              {score && <span className="text-gray-400">({score})</span>}
+              <span className="text-red-700 font-bold">@{leg.odds_value.toFixed(2)}</span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -129,22 +177,26 @@ function UserBets({
   if (bets.length === 0) {
     return <p className="text-xs text-gray-400 italic py-1">{noDataLabel}</p>
   }
-  // deduplicate combo display — show each combo's legs grouped, single bets inline
+
+  type DisplayItem = { kind: 'single'; bet: BetRow } | { kind: 'combo'; legs: BetRow[]; cb: ComboMeta | undefined }
   const seen = new Set<string>()
-  const items: BetRow[] = []
+  const items: DisplayItem[] = []
   for (const b of bets) {
     if (!b.combo_id) {
-      items.push(b)
+      items.push({ kind: 'single', bet: b })
     } else if (!seen.has(b.combo_id)) {
       seen.add(b.combo_id)
-      items.push(...bets.filter(x => x.combo_id === b.combo_id))
+      items.push({ kind: 'combo', legs: bets.filter(x => x.combo_id === b.combo_id), cb: combos[b.combo_id] })
     }
   }
+
   return (
-    <div className="divide-y divide-gray-50">
-      {items.map(b => (
-        <BetChip key={b.id} bet={b} combos={combos} />
-      ))}
+    <div className="space-y-2">
+      {items.map((item, i) =>
+        item.kind === 'single'
+          ? <SingleBetMini key={item.bet.id} bet={item.bet} />
+          : <ComboBetMini key={i} legs={item.legs} cb={item.cb} />
+      )}
     </div>
   )
 }
