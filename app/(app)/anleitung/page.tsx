@@ -65,10 +65,12 @@ export default function AnleitungPage() {
         />
         <MarketCard
           title="Handicap"
-          description="Dem Heimteam werden virtuelle Tore abgezogen — du wettest, ob es den Rückstand wettmacht."
+          description="Du wettest auf ein Ergebnis mit Vor- oder Nachteil. Das Endergebnis wird um die Handicap-Linie verschoben."
           items={[
-            { label: 'Handicap (0:1)', desc: 'Heim –1,5: Heim braucht mind. 2 Tore Vorsprung  ·  Gast +1,5: Gast verliert nicht mit 2+ Toren' },
-            { label: 'Handicap (0:2)', desc: 'Heim –2,5: Heim braucht mind. 3 Tore Vorsprung  ·  Gast +2,5: Gast verliert nicht mit 3+ Toren' },
+            { label: 'Heim –1,5', desc: 'Heim muss mit mind. 2 Toren gewinnen' },
+            { label: 'Gast +1,5', desc: 'Gast darf nicht mit 2+ Toren verlieren' },
+            { label: 'Heim –2,5', desc: 'Heim muss mit mind. 3 Toren gewinnen' },
+            { label: 'Gast +2,5', desc: 'Gast darf nicht mit 3+ Toren verlieren' },
           ]}
         />
         <MarketCard
