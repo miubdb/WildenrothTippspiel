@@ -2,16 +2,20 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PushSubscribeButton } from '@/components/PushSubscribeButton'
 import { ProfileEditForm } from '@/components/ProfileEditForm'
+import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
 
 export const revalidate = 60
 
 const MARKET_LABELS: Record<string, string> = {
   '1x2': '1X2',
   double_chance: 'Doppelte Chance',
-  over_under: 'Über/Unter',
-  over_under_3_5: 'Über/Unter 3,5',
+  over_under: 'Ü/U 2,5',
+  over_under_3_5: 'Ü/U 3,5',
+  over_under_5_5: 'Ü/U 5,5',
+  over_under_7_5: 'Ü/U 7,5',
   btts: 'Beide treffen',
   exact_score: 'Genaues Ergebnis',
+  handicap: 'Handicap',
 }
 
 const SELECTION_LABELS: Record<string, string> = {
@@ -21,10 +25,20 @@ const SELECTION_LABELS: Record<string, string> = {
   '1x': '1X',
   x2: 'X2',
   '12': '12',
+  'over_2.5': 'Über 2,5',
+  'under_2.5': 'Unter 2,5',
   'over_3.5': 'Über 3,5',
   'under_3.5': 'Unter 3,5',
+  'over_5.5': 'Über 5,5',
+  'under_5.5': 'Unter 5,5',
+  'over_7.5': 'Über 7,5',
+  'under_7.5': 'Unter 7,5',
   yes: 'Beide treffen',
   no: 'Nicht beide',
+  home_minus_1_5: 'Heim –1,5',
+  away_plus_1_5: 'Gast +1,5',
+  home_minus_2_5: 'Heim –2,5',
+  away_plus_2_5: 'Gast +2,5',
 }
 
 function selLabel(marketType: string, selection: string): string {
@@ -79,6 +93,26 @@ export default async function ProfilPage() {
       .select('id, stake, total_odds, status, payout')
       .in('id', comboIds)
     for (const cb of cbData ?? []) comboBetsMap.set(cb.id, cb)
+  }
+
+  // Determine per-matchday deadline for cancel eligibility
+  const betMatchdays = [...new Set(bets.filter(b => b.match?.matchday).map(b => b.match!.matchday))]
+  const matchdayDeadlinesPassed: Record<number, boolean> = {}
+  if (betMatchdays.length > 0) {
+    const { data: scheduledFirst } = await supabase
+      .from('matches')
+      .select('matchday, match_date')
+      .eq('status', 'scheduled')
+      .in('matchday', betMatchdays)
+      .order('match_date', { ascending: true })
+    const firstByMd = new Map<number, string>()
+    for (const m of scheduledFirst ?? []) {
+      if (!firstByMd.has(m.matchday)) firstByMd.set(m.matchday, m.match_date)
+    }
+    for (const md of betMatchdays) {
+      const firstDate = firstByMd.get(md)
+      matchdayDeadlinesPassed[md] = !firstDate || new Date(firstDate) <= new Date()
+    }
   }
 
   // Build ordered display items (singles in order; combos inserted at position of their first leg)
@@ -200,11 +234,11 @@ export default async function ProfilPage() {
         <div className="grid grid-cols-2 divide-x divide-gray-100 border-t border-gray-100">
           <div className="px-4 py-3 text-center">
             <div className="text-xs text-gray-500 mb-1">Eingesetzt</div>
-            <div className="font-bold text-gray-900 text-sm">{totalStaked.toFixed(2)}€</div>
+            <div className="font-bold text-gray-900 text-sm">{totalStaked.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
           </div>
           <div className="px-4 py-3 text-center">
             <div className="text-xs text-gray-500 mb-1">Ausgezahlt</div>
-            <div className="font-bold text-green-600 text-sm">{totalPayout.toFixed(2)}€</div>
+            <div className="font-bold text-green-600 text-sm">{totalPayout.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
           </div>
         </div>
       </div>
@@ -215,7 +249,7 @@ export default async function ProfilPage() {
           <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
             <h2 className="font-bold text-gray-900">Guthaben-Verlauf</h2>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${profit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-              {profit >= 0 ? '+' : ''}{profit.toFixed(0)} €
+              {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €
             </span>
           </div>
           <div className="px-4 py-3">
@@ -240,14 +274,7 @@ export default async function ProfilPage() {
             <div className="text-sm">Noch keine Wetten platziert</div>
           </div>
         ) : (
-          <div className="divide-y divide-gray-50">
-            {historyItems.map((item) => {
-              if (item.kind === 'single') {
-                return <SingleBetCard key={item.bet.id} bet={item.bet} />
-              }
-              return <ComboBetCard key={item.comboId} legs={item.legs} cb={item.cb as never} />
-            })}
-          </div>
+          <BetHistoryWithCancel items={historyItems as never} matchdayDeadlinesPassed={matchdayDeadlinesPassed} />
         )}
       </div>
 
@@ -258,172 +285,6 @@ export default async function ProfilPage() {
       />
 
       <SignOutButton />
-    </div>
-  )
-}
-
-type BetRow = {
-  id: string
-  market_type: string
-  selection: string
-  stake: number | null
-  odds_value: number | null
-  status: string
-  payout: number | null
-  created_at: string
-  combo_id: string | null
-  match: {
-    id: number
-    matchday: number
-    match_date: string
-    home_score: number | null
-    away_score: number | null
-    status: string
-    home_team: { name: string; short_name: string | null } | null
-    away_team: { name: string; short_name: string | null } | null
-  } | null
-}
-
-type ComboBetData = { id: string; stake: number; total_odds: number; status: string; payout: number | null }
-
-function matchLabel(bet: BetRow) {
-  const m = bet.match
-  if (!m) return 'Unbekanntes Spiel'
-  const h = m.home_team?.name ?? '?'
-  const a = m.away_team?.name ?? '?'
-  return `${h} – ${a}`
-}
-
-function scoreStr(bet: BetRow) {
-  const m = bet.match
-  if (!m || m.home_score === null) return null
-  return `${m.home_score}:${m.away_score}`
-}
-
-function StatusIcon({ status }: { status: string }) {
-  if (status === 'won') return (
-    <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
-      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-      </svg>
-    </div>
-  )
-  if (status === 'lost') return (
-    <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
-      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-      </svg>
-    </div>
-  )
-  return (
-    <div className="w-8 h-8 rounded-full bg-yellow-400 flex items-center justify-center flex-shrink-0">
-      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    </div>
-  )
-}
-
-function SingleBetCard({ bet }: { bet: BetRow }) {
-  const score = scoreStr(bet)
-  const potentialPayout = (bet.stake ?? 0) * (bet.odds_value ?? 1)
-
-  const borderColor = bet.status === 'won' ? 'border-l-green-500' :
-    bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-  const bgColor = bet.status === 'won' ? 'bg-green-50' :
-    bet.status === 'lost' ? 'bg-red-50/40' : 'bg-white'
-
-  return (
-    <div className={`flex items-center gap-3 px-4 py-3 border-l-4 ${borderColor} ${bgColor}`}>
-      <StatusIcon status={bet.status} />
-      <div className="flex-1 min-w-0">
-        <div className="text-xs text-gray-400 truncate">{matchLabel(bet)}</div>
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
-            {MARKET_LABELS[bet.market_type] ?? bet.market_type}
-          </span>
-          <span className="text-sm font-semibold text-gray-900">
-            {selLabel(bet.market_type, bet.selection)}
-          </span>
-        </div>
-        {score && (
-          <div className="text-xs text-gray-400 mt-0.5">Ergebnis: <span className="font-semibold text-gray-600">{score}</span></div>
-        )}
-      </div>
-      <div className="text-right flex-shrink-0 space-y-0.5">
-        <div className="text-sm font-black text-red-700">@{bet.odds_value?.toFixed(2)}</div>
-        <div className="text-xs text-gray-400">{bet.stake?.toFixed(0)}€</div>
-        {bet.status === 'won' && bet.payout !== null && (
-          <div className="text-xs font-bold text-green-600">+{bet.payout.toFixed(2)}€</div>
-        )}
-        {bet.status === 'pending' && (
-          <div className="text-xs text-gray-400">→ {potentialPayout.toFixed(2)}€</div>
-        )}
-        {bet.status === 'lost' && (
-          <div className="text-xs text-red-400 line-through">{bet.stake?.toFixed(2)}€</div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function ComboBetCard({ legs, cb }: { legs: BetRow[]; cb: ComboBetData | undefined }) {
-  const status = cb?.status ?? legs[0]?.status ?? 'pending'
-  const stake = cb?.stake ?? 0
-  const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * (l.odds_value ?? 1), 1)
-  const potentialPayout = stake * totalOdds
-
-  const borderColor = status === 'won' ? 'border-l-green-500' :
-    status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-  const bgColor = status === 'won' ? 'bg-green-50' :
-    status === 'lost' ? 'bg-red-50/40' : 'bg-white'
-
-  return (
-    <div className={`px-4 py-3 border-l-4 ${borderColor} ${bgColor}`}>
-      {/* Combo Header */}
-      <div className="flex items-center gap-3 mb-2">
-        <StatusIcon status={status} />
-        <div className="flex-1">
-          <div className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-            <span className="text-blue-600">🔗</span>
-            Kombiwette · {legs.length} Tipps
-          </div>
-          <div className="text-xs text-gray-400">
-            Quote {totalOdds.toFixed(2)} · Einsatz {stake.toFixed(0)}€
-          </div>
-        </div>
-        <div className="text-right">
-          {status === 'won' && cb?.payout !== null && cb?.payout !== undefined && (
-            <div className="text-sm font-black text-green-600">+{cb.payout.toFixed(2)}€</div>
-          )}
-          {status === 'pending' && (
-            <div className="text-xs text-gray-500">→ {potentialPayout.toFixed(2)}€</div>
-          )}
-          {status === 'lost' && (
-            <div className="text-xs text-red-400 line-through">{stake.toFixed(2)}€</div>
-          )}
-        </div>
-      </div>
-
-      {/* Legs */}
-      <div className="pl-11 space-y-1.5">
-        {legs.map((leg) => {
-          const score = scoreStr(leg)
-          const legStatus = leg.status
-          return (
-            <div key={leg.id} className="flex items-center gap-2 text-xs">
-              <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                legStatus === 'won' ? 'bg-green-500' :
-                legStatus === 'lost' ? 'bg-red-400' : 'bg-yellow-400'
-              }`} />
-              <span className="text-gray-500 truncate flex-1">{matchLabel(leg)}</span>
-              <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection)}</span>
-              {score && <span className="text-gray-400">({score})</span>}
-              <span className="text-red-700 font-bold">@{leg.odds_value?.toFixed(2)}</span>
-            </div>
-          )
-        })}
-      </div>
     </div>
   )
 }
@@ -485,7 +346,7 @@ function BalanceSparkline({ points }: { points: number[] }) {
       <div className="flex justify-between text-xs text-gray-400 mt-1 px-1">
         <span>Start: 1.000 €</span>
         <span className={isUp ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
-          Aktuell: {points[points.length - 1].toFixed(0)} €
+          Aktuell: {points[points.length - 1].toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €
         </span>
       </div>
     </div>

@@ -411,6 +411,23 @@ const MARKET_LABELS: Record<string, string> = {
   btts: 'Beide treffen', exact_score: 'Ergebnis', handicap: 'Handicap',
 }
 
+const SELECTION_LABELS: Record<string, string> = {
+  home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg',
+  '1x': '1X', x2: 'X2', '12': '12',
+  'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5',
+  'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5',
+  'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5',
+  'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5',
+  yes: 'Beide treffen', no: 'Nicht beide',
+  home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5',
+  home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
+}
+
+function selLabel(marketType: string, selection: string): string {
+  if (marketType === 'exact_score') return selection
+  return SELECTION_LABELS[selection] ?? selection
+}
+
 function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
   const allMatchdays = [...new Set(matches.map(m => m.matchday))].sort((a, b) => a - b)
   const firstScheduled = matches.find(m => m.status === 'scheduled')?.matchday
@@ -485,7 +502,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                         <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5 pl-2">
                           <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
                           <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
-                          <span className="font-medium text-gray-800">{leg.selection}</span>
+                          <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection)}</span>
                           <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                         </div>
                       ))}
@@ -496,7 +513,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                   <div key={bet.id} className="px-4 py-2.5 flex items-center gap-2 text-xs">
                     <span className="text-gray-400">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
                     <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
-                    <span className="font-medium text-gray-800">{bet.selection}</span>
+                    <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection)}</span>
                     {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
                     <span className="text-red-600 font-bold ml-auto">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
                     <span className="text-gray-400">{bet.stake != null ? `${bet.stake} €` : ''}</span>

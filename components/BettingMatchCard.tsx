@@ -366,14 +366,14 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   <div className="text-xs text-gray-400 mb-1.5 font-medium">Handicap (0:1)</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
-                      label={`${match.home_team?.short_name ?? '1'} –1,5`}
+                      label="Heim –1,5"
                       sublabel="Sieg mit 2+ Toren"
                       odds={odds.hdp_home_minus_1_5}
                       selected={isSelected('handicap', 'home_minus_1_5')}
                       onClick={() => add('handicap', 'Handicap', 'home_minus_1_5', `${homeName} –1,5`, odds.hdp_home_minus_1_5)}
                     />
                     <OddsButton
-                      label={`${match.away_team?.short_name ?? '2'} +1,5`}
+                      label="Gast +1,5"
                       sublabel="Nicht mit 2+ verlieren"
                       odds={odds.hdp_away_plus_1_5}
                       selected={isSelected('handicap', 'away_plus_1_5')}
@@ -385,14 +385,14 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   <div className="text-xs text-gray-400 mb-1.5 font-medium">Handicap (0:2)</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
-                      label={`${match.home_team?.short_name ?? '1'} –2,5`}
+                      label="Heim –2,5"
                       sublabel="Sieg mit 3+ Toren"
                       odds={odds.hdp_home_minus_2_5}
                       selected={isSelected('handicap', 'home_minus_2_5')}
                       onClick={() => add('handicap', 'Handicap', 'home_minus_2_5', `${homeName} –2,5`, odds.hdp_home_minus_2_5)}
                     />
                     <OddsButton
-                      label={`${match.away_team?.short_name ?? '2'} +2,5`}
+                      label="Gast +2,5"
                       sublabel="Nicht mit 3+ verlieren"
                       odds={odds.hdp_away_plus_2_5}
                       selected={isSelected('handicap', 'away_plus_2_5')}

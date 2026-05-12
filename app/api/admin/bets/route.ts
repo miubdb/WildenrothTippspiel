@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   // All match IDs for this matchday
   const { data: matchRows } = await supabase
     .from('matches')
-    .select('id, home_team_id, away_team_id, home_team:teams!matches_home_team_id_fkey(short_name), away_team:teams!matches_away_team_id_fkey(short_name)')
+    .select('id, home_team_id, away_team_id, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
     .eq('matchday', matchday)
 
   const matchIds = (matchRows ?? []).map(m => m.id)
@@ -28,8 +28,8 @@ export async function GET(request: NextRequest) {
 
   const matchMap = Object.fromEntries(
     (matchRows ?? []).map(m => [m.id, {
-      home: Array.isArray(m.home_team) ? m.home_team[0]?.short_name : (m.home_team as { short_name: string } | null)?.short_name,
-      away: Array.isArray(m.away_team) ? m.away_team[0]?.short_name : (m.away_team as { short_name: string } | null)?.short_name,
+      home: Array.isArray(m.home_team) ? m.home_team[0]?.name : (m.home_team as { name: string } | null)?.name,
+      away: Array.isArray(m.away_team) ? m.away_team[0]?.name : (m.away_team as { name: string } | null)?.name,
     }])
   )
 
