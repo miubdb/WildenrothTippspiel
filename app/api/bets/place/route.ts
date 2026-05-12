@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Enforce bet limit per matchday (2 normal + 1 risky)
+  // Enforce bet limit per matchday: max 3 total, max 2 with odds <= 20
   const matchdayIds = [...new Set(matches.map((m) => m.matchday))]
   for (const matchday of matchdayIds) {
     // Fetch ALL match IDs for this matchday (not just current selection)
@@ -195,27 +195,26 @@ export async function POST(request: NextRequest) {
     const riskyCombos = new Set((riskyLegs ?? []).filter((b) => b.combo_id).map((b) => b.combo_id)).size
     const existingRiskyCount = riskySingles + riskyCombos
 
-    if (isRisky) {
-      // Risky bet: only 1 allowed per matchday, and existing normal slots don't matter
-      if (existingRiskyCount >= 1) {
-        return NextResponse.json(
-          { error: `Du hast bereits eine Risky Wette für Spieltag ${matchday} platziert.` },
-          { status: 400 }
-        )
-      }
-    } else {
-      // Normal bet: max 2 per matchday
-      const newNormalCount = mode === 'combo' ? 1 : selections.filter((s) => {
-        const m = matches.find((match) => match.id === s.matchId)
-        return m?.matchday === matchday
-      }).length
+    const existingTotalCount = existingNormalCount + existingRiskyCount
+    const newBetCount = mode === 'combo' ? 1 : selections.filter((s) => {
+      const m = matches.find((match) => match.id === s.matchId)
+      return m?.matchday === matchday
+    }).length
 
-      if (existingNormalCount + newNormalCount > 2) {
-        return NextResponse.json(
-          { error: `Maximal 2 Wetten pro Spieltag erlaubt. Du hast bereits ${existingNormalCount} Wette(n) für Spieltag ${matchday} platziert.` },
-          { status: 400 }
-        )
-      }
+    // Max 3 bets per matchday (total)
+    if (existingTotalCount + newBetCount > 3) {
+      return NextResponse.json(
+        { error: `Maximal 3 Wetten pro Spieltag erlaubt. Du hast bereits ${existingTotalCount} Wette(n) für Spieltag ${matchday} platziert.` },
+        { status: 400 }
+      )
+    }
+
+    // Max 2 bets with odds <= 20 per matchday
+    if (!isRisky && existingNormalCount + newBetCount > 2) {
+      return NextResponse.json(
+        { error: `Maximal 2 Wetten mit Quote ≤ 20,0 pro Spieltag. Du hast bereits ${existingNormalCount} solche Wette(n) für Spieltag ${matchday} platziert.` },
+        { status: 400 }
+      )
     }
   }
 
