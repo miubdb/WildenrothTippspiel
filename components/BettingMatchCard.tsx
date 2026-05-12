@@ -199,7 +199,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         <div className="border-t border-gray-100">
           {/* Tab Bar */}
           <div className="flex border-b border-gray-100">
-            {([['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'HDP']] as [Tab, string][]).map(([tab, label]) => (
+            {([['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap']] as [Tab, string][]).map(([tab, label]) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -348,13 +348,13 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                     >
                       <span className="font-bold">{score}</span>
                       <span className={`text-xs mt-0.5 font-semibold ${isSelected('exact_score', score) ? 'text-red-100' : 'text-red-600'}`}>
-                        {o.toFixed(1)}
+                        {o.toFixed(1).replace('.', ',')}
                       </span>
                     </button>
                   ))}
                 </div>
                 <div className="mt-1.5 text-[10px] text-gray-400 text-center">
-                  Nur Ergebnisse mit Quote ≤ 50 werden angezeigt
+                  Nur Ergebnisse mit Quote ≤ 60 werden angezeigt
                 </div>
               </div>
             )}
@@ -363,9 +363,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             {activeTab === 'handicap' && (
               <div className="space-y-2">
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">
-                    Asiatisches Handicap –1,5 / +1,5
-                  </div>
+                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Handicap (0:1)</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
                       label={`${match.home_team?.short_name ?? '1'} –1,5`}
@@ -376,7 +374,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                     />
                     <OddsButton
                       label={`${match.away_team?.short_name ?? '2'} +1,5`}
-                      sublabel="Sieg, X oder 1-Tor-Ndl."
+                      sublabel="Nicht mit 2+ verlieren"
                       odds={odds.hdp_away_plus_1_5}
                       selected={isSelected('handicap', 'away_plus_1_5')}
                       onClick={() => add('handicap', 'Handicap', 'away_plus_1_5', `${awayName} +1,5`, odds.hdp_away_plus_1_5)}
@@ -384,9 +382,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">
-                    Asiatisches Handicap –2,5 / +2,5
-                  </div>
+                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Handicap (0:2)</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
                       label={`${match.home_team?.short_name ?? '1'} –2,5`}
@@ -397,7 +393,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                     />
                     <OddsButton
                       label={`${match.away_team?.short_name ?? '2'} +2,5`}
-                      sublabel="Sieg, X oder max. 2-Ndl."
+                      sublabel="Nicht mit 3+ verlieren"
                       odds={odds.hdp_away_plus_2_5}
                       selected={isSelected('handicap', 'away_plus_2_5')}
                       onClick={() => add('handicap', 'Handicap', 'away_plus_2_5', `${awayName} +2,5`, odds.hdp_away_plus_2_5)}
@@ -506,7 +502,7 @@ function OddsButton({
         {label}
       </span>
       <span className={`text-sm font-black mt-0.5 ${selected ? 'text-white' : 'text-gray-900'}`}>
-        {odds.toFixed(2)}
+        {odds.toFixed(2).replace('.', ',')}
       </span>
     </button>
   )

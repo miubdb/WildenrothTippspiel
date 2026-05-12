@@ -406,9 +406,9 @@ export default function AdminPage() {
 }
 
 const MARKET_LABELS: Record<string, string> = {
-  '1x2': '1X2', double_chance: 'DC', over_under: 'O/U 2,5',
-  over_under_3_5: 'O/U 3,5', over_under_5_5: 'O/U 5,5', over_under_7_5: 'O/U 7,5',
-  btts: 'BTTS', exact_score: 'Ergebnis', handicap: 'HDP',
+  '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
+  over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
+  btts: 'Beide treffen', exact_score: 'Ergebnis', handicap: 'Handicap',
 }
 
 function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
@@ -478,7 +478,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                         <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
                           {bet.is_risky ? '🎲 RISKY' : '🔗 KOMBI'}
                         </span>
-                        <span className="text-xs text-gray-500">{legs.length} Tipps · @{comboOdds.toFixed(2)}</span>
+                        <span className="text-xs text-gray-500">{legs.length} Tipps · @{comboOdds.toFixed(2).replace('.', ',')}</span>
                         <StatusChip status={bet.status} />
                       </div>
                       {legs.map(leg => (
@@ -486,7 +486,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                           <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
                           <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
                           <span className="font-medium text-gray-800">{leg.selection}</span>
-                          <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2)}</span>
+                          <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                         </div>
                       ))}
                     </div>
@@ -498,8 +498,8 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                     <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
                     <span className="font-medium text-gray-800">{bet.selection}</span>
                     {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
-                    <span className="text-red-600 font-bold ml-auto">@{bet.odds_value.toFixed(2)}</span>
-                    <span className="text-gray-400">{bet.stake != null ? `${bet.stake}€` : ''}</span>
+                    <span className="text-red-600 font-bold ml-auto">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-gray-400">{bet.stake != null ? `${bet.stake} €` : ''}</span>
                     <StatusChip status={bet.status} />
                   </div>
                 )

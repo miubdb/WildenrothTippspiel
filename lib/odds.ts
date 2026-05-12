@@ -314,7 +314,7 @@ export function calculateOdds(
  * so the sum of exact-score implied probabilities for any subset is always ≤
  * the corresponding 1X2 implied probability. No arbitrage across markets is possible.
  */
-const MAX_EXACT_ODDS = 50
+const MAX_EXACT_ODDS = 60
 
 export function getExactScoreOdds(
   matches: Match[],

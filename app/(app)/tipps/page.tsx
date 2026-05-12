@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { BettingMatchCard } from '@/components/BettingMatchCard'
 import { BetSlip } from '@/components/BetSlip'
+import { MyBets } from '@/components/MyBets'
 import { MatchdayScroller } from '@/components/MatchdayScroller'
 import type { Match } from '@/types'
 import { calculateOdds } from '@/lib/odds'
@@ -11,8 +12,12 @@ export const revalidate = 60
 const SELECTION_DISPLAY: Record<string, Record<string, string>> = {
   '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
   double_chance: { '1x': '1X', x2: 'X2', '12': '12' },
+  over_under: { 'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5' },
   over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
+  over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
+  over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
   btts: { yes: 'Beide treffen', no: 'Nicht beide' },
+  handicap: { home_minus_1_5: '–1,5', away_plus_1_5: '+1,5', home_minus_2_5: '–2,5', away_plus_2_5: '+2,5' },
 }
 
 function socialSelLabel(marketType: string, selection: string) {
@@ -109,9 +114,13 @@ export default async function TippsPage({
       ? await supabase.from('odds').select('*').in('match_id', scheduledMatchIds).not('frozen_at', 'is', null)
       : { data: [] }
 
-    const frozenSet = new Set((frozenRows ?? []).map(r => r.match_id))
+    // "Complete" = frozen row that also has the new-market columns populated.
+    // Rows frozen before the market-expansion migration have NULL new fields
+    // (Number(null)→0); treat those as incomplete so they get recomputed+updated.
+    const completeFrozenRows = (frozenRows ?? []).filter(r => r.over_5_5 !== null)
+    const frozenSet = new Set(completeFrozenRows.map(r => r.match_id))
 
-    for (const row of frozenRows ?? []) {
+    for (const row of completeFrozenRows) {
       oddsMap[row.match_id] = {
         home_win:  Number(row.home_win),
         draw:      Number(row.draw),
@@ -207,24 +216,56 @@ export default async function TippsPage({
 
   const matchdayMatchIds = matchdayMatches.map((m) => m.id)
 
-  // Own bet counter (split normal vs risky)
+  // Own bets: fetch full data for MyBets component + derive counts for header
+  type OwnBet = {
+    id: number; match_id: number; market_type: string; selection: string
+    odds_value: number; stake: number | null; status: string; combo_id: number | null; is_risky: boolean
+  }
+  type OwnCombo = { id: number; stake: number; status: string; legs: OwnBet[] }
+
   let normalBetCount = 0
   let riskyBetCount = 0
+  let userSingles: OwnBet[] = []
+  let userCombos: OwnCombo[] = []
+
   if (user && matchdayMatchIds.length > 0) {
-    const [normalSingles, normalComboLegs, riskyLegs] = await Promise.all([
-      supabase.from('bets').select('id', { count: 'exact', head: true })
-        .eq('user_id', user.id).eq('is_risky', false).is('combo_id', null).in('match_id', matchdayMatchIds),
-      supabase.from('bets').select('combo_id')
-        .eq('user_id', user.id).eq('is_risky', false).not('combo_id', 'is', null).in('match_id', matchdayMatchIds),
-      supabase.from('bets').select('combo_id')
-        .eq('user_id', user.id).eq('is_risky', true).in('match_id', matchdayMatchIds),
-    ])
-    const distinctNormalCombos = new Set((normalComboLegs.data ?? []).map((b) => b.combo_id)).size
-    normalBetCount = (normalSingles.count ?? 0) + distinctNormalCombos
-    const riskySingles = (riskyLegs.data ?? []).filter((b) => !b.combo_id).length
-    const riskyComboIds = new Set((riskyLegs.data ?? []).filter((b) => b.combo_id).map((b) => b.combo_id)).size
-    riskyBetCount = riskySingles + riskyComboIds
+    const { data: ownBets } = await supabase
+      .from('bets')
+      .select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky')
+      .eq('user_id', user.id)
+      .in('match_id', matchdayMatchIds)
+
+    if (ownBets && ownBets.length > 0) {
+      normalBetCount =
+        ownBets.filter(b => !b.combo_id && !b.is_risky).length +
+        new Set(ownBets.filter(b => b.combo_id && !b.is_risky).map(b => b.combo_id)).size
+      riskyBetCount =
+        ownBets.filter(b => !b.combo_id && b.is_risky).length +
+        new Set(ownBets.filter(b => b.combo_id && b.is_risky).map(b => b.combo_id)).size
+
+      userSingles = (ownBets as OwnBet[]).filter(b => !b.combo_id)
+      const comboIds = [...new Set(ownBets.filter(b => b.combo_id).map(b => Number(b.combo_id)))]
+      if (comboIds.length > 0) {
+        const { data: comboBetRows } = await supabase
+          .from('combo_bets')
+          .select('id, stake, status')
+          .in('id', comboIds)
+        userCombos = (comboBetRows ?? []).map(cb => ({
+          id: cb.id,
+          stake: cb.stake,
+          status: cb.status,
+          legs: (ownBets as OwnBet[]).filter(b => Number(b.combo_id) === cb.id),
+        }))
+      }
+    }
   }
+
+  const userMatchMap: Record<number, { home: string; away: string }> = Object.fromEntries(
+    matchdayMatches.map(m => [m.id, {
+      home: m.home_team?.short_name ?? m.home_team?.name ?? '?',
+      away: m.away_team?.short_name ?? m.away_team?.name ?? '?',
+    }])
+  )
 
   // Social bets: visible after first match kicks off (RLS policy allows this)
   type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number }
@@ -409,7 +450,7 @@ export default async function TippsPage({
                           return (
                             <div key={bet.combo_id} className="bg-blue-50 border border-blue-100 rounded-xl p-2.5">
                               <div className="text-xs font-semibold text-blue-700 mb-1.5">
-                                🔗 Kombiwette · {legs.length} Tipps · @{comboOdds.toFixed(2)}
+                                🔗 Kombiwette · {legs.length} Tipps · @{comboOdds.toFixed(2).replace('.', ',')}
                               </div>
                               {legs.map(leg => {
                                 const m = matchMap.get(leg.match_id)
@@ -420,7 +461,7 @@ export default async function TippsPage({
                                     <StatusDot status={leg.status} />
                                     <span className="text-gray-400">{ht}–{at}</span>
                                     <span className="font-medium text-gray-800">{socialSelLabel(leg.market_type, leg.selection)}</span>
-                                    <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2)}</span>
+                                    <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                                   </div>
                                 )
                               })}
@@ -440,7 +481,7 @@ export default async function TippsPage({
                             <StatusDot status={bet.status} />
                             <span className="text-gray-400">{ht}–{at}</span>
                             <span className="font-medium text-gray-800 flex-1">{socialSelLabel(bet.market_type, bet.selection)}</span>
-                            <span className="text-red-600 font-bold">@{bet.odds_value.toFixed(2)}</span>
+                            <span className="text-red-600 font-bold">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
                           </div>
                         )
                       })}
@@ -451,6 +492,16 @@ export default async function TippsPage({
             </div>
           )}
         </div>
+      )}
+
+      {/* Own placed bets */}
+      {user && (userSingles.length > 0 || userCombos.length > 0) && (
+        <MyBets
+          singles={userSingles}
+          combos={userCombos}
+          matchMap={userMatchMap}
+          isDeadlinePassed={isDeadlinePassed}
+        />
       )}
 
       <BetSlip />

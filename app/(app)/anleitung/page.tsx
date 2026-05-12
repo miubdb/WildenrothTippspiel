@@ -37,6 +37,9 @@ export default function AnleitungPage() {
         <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700">
           💶 <strong>Maximaleinsatz: 250 € pro Wette</strong> (Einzelwette oder Kombiwette).
         </div>
+        <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-800">
+          🔄 <strong>Wetten stornieren:</strong> Platzierte Wetten können bis zum Anpfiff des ersten Spiels des Spieltags storniert werden. Der Einsatz wird dann automatisch zurückgebucht. Nach dem ersten Anpfiff ist keine Stornierung mehr möglich.
+        </div>
       </Section>
 
       <Section title="🎲 Risky Wette" emoji="🎲">
@@ -113,18 +116,16 @@ export default function AnleitungPage() {
           ]}
         />
         <MarketCard
-          title="Asiatisches Handicap"
-          description="Eine Mannschaft erhält einen virtuellen Vorsprung. Halbe-Tore vermeiden Push (Rückgabe)."
+          title="Handicap"
+          description="Eine Mannschaft erhält einen virtuellen Vorsprung. Halbe-Tore vermeiden Push (Rückgabe). Die Angabe in Klammern zeigt den virtuellen Rückstand des Heimteams."
           items={[
-            { label: '–1,5', desc: 'Heimsieg mit mind. 2 Toren Unterschied — hohe Quote bei Außenseitern' },
-            { label: '+1,5', desc: 'Auswärtsteam braucht kein Sieg — reicht, wenn Heimteam nicht mit 2+ gewinnt' },
-            { label: '–2,5', desc: 'Heimsieg mit mind. 3 Toren Unterschied' },
-            { label: '+2,5', desc: 'Auswärtsteam braucht max. 2 Tore Rückstand' },
+            { label: 'Handicap (0:1)', desc: 'Heimteam –1,5 / Auswärtsteam +1,5 — Heimsieg mit 2+ Toren oder: Auswärts hält mit max. 1 Tor Rückstand' },
+            { label: 'Handicap (0:2)', desc: 'Heimteam –2,5 / Auswärtsteam +2,5 — Heimsieg mit 3+ Toren oder: Auswärts hält mit max. 2 Toren Rückstand' },
           ]}
         />
         <MarketCard
           title="Genaues Ergebnis"
-          description="Die schwierigste, aber lukrativste Wette — tippe das exakte Endergebnis. Nur Ergebnisse mit Quote ≤ 50 werden angezeigt (sehr unwahrscheinliche Scorelines werden ausgeblendet)."
+          description="Die schwierigste, aber lukrativste Wette — tippe das exakte Endergebnis. Nur Ergebnisse mit Quote ≤ 60 werden angezeigt (sehr unwahrscheinliche Scorelines werden ausgeblendet)."
           items={[
             { label: '1:0', desc: 'Häufiges Ergebnis → niedrigere Quote (~7–10)' },
             { label: '3:1', desc: 'Selteneres Ergebnis → höhere Quote (~20–35)' },

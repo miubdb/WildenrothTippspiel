@@ -259,7 +259,7 @@ export function BetSlip() {
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-red-700 font-bold text-sm">
-                        {s.oddsValue.toFixed(2)}
+                        {s.oddsValue.toFixed(2).replace('.', ',')}
                       </span>
                       <button
                         onClick={() => removeSelection(s.matchId, s.marketType)}
@@ -301,7 +301,7 @@ export function BetSlip() {
                       <span className="text-xs text-gray-500 ml-auto">
                         Gewinn:{' '}
                         <span className="text-green-600 font-semibold">
-                          {(getStake(s.matchId, s.marketType) * s.oddsValue).toFixed(2)}€
+                          {(getStake(s.matchId, s.marketType) * s.oddsValue).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                         </span>
                       </span>
                     </div>
@@ -317,7 +317,7 @@ export function BetSlip() {
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-gray-600">Gesamtquote</span>
                     <span className="font-bold text-red-700 text-lg">
-                      {totalComboOdds.toFixed(2)}
+                      {totalComboOdds.toFixed(2).replace('.', ',')}
                     </span>
                   </div>
                   <div className="flex items-center gap-3 mb-3">
@@ -350,7 +350,7 @@ export function BetSlip() {
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-gray-600">Möglicher Gewinn</span>
                     <span className="font-bold text-green-600 text-lg">
-                      {potentialPayout.toFixed(2)}€
+                      {potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </span>
                   </div>
                 </>
@@ -360,11 +360,11 @@ export function BetSlip() {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <div className="text-xs text-gray-500">Gesamteinsatz</div>
-                    <div className="font-semibold text-gray-900">{totalSingleStake.toFixed(2)}€</div>
+                    <div className="font-semibold text-gray-900">{totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-gray-500">Möglicher Gewinn</div>
-                    <div className="font-bold text-green-600">{potentialPayout.toFixed(2)}€</div>
+                    <div className="font-bold text-green-600">{potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
                   </div>
                 </div>
               )}
@@ -402,7 +402,9 @@ export function BetSlip() {
                   <>
                     Wette platzieren
                     <span className="ml-1 text-red-200 text-sm font-normal">
-                      ({mode === 'combo' ? `${comboStake}€` : `${totalSingleStake}€`})
+                      ({mode === 'combo'
+                        ? `${comboStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`
+                        : `${totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`})
                     </span>
                   </>
                 )}
