@@ -23,8 +23,8 @@ function settleBet(
     }
     case 'over_under': {
       const total = homeScore + awayScore
-      if (total > 2.5 && selection === 'over') return 'won'
-      if (total <= 2.5 && selection === 'under') return 'won'
+      if (total > 2.5 && (selection === 'over' || selection === 'over_2.5')) return 'won'
+      if (total <= 2.5 && (selection === 'under' || selection === 'under_2.5')) return 'won'
       return 'lost'
     }
     case 'over_under_3_5': {

@@ -3,6 +3,8 @@ import { BettingMatchCard } from '@/components/BettingMatchCard'
 import { BetSlip } from '@/components/BetSlip'
 import { MyBets } from '@/components/MyBets'
 import { MatchdayScroller } from '@/components/MatchdayScroller'
+import { MatchdayRecap } from '@/components/MatchdayRecap'
+import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match } from '@/types'
 import { calculateOdds } from '@/lib/odds'
 import Link from 'next/link'
@@ -296,6 +298,107 @@ export default async function TippsPage({
   // Build match label map for social section
   const matchMap = new Map(matchdayMatches.map(m => [m.id, m]))
 
+  // Spieltags-Recap: computed when all matches in the matchday are finished
+  const isMatchdayComplete = matchdayMatches.length > 0 &&
+    matchdayMatches.every(m => m.status === 'finished')
+
+  let recapData: RecapData | null = null
+
+  if (isMatchdayComplete && matchdayMatchIds.length > 0) {
+    const { data: recapBets } = await supabase
+      .from('bets')
+      .select('id, user_id, stake, odds_value, payout, status, combo_id')
+      .in('match_id', matchdayMatchIds)
+      .in('status', ['won', 'lost'])
+
+    if (recapBets && recapBets.length > 0) {
+      const singleBets = recapBets.filter(b => !b.combo_id)
+      const comboLegBets = recapBets.filter(b => b.combo_id)
+      const comboIds = [...new Set(comboLegBets.map(b => Number(b.combo_id)))]
+
+      let recapCombos: { id: number; user_id: string; stake: number; total_odds: number; payout: number; status: string }[] = []
+      let allComboLegs: { id: number; combo_id: number; status: string }[] = []
+
+      if (comboIds.length > 0) {
+        const { data: comboRows } = await supabase
+          .from('combo_bets')
+          .select('id, user_id, stake, total_odds, payout, status')
+          .in('id', comboIds)
+          .in('status', ['won', 'lost'])
+        recapCombos = comboRows ?? []
+
+        const { data: legRows } = await supabase
+          .from('bets')
+          .select('id, combo_id, status')
+          .in('combo_id', comboIds)
+        allComboLegs = (legRows ?? []).map(l => ({ ...l, combo_id: Number(l.combo_id) }))
+      }
+
+      const recapUserIds = [...new Set([...recapBets.map(b => b.user_id), ...recapCombos.map(c => c.user_id)])]
+      const { data: recapProfiles } = await supabase
+        .from('profiles')
+        .select('id, display_name, username')
+        .in('id', recapUserIds)
+      const pMap = Object.fromEntries((recapProfiles ?? []).map(p => [p.id, p.display_name || p.username || 'Unbekannt']))
+
+      // MVP: user with highest net gain (payout - stake) across singles + combos this matchday
+      const netGain: Record<string, number> = {}
+      for (const b of singleBets) {
+        const g = b.status === 'won' ? (b.payout ?? 0) - b.stake : -b.stake
+        netGain[b.user_id] = (netGain[b.user_id] ?? 0) + g
+      }
+      for (const c of recapCombos) {
+        const g = c.status === 'won' ? c.payout - c.stake : -c.stake
+        netGain[c.user_id] = (netGain[c.user_id] ?? 0) + g
+      }
+      const mvpEntry = Object.entries(netGain).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1])[0]
+      const mvp = mvpEntry ? { name: pMap[mvpEntry[0]] ?? 'Unbekannt', profit: mvpEntry[1] } : null
+
+      // Best winning odds: highest single odds or combo total_odds (won)
+      const wonSingles = singleBets.filter(b => b.status === 'won').sort((a, b) => b.odds_value - a.odds_value)
+      const wonCombos = recapCombos.filter(c => c.status === 'won').sort((a, b) => b.total_odds - a.total_odds)
+      const topSingle = wonSingles[0] ?? null
+      const topCombo = wonCombos[0] ?? null
+      let bestOdds: RecapData['bestOdds'] = null
+      if (topSingle || topCombo) {
+        const sOdds = topSingle?.odds_value ?? 0
+        const cOdds = topCombo?.total_odds ?? 0
+        if (sOdds >= cOdds && topSingle) {
+          bestOdds = { name: pMap[topSingle.user_id] ?? 'Unbekannt', odds: topSingle.odds_value, payout: topSingle.payout ?? 0, isCombo: false }
+        } else if (topCombo) {
+          bestOdds = { name: pMap[topCombo.user_id] ?? 'Unbekannt', odds: topCombo.total_odds, payout: topCombo.payout, isCombo: true }
+        }
+      }
+
+      // Unlucky Bastard: lost combo with exactly 1 lost leg (all legs settled)
+      const legsByCombo = allComboLegs.reduce<Record<number, { status: string }[]>>((acc, l) => {
+        if (!acc[l.combo_id]) acc[l.combo_id] = []
+        acc[l.combo_id].push({ status: l.status })
+        return acc
+      }, {})
+      const unluckyResults = recapCombos
+        .filter(c => c.status === 'lost')
+        .map(c => {
+          const legs = legsByCombo[c.id] ?? []
+          return { c, legs, lostCount: legs.filter(l => l.status === 'lost').length }
+        })
+        .filter(x => x.lostCount === 1 && x.legs.length >= 2 && x.legs.every(l => l.status !== 'pending'))
+        .sort((a, b) => b.c.total_odds - a.c.total_odds)
+      const unlucky = unluckyResults[0] ?? null
+      const unluckyBastard: RecapData['unluckyBastard'] = unlucky ? {
+        name: pMap[unlucky.c.user_id] ?? 'Unbekannt',
+        odds: unlucky.c.total_odds,
+        stake: unlucky.c.stake,
+        legs: unlucky.legs.length,
+        wouldHavePayout: Math.round(unlucky.c.stake * unlucky.c.total_odds * 100) / 100,
+      } : null
+
+      if (mvp || bestOdds || unluckyBastard) {
+        recapData = { mvp, bestOdds, unluckyBastard }
+      }
+    }
+  }
+
   return (
     <div className="px-4 py-4 space-y-4">
       {/* Matchday Header */}
@@ -494,6 +597,11 @@ export default async function TippsPage({
             </div>
           )}
         </div>
+      )}
+
+      {/* Spieltags-Recap — shown when all matches in the matchday are finished */}
+      {isMatchdayComplete && recapData && (
+        <MatchdayRecap data={recapData} matchday={currentMatchday} />
       )}
 
       {/* Own placed bets */}
