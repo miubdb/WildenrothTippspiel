@@ -63,8 +63,8 @@ export function PushSubscribeButton() {
           <div className="font-semibold text-gray-900 text-sm">Push-Benachrichtigungen</div>
           <div className="text-xs text-gray-400 mt-0.5">
             {state === 'subscribed'
-              ? 'Du wirst bei Wettentscheidungen benachrichtigt'
-              : 'Erhalte Benachrichtigungen bei Wettentscheidungen'}
+              ? 'Wettentscheide, Tippschluss-Reminder & Spieltags-Recap'
+              : 'Erhalte Tipperinnerungen, Ergebnisse & Spieltags-Highlights'}
           </div>
         </div>
         {state === 'loading' ? (

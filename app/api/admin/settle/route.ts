@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { sendPushToUser } from '@/lib/push'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { sendPushToUser, sendPushToAll } from '@/lib/push'
 
 function settleBet(
   marketType: string,
@@ -242,6 +243,42 @@ export async function POST(request: NextRequest) {
   }
 
   await Promise.allSettled(pushNotifications)
+
+  // Check if the entire matchday is now complete → send recap push (once)
+  const { data: matchInfo } = await supabase
+    .from('matches')
+    .select('matchday')
+    .eq('id', matchId)
+    .single()
+
+  if (matchInfo) {
+    const { matchday } = matchInfo
+    const { data: matchdayMatches } = await supabase
+      .from('matches')
+      .select('status')
+      .eq('matchday', matchday)
+
+    const allFinished =
+      matchdayMatches &&
+      matchdayMatches.length > 0 &&
+      matchdayMatches.every((m) => m.status === 'finished')
+
+    if (allFinished) {
+      const admin = createAdminClient()
+      const { error: dedupError } = await admin
+        .from('push_reminders')
+        .insert({ type: 'recap', matchday })
+
+      if (!dedupError) {
+        // Only send if insert succeeded (prevents duplicate on concurrent requests)
+        await sendPushToAll(
+          '📊 Spieltags-Recap verfügbar',
+          `Der ${matchday}. Spieltag ist abgeschlossen – schau dir die Highlights an!`,
+          `/tipps?matchday=${matchday}`
+        )
+      }
+    }
+  }
 
   return NextResponse.json({
     success: true,
