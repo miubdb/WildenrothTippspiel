@@ -128,9 +128,9 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     setStakes((prev) => ({ ...prev, [slipKey(matchId, marketType)]: stake }))
   }, [])
 
-  // Combo is invalid if any two selections are mutually exclusive outcomes
+  // Combo is invalid if any two selections are from the same match
   const isComboValid = mode !== 'combo' ||
-    !selections.some((a, i) => selections.slice(i + 1).some(b => hasContradiction(a, b)))
+    !selections.some((a, i) => selections.slice(i + 1).some(b => a.matchId === b.matchId))
 
   const totalComboOdds = selections.reduce((acc, s) => acc * s.oddsValue, 1)
   const potentialPayout = mode === 'combo'

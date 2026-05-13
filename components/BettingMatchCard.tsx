@@ -23,6 +23,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
   const [wildenrothBlockMsg, setWildenrothBlockMsg] = useState(false)
+  const [comboMatchBlockMsg, setComboMatchBlockMsg] = useState(false)
 
   const homeName = match.home_team?.name ?? 'Heim'
   const awayName = match.away_team?.name ?? 'Gast'
@@ -76,6 +77,13 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     if (isAgainstWildenroth(marketType, selection)) {
       setWildenrothBlockMsg(true)
       setTimeout(() => setWildenrothBlockMsg(false), 8000)
+      return
+    }
+    // Block: a different market from this match is already in the slip.
+    // Multiple picks from the same match cannot be combined.
+    if (selections.some(s => s.matchId === match.id && s.marketType !== marketType)) {
+      setComboMatchBlockMsg(true)
+      setTimeout(() => setComboMatchBlockMsg(false), 5000)
       return
     }
     addSelection({ matchId: match.id, matchLabel, marketType: marketType as never, marketLabel, selection, selectionLabel, oddsValue })
@@ -190,6 +198,15 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
           <span className="text-lg flex-shrink-0">⚽🚫</span>
           <div className="text-xs text-red-700 leading-snug">
             <span className="font-bold">Befangenheit erkannt!</span> Als Wildenroth-Spieler oder -Trainer darfst du nicht gegen dein eigenes Team wetten – das wäre Wettbewerbsverzerrung! 😄 Nur Wildenroth-Siege tippen erlaubt!
+          </div>
+        </div>
+      )}
+
+      {comboMatchBlockMsg && (
+        <div className="border-t border-orange-100 bg-orange-50 px-4 py-2.5 flex items-start gap-2">
+          <span className="text-base flex-shrink-0">🚫</span>
+          <div className="text-xs text-orange-700 leading-snug">
+            <span className="font-bold">Kombiwette:</span> Dieses Spiel ist bereits im Wettschein. In einer Kombiwette darf jedes Spiel nur einmal vorkommen.
           </div>
         </div>
       )}

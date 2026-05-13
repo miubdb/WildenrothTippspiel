@@ -76,11 +76,17 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Combo: reject mutually exclusive selections
+  // Combo: reject multiple selections from the same match (all markets)
   if (mode === 'combo') {
     for (let i = 0; i < selections.length; i++) {
       for (let j = i + 1; j < selections.length; j++) {
         const a = selections[i], b = selections[j]
+        if (a.matchId === b.matchId && a.marketType !== b.marketType) {
+          return NextResponse.json(
+            { error: 'Ungültige Kombiwette – in einer Kombiwette darf jedes Spiel nur einmal vorkommen.' },
+            { status: 400 }
+          )
+        }
         if (a.matchId !== b.matchId || a.marketType === b.marketType) continue
         const has = (m: string, s: string) =>
           (a.marketType === m && a.selection === s) || (b.marketType === m && b.selection === s)

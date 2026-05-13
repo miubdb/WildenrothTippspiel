@@ -30,7 +30,7 @@ export function BetSlip() {
   // Local string state for stake inputs so the user can freely edit (clear, overwrite, etc.)
   // without the controlled component immediately re-parsing and jumping back.
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
-  const [comboInputValue, setComboInputValue] = useState('')
+  const [comboInputValue, setComboInputValue] = useState('10')
 
   const count = selections.length
 
@@ -274,8 +274,8 @@ export function BetSlip() {
                   {mode === 'single' && (
                     <div className="mt-2 flex items-center gap-2">
                       <span className="text-xs text-gray-500">Einsatz:</span>
-                      <div className="flex items-center gap-1">
-                        {[5, 10, 25, 50].map((amt) => (
+                      <div className="flex flex-wrap items-center gap-1">
+                        {[5, 10, 25, 50, 100, 250].map((amt) => (
                           <button
                             key={amt}
                             onClick={() => handleStakeButton(s.matchId, s.marketType, amt)}
@@ -322,8 +322,8 @@ export function BetSlip() {
                   </div>
                   <div className="flex items-center gap-3 mb-3">
                     <span className="text-sm text-gray-600 whitespace-nowrap">Einsatz:</span>
-                    <div className="flex items-center gap-1">
-                      {[5, 10, 25, 50].map((amt) => (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {[5, 10, 25, 50, 100, 250].map((amt) => (
                         <button
                           key={amt}
                           onClick={() => handleComboButton(amt)}
@@ -339,8 +339,8 @@ export function BetSlip() {
                       <input
                         type="number"
                         min="1"
-                        max="500"
-                        value={comboInputValue || String(comboStake)}
+                        max="250"
+                        value={comboInputValue}
                         onChange={(e) => handleComboStakeChange(e.target.value)}
                         onBlur={handleComboStakeBlur}
                         className="w-16 text-center py-1.5 px-1 border border-gray-200 rounded-lg text-xs font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500 bg-white"
