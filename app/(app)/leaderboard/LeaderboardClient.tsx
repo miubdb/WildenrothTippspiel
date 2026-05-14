@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { ReactionBar } from '@/components/ReactionBar'
+import { CommentSection, type CommentData } from '@/components/CommentSection'
 
 const STARTING_BALANCE = 1000
 
@@ -177,9 +178,10 @@ function ComboBetMini({ legs, cb, onCancel, cancellingId }: { legs: BetRow[]; cb
 
 type ReactionData = { target_type: string; target_id: number; emoji: string; user_id: string }
 
-function UserBets({ bets, combos, noDataLabel, reactions, currentUserId, isOwnBets, isDeadlinePassed, onCancel, cancellingId: cancelId }: {
+function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserId, currentUserName, isAdmin, isOwnBets, isDeadlinePassed, onCancel, cancellingId: cancelId }: {
   bets: BetRow[]; combos: Record<string, ComboMeta>; noDataLabel: string
-  reactions: ReactionData[]; currentUserId: string | null
+  reactions: ReactionData[]; comments: CommentData[]; currentUserId: string | null
+  currentUserName: string; isAdmin?: boolean
   isOwnBets?: boolean; isDeadlinePassed?: boolean
   onCancel?: (betId?: number, comboId?: number) => void
   cancellingId?: string | null
@@ -201,19 +203,23 @@ function UserBets({ bets, combos, noDataLabel, reactions, currentUserId, isOwnBe
       {items.map((item, i) => {
         if (item.kind === 'single') {
           const betReactions = reactions.filter(r => r.target_type === 'bet' && r.target_id === item.bet.id)
+          const betComments = comments.filter(c => c.target_type === 'bet' && c.target_id === item.bet.id)
           return (
             <div key={item.bet.id}>
               <SingleBetMini bet={item.bet} onCancel={isOwnBets && !isDeadlinePassed ? (betId) => onCancel?.(betId) : undefined} cancellingId={cancelId} />
               {currentUserId && <div className="pl-3"><ReactionBar targetType="bet" targetId={item.bet.id} currentUserId={currentUserId} initialReactions={betReactions} /></div>}
+              {currentUserId && <CommentSection targetType="bet" targetId={item.bet.id} currentUserId={currentUserId} currentUserName={currentUserName} initialComments={betComments} isAdmin={isAdmin} />}
             </div>
           )
         }
         const comboId = item.legs[0]?.combo_id
         const comboReactions = comboId ? reactions.filter(r => r.target_type === 'combo' && r.target_id === comboId) : []
+        const comboComments = comboId ? comments.filter(c => c.target_type === 'combo' && c.target_id === comboId) : []
         return (
           <div key={i}>
             <ComboBetMini legs={item.legs} cb={item.cb} onCancel={isOwnBets && !isDeadlinePassed ? (comboId) => onCancel?.(undefined, comboId) : undefined} cancellingId={cancelId} />
             {currentUserId && comboId && <div className="pl-3"><ReactionBar targetType="combo" targetId={comboId} currentUserId={currentUserId} initialReactions={comboReactions} /></div>}
+            {currentUserId && comboId && <CommentSection targetType="combo" targetId={comboId} currentUserId={currentUserId} currentUserName={currentUserName} initialComments={comboComments} isAdmin={isAdmin} />}
           </div>
         )
       })}
@@ -346,11 +352,13 @@ function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => v
 // ── Main Export ────────────────────────────────────────────────────────
 
 export function LeaderboardClient({
-  profiles, currentUserId, matchdayBets, matchdayNumber, allMatchdays, combos,
-  isDeadlinePassed, weeklyWinners, streaks, mdStats, initialReactions,
+  profiles, currentUserId, currentUserName, isAdmin, matchdayBets, matchdayNumber, allMatchdays, combos,
+  isDeadlinePassed, weeklyWinners, streaks, mdStats, initialReactions, initialComments,
 }: {
   profiles: Profile[]
   currentUserId: string | null
+  currentUserName: string
+  isAdmin?: boolean
   matchdayBets: BetRow[]
   matchdayNumber: number | null
   allMatchdays: number[]
@@ -360,6 +368,7 @@ export function LeaderboardClient({
   streaks: Record<string, number>
   mdStats: MatchdayStats
   initialReactions: { target_type: string; target_id: number; emoji: string; user_id: string }[]
+  initialComments: CommentData[]
 }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'rangliste' | 'spieltag'>('rangliste')
@@ -494,7 +503,7 @@ export function LeaderboardClient({
                       {!isDeadlinePassed && !isMe ? (
                         <p className="text-xs text-gray-400 italic">Tipps werden nach Annahmeschluss sichtbar</p>
                       ) : (
-                        <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} currentUserId={currentUserId} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} />
+                        <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} />
                       )}
                     </div>
                   )}
@@ -582,12 +591,22 @@ export function LeaderboardClient({
                       {pnl > 0 ? '+' : ''}{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </div>
                   )}
-                  {(pnl === null || !isDeadlinePassed) && (
-                    <div className="ml-auto text-xs text-gray-400">{userBets.length} Wette{userBets.length !== 1 ? 'n' : ''}</div>
-                  )}
+                  {(pnl === null || !isDeadlinePassed) && (() => {
+                    const seenCombos = new Set<number>()
+                    let slipCount = 0
+                    for (const b of userBets) {
+                      if (!b.combo_id) { slipCount++ }
+                      else if (!seenCombos.has(b.combo_id)) { seenCombos.add(b.combo_id); slipCount++ }
+                    }
+                    return (
+                      <div className="ml-auto text-xs text-gray-400">
+                        {slipCount} Wettschein{slipCount !== 1 ? 'e' : ''}
+                      </div>
+                    )
+                  })()}
                 </div>
                 <div className="px-4 py-2">
-                  <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} currentUserId={currentUserId} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} />
+                  <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} />
                 </div>
               </div>
             )

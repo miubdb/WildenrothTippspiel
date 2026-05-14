@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { LeaderboardClient } from './LeaderboardClient'
 import type { BetRow, ComboMeta, MatchdayStats } from './LeaderboardClient'
+import type { CommentData } from '@/components/CommentSection'
 
 export const revalidate = 60
 
@@ -27,6 +28,16 @@ export default async function LeaderboardPage({
     supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id'),
     supabase.from('combo_bets').select('id, user_id, stake, total_odds, status, payout'),
   ])
+
+  // Current user profile (for name + admin flag)
+  const currentProfile = user ? (profiles ?? []).find(p => p.id === user.id) : null
+  const currentUserName = currentProfile
+    ? (currentProfile.display_name || currentProfile.username || 'Du')
+    : 'Du'
+  const { data: adminCheck } = user
+    ? await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+    : { data: null }
+  const isAdmin = adminCheck?.is_admin ?? false
 
   const allMatches = allMatchesRaw ?? []
   const allBets = allBetsRaw ?? []
@@ -107,6 +118,29 @@ export default async function LeaderboardPage({
     initialReactions.push(...allReactions)
   }
 
+  // Fetch initial comments for displayed bets and combos
+  const initialComments: CommentData[] = []
+  {
+    const singleIds = matchdayBets.filter(b => !b.combo_id).map(b => b.id)
+    const comboIds = [...new Set(matchdayBets.filter(b => b.combo_id).map(b => b.combo_id as number))]
+    // Build author name map
+    const profileMap = new Map((profiles ?? []).map(p => [p.id, p.display_name || p.username || '?']))
+    const allComments: CommentData[] = []
+    if (singleIds.length > 0) {
+      const { data: cData } = await supabase
+        .from('bet_comments').select('id, target_type, target_id, user_id, content, created_at')
+        .eq('target_type', 'bet').in('target_id', singleIds)
+      for (const c of cData ?? []) allComments.push({ ...c, author_name: profileMap.get(c.user_id) ?? '?' })
+    }
+    if (comboIds.length > 0) {
+      const { data: cData } = await supabase
+        .from('bet_comments').select('id, target_type, target_id, user_id, content, created_at')
+        .eq('target_type', 'combo').in('target_id', comboIds)
+      for (const c of cData ?? []) allComments.push({ ...c, author_name: profileMap.get(c.user_id) ?? '?' })
+    }
+    initialComments.push(...allComments)
+  }
+
   // ── Per-matchday stats for all users (Wochentippkönig + Streaks) ──
   // Build matchId → matchday map
   const matchToMatchday = new Map(allMatches.map(m => [m.id, m.matchday]))
@@ -184,6 +218,8 @@ export default async function LeaderboardPage({
     <LeaderboardClient
       profiles={profiles ?? []}
       currentUserId={user?.id ?? null}
+      currentUserName={currentUserName}
+      isAdmin={isAdmin}
       matchdayBets={matchdayBets}
       matchdayNumber={currentMatchday}
       allMatchdays={allMatchdays}
@@ -193,6 +229,7 @@ export default async function LeaderboardPage({
       streaks={streaks}
       mdStats={mdStats}
       initialReactions={initialReactions}
+      initialComments={initialComments}
     />
   )
 }
