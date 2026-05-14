@@ -2,11 +2,5 @@
   "framework": "nextjs",
   "buildCommand": "next build",
   "outputDirectory": ".next",
-  "regions": ["fra1"],
-  "crons": [
-    {
-      "path": "/api/cron/push-reminders",
-      "schedule": "*/15 * * * *"
-    }
-  ]
+  "regions": ["fra1"]
 }
