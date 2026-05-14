@@ -66,14 +66,14 @@ export function CommentSection({
   const canDelete = (c: CommentData) => c.user_id === currentUserId || isAdmin
 
   return (
-    <div className="pl-3 mt-0.5">
+    <div>
       {/* Existing comments */}
       {comments.length > 0 && (
-        <div className="space-y-0.5 mb-1">
+        <div className="space-y-1 mb-1.5">
           {comments.map(c => (
             <div key={c.id} className="flex items-start gap-1.5 group">
               <div className="flex-1 min-w-0">
-                <span className="text-[11px] font-semibold text-gray-700">{c.author_name} </span>
+                <span className="text-[11px] font-semibold text-gray-600">{c.author_name} </span>
                 <span className="text-[11px] text-gray-500">{c.content}</span>
               </div>
               {canDelete(c) && (
@@ -91,22 +91,22 @@ export function CommentSection({
         </div>
       )}
 
-      {/* Reactions + comment trigger on a single row */}
-      <div className="flex items-center gap-1 flex-wrap">
+      {/* Reactions + comment trigger in one row */}
+      <div className="flex items-center gap-1.5 flex-wrap">
         {socialBarSlot}
         {!open && (
           <button
             onClick={() => setOpen(true)}
-            className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
           >
-            💬
+            💬 Kommentar
           </button>
         )}
       </div>
 
-      {/* Input row appears below when triggered */}
+      {/* Input row */}
       {open && (
-        <div className="flex items-center gap-1 mt-0.5">
+        <div className="flex items-center gap-1.5 mt-1.5">
           <input
             type="text"
             value={input}
@@ -115,19 +115,19 @@ export function CommentSection({
             placeholder="Kommentar…"
             maxLength={MAX_LEN}
             autoFocus
-            className="flex-1 text-xs border border-gray-200 rounded-md px-1.5 py-0.5 focus:outline-none focus:border-red-300 min-w-0"
+            className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-red-300 min-w-0"
           />
           <span className="text-[10px] text-gray-400 flex-shrink-0">{input.length}/{MAX_LEN}</span>
           <button
             onClick={submit}
             disabled={!input.trim() || submitting}
-            className="text-[10px] px-1.5 py-0.5 bg-red-700 text-white rounded-md disabled:opacity-40 flex-shrink-0 font-medium"
+            className="text-xs px-2 py-1 bg-red-700 text-white rounded-lg disabled:opacity-40 flex-shrink-0 font-medium"
           >
             {submitting ? '…' : 'OK'}
           </button>
           <button
             onClick={() => { setOpen(false); setInput('') }}
-            className="text-[10px] text-gray-400 hover:text-gray-600 flex-shrink-0"
+            className="text-xs text-gray-400 hover:text-gray-600 flex-shrink-0"
           >
             ✕
           </button>

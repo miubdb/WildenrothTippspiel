@@ -94,97 +94,203 @@ function fmtAmt(n: number) {
   return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function SingleBetMini({ bet, onCancel, cancellingId }: { bet: BetRow; onCancel?: (betId?: number) => void; cancellingId?: string | null }) {
+type SocialProps = {
+  reactions: ReactionData[]
+  comments: CommentData[]
+  currentUserId: string
+  currentUserName: string
+  isAdmin?: boolean
+  targetType: 'bet' | 'combo'
+  targetId: number
+}
+
+function StatusBadge({ status }: { status: string }) {
+  if (status === 'won') return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Gewonnen</span>
+  if (status === 'lost') return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600">Verloren</span>
+  return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600">Offen</span>
+}
+
+function SingleBetMini({
+  bet, onCancel, cancellingId, social,
+}: {
+  bet: BetRow
+  onCancel?: (betId?: number) => void
+  cancellingId?: string | null
+  social?: SocialProps
+}) {
   const score = scoreStr(bet)
   const potential = fmtAmt(bet.stake * bet.odds_value)
-  const borderColor = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-  const bgColor = bet.status === 'won' ? 'bg-green-50/60' : bet.status === 'lost' ? 'bg-red-50/30' : 'bg-white'
+  const accentColor = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-amber-400'
+  const bgColor = bet.status === 'won' ? 'bg-green-50/40' : bet.status === 'lost' ? 'bg-red-50/30' : 'bg-white'
+
   return (
-    <div className={`flex items-start gap-2 py-1.5 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
-      <div className="flex-1 min-w-0 pt-0.5">
-        <div className="text-[11px] text-gray-400 truncate leading-tight">{matchName(bet)}</div>
-        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-          <span className="text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded leading-tight">{MARKET_LABEL[bet.market_type] ?? bet.market_type}</span>
-          <span className="text-xs font-semibold text-gray-900">{selLabel(bet.market_type, bet.selection)}</span>
-          {score && <span className="text-[11px] text-gray-400 ml-0.5">{score}</span>}
+    <div className={`rounded-xl border border-gray-100 shadow-sm overflow-hidden ${bgColor}`}>
+      <div className={`border-l-4 ${accentColor} px-4 py-3`}>
+        {/* Match */}
+        <div className="text-xs text-gray-500 leading-snug mb-1.5">{matchName(bet)}</div>
+        {/* Market + Selection */}
+        <div className="flex items-center gap-1.5 flex-wrap mb-2">
+          <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-medium">
+            {MARKET_LABEL[bet.market_type] ?? bet.market_type}
+          </span>
+          <span className="text-sm font-bold text-gray-900">{selLabel(bet.market_type, bet.selection)}</span>
+          {score && <span className="text-xs text-gray-500 ml-1">· {score}</span>}
+        </div>
+        {/* Odds / Stake / Win row */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-base font-black text-red-700">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+            <span className="text-xs text-gray-500">{fmtAmt(bet.stake)} €</span>
+            {bet.status === 'pending' && (
+              <span className="text-xs text-gray-500">→ mög. <span className="font-semibold text-gray-700">{potential} €</span></span>
+            )}
+            {bet.status === 'won' && bet.payout != null && (
+              <span className="text-xs font-bold text-green-600">+{fmtAmt(bet.payout)} €</span>
+            )}
+            {bet.status === 'lost' && (
+              <span className="text-xs text-red-400 line-through">{fmtAmt(bet.stake)} €</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <StatusBadge status={bet.status} />
+            {onCancel && bet.status === 'pending' && (
+              <button
+                onClick={() => onCancel(bet.id)}
+                disabled={cancellingId === `bet-${bet.id}`}
+                className="text-[10px] px-2 py-0.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium"
+              >
+                {cancellingId === `bet-${bet.id}` ? '…' : 'Storno'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
-      <div className="text-right flex-shrink-0 pt-0.5 space-y-0.5">
-        <div className="text-xs font-bold text-red-700">@{bet.odds_value.toFixed(2).replace('.', ',')}</div>
-        <div className="text-[10px] text-gray-400 whitespace-nowrap">
-          {fmtAmt(bet.stake)} €
-          {bet.status === 'pending' && <span className="text-gray-400"> → {potential} €</span>}
+      {social && (
+        <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-1.5">
+          <CommentSection
+            targetType={social.targetType}
+            targetId={social.targetId}
+            currentUserId={social.currentUserId}
+            currentUserName={social.currentUserName}
+            initialComments={social.comments}
+            isAdmin={social.isAdmin}
+            socialBarSlot={
+              <ReactionBar
+                targetType={social.targetType}
+                targetId={social.targetId}
+                currentUserId={social.currentUserId}
+                initialReactions={social.reactions}
+              />
+            }
+          />
         </div>
-        {bet.status === 'won' && bet.payout != null && (
-          <div className="text-[10px] font-semibold text-green-600">+{fmtAmt(bet.payout)} €</div>
-        )}
-        {bet.status === 'lost' && (
-          <div className="text-[10px] text-red-400 line-through">{fmtAmt(bet.stake)} €</div>
-        )}
-        {onCancel && bet.status === 'pending' && (
-          <button
-            onClick={() => onCancel(bet.id)}
-            disabled={cancellingId === `bet-${bet.id}`}
-            className="text-[10px] px-1.5 py-0.5 border border-red-200 text-red-600 rounded hover:bg-red-50 disabled:opacity-40 font-medium"
-          >
-            {cancellingId === `bet-${bet.id}` ? '…' : 'Storno'}
-          </button>
-        )}
-      </div>
+      )}
     </div>
   )
 }
 
-function ComboBetMini({ legs, cb, onCancel, cancellingId }: { legs: BetRow[]; cb: ComboMeta | undefined; onCancel?: (comboId?: number) => void; cancellingId?: string | null }) {
+function ComboBetMini({
+  legs, cb, onCancel, cancellingId, social,
+}: {
+  legs: BetRow[]
+  cb: ComboMeta | undefined
+  onCancel?: (comboId?: number) => void
+  cancellingId?: string | null
+  social?: SocialProps
+}) {
   const status = cb?.status ?? 'pending'
   const stake = cb?.stake ?? 0
   const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
   const potential = fmtAmt(stake * totalOdds)
-  const borderColor = status === 'won' ? 'border-l-green-500' : status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-  const bgColor = status === 'won' ? 'bg-green-50/60' : status === 'lost' ? 'bg-red-50/30' : 'bg-white'
+  const accentColor = status === 'won' ? 'border-l-green-500' : status === 'lost' ? 'border-l-red-400' : 'border-l-amber-400'
+  const bgColor = status === 'won' ? 'bg-green-50/40' : status === 'lost' ? 'bg-red-50/30' : 'bg-white'
+
   return (
-    <div className={`py-1.5 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
-      <div className="flex items-start gap-2">
-        <div className="flex-1 min-w-0 pt-0.5">
-          <div className="text-[11px] text-gray-400 leading-tight truncate">🔗 Kombiwette · {legs.length} Tipps</div>
-          <div className="space-y-0.5 mt-1">
-            {legs.map(leg => {
-              const score = scoreStr(leg)
-              return (
-                <div key={leg.id} className="flex items-center gap-1 text-[11px]">
-                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-px ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'}`} />
-                  <span className="text-gray-500 truncate flex-1 min-w-0">{matchName(leg)}</span>
-                  <span className="font-medium text-gray-800 flex-shrink-0 ml-1">{selLabel(leg.market_type, leg.selection)}</span>
-                  {score && <span className="text-gray-400 flex-shrink-0">({score})</span>}
-                  <span className="text-red-700 font-bold flex-shrink-0">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
-                </div>
-              )
-            })}
+    <div className={`rounded-xl border border-gray-100 shadow-sm overflow-hidden ${bgColor}`}>
+      <div className={`border-l-4 ${accentColor} px-4 py-3`}>
+        {/* Combo header */}
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div>
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
+                🔗 Kombiwette
+              </span>
+              <span className="text-xs text-gray-500">{legs.length} Tipps</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-base font-black text-red-700">@{totalOdds.toFixed(2).replace('.', ',')}</span>
+              <span className="text-xs text-gray-500">{fmtAmt(stake)} €</span>
+              {status === 'pending' && (
+                <span className="text-xs text-gray-500">→ mög. <span className="font-semibold text-gray-700">{potential} €</span></span>
+              )}
+              {status === 'won' && cb?.payout != null && (
+                <span className="text-xs font-bold text-green-600">+{fmtAmt(cb.payout)} €</span>
+              )}
+              {status === 'lost' && (
+                <span className="text-xs text-red-400 line-through">{fmtAmt(stake)} €</span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <StatusBadge status={status} />
+            {onCancel && status === 'pending' && (
+              <button
+                onClick={() => onCancel(cb?.id)}
+                disabled={cancellingId === `combo-${cb?.id}`}
+                className="text-[10px] px-2 py-0.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium"
+              >
+                {cancellingId === `combo-${cb?.id}` ? '…' : 'Storno'}
+              </button>
+            )}
           </div>
         </div>
-        <div className="text-right flex-shrink-0 pt-0.5 space-y-0.5">
-          <div className="text-xs font-bold text-red-700">@{totalOdds.toFixed(2).replace('.', ',')}</div>
-          <div className="text-[10px] text-gray-400 whitespace-nowrap">
-            {fmtAmt(stake)} €
-            {status === 'pending' && <span> → {potential} €</span>}
-          </div>
-          {status === 'won' && cb?.payout != null && (
-            <div className="text-[10px] font-semibold text-green-600">+{fmtAmt(cb.payout)} €</div>
-          )}
-          {status === 'lost' && (
-            <div className="text-[10px] text-red-400 line-through">{fmtAmt(stake)} €</div>
-          )}
-          {onCancel && status === 'pending' && (
-            <button
-              onClick={() => onCancel(cb?.id)}
-              disabled={cancellingId === `combo-${cb?.id}`}
-              className="text-[10px] px-1.5 py-0.5 border border-red-200 text-red-600 rounded hover:bg-red-50 disabled:opacity-40 font-medium"
-            >
-              {cancellingId === `combo-${cb?.id}` ? '…' : 'Storno'}
-            </button>
-          )}
+        {/* Legs */}
+        <div className="border-t border-gray-100 pt-2 space-y-2">
+          {legs.map(leg => {
+            const score = scoreStr(leg)
+            const legStatus = leg.status === 'won' ? 'text-green-600' : leg.status === 'lost' ? 'text-red-500' : 'text-amber-500'
+            return (
+              <div key={leg.id}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-gray-500 leading-snug">{matchName(leg)}</div>
+                    <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                      <span className="text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded">
+                        {MARKET_LABEL[leg.market_type] ?? leg.market_type}
+                      </span>
+                      <span className="text-xs font-semibold text-gray-900">{selLabel(leg.market_type, leg.selection)}</span>
+                      {score && <span className="text-xs text-gray-400">· {score}</span>}
+                    </div>
+                  </div>
+                  <span className={`text-sm font-black flex-shrink-0 ${legStatus}`}>
+                    @{leg.odds_value.toFixed(2).replace('.', ',')}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
+      {social && (
+        <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-1.5">
+          <CommentSection
+            targetType={social.targetType}
+            targetId={social.targetId}
+            currentUserId={social.currentUserId}
+            currentUserName={social.currentUserName}
+            initialComments={social.comments}
+            isAdmin={social.isAdmin}
+            socialBarSlot={
+              <ReactionBar
+                targetType={social.targetType}
+                targetId={social.targetId}
+                currentUserId={social.currentUserId}
+                initialReactions={social.reactions}
+              />
+            }
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -212,46 +318,41 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
     }
   }
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {items.map((item, i) => {
         if (item.kind === 'single') {
           const betReactions = reactions.filter(r => r.target_type === 'bet' && r.target_id === item.bet.id)
           const betComments = comments.filter(c => c.target_type === 'bet' && c.target_id === item.bet.id)
           return (
-            <div key={item.bet.id}>
-              <SingleBetMini bet={item.bet} onCancel={isOwnBets && !isDeadlinePassed ? (betId) => onCancel?.(betId) : undefined} cancellingId={cancelId} />
-              {currentUserId && (
-                <CommentSection
-                  targetType="bet"
-                  targetId={item.bet.id}
-                  currentUserId={currentUserId}
-                  currentUserName={currentUserName}
-                  initialComments={betComments}
-                  isAdmin={isAdmin}
-                  socialBarSlot={<ReactionBar targetType="bet" targetId={item.bet.id} currentUserId={currentUserId} initialReactions={betReactions} />}
-                />
-              )}
-            </div>
+            <SingleBetMini
+              key={item.bet.id}
+              bet={item.bet}
+              onCancel={isOwnBets && !isDeadlinePassed ? (betId) => onCancel?.(betId) : undefined}
+              cancellingId={cancelId}
+              social={currentUserId ? {
+                reactions: betReactions, comments: betComments,
+                currentUserId, currentUserName, isAdmin,
+                targetType: 'bet', targetId: item.bet.id,
+              } : undefined}
+            />
           )
         }
         const comboId = item.legs[0]?.combo_id
         const comboReactions = comboId ? reactions.filter(r => r.target_type === 'combo' && r.target_id === comboId) : []
         const comboComments = comboId ? comments.filter(c => c.target_type === 'combo' && c.target_id === comboId) : []
         return (
-          <div key={i}>
-            <ComboBetMini legs={item.legs} cb={item.cb} onCancel={isOwnBets && !isDeadlinePassed ? (comboId) => onCancel?.(undefined, comboId) : undefined} cancellingId={cancelId} />
-            {currentUserId && comboId && (
-              <CommentSection
-                targetType="combo"
-                targetId={comboId}
-                currentUserId={currentUserId}
-                currentUserName={currentUserName}
-                initialComments={comboComments}
-                isAdmin={isAdmin}
-                socialBarSlot={<ReactionBar targetType="combo" targetId={comboId} currentUserId={currentUserId} initialReactions={comboReactions} />}
-              />
-            )}
-          </div>
+          <ComboBetMini
+            key={i}
+            legs={item.legs}
+            cb={item.cb}
+            onCancel={isOwnBets && !isDeadlinePassed ? (comboId) => onCancel?.(undefined, comboId) : undefined}
+            cancellingId={cancelId}
+            social={currentUserId && comboId ? {
+              reactions: comboReactions, comments: comboComments,
+              currentUserId, currentUserName, isAdmin,
+              targetType: 'combo', targetId: comboId,
+            } : undefined}
+          />
         )
       })}
     </div>
