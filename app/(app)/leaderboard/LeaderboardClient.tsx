@@ -90,28 +90,37 @@ function StatusIcon({ status, size = 'md' }: { status: string; size?: 'sm' | 'md
   )
 }
 
+function fmtAmt(n: number) {
+  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function SingleBetMini({ bet, onCancel, cancellingId }: { bet: BetRow; onCancel?: (betId?: number) => void; cancellingId?: string | null }) {
   const score = scoreStr(bet)
-  const potential = (bet.stake * bet.odds_value).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const potential = fmtAmt(bet.stake * bet.odds_value)
   const borderColor = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-  const bgColor = bet.status === 'won' ? 'bg-green-50' : bet.status === 'lost' ? 'bg-red-50/40' : 'bg-white'
+  const bgColor = bet.status === 'won' ? 'bg-green-50/60' : bet.status === 'lost' ? 'bg-red-50/30' : 'bg-white'
   return (
-    <div className={`flex items-center gap-2.5 py-2 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
-      <StatusIcon status={bet.status} />
-      <div className="flex-1 min-w-0">
-        <div className="text-xs text-gray-400 truncate">{matchName(bet)}</div>
+    <div className={`flex items-start gap-2 py-1.5 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
+      <div className="flex-1 min-w-0 pt-0.5">
+        <div className="text-[11px] text-gray-400 truncate leading-tight">{matchName(bet)}</div>
         <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-          <span className="text-xs bg-gray-100 text-gray-500 px-1 py-0.5 rounded">{MARKET_LABEL[bet.market_type] ?? bet.market_type}</span>
+          <span className="text-[10px] bg-gray-100 text-gray-500 px-1 py-0.5 rounded leading-tight">{MARKET_LABEL[bet.market_type] ?? bet.market_type}</span>
           <span className="text-xs font-semibold text-gray-900">{selLabel(bet.market_type, bet.selection)}</span>
+          {score && <span className="text-[11px] text-gray-400 ml-0.5">{score}</span>}
         </div>
-        {score && <div className="text-xs text-gray-400 mt-0.5">Ergebnis: <span className="font-semibold text-gray-600">{score}</span></div>}
       </div>
-      <div className="text-right flex-shrink-0">
-        <div className="text-xs font-black text-red-700">@{bet.odds_value.toFixed(2).replace('.', ',')}</div>
-        <div className="text-xs text-gray-400">{bet.stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
-        {bet.status === 'won' && bet.payout != null && <div className="text-xs font-bold text-green-600">+{bet.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
-        {bet.status === 'pending' && <div className="text-xs text-gray-400">→ {potential} €</div>}
-        {bet.status === 'lost' && <div className="text-xs text-red-400 line-through">{bet.stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
+      <div className="text-right flex-shrink-0 pt-0.5 space-y-0.5">
+        <div className="text-xs font-bold text-red-700">@{bet.odds_value.toFixed(2).replace('.', ',')}</div>
+        <div className="text-[10px] text-gray-400 whitespace-nowrap">
+          {fmtAmt(bet.stake)} €
+          {bet.status === 'pending' && <span className="text-gray-400"> → {potential} €</span>}
+        </div>
+        {bet.status === 'won' && bet.payout != null && (
+          <div className="text-[10px] font-semibold text-green-600">+{fmtAmt(bet.payout)} €</div>
+        )}
+        {bet.status === 'lost' && (
+          <div className="text-[10px] text-red-400 line-through">{fmtAmt(bet.stake)} €</div>
+        )}
         {onCancel && bet.status === 'pending' && (
           <button
             onClick={() => onCancel(bet.id)}
@@ -130,25 +139,41 @@ function ComboBetMini({ legs, cb, onCancel, cancellingId }: { legs: BetRow[]; cb
   const status = cb?.status ?? 'pending'
   const stake = cb?.stake ?? 0
   const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
-  const potential = (stake * totalOdds).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const potential = fmtAmt(stake * totalOdds)
   const borderColor = status === 'won' ? 'border-l-green-500' : status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-  const bgColor = status === 'won' ? 'bg-green-50' : status === 'lost' ? 'bg-red-50/40' : 'bg-white'
+  const bgColor = status === 'won' ? 'bg-green-50/60' : status === 'lost' ? 'bg-red-50/30' : 'bg-white'
   return (
-    <div className={`py-2 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
-      <div className="flex items-center gap-2.5">
-        <StatusIcon status={status} />
-        <div className="flex-1 min-w-0">
-          <div className="text-xs text-gray-400 truncate">Kombiwette · {legs.length} Tipps</div>
-          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-            <span className="text-xs bg-blue-50 text-blue-700 border border-blue-100 px-1 py-0.5 rounded font-bold">🔗 Kombi</span>
+    <div className={`py-1.5 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
+      <div className="flex items-start gap-2">
+        <div className="flex-1 min-w-0 pt-0.5">
+          <div className="text-[11px] text-gray-400 leading-tight truncate">🔗 Kombiwette · {legs.length} Tipps</div>
+          <div className="space-y-0.5 mt-1">
+            {legs.map(leg => {
+              const score = scoreStr(leg)
+              return (
+                <div key={leg.id} className="flex items-center gap-1 text-[11px]">
+                  <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-px ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'}`} />
+                  <span className="text-gray-500 truncate flex-1 min-w-0">{matchName(leg)}</span>
+                  <span className="font-medium text-gray-800 flex-shrink-0 ml-1">{selLabel(leg.market_type, leg.selection)}</span>
+                  {score && <span className="text-gray-400 flex-shrink-0">({score})</span>}
+                  <span className="text-red-700 font-bold flex-shrink-0">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
-        <div className="text-right flex-shrink-0">
-          <div className="text-xs font-black text-red-700">@{totalOdds.toFixed(2).replace('.', ',')}</div>
-          <div className="text-xs text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
-          {status === 'won' && cb?.payout != null && <div className="text-xs font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
-          {status === 'pending' && <div className="text-xs text-gray-400">→ {potential} €</div>}
-          {status === 'lost' && <div className="text-xs text-red-400 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
+        <div className="text-right flex-shrink-0 pt-0.5 space-y-0.5">
+          <div className="text-xs font-bold text-red-700">@{totalOdds.toFixed(2).replace('.', ',')}</div>
+          <div className="text-[10px] text-gray-400 whitespace-nowrap">
+            {fmtAmt(stake)} €
+            {status === 'pending' && <span> → {potential} €</span>}
+          </div>
+          {status === 'won' && cb?.payout != null && (
+            <div className="text-[10px] font-semibold text-green-600">+{fmtAmt(cb.payout)} €</div>
+          )}
+          {status === 'lost' && (
+            <div className="text-[10px] text-red-400 line-through">{fmtAmt(stake)} €</div>
+          )}
           {onCancel && status === 'pending' && (
             <button
               onClick={() => onCancel(cb?.id)}
@@ -159,20 +184,6 @@ function ComboBetMini({ legs, cb, onCancel, cancellingId }: { legs: BetRow[]; cb
             </button>
           )}
         </div>
-      </div>
-      <div className="mt-1.5 pl-9 space-y-1">
-        {legs.map(leg => {
-          const score = scoreStr(leg)
-          return (
-            <div key={leg.id} className="flex items-center gap-1.5 text-xs">
-              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'}`} />
-              <span className="text-gray-500 truncate flex-1">{matchName(leg)}</span>
-              <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection)}</span>
-              {score && <span className="text-gray-400">({score})</span>}
-              <span className="text-red-700 font-bold">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
-            </div>
-          )
-        })}
       </div>
     </div>
   )
@@ -201,7 +212,7 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
     }
   }
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       {items.map((item, i) => {
         if (item.kind === 'single') {
           const betReactions = reactions.filter(r => r.target_type === 'bet' && r.target_id === item.bet.id)

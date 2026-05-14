@@ -140,32 +140,36 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsPr
           const stake = bet.stake ?? 0
           const potentialWin = stake * bet.odds_value
           return (
-            <div key={bet.id} className={`px-4 py-3 ${
+            <div key={bet.id} className={`px-4 py-2 ${
               bet.status === 'won' ? 'bg-green-50/50' : bet.status === 'lost' ? 'bg-red-50/30' : ''
             }`}>
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                    <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    <span className="text-[10px] bg-gray-100 text-gray-600 px-1 py-0.5 rounded font-medium leading-tight">
                       {MARKET_LABEL[bet.market_type] ?? bet.market_type}
                     </span>
                     {bet.id === riskyBetId && <span className="text-[10px] text-purple-700 font-bold">🎲</span>}
                     <span className="text-xs font-semibold text-gray-900">{selLabel(bet.market_type, bet.selection)}</span>
-                    <span className="text-xs text-red-600 font-bold">@{fmtOdds(bet.odds_value)}</span>
                   </div>
-                  <div className="text-[10px] text-gray-400">{m ? `${m.home} – ${m.away}` : ''}</div>
-                  <div className="text-[10px] text-gray-500 mt-0.5">
-                    Einsatz <span className="font-semibold">{fmtAmount(stake)} €</span>
-                    {' · '}Gewinn <span className="font-semibold text-green-600">{fmtAmount(potentialWin)} €</span>
+                  <div className="text-[10px] text-gray-400 mt-0.5 truncate">{m ? `${m.home} – ${m.away}` : ''}</div>
+                  <div className="text-[10px] text-gray-400 mt-0.5">
+                    {fmtAmount(stake)} €
+                    {bet.status === 'pending' && <span> · mög. {fmtAmount(potentialWin)} €</span>}
+                    {bet.status === 'won' && <span className="font-semibold text-green-600"> · Gewonnen</span>}
+                    {bet.status === 'lost' && <span className="text-red-400"> · Verloren</span>}
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
-                  <StatusChip status={bet.status} />
+                <div className="flex items-start gap-1.5 flex-shrink-0 pt-0.5">
+                  <div className="text-right">
+                    <div className="text-xs font-bold text-red-700">@{fmtOdds(bet.odds_value)}</div>
+                    <StatusChip status={bet.status} />
+                  </div>
                   {!isDeadlinePassed && bet.status === 'pending' && (
                     <button
                       onClick={() => cancelBet(bet.id)}
                       disabled={!!cancellingId}
-                      className="text-[10px] px-2 py-1 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium transition-colors"
+                      className="text-[10px] px-1.5 py-0.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium transition-colors"
                     >
                       {isCancelling ? '…' : 'Storno'}
                     </button>
@@ -182,40 +186,51 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsPr
           const comboOdds = combo.legs.reduce((acc, l) => acc * l.odds_value, 1)
           const potentialWin = combo.stake * comboOdds
           return (
-            <div key={combo.id} className={`px-4 py-3 ${
+            <div key={combo.id} className={`px-4 py-2 ${
               combo.status === 'won' ? 'bg-green-50/50' : combo.status === 'lost' ? 'bg-red-50/30' : ''
             }`}>
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
-                  {combo.id === riskyComboId ? '🎲 RISKY' : '🔗 KOMBI'}
-                </span>
-                <span className="text-xs text-gray-500">{combo.legs.length} Tipps</span>
-                <span className="text-xs text-red-600 font-bold">@{fmtOdds(comboOdds)}</span>
-                <StatusChip status={combo.status} />
-                {!isDeadlinePassed && combo.status === 'pending' && (
-                  <button
-                    onClick={() => cancelBet(undefined, combo.id)}
-                    disabled={!!cancellingId}
-                    className="ml-auto text-[10px] px-2 py-1 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium transition-colors"
-                  >
-                    {isCancelling ? '…' : 'Storno'}
-                  </button>
-                )}
-              </div>
-              {combo.legs.map(leg => {
-                const m = matchMap[leg.match_id]
-                return (
-                  <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5 pl-2">
-                    <span className="text-gray-400 text-[10px]">{m ? `${m.home} – ${m.away}` : ''}</span>
-                    <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{MARKET_LABEL[leg.market_type] ?? leg.market_type}</span>
-                    <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection)}</span>
-                    <span className="text-red-600 font-bold ml-auto">@{fmtOdds(leg.odds_value)}</span>
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] text-gray-400 leading-tight">
+                    {combo.id === riskyComboId ? '🎲 RISKY' : '🔗 KOMBI'} · {combo.legs.length} Tipps
                   </div>
-                )
-              })}
-              <div className="mt-1 pl-2 text-[10px] text-gray-500">
-                Einsatz <span className="font-semibold">{fmtAmount(combo.stake)} €</span>
-                {' · '}Gewinn <span className="font-semibold text-green-600">{fmtAmount(potentialWin)} €</span>
+                  <div className="mt-0.5 space-y-0.5">
+                    {combo.legs.map(leg => {
+                      const m = matchMap[leg.match_id]
+                      return (
+                        <div key={leg.id} className="flex items-center gap-1 text-[11px]">
+                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-px ${
+                            leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'
+                          }`} />
+                          <span className="text-gray-400 truncate flex-1 min-w-0">{m ? `${m.home} – ${m.away}` : ''}</span>
+                          <span className="font-medium text-gray-800 flex-shrink-0 ml-1">{selLabel(leg.market_type, leg.selection)}</span>
+                          <span className="text-red-600 font-bold flex-shrink-0">@{fmtOdds(leg.odds_value)}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-gray-400">
+                    {fmtAmount(combo.stake)} €
+                    {combo.status === 'pending' && <span> · mög. {fmtAmount(potentialWin)} €</span>}
+                    {combo.status === 'won' && <span className="font-semibold text-green-600"> · Gewonnen</span>}
+                    {combo.status === 'lost' && <span className="text-red-400"> · Verloren</span>}
+                  </div>
+                </div>
+                <div className="flex items-start gap-1.5 flex-shrink-0 pt-0.5">
+                  <div className="text-right">
+                    <div className="text-xs font-bold text-red-700">@{fmtOdds(comboOdds)}</div>
+                    <StatusChip status={combo.status} />
+                  </div>
+                  {!isDeadlinePassed && combo.status === 'pending' && (
+                    <button
+                      onClick={() => cancelBet(undefined, combo.id)}
+                      disabled={!!cancellingId}
+                      className="text-[10px] px-1.5 py-0.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium transition-colors"
+                    >
+                      {isCancelling ? '…' : 'Storno'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )
