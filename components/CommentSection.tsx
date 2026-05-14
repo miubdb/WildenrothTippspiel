@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 const MAX_LEN = 120
 
@@ -21,6 +21,7 @@ export function CommentSection({
   currentUserName,
   initialComments,
   isAdmin,
+  socialBarSlot,
 }: {
   targetType: 'bet' | 'combo'
   targetId: number
@@ -28,6 +29,8 @@ export function CommentSection({
   currentUserName: string
   initialComments: CommentData[]
   isAdmin?: boolean
+  /** Rendered inline next to the "💬 Kommentar" trigger — typically the ReactionBar. */
+  socialBarSlot?: ReactNode
 }) {
   const [comments, setComments] = useState<CommentData[]>(initialComments)
   const [input, setInput] = useState('')
@@ -88,15 +91,21 @@ export function CommentSection({
         </div>
       )}
 
-      {/* Add comment */}
-      {!open ? (
-        <button
-          onClick={() => setOpen(true)}
-          className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          💬 Kommentar
-        </button>
-      ) : (
+      {/* Reactions + comment trigger on a single row */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {socialBarSlot}
+        {!open && (
+          <button
+            onClick={() => setOpen(true)}
+            className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            💬 Kommentar
+          </button>
+        )}
+      </div>
+
+      {/* Input row appears below when triggered */}
+      {open && (
         <div className="flex items-center gap-1.5 mt-1">
           <input
             type="text"

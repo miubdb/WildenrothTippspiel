@@ -5,6 +5,7 @@ import type { Match } from '@/types'
 import type { OddsData } from '@/types'
 import { useBetSlip } from '@/context/BetSlipContext'
 import { getExactScoreOdds, getForm, getTeamRecord } from '@/lib/odds'
+import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
 
 interface BettingMatchCardProps {
   match: Match
@@ -43,28 +44,12 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     (match.home_team_id === wildenrothTeamId || match.away_team_id === wildenrothTeamId)
   const wildenrothIsHome = match.home_team_id === wildenrothTeamId
 
-  /**
-   * Returns true when this selection is not a clear Wildenroth win.
-   * Rule: Wildenroth players may ONLY tip outcomes where their team wins outright.
-   * Draws, opponent wins, and any pick that includes either are all blocked.
-   */
   function isAgainstWildenroth(marketType: string, selection: string): boolean {
-    if (!isWildenrothPlayer || !matchInvolvesWildenroth) return false
-    if (marketType === '1x2') {
-      // Only the own-team win is allowed; draw (X) and opponent win (2/1) are both blocked
-      return wildenrothIsHome ? selection !== 'home' : selection !== 'away'
-    }
-    if (marketType === 'double_chance') {
-      // Every DC option covers either a draw or the opponent winning → all blocked.
-      // 1x includes draw, x2 includes draw+away, 12 includes opponent win.
-      return true
-    }
-    if (marketType === 'exact_score') {
-      const [h, a] = selection.split(':').map(Number)
-      // Block draws (h === a) and opponent wins; only clear own-team wins allowed
-      return wildenrothIsHome ? a >= h : h >= a
-    }
-    return false
+    return checkAgainstWildenroth(marketType, selection, {
+      isWildenrothPlayer: !!isWildenrothPlayer,
+      matchInvolvesWildenroth,
+      wildenrothIsHome,
+    })
   }
 
   function isSelected(marketType: string, selection: string) {

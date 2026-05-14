@@ -266,8 +266,8 @@ export default async function TippsPage({
 
   const userMatchMap: Record<number, { home: string; away: string }> = Object.fromEntries(
     matchdayMatches.map(m => [m.id, {
-      home: m.home_team?.short_name ?? m.home_team?.name ?? '?',
-      away: m.away_team?.short_name ?? m.away_team?.name ?? '?',
+      home: m.home_team?.name ?? m.home_team?.short_name ?? '?',
+      away: m.away_team?.name ?? m.away_team?.short_name ?? '?',
     }])
   )
 

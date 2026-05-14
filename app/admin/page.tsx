@@ -37,6 +37,9 @@ export default function AdminPage() {
   const [newCode, setNewCode] = useState('')
   const [newMaxUses, setNewMaxUses] = useState('10')
   const [oddsLoading, setOddsLoading] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [preview, setPreview] = useState<OddsPreviewResponse | null>(null)
+  const [previewMd, setPreviewMd] = useState<number | null>(null)
 
   const supabase = createClient()
 
@@ -160,6 +163,24 @@ export default function AdminPage() {
       setMessage(`Fehler: ${data.error}`)
     }
   }
+
+  const loadPreview = useCallback(async (matchday?: number | null) => {
+    setPreviewLoading(true)
+    const qs = matchday != null ? `?matchday=${matchday}` : ''
+    const res = await fetch(`/api/admin/odds/preview${qs}`)
+    const data: OddsPreviewResponse | { error: string } = await res.json()
+    setPreviewLoading(false)
+    if (res.ok && 'matchday' in data) {
+      setPreview(data)
+      if (data.matchday != null) setPreviewMd(data.matchday)
+    } else if ('error' in data) {
+      setMessage(`Fehler: ${data.error}`)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (tab === 'odds' && !preview) loadPreview()
+  }, [tab, preview, loadPreview])
 
   const settledMatches = matches.filter((m) => m.status === 'finished')
   // Past scheduled games awaiting result entry
@@ -398,6 +419,14 @@ export default function AdminPage() {
               <strong>Hinweis:</strong> Quoten werden automatisch aus Kopf-an-Kopf-Statistiken
               und Saisonleistungen berechnet. Eine 10% Marge wird angewendet.
             </div>
+
+            <OddsPreviewSection
+              preview={preview}
+              loading={previewLoading}
+              selectedMd={previewMd}
+              onSelectMd={(md) => { setPreviewMd(md); loadPreview(md) }}
+              onReload={() => loadPreview(previewMd)}
+            />
           </div>
         )}
       </div>
@@ -409,6 +438,204 @@ const MARKET_LABELS: Record<string, string> = {
   '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
   over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
   btts: 'Beide treffen', exact_score: 'Ergebnis', handicap: 'Handicap',
+}
+
+interface OddsValues {
+  home_win: number; draw: number; away_win: number
+  odds_1x: number; odds_x2: number; odds_12: number
+  over_2_5: number; under_2_5: number
+  over_3_5: number; under_3_5: number
+  over_5_5: number; under_5_5: number
+  over_7_5: number; under_7_5: number
+  btts_yes: number; btts_no: number
+  hdp_home_minus_1_5: number; hdp_away_plus_1_5: number
+  hdp_home_minus_2_5: number; hdp_away_plus_2_5: number
+}
+
+interface OddsPreviewMatch {
+  match_id: number
+  match_number: number
+  match_date: string
+  status: string
+  home_team: string
+  away_team: string
+  frozen_at: string | null
+  odds: OddsValues
+  exact_scores: { score: string; odds: number }[]
+}
+
+interface OddsPreviewResponse {
+  matchday: number | null
+  matchdays: number[]
+  matches: OddsPreviewMatch[]
+  bettingOpensAt: string | null
+  isBettingOpen: boolean
+}
+
+function fmt(n: number): string {
+  return n.toFixed(2).replace('.', ',')
+}
+
+function OddsPreviewSection({
+  preview, loading, selectedMd, onSelectMd, onReload,
+}: {
+  preview: OddsPreviewResponse | null
+  loading: boolean
+  selectedMd: number | null
+  onSelectMd: (md: number) => void
+  onReload: () => void
+}) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <h2 className="font-bold text-gray-900">Quoten-Vorschau</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Berechnete Quoten für den nächsten Spieltag · noch nicht freigeschaltet
+          </p>
+        </div>
+        <button
+          onClick={onReload}
+          disabled={loading}
+          className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+        >
+          {loading ? '…' : 'Neu laden'}
+        </button>
+      </div>
+
+      {preview?.matchdays && preview.matchdays.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          {preview.matchdays.map((md) => (
+            <button
+              key={md}
+              onClick={() => onSelectMd(md)}
+              className={`text-xs px-2.5 py-1 rounded-lg border ${
+                (selectedMd ?? preview.matchday) === md
+                  ? 'bg-red-700 text-white border-red-700'
+                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              ST {md}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {loading && !preview && (
+        <div className="text-sm text-gray-500 py-4 text-center">Lade Vorschau…</div>
+      )}
+
+      {preview && preview.matches.length === 0 && (
+        <div className="text-sm text-gray-500 py-4 text-center">
+          Kein Spieltag mit geplanten Spielen gefunden.
+        </div>
+      )}
+
+      {preview && preview.matches.length > 0 && (
+        <>
+          <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+            <div className="font-semibold mb-0.5">
+              Spieltag {preview.matchday}
+              {preview.matches.every((m) => m.frozen_at)
+                ? ' · bereits eingefroren'
+                : preview.isBettingOpen
+                ? ' · Wettfenster offen, noch nicht eingefroren'
+                : ' · noch nicht freigeschaltet'}
+            </div>
+            {preview.bettingOpensAt && (
+              <div>
+                Geplante Freischaltung:{' '}
+                {new Date(preview.bettingOpensAt).toLocaleString('de-DE', {
+                  timeZone: 'Europe/Berlin',
+                  weekday: 'short',
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}{' '}
+                Uhr
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {preview.matches.map((m) => (
+              <OddsPreviewMatchCard key={m.match_id} match={m} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function OddsPreviewMatchCard({ match }: { match: OddsPreviewMatch }) {
+  const o = match.odds
+  return (
+    <div className="border border-gray-100 rounded-xl overflow-hidden">
+      <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
+        <div className="text-sm font-semibold text-gray-800">
+          {match.home_team} – {match.away_team}
+        </div>
+        <div className="text-[10px] text-gray-500">
+          {new Date(match.match_date).toLocaleString('de-DE', {
+            timeZone: 'Europe/Berlin',
+            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+          })}
+          {match.frozen_at && <span className="ml-2 text-amber-700 font-semibold">· eingefroren</span>}
+        </div>
+      </div>
+      <div className="p-3 space-y-2 text-xs">
+        <OddsRow label="1X2" cells={[
+          ['1', fmt(o.home_win)], ['X', fmt(o.draw)], ['2', fmt(o.away_win)],
+        ]} />
+        <OddsRow label="Dopp. Chance" cells={[
+          ['1X', fmt(o.odds_1x)], ['12', fmt(o.odds_12)], ['X2', fmt(o.odds_x2)],
+        ]} />
+        <OddsRow label="Ü/U 2,5" cells={[['Ü', fmt(o.over_2_5)], ['U', fmt(o.under_2_5)]]} />
+        <OddsRow label="Ü/U 3,5" cells={[['Ü', fmt(o.over_3_5)], ['U', fmt(o.under_3_5)]]} />
+        <OddsRow label="Ü/U 5,5" cells={[['Ü', fmt(o.over_5_5)], ['U', fmt(o.under_5_5)]]} />
+        <OddsRow label="Ü/U 7,5" cells={[['Ü', fmt(o.over_7_5)], ['U', fmt(o.under_7_5)]]} />
+        <OddsRow label="BTTS" cells={[['Ja', fmt(o.btts_yes)], ['Nein', fmt(o.btts_no)]]} />
+        <OddsRow label="Handicap" cells={[
+          ['H -1,5', fmt(o.hdp_home_minus_1_5)],
+          ['G +1,5', fmt(o.hdp_away_plus_1_5)],
+          ['H -2,5', fmt(o.hdp_home_minus_2_5)],
+          ['G +2,5', fmt(o.hdp_away_plus_2_5)],
+        ]} />
+        {match.exact_scores.length > 0 && (
+          <div className="pt-1">
+            <div className="text-gray-400 font-medium mb-1">Top Ergebnisse</div>
+            <div className="grid grid-cols-4 gap-1">
+              {match.exact_scores.map(({ score, odds }) => (
+                <div key={score} className="bg-gray-50 rounded px-1.5 py-1 flex items-center justify-between">
+                  <span className="font-semibold text-gray-700">{score}</span>
+                  <span className="text-red-700 font-bold">{fmt(odds)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function OddsRow({ label, cells }: { label: string; cells: [string, string][] }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-24 text-gray-500 flex-shrink-0">{label}</div>
+      <div className="flex-1 flex gap-1.5 flex-wrap">
+        {cells.map(([k, v]) => (
+          <div key={k} className="flex items-center gap-1 bg-white border border-gray-200 rounded px-2 py-0.5">
+            <span className="text-gray-500">{k}</span>
+            <span className="font-bold text-red-700">{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 const SELECTION_LABELS: Record<string, string> = {

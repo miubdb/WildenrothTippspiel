@@ -54,7 +54,7 @@ export function ReactionBar({
   const displayed = counts.filter(r => r.count > 0)
 
   return (
-    <div className="flex items-center gap-1 flex-wrap mt-1.5">
+    <div className="flex items-center gap-1 flex-wrap">
       {displayed.map(r => (
         <button
           key={r.emoji}

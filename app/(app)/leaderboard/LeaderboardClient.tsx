@@ -135,30 +135,32 @@ function ComboBetMini({ legs, cb, onCancel, cancellingId }: { legs: BetRow[]; cb
   const bgColor = status === 'won' ? 'bg-green-50' : status === 'lost' ? 'bg-red-50/40' : 'bg-white'
   return (
     <div className={`py-2 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
-      <div className="flex items-center gap-2.5 mb-1.5">
+      <div className="flex items-center gap-2.5">
         <StatusIcon status={status} />
-        <div className="flex-1">
-          <div className="text-xs font-bold text-gray-900 flex items-center gap-1">
-            <span className="text-blue-600">🔗</span> Kombiwette · {legs.length} Tipps
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-gray-400 truncate">Kombiwette · {legs.length} Tipps</div>
+          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+            <span className="text-xs bg-blue-50 text-blue-700 border border-blue-100 px-1 py-0.5 rounded font-bold">🔗 Kombi</span>
           </div>
-          <div className="text-xs text-gray-400">Quote {totalOdds.toFixed(2).replace('.', ',')} · Einsatz {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
         </div>
-        <div className="text-right flex-shrink-0 flex flex-col items-end gap-1">
-          {status === 'won' && cb?.payout != null && <div className="text-xs font-black text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
-          {status === 'pending' && <div className="text-xs text-gray-500">→ {potential} €</div>}
+        <div className="text-right flex-shrink-0">
+          <div className="text-xs font-black text-red-700">@{totalOdds.toFixed(2).replace('.', ',')}</div>
+          <div className="text-xs text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
+          {status === 'won' && cb?.payout != null && <div className="text-xs font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
+          {status === 'pending' && <div className="text-xs text-gray-400">→ {potential} €</div>}
           {status === 'lost' && <div className="text-xs text-red-400 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
           {onCancel && status === 'pending' && (
             <button
               onClick={() => onCancel(cb?.id)}
               disabled={cancellingId === `combo-${cb?.id}`}
-              className="text-[10px] px-1.5 py-0.5 border border-red-200 text-red-600 rounded hover:bg-red-50 disabled:opacity-40 font-medium ml-auto"
+              className="text-[10px] px-1.5 py-0.5 border border-red-200 text-red-600 rounded hover:bg-red-50 disabled:opacity-40 font-medium"
             >
               {cancellingId === `combo-${cb?.id}` ? '…' : 'Storno'}
             </button>
           )}
         </div>
       </div>
-      <div className="pl-9 space-y-1">
+      <div className="mt-1.5 pl-9 space-y-1">
         {legs.map(leg => {
           const score = scoreStr(leg)
           return (
@@ -207,8 +209,17 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
           return (
             <div key={item.bet.id}>
               <SingleBetMini bet={item.bet} onCancel={isOwnBets && !isDeadlinePassed ? (betId) => onCancel?.(betId) : undefined} cancellingId={cancelId} />
-              {currentUserId && <div className="pl-3"><ReactionBar targetType="bet" targetId={item.bet.id} currentUserId={currentUserId} initialReactions={betReactions} /></div>}
-              {currentUserId && <CommentSection targetType="bet" targetId={item.bet.id} currentUserId={currentUserId} currentUserName={currentUserName} initialComments={betComments} isAdmin={isAdmin} />}
+              {currentUserId && (
+                <CommentSection
+                  targetType="bet"
+                  targetId={item.bet.id}
+                  currentUserId={currentUserId}
+                  currentUserName={currentUserName}
+                  initialComments={betComments}
+                  isAdmin={isAdmin}
+                  socialBarSlot={<ReactionBar targetType="bet" targetId={item.bet.id} currentUserId={currentUserId} initialReactions={betReactions} />}
+                />
+              )}
             </div>
           )
         }
@@ -218,8 +229,17 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
         return (
           <div key={i}>
             <ComboBetMini legs={item.legs} cb={item.cb} onCancel={isOwnBets && !isDeadlinePassed ? (comboId) => onCancel?.(undefined, comboId) : undefined} cancellingId={cancelId} />
-            {currentUserId && comboId && <div className="pl-3"><ReactionBar targetType="combo" targetId={comboId} currentUserId={currentUserId} initialReactions={comboReactions} /></div>}
-            {currentUserId && comboId && <CommentSection targetType="combo" targetId={comboId} currentUserId={currentUserId} currentUserName={currentUserName} initialComments={comboComments} isAdmin={isAdmin} />}
+            {currentUserId && comboId && (
+              <CommentSection
+                targetType="combo"
+                targetId={comboId}
+                currentUserId={currentUserId}
+                currentUserName={currentUserName}
+                initialComments={comboComments}
+                isAdmin={isAdmin}
+                socialBarSlot={<ReactionBar targetType="combo" targetId={comboId} currentUserId={currentUserId} initialReactions={comboReactions} />}
+              />
+            )}
           </div>
         )
       })}

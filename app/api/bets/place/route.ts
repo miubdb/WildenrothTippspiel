@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isAgainstWildenroth } from '@/lib/wildenroth'
 
 const MAX_STAKE = 250
 
@@ -131,11 +132,52 @@ export async function POST(request: NextRequest) {
   const matchIds = [...new Set(selections.map((s) => s.matchId))]
   const { data: matches } = await supabase
     .from('matches')
-    .select('id, match_date, status, matchday')
+    .select('id, match_date, status, matchday, home_team_id, away_team_id')
     .in('id', matchIds)
 
   if (!matches || matches.length !== matchIds.length) {
     return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 400 })
+  }
+
+  // Wildenroth conflict-of-interest check (mirrors the frontend guard).
+  const { data: profileFlags } = await supabase
+    .from('profiles')
+    .select('is_wildenroth')
+    .eq('id', user.id)
+    .single()
+
+  if (profileFlags?.is_wildenroth) {
+    const { data: wildenrothTeamRow } = await supabase
+      .from('teams')
+      .select('id')
+      .ilike('name', '%Wildenroth%')
+      .limit(1)
+      .maybeSingle()
+    const wildenrothTeamId = wildenrothTeamRow?.id ?? null
+    if (wildenrothTeamId != null) {
+      for (const s of selections) {
+        const m = matches.find((x) => x.id === s.matchId)
+        if (!m) continue
+        const involves = m.home_team_id === wildenrothTeamId || m.away_team_id === wildenrothTeamId
+        if (!involves) continue
+        const wildenrothIsHome = m.home_team_id === wildenrothTeamId
+        if (
+          isAgainstWildenroth(s.marketType, s.selection, {
+            isWildenrothPlayer: true,
+            matchInvolvesWildenroth: true,
+            wildenrothIsHome,
+          })
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                'Als Wildenroth-Spieler oder -Trainer darfst du nicht gegen dein eigenes Team wetten.',
+            },
+            { status: 400 },
+          )
+        }
+      }
+    }
   }
 
   // Check that all matches are still scheduled
