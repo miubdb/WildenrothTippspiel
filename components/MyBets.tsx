@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { WetteCard, type WetteData, type WetteStatus, type WetteLeg } from '@/components/WetteCard'
 
 type Leg = {
   id: number
@@ -45,34 +46,21 @@ const SEL_LABELS: Record<string, Record<string, string>> = {
   },
 }
 
-const MARKET_LABEL: Record<string, string> = {
-  '1x2': '1X2', double_chance: 'Doppelte Chance', over_under: 'Ü/U 2,5',
-  over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
-  btts: 'Beide treffen', exact_score: 'Ergebnis', handicap: 'Handicap',
-}
-
 function selLabel(marketType: string, selection: string): string {
   if (marketType === 'exact_score') return selection
   return SEL_LABELS[marketType]?.[selection] ?? selection
 }
 
-function fmtOdds(n: number): string {
-  return n.toFixed(2).replace('.', ',')
-}
-
-function fmtAmount(n: number): string {
-  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function StatusChip({ status }: { status: string }) {
-  return (
-    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ${
-      status === 'won' ? 'bg-green-100 text-green-700' :
-      status === 'lost' ? 'bg-red-100 text-red-600' : 'bg-yellow-50 text-yellow-700'
-    }`}>
-      {status === 'won' ? 'Gewonnen' : status === 'lost' ? 'Verloren' : 'Offen'}
-    </span>
-  )
+function legToWetteLeg(leg: Leg, matchMap: Record<number, { home: string; away: string }>): WetteLeg {
+  const m = matchMap[leg.match_id]
+  return {
+    id: leg.id,
+    matchName: m ? `${m.home} – ${m.away}` : '—',
+    market: leg.market_type,
+    selection: selLabel(leg.market_type, leg.selection),
+    odds: leg.odds_value,
+    status: leg.status as WetteStatus,
+  }
 }
 
 export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsProps) {
@@ -82,7 +70,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsPr
 
   if (singles.length === 0 && combos.length === 0) return null
 
-  // Risky bet = the single bet or combo with the highest effective odds (if > 20).
+  // Determine risky unit (single bet or combo with highest effective odds > 20)
   const comboEffOdds = new Map(combos.map(c => [c.id, c.legs.reduce((acc, l) => acc * l.odds_value, 1)]))
   const allUnits = [
     ...singles.map(b => ({ kind: 'single' as const, id: b.id, odds: b.odds_value })),
@@ -104,17 +92,37 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsPr
         body: JSON.stringify(betId ? { betId } : { comboId }),
       })
       const data = await res.json()
-      if (!res.ok) {
-        setError(data.error ?? 'Stornierung fehlgeschlagen.')
-      } else {
-        router.refresh()
-      }
+      if (!res.ok) setError(data.error ?? 'Stornierung fehlgeschlagen.')
+      else router.refresh()
     } catch {
       setError('Netzwerkfehler.')
     } finally {
       setCancellingId(null)
     }
   }
+
+  const wetten: WetteData[] = [
+    ...singles.map(leg => ({
+      id: `bet-${leg.id}`,
+      type: 'single' as const,
+      isRisky: leg.id === riskyBetId,
+      totalOdds: leg.odds_value,
+      stake: leg.stake ?? 0,
+      status: leg.status as WetteStatus,
+      betId: leg.id,
+      legs: [legToWetteLeg(leg, matchMap)],
+    })),
+    ...combos.map(combo => ({
+      id: `combo-${combo.id}`,
+      type: 'combo' as const,
+      isRisky: combo.id === riskyComboId,
+      totalOdds: comboEffOdds.get(combo.id) ?? 1,
+      stake: combo.stake,
+      status: combo.status as WetteStatus,
+      comboId: combo.id,
+      legs: combo.legs.map(l => legToWetteLeg(l, matchMap)),
+    })),
+  ]
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -132,109 +140,16 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsPr
         </div>
       )}
 
-      <div className="divide-y divide-gray-50">
-        {singles.map(bet => {
-          const m = matchMap[bet.match_id]
-          const key = `bet-${bet.id}`
-          const isCancelling = cancellingId === key
-          const stake = bet.stake ?? 0
-          const potentialWin = stake * bet.odds_value
-          return (
-            <div key={bet.id} className={`px-4 py-2 ${
-              bet.status === 'won' ? 'bg-green-50/50' : bet.status === 'lost' ? 'bg-red-50/30' : ''
-            }`}>
-              <div className="flex items-start gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1 flex-wrap">
-                    <span className="text-[10px] bg-gray-100 text-gray-600 px-1 py-0.5 rounded font-medium leading-tight">
-                      {MARKET_LABEL[bet.market_type] ?? bet.market_type}
-                    </span>
-                    {bet.id === riskyBetId && <span className="text-[10px] text-purple-700 font-bold">🎲</span>}
-                    <span className="text-xs font-semibold text-gray-900">{selLabel(bet.market_type, bet.selection)}</span>
-                  </div>
-                  <div className="text-[10px] text-gray-400 mt-0.5 truncate">{m ? `${m.home} – ${m.away}` : ''}</div>
-                  <div className="text-[10px] text-gray-400 mt-0.5">
-                    {fmtAmount(stake)} €
-                    {bet.status === 'pending' && <span> · mög. {fmtAmount(potentialWin)} €</span>}
-                    {bet.status === 'won' && <span className="font-semibold text-green-600"> · Gewonnen</span>}
-                    {bet.status === 'lost' && <span className="text-red-400"> · Verloren</span>}
-                  </div>
-                </div>
-                <div className="flex items-start gap-1.5 flex-shrink-0 pt-0.5">
-                  <div className="text-right">
-                    <div className="text-xs font-bold text-red-700">@{fmtOdds(bet.odds_value)}</div>
-                    <StatusChip status={bet.status} />
-                  </div>
-                  {!isDeadlinePassed && bet.status === 'pending' && (
-                    <button
-                      onClick={() => cancelBet(bet.id)}
-                      disabled={!!cancellingId}
-                      className="text-[10px] px-1.5 py-0.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium transition-colors"
-                    >
-                      {isCancelling ? '…' : 'Storno'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )
-        })}
-
-        {combos.map(combo => {
-          const key = `combo-${combo.id}`
-          const isCancelling = cancellingId === key
-          const comboOdds = combo.legs.reduce((acc, l) => acc * l.odds_value, 1)
-          const potentialWin = combo.stake * comboOdds
-          return (
-            <div key={combo.id} className={`px-4 py-2 ${
-              combo.status === 'won' ? 'bg-green-50/50' : combo.status === 'lost' ? 'bg-red-50/30' : ''
-            }`}>
-              <div className="flex items-start gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] text-gray-400 leading-tight">
-                    {combo.id === riskyComboId ? '🎲 RISKY' : '🔗 KOMBI'} · {combo.legs.length} Tipps
-                  </div>
-                  <div className="mt-0.5 space-y-0.5">
-                    {combo.legs.map(leg => {
-                      const m = matchMap[leg.match_id]
-                      return (
-                        <div key={leg.id} className="flex items-center gap-1 text-[11px]">
-                          <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-px ${
-                            leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'
-                          }`} />
-                          <span className="text-gray-400 truncate flex-1 min-w-0">{m ? `${m.home} – ${m.away}` : ''}</span>
-                          <span className="font-medium text-gray-800 flex-shrink-0 ml-1">{selLabel(leg.market_type, leg.selection)}</span>
-                          <span className="text-red-600 font-bold flex-shrink-0">@{fmtOdds(leg.odds_value)}</span>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div className="mt-0.5 text-[10px] text-gray-400">
-                    {fmtAmount(combo.stake)} €
-                    {combo.status === 'pending' && <span> · mög. {fmtAmount(potentialWin)} €</span>}
-                    {combo.status === 'won' && <span className="font-semibold text-green-600"> · Gewonnen</span>}
-                    {combo.status === 'lost' && <span className="text-red-400"> · Verloren</span>}
-                  </div>
-                </div>
-                <div className="flex items-start gap-1.5 flex-shrink-0 pt-0.5">
-                  <div className="text-right">
-                    <div className="text-xs font-bold text-red-700">@{fmtOdds(comboOdds)}</div>
-                    <StatusChip status={combo.status} />
-                  </div>
-                  {!isDeadlinePassed && combo.status === 'pending' && (
-                    <button
-                      onClick={() => cancelBet(undefined, combo.id)}
-                      disabled={!!cancellingId}
-                      className="text-[10px] px-1.5 py-0.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium transition-colors"
-                    >
-                      {isCancelling ? '…' : 'Storno'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )
-        })}
+      <div className="p-3 space-y-2">
+        {wetten.map(wette => (
+          <WetteCard
+            key={wette.id}
+            wette={wette}
+            onCancel={cancelBet}
+            cancellingId={cancellingId}
+            isDeadlinePassed={isDeadlinePassed}
+          />
+        ))}
       </div>
     </div>
   )
