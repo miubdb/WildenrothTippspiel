@@ -393,8 +393,36 @@ export default async function TippsPage({
         wouldHavePayout: Math.round(unlucky.c.stake * unlucky.c.total_odds * 100) / 100,
       } : null
 
-      if (mvp || bestOdds || unluckyBastard) {
-        recapData = { mvp, bestOdds, unluckyBastard }
+      // Biggest Loss: single bet or combo with highest absolute loss
+      const lostSingles = singleBets.filter(b => b.status === 'lost').sort((a, b) => b.stake - a.stake)
+      const lostCombos = recapCombos.filter(c => c.status === 'lost').sort((a, b) => b.stake - a.stake)
+      let biggestLoss: RecapData['biggestLoss'] = null
+      if (lostSingles[0] || lostCombos[0]) {
+        const sSt = lostSingles[0]?.stake ?? 0
+        const cSt = lostCombos[0]?.stake ?? 0
+        if (sSt >= cSt && lostSingles[0]) {
+          biggestLoss = { name: pMap[lostSingles[0].user_id] ?? 'Unbekannt', loss: sSt, isCombo: false }
+        } else if (lostCombos[0]) {
+          biggestLoss = { name: pMap[lostCombos[0].user_id] ?? 'Unbekannt', loss: cSt, isCombo: true }
+        }
+      }
+
+      // Safest Tip: won single/combo with lowest odds >= 1.20
+      const safeSingles = wonSingles.filter(b => b.odds_value >= 1.20).sort((a, b) => a.odds_value - b.odds_value)
+      const safeCombos = wonCombos.filter(c => c.total_odds >= 1.20).sort((a, b) => a.total_odds - b.total_odds)
+      let safestTip: RecapData['safestTip'] = null
+      if (safeSingles[0] || safeCombos[0]) {
+        const sOdds = safeSingles[0]?.odds_value ?? Infinity
+        const cOdds = safeCombos[0]?.total_odds ?? Infinity
+        if (sOdds <= cOdds && safeSingles[0]) {
+          safestTip = { name: pMap[safeSingles[0].user_id] ?? 'Unbekannt', odds: safeSingles[0].odds_value, payout: safeSingles[0].payout ?? 0 }
+        } else if (safeCombos[0]) {
+          safestTip = { name: pMap[safeCombos[0].user_id] ?? 'Unbekannt', odds: safeCombos[0].total_odds, payout: safeCombos[0].payout }
+        }
+      }
+
+      if (mvp || bestOdds || unluckyBastard || biggestLoss || safestTip) {
+        recapData = { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip }
       }
     }
   }

@@ -147,6 +147,43 @@ export default async function ProfilPage() {
     [...comboBetsMap.values()].filter(cb => cb.status === 'won').reduce((acc, cb) => acc + (cb.payout ?? 0), 0)
   const profit = profile.balance - 1000
 
+  // Extended stats
+  const settledCount = wonBets + lostBets
+  const hitRate = settledCount > 0 ? Math.round((wonBets / settledCount) * 100) : null
+
+  // Best single win
+  const bestSingleWin = singleBets
+    .filter(b => b.status === 'won' && b.payout != null)
+    .sort((a, b) => (b.payout ?? 0) - b.stake - ((a.payout ?? 0) - a.stake))[0] ?? null
+  const bestSingleProfit = bestSingleWin ? (bestSingleWin.payout ?? 0) - (bestSingleWin.stake ?? 0) : null
+
+  // Best combo win
+  const bestComboWin = [...comboBetsMap.values()]
+    .filter(cb => cb.status === 'won' && cb.payout != null)
+    .sort((a, b) => (b.payout ?? 0) - b.stake - ((a.payout ?? 0) - a.stake))[0] ?? null
+  const bestComboProfit = bestComboWin ? (bestComboWin.payout ?? 0) - bestComboWin.stake : null
+  const bestWinProfit = Math.max(bestSingleProfit ?? 0, bestComboProfit ?? 0)
+  const hasBestWin = bestWinProfit > 0
+
+  // Favorite market
+  const marketCounts: Record<string, number> = {}
+  for (const b of singleBets.filter(b => b.status !== 'pending')) {
+    marketCounts[b.market_type] = (marketCounts[b.market_type] ?? 0) + 1
+  }
+  const favoriteMarketEntry = Object.entries(marketCounts).sort((a, b) => b[1] - a[1])[0]
+  const favoriteMarket = favoriteMarketEntry ? MARKET_LABELS[favoriteMarketEntry[0]] ?? favoriteMarketEntry[0] : null
+
+  // Combo rate
+  const comboCount = [...comboBetsMap.values()].filter(cb => cb.status !== 'pending').length
+  const comboRate = settledCount + comboCount > 0 ? Math.round((comboCount / (settledCount + comboCount)) * 100) : null
+
+  // Risky bets (odds > 20 for singles, total_odds > 20 for combos)
+  const riskyWon = singleBets.filter(b => b.odds_value > 20 && b.status === 'won').length +
+    [...comboBetsMap.values()].filter(cb => (cb.total_odds ?? 0) > 20 && cb.status === 'won').length
+  const riskyLost = singleBets.filter(b => b.odds_value > 20 && b.status === 'lost').length +
+    [...comboBetsMap.values()].filter(cb => (cb.total_odds ?? 0) > 20 && cb.status === 'lost').length
+  const riskyTotal = riskyWon + riskyLost
+
   // Balance history: reconstruct from settled bets ordered by match date
   const settledBets = [...bets]
     .filter(b => b.status !== 'pending' && b.match?.match_date)
@@ -243,6 +280,62 @@ export default async function ProfilPage() {
         </div>
       </div>
 
+      {/* Extended Stats */}
+      {settledCount >= 3 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-50">
+            <h2 className="font-bold text-gray-900">Spieler-Stats</h2>
+          </div>
+          <div className="grid grid-cols-2 divide-x divide-y divide-gray-100">
+            {hitRate !== null && (
+              <StatTile
+                emoji="🎯"
+                label="Trefferquote"
+                value={`${hitRate} %`}
+                sub={`${wonBets}/${settledCount} Wetten`}
+                color={hitRate >= 55 ? 'text-green-600' : hitRate >= 40 ? 'text-amber-600' : 'text-red-600'}
+              />
+            )}
+            {hasBestWin && (
+              <StatTile
+                emoji="🏅"
+                label="Bester Gewinn"
+                value={`+${bestWinProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`}
+                sub={bestComboProfit != null && bestComboProfit >= (bestSingleProfit ?? 0) ? 'Kombiwette' : 'Einzelwette'}
+                color="text-green-600"
+              />
+            )}
+            {favoriteMarket && favoriteMarketEntry && (
+              <StatTile
+                emoji="📊"
+                label="Lieblingsmarkt"
+                value={favoriteMarket}
+                sub={`${favoriteMarketEntry[1]}× getippt`}
+                color="text-blue-700"
+              />
+            )}
+            {comboRate !== null && (
+              <StatTile
+                emoji="🔗"
+                label="Kombi-Anteil"
+                value={`${comboRate} %`}
+                sub={`${comboCount} Kombis`}
+                color="text-purple-700"
+              />
+            )}
+            {riskyTotal > 0 && (
+              <StatTile
+                emoji="🎲"
+                label="Risky-Bilanz"
+                value={`${riskyWon}W / ${riskyLost}V`}
+                sub="Wetten mit Quote >20"
+                color={riskyWon > riskyLost ? 'text-green-600' : 'text-red-600'}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Balance Chart */}
       {balancePoints.length >= 2 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -285,6 +378,19 @@ export default async function ProfilPage() {
       />
 
       <SignOutButton />
+    </div>
+  )
+}
+
+function StatTile({ emoji, label, value, sub, color }: { emoji: string; label: string; value: string; sub: string; color: string }) {
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-base">{emoji}</span>
+        <span className="text-xs text-gray-500">{label}</span>
+      </div>
+      <div className={`text-sm font-black ${color}`}>{value}</div>
+      <div className="text-[10px] text-gray-400 mt-0.5">{sub}</div>
     </div>
   )
 }

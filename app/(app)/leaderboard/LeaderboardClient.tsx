@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus, type WetteSocial } from '@/components/WetteCard'
 import type { CommentData } from '@/components/CommentSection'
+import { MatchdayRecap, type RecapData } from '@/components/MatchdayRecap'
 
 const STARTING_BALANCE = 1000
 
@@ -295,7 +296,7 @@ function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => v
 
 export function LeaderboardClient({
   profiles, currentUserId, currentUserName, isAdmin, matchdayBets, matchdayNumber, allMatchdays, combos,
-  isDeadlinePassed, weeklyWinners, streaks, mdStats, initialReactions, initialComments,
+  isDeadlinePassed, weeklyWinners, streaks, mdStats, initialReactions, initialComments, initialRecap,
 }: {
   profiles: Profile[]
   currentUserId: string | null
@@ -311,6 +312,7 @@ export function LeaderboardClient({
   mdStats: MatchdayStats
   initialReactions: { target_type: string; target_id: number; emoji: string; user_id: string }[]
   initialComments: CommentData[]
+  initialRecap: RecapData | null
 }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'rangliste' | 'spieltag'>('rangliste')
@@ -472,6 +474,9 @@ export function LeaderboardClient({
               <button onClick={() => setCancelError(null)}>✕</button>
             </div>
           )}
+
+          {/* Recap */}
+          {initialRecap && <MatchdayRecap data={initialRecap} matchday={matchdayNumber ?? 0} />}
 
           {/* Matchday selector */}
           {allMatchdays.length > 1 && (
