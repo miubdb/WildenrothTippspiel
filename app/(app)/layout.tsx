@@ -29,7 +29,7 @@ export default async function AppLayout({
 
   return (
     <BetSlipProvider>
-      <div className="min-h-screen bg-gray-50 flex flex-col">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
         {/* Top Header */}
         <header className="bg-red-700 text-white sticky top-0 z-40 safe-top shadow-lg">
           <div className="flex items-center justify-between px-4 py-3 max-w-lg mx-auto">

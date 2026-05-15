@@ -98,21 +98,21 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     .slice(0, 5)
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Match Header */}
       <button
-        className="w-full bg-gradient-to-r from-gray-50 to-gray-100 px-4 py-2.5 flex items-center justify-between active:bg-gray-200"
+        className="w-full bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-700 px-4 py-2.5 flex items-center justify-between active:bg-gray-200 dark:active:bg-gray-600"
         onClick={() => setShowDetail((v) => !v)}
       >
-        <span className="text-xs text-gray-500 font-medium">{dateStr} · {timeStr} Uhr</span>
-        <span className="text-xs text-gray-400">{showDetail ? '▲ Details' : '▼ Details'}</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">{dateStr} · {timeStr} Uhr</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">{showDetail ? '▲ Details' : '▼ Details'}</span>
       </button>
 
       {/* Teams Row */}
       <div className="px-4 pt-3 pb-2">
         <div className="flex items-center">
           <div className="flex-1 text-left">
-            <div className="font-bold text-gray-900 text-sm leading-tight">{homeName}</div>
+            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">{homeName}</div>
             <FormBadges form={homeForm} />
           </div>
 
@@ -121,11 +121,11 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
               {match.home_score} : {match.away_score}
             </div>
           ) : (
-            <div className="mx-3 text-gray-300 font-light text-lg">vs</div>
+            <div className="mx-3 text-gray-300 dark:text-gray-600 font-light text-lg">vs</div>
           )}
 
           <div className="flex-1 text-right">
-            <div className="font-bold text-gray-900 text-sm leading-tight">{awayName}</div>
+            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">{awayName}</div>
             <div className="flex justify-end">
               <FormBadges form={awayForm} />
             </div>
@@ -135,7 +135,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
 
       {/* Detail Panel */}
       {showDetail && (
-        <div className="border-t border-gray-100 px-4 py-3 bg-gray-50 space-y-3">
+        <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-700/30 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <TeamStat
               label={homeName}
@@ -150,7 +150,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
           </div>
           {h2h.length > 0 && (
             <div>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+              <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
                 Direktvergleich (letzte {h2h.length})
               </div>
               <div className="space-y-1">
@@ -159,8 +159,8 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   const hShort = m.home_team?.short_name ?? m.home_team?.name?.split(' ').slice(-1)[0] ?? '?'
                   const aShort = m.away_team?.short_name ?? m.away_team?.name?.split(' ').slice(-1)[0] ?? '?'
                   return (
-                    <div key={m.id} className="flex items-center justify-between text-xs text-gray-600 bg-white rounded-lg px-3 py-1.5">
-                      <span className="text-gray-400">
+                    <div key={m.id} className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-700 rounded-lg px-3 py-1.5">
+                      <span className="text-gray-400 dark:text-gray-500">
                         {new Date(m.match_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' })}
                       </span>
                       <span className="font-medium">
@@ -198,17 +198,17 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
 
       {/* Betting Markets */}
       {isScheduled && odds && (
-        <div className="border-t border-gray-100">
+        <div className="border-t border-gray-100 dark:border-gray-700">
           {/* Tab Bar */}
-          <div className="flex border-b border-gray-100">
+          <div className="flex border-b border-gray-100 dark:border-gray-700">
             {([['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap']] as [Tab, string][]).map(([tab, label]) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={`flex-1 py-2 text-xs font-semibold transition-colors ${
                   activeTab === tab
-                    ? 'text-red-700 border-b-2 border-red-700 -mb-px'
-                    : 'text-gray-400 hover:text-gray-600'
+                    ? 'text-red-700 dark:text-red-400 border-b-2 border-red-700 dark:border-red-400 -mb-px'
+                    : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
                 }`}
               >
                 {label}
@@ -238,7 +238,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   />
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Doppelte Chance</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Doppelte Chance</div>
                   <div className="grid grid-cols-3 gap-2">
                     <OddsButton
                       label="1X" sublabel="Heim/Unent." odds={odds.odds_1x}
@@ -264,7 +264,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             {activeTab === 'goals' && (
               <div className="space-y-2">
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Über/Unter 3,5 Tore</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Über/Unter 3,5 Tore</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
                       label="Über 3,5" odds={odds.over_3_5}
@@ -279,7 +279,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Über/Unter 5,5 Tore</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Über/Unter 5,5 Tore</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
                       label="Über 5,5" odds={odds.over_5_5}
@@ -294,7 +294,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Über/Unter 7,5 Tore</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Über/Unter 7,5 Tore</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
                       label="Über 7,5" odds={odds.over_7_5}
@@ -309,7 +309,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Beide Teams treffen</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Beide Teams treffen</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
                       label="Ja" odds={odds.btts_yes}
@@ -330,11 +330,11 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             {activeTab === 'exact' && (
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs text-gray-400 font-medium">Genaues Ergebnis</div>
-                  <div className="text-[10px] text-gray-400 font-medium">
-                    <span className="text-red-700">{match.home_team?.short_name ?? homeName.split(' ').slice(-1)[0]}</span>
+                  <div className="text-xs text-gray-400 dark:text-gray-500 font-medium">Genaues Ergebnis</div>
+                  <div className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">
+                    <span className="text-red-700 dark:text-red-400">{match.home_team?.short_name ?? homeName.split(' ').slice(-1)[0]}</span>
                     {' : '}
-                    <span className="text-gray-500">{match.away_team?.short_name ?? awayName.split(' ').slice(-1)[0]}</span>
+                    <span className="text-gray-500 dark:text-gray-400">{match.away_team?.short_name ?? awayName.split(' ').slice(-1)[0]}</span>
                   </div>
                 </div>
                 <div className="grid grid-cols-4 gap-1.5">
@@ -345,7 +345,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                       className={`flex flex-col items-center py-2 px-1 rounded-lg border text-xs transition-all active:scale-95 ${
                         isSelected('exact_score', score)
                           ? 'bg-red-700 border-red-700 text-white'
-                          : 'bg-white border-gray-200 text-gray-800 hover:border-red-300'
+                          : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:border-red-300'
                       }`}
                     >
                       <span className="font-bold">{score}</span>
@@ -355,7 +355,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                     </button>
                   ))}
                 </div>
-                <div className="mt-1.5 text-[10px] text-gray-400 text-center">
+                <div className="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 text-center">
                   Nur Ergebnisse mit Quote ≤ 60 werden angezeigt
                 </div>
               </div>
@@ -365,7 +365,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             {activeTab === 'handicap' && (
               <div className="space-y-2">
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Handicap –1,5 / +1,5</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Handicap –1,5 / +1,5</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
                       label="Heim –1,5"
@@ -384,7 +384,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-gray-400 mb-1.5 font-medium">Handicap –2,5 / +2,5</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Handicap –2,5 / +2,5</div>
                   <div className="grid grid-cols-2 gap-2">
                     <OddsButton
                       label="Heim –2,5"
@@ -409,8 +409,8 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       )}
 
       {!isScheduled && (
-        <div className="border-t border-gray-100 px-4 py-2">
-          <div className="text-center text-xs text-gray-400">
+        <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-2">
+          <div className="text-center text-xs text-gray-400 dark:text-gray-500">
             {match.status === 'finished' ? 'Spiel beendet' : 'Annahmeschluss überschritten'}
           </div>
         </div>
@@ -447,31 +447,31 @@ function TeamStat({
   position?: number
 }) {
   return (
-    <div className="bg-white rounded-xl p-2.5 text-xs">
+    <div className="bg-white dark:bg-gray-700 rounded-xl p-2.5 text-xs">
       <div className="flex items-center gap-1 mb-1.5">
         {position && (
-          <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-500 font-bold text-[10px] flex items-center justify-center flex-shrink-0">
+          <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-300 font-bold text-[10px] flex items-center justify-center flex-shrink-0">
             {position}
           </span>
         )}
-        <div className="font-semibold text-gray-700 truncate">{label}</div>
+        <div className="font-semibold text-gray-700 dark:text-gray-200 truncate">{label}</div>
       </div>
       <div className="grid grid-cols-3 gap-1 text-center">
         <div>
           <div className="text-green-600 font-bold text-sm">{record.w}</div>
-          <div className="text-gray-400">S</div>
+          <div className="text-gray-400 dark:text-gray-500">S</div>
         </div>
         <div>
           <div className="text-yellow-500 font-bold text-sm">{record.d}</div>
-          <div className="text-gray-400">U</div>
+          <div className="text-gray-400 dark:text-gray-500">U</div>
         </div>
         <div>
           <div className="text-red-500 font-bold text-sm">{record.l}</div>
-          <div className="text-gray-400">N</div>
+          <div className="text-gray-400 dark:text-gray-500">N</div>
         </div>
       </div>
-      <div className="mt-1.5 text-center text-gray-500">
-        {record.gf}:{record.ga} · <span className="font-semibold text-gray-800">{record.pts} Pkt</span>
+      <div className="mt-1.5 text-center text-gray-500 dark:text-gray-400">
+        {record.gf}:{record.ga} · <span className="font-semibold text-gray-800 dark:text-gray-200">{record.pts} Pkt</span>
       </div>
     </div>
   )
@@ -492,18 +492,18 @@ function OddsButton({
       className={`flex flex-col items-center justify-center py-2.5 px-1 rounded-xl border transition-all active:scale-95 ${
         selected
           ? 'bg-red-700 border-red-700 text-white shadow-md'
-          : 'bg-white border-gray-200 text-gray-800 hover:border-red-300 hover:bg-red-50'
+          : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:border-red-300 hover:bg-red-50 dark:hover:bg-red-900/20'
       }`}
     >
       {sublabel && (
-        <span className={`text-[10px] mb-0.5 ${selected ? 'text-red-200' : 'text-gray-400'}`}>
+        <span className={`text-[10px] mb-0.5 ${selected ? 'text-red-200' : 'text-gray-400 dark:text-gray-500'}`}>
           {sublabel}
         </span>
       )}
-      <span className={`text-xs font-semibold ${selected ? 'text-red-100' : 'text-gray-500'}`}>
+      <span className={`text-xs font-semibold ${selected ? 'text-red-100' : 'text-gray-500 dark:text-gray-400'}`}>
         {label}
       </span>
-      <span className={`text-sm font-black mt-0.5 ${selected ? 'text-white' : 'text-gray-900'}`}>
+      <span className={`text-sm font-black mt-0.5 ${selected ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
         {odds.toFixed(2).replace('.', ',')}
       </span>
     </button>

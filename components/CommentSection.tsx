@@ -73,14 +73,14 @@ export function CommentSection({
           {comments.map(c => (
             <div key={c.id} className="flex items-start gap-1.5 group">
               <div className="flex-1 min-w-0">
-                <span className="text-[11px] font-semibold text-gray-600">{c.author_name} </span>
-                <span className="text-[11px] text-gray-500">{c.content}</span>
+                <span className="text-[11px] font-semibold text-gray-600 dark:text-gray-300">{c.author_name} </span>
+                <span className="text-[11px] text-gray-500 dark:text-gray-400">{c.content}</span>
               </div>
               {canDelete(c) && (
                 <button
                   onClick={() => remove(c.id)}
                   disabled={deletingId === c.id}
-                  className="opacity-0 group-hover:opacity-100 text-[10px] text-gray-400 hover:text-red-500 flex-shrink-0 transition-opacity disabled:opacity-40"
+                  className="opacity-0 group-hover:opacity-100 text-[10px] text-gray-400 dark:text-gray-500 hover:text-red-500 flex-shrink-0 transition-opacity disabled:opacity-40"
                   aria-label="Kommentar löschen"
                 >
                   ✕
@@ -97,7 +97,7 @@ export function CommentSection({
         {!open && (
           <button
             onClick={() => setOpen(true)}
-            className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           >
             💬 Kommentar
           </button>
@@ -115,9 +115,9 @@ export function CommentSection({
             placeholder="Kommentar…"
             maxLength={MAX_LEN}
             autoFocus
-            className="flex-1 text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:border-red-300 min-w-0"
+            className="flex-1 text-xs border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 rounded-lg px-2 py-1 focus:outline-none focus:border-red-300 min-w-0"
           />
-          <span className="text-[10px] text-gray-400 flex-shrink-0">{input.length}/{MAX_LEN}</span>
+          <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">{input.length}/{MAX_LEN}</span>
           <button
             onClick={submit}
             disabled={!input.trim() || submitting}
@@ -127,7 +127,7 @@ export function CommentSection({
           </button>
           <button
             onClick={() => { setOpen(false); setInput('') }}
-            className="text-xs text-gray-400 hover:text-gray-600 flex-shrink-0"
+            className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
           >
             ✕
           </button>

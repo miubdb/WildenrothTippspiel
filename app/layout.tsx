@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import { ThemeProvider } from '@/components/ThemeProvider'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -44,9 +45,17 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="Tippspiel" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        {/* Anti-FOUC: apply dark class before React hydrates */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          try {
+            var t = localStorage.getItem('theme');
+            var dark = t === 'dark' || (!t || t === 'system') && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (dark) document.documentElement.classList.add('dark');
+          } catch(e) {}
+        `}} />
       </head>
-      <body className={`${inter.className} h-full bg-white text-gray-900`}>
-        {children}
+      <body className={`${inter.className} h-full`} style={{ background: 'var(--background)', color: 'var(--foreground)' }}>
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   )

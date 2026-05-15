@@ -1,11 +1,31 @@
 @import "tailwindcss";
 
+/* Class-based dark mode variant for Tailwind v4 */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #1a1a1a;
+  --background: #f9fafb;
+  --foreground: #111827;
   --primary: #CC0000;
   --primary-dark: #aa0000;
   --primary-light: #ff1a1a;
+
+  /* Semantic surface tokens */
+  --card: #ffffff;
+  --card-border: #f3f4f6;
+  --muted: #f3f4f6;
+  --muted-fg: #6b7280;
+  --subtle-border: #e5e7eb;
+}
+
+.dark {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+  --card: #1e293b;
+  --card-border: #334155;
+  --muted: #1e293b;
+  --muted-fg: #94a3b8;
+  --subtle-border: #334155;
 }
 
 @theme inline {

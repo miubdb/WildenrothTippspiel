@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { PushSubscribeButton } from '@/components/PushSubscribeButton'
 import { ProfileEditForm } from '@/components/ProfileEditForm'
 import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
+import { ThemeToggle } from '@/components/ThemeToggle'
 
 export const revalidate = 60
 
@@ -243,14 +244,14 @@ export default async function ProfilPage() {
 
       {/* Balance */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-          <div className="text-xs text-gray-500 mb-1">Guthaben</div>
-          <div className="text-xl font-black text-gray-900">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Guthaben</div>
+          <div className="text-xl font-black text-gray-900 dark:text-gray-100">
             {profile.balance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm">
-          <div className="text-xs text-gray-500 mb-1">Gewinn/Verlust</div>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Gewinn/Verlust</div>
           <div className={`text-xl font-black ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-900'}`}>
             {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
           </div>
@@ -258,23 +259,23 @@ export default async function ProfilPage() {
       </div>
 
       {/* Stats */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-50">
-          <h2 className="font-bold text-gray-900">Statistiken</h2>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
+          <h2 className="font-bold text-gray-900 dark:text-gray-100">Statistiken</h2>
         </div>
-        <div className="grid grid-cols-4 divide-x divide-gray-100">
+        <div className="grid grid-cols-4 divide-x divide-gray-100 dark:divide-gray-700">
           <StatCell label="Gesamt" value={totalBets} />
           <StatCell label="Gewonnen" value={wonBets} color="text-green-600" />
           <StatCell label="Verloren" value={lostBets} color="text-red-600" />
           <StatCell label="Offen" value={pendingBets} color="text-yellow-600" />
         </div>
-        <div className="grid grid-cols-2 divide-x divide-gray-100 border-t border-gray-100">
+        <div className="grid grid-cols-2 divide-x divide-gray-100 dark:divide-gray-700 border-t border-gray-100 dark:border-gray-700">
           <div className="px-4 py-3 text-center">
-            <div className="text-xs text-gray-500 mb-1">Eingesetzt</div>
-            <div className="font-bold text-gray-900 text-sm">{totalStaked.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Eingesetzt</div>
+            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{totalStaked.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
           </div>
           <div className="px-4 py-3 text-center">
-            <div className="text-xs text-gray-500 mb-1">Ausgezahlt</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ausgezahlt</div>
             <div className="font-bold text-green-600 text-sm">{totalPayout.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
           </div>
         </div>
@@ -282,11 +283,11 @@ export default async function ProfilPage() {
 
       {/* Extended Stats */}
       {settledCount >= 3 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-50">
-            <h2 className="font-bold text-gray-900">Spieler-Stats</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Spieler-Stats</h2>
           </div>
-          <div className="grid grid-cols-2 divide-x divide-y divide-gray-100">
+          <div className="grid grid-cols-2 divide-x divide-y divide-gray-100 dark:divide-gray-700">
             {hitRate !== null && (
               <StatTile
                 emoji="🎯"
@@ -338,9 +339,9 @@ export default async function ProfilPage() {
 
       {/* Balance Chart */}
       {balancePoints.length >= 2 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-50 flex items-center justify-between">
-            <h2 className="font-bold text-gray-900">Guthaben-Verlauf</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700 flex items-center justify-between">
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Guthaben-Verlauf</h2>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${profit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
               {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €
             </span>
@@ -351,18 +352,21 @@ export default async function ProfilPage() {
         </div>
       )}
 
+      {/* Theme Toggle */}
+      <ThemeToggle />
+
       {/* Push Notifications */}
       <PushSubscribeButton />
 
       {/* Bet History */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-50">
-          <h2 className="font-bold text-gray-900">Wetthistorie</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Letzte {historyItems.length} Einträge</p>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
+          <h2 className="font-bold text-gray-900 dark:text-gray-100">Wetthistorie</h2>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Letzte {historyItems.length} Einträge</p>
         </div>
 
         {historyItems.length === 0 ? (
-          <div className="text-center py-10 text-gray-400">
+          <div className="text-center py-10 text-gray-400 dark:text-gray-500">
             <div className="text-3xl mb-2">🎯</div>
             <div className="text-sm">Noch keine Wetten platziert</div>
           </div>
@@ -387,19 +391,19 @@ function StatTile({ emoji, label, value, sub, color }: { emoji: string; label: s
     <div className="px-4 py-3">
       <div className="flex items-center gap-1.5 mb-1">
         <span className="text-base">{emoji}</span>
-        <span className="text-xs text-gray-500">{label}</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
       </div>
       <div className={`text-sm font-black ${color}`}>{value}</div>
-      <div className="text-[10px] text-gray-400 mt-0.5">{sub}</div>
+      <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{sub}</div>
     </div>
   )
 }
 
-function StatCell({ label, value, color = 'text-gray-900' }: { label: string; value: number; color?: string }) {
+function StatCell({ label, value, color = 'text-gray-900 dark:text-gray-100' }: { label: string; value: number; color?: string }) {
   return (
     <div className="px-2 py-3 text-center">
       <div className={`text-lg font-black ${color}`}>{value}</div>
-      <div className="text-xs text-gray-400">{label}</div>
+      <div className="text-xs text-gray-400 dark:text-gray-500">{label}</div>
     </div>
   )
 }
@@ -409,7 +413,7 @@ function SignOutButton() {
     <form action="/api/auth/signout" method="POST">
       <button
         type="submit"
-        className="w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold rounded-xl transition-colors text-sm"
+        className="w-full py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 font-semibold rounded-xl transition-colors text-sm"
       >
         Abmelden
       </button>

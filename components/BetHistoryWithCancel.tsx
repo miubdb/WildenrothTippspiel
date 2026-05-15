@@ -137,24 +137,24 @@ function SingleBetCard({
 
   const borderColor = bet.status === 'won' ? 'border-l-green-500' :
     bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-  const bgColor = bet.status === 'won' ? 'bg-green-50' :
-    bet.status === 'lost' ? 'bg-red-50/40' : 'bg-white'
+  const bgColor = bet.status === 'won' ? 'bg-green-50 dark:bg-green-900/20' :
+    bet.status === 'lost' ? 'bg-red-50/40 dark:bg-red-900/10' : 'bg-white dark:bg-gray-800'
 
   return (
     <div className={`flex items-center gap-3 px-4 py-3 border-l-4 ${borderColor} ${bgColor}`}>
       <StatusIcon status={bet.status} />
       <div className="flex-1 min-w-0">
-        <div className="text-xs text-gray-400 truncate">{matchLabel(bet)}</div>
+        <div className="text-xs text-gray-400 dark:text-gray-500 truncate">{matchLabel(bet)}</div>
         <div className="flex items-center gap-1.5 mt-0.5">
-          <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-medium">
+          <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded font-medium">
             {MARKET_LABELS[bet.market_type] ?? bet.market_type}
           </span>
-          <span className="text-sm font-semibold text-gray-900">
+          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             {selLabel(bet.market_type, bet.selection)}
           </span>
         </div>
         {score && (
-          <div className="text-xs text-gray-400 mt-0.5">Ergebnis: <span className="font-semibold text-gray-600">{score}</span></div>
+          <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Ergebnis: <span className="font-semibold text-gray-600 dark:text-gray-300">{score}</span></div>
         )}
       </div>
       <div className="text-right flex-shrink-0 space-y-0.5">
@@ -203,8 +203,8 @@ function ComboBetCard({
 
   const borderColor = status === 'won' ? 'border-l-green-500' :
     status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-  const bgColor = status === 'won' ? 'bg-green-50' :
-    status === 'lost' ? 'bg-red-50/40' : 'bg-white'
+  const bgColor = status === 'won' ? 'bg-green-50 dark:bg-green-900/20' :
+    status === 'lost' ? 'bg-red-50/40 dark:bg-red-900/10' : 'bg-white dark:bg-gray-800'
 
   return (
     <div className={`px-4 py-3 border-l-4 ${borderColor} ${bgColor}`}>
@@ -212,11 +212,11 @@ function ComboBetCard({
       <div className="flex items-center gap-3 mb-2">
         <StatusIcon status={status} />
         <div className="flex-1">
-          <div className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+          <div className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
             <span className="text-blue-600">🔗</span>
             Kombiwette · {legs.length} Tipps
           </div>
-          <div className="text-xs text-gray-400">
+          <div className="text-xs text-gray-400 dark:text-gray-500">
             Quote {fmtOdds(totalOdds)} · Einsatz {fmtAmt(stake)}€
           </div>
         </div>
@@ -225,7 +225,7 @@ function ComboBetCard({
             <div className="text-sm font-black text-green-600">+{fmtAmt(cb.payout)}€</div>
           )}
           {status === 'pending' && (
-            <div className="text-xs text-gray-500">→ {fmtAmt(potentialPayout)}€</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">→ {fmtAmt(potentialPayout)}€</div>
           )}
           {status === 'lost' && (
             <div className="text-xs text-red-400 line-through">{fmtAmt(stake)}€</div>
@@ -253,9 +253,9 @@ function ComboBetCard({
                 legStatus === 'won' ? 'bg-green-500' :
                 legStatus === 'lost' ? 'bg-red-400' : 'bg-yellow-400'
               }`} />
-              <span className="text-gray-500 truncate flex-1">{matchLabel(leg)}</span>
-              <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection)}</span>
-              {score && <span className="text-gray-400">({score})</span>}
+              <span className="text-gray-500 dark:text-gray-400 truncate flex-1">{matchLabel(leg)}</span>
+              <span className="font-medium text-gray-800 dark:text-gray-200">{selLabel(leg.market_type, leg.selection)}</span>
+              {score && <span className="text-gray-400 dark:text-gray-500">({score})</span>}
               <span className="text-red-700 font-bold">@{leg.odds_value !== null ? fmtOdds(leg.odds_value) : '–'}</span>
             </div>
           )
@@ -300,7 +300,7 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed }: Props) 
   }
 
   return (
-    <div className="divide-y divide-gray-50">
+    <div className="divide-y divide-gray-50 dark:divide-gray-700">
       {cancelError && (
         <div className="px-4 py-2 bg-red-50 text-red-700 text-xs border-b border-red-100 flex items-center gap-2">
           <span className="flex-1">{cancelError}</span>

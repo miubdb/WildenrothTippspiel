@@ -60,7 +60,7 @@ export function ReactionBar({
           key={r.emoji}
           onClick={() => toggle(r.emoji)}
           className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs transition-all ${
-            r.myReaction ? 'bg-blue-100 border border-blue-300 text-blue-800' : 'bg-gray-100 border border-gray-200 text-gray-700 hover:bg-gray-200'
+            r.myReaction ? 'bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700 text-blue-800 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
           }`}
         >
           <span>{r.emoji}</span>
@@ -79,12 +79,12 @@ function AddReactionButton({ onSelect }: { onSelect: (e: string) => void }) {
     <div className="relative">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-6 h-6 rounded-full bg-gray-100 border border-gray-200 text-gray-500 hover:bg-gray-200 flex items-center justify-center text-xs"
+        className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center justify-center text-xs"
       >
         +
       </button>
       {open && (
-        <div className="absolute bottom-8 left-0 z-10 bg-white border border-gray-200 rounded-xl shadow-lg flex gap-1 p-2">
+        <div className="absolute bottom-8 left-0 z-10 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg flex gap-1 p-2">
           {EMOJIS.map(e => (
             <button key={e} onClick={() => { onSelect(e); setOpen(false) }} className="text-lg hover:scale-125 transition-transform">
               {e}

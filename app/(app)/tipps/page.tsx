@@ -512,7 +512,7 @@ export default async function TippsPage({
 
       {/* Match Cards */}
       {matchdayMatches.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
+        <div className="text-center py-16 text-gray-400 dark:text-gray-500">
           <div className="text-4xl mb-3">⚽</div>
           <div className="font-medium">Keine Spiele</div>
         </div>
@@ -535,22 +535,22 @@ export default async function TippsPage({
 
       {/* Social Bets — visible once matchday has started */}
       {isDeadlinePassed && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h2 className="font-bold text-gray-900">Tipps der anderen</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Tipps der anderen</h2>
             {socialProfiles.length > 0 ? (
-              <p className="text-xs text-gray-400 mt-0.5">{socialProfiles.length} Spieler haben getippt</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{socialProfiles.length} Spieler haben getippt</p>
             ) : (
-              <p className="text-xs text-gray-400 mt-0.5">Noch keine Tipps von Mitspielern</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Noch keine Tipps von Mitspielern</p>
             )}
           </div>
 
           {socialProfiles.length === 0 ? (
-            <div className="px-4 py-6 text-center text-gray-400 text-sm">
+            <div className="px-4 py-6 text-center text-gray-400 dark:text-gray-500 text-sm">
               Keine Tipps vorhanden
             </div>
           ) : (
-            <div className="divide-y divide-gray-50">
+            <div className="divide-y divide-gray-50 dark:divide-gray-700">
               {socialProfiles.map(profile => {
                 const userBets = socialBets.filter(b => b.user_id === profile.id)
                 const shownCombos = new Set<string>()
@@ -562,13 +562,13 @@ export default async function TippsPage({
                 return (
                   <div key={profile.id} className="px-4 py-3">
                     <div className="flex items-center gap-2 mb-2.5">
-                      <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                        <span className="text-red-700 font-bold text-sm">{initial}</span>
+                      <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                        <span className="text-red-700 dark:text-red-400 font-bold text-sm">{initial}</span>
                       </div>
-                      <span className="font-semibold text-gray-900 text-sm flex-1">
+                      <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex-1">
                         {profile.display_name || profile.username}
                       </span>
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-gray-400 dark:text-gray-500">
                         {actionCount} {actionCount === 1 ? 'Wette' : 'Wetten'}
                       </span>
                     </div>
@@ -581,8 +581,8 @@ export default async function TippsPage({
                           const legs = userBets.filter(b => b.combo_id === bet.combo_id)
                           const comboOdds = legs.reduce((acc, l) => acc * l.odds_value, 1)
                           return (
-                            <div key={bet.combo_id} className="bg-blue-50 border border-blue-100 rounded-xl p-2.5">
-                              <div className="text-xs font-semibold text-blue-700 mb-1.5">
+                            <div key={bet.combo_id} className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl p-2.5">
+                              <div className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1.5">
                                 🔗 Kombiwette · {legs.length} Tipps · @{comboOdds.toFixed(2).replace('.', ',')}
                               </div>
                               {legs.map(leg => {
@@ -590,10 +590,10 @@ export default async function TippsPage({
                                 const ht = m?.home_team?.name ?? '?'
                                 const at = m?.away_team?.name ?? '?'
                                 return (
-                                  <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5">
+                                  <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 py-0.5">
                                     <StatusDot status={leg.status} />
-                                    <span className="text-gray-400">{ht}–{at}</span>
-                                    <span className="font-medium text-gray-800">{socialSelLabel(leg.market_type, leg.selection)}</span>
+                                    <span className="text-gray-400 dark:text-gray-500">{ht}–{at}</span>
+                                    <span className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection)}</span>
                                     <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                                   </div>
                                 )
@@ -607,13 +607,13 @@ export default async function TippsPage({
                         const at = m?.away_team?.name ?? '?'
                         return (
                           <div key={bet.id} className={`flex items-center gap-2 text-xs rounded-xl px-2.5 py-2 ${
-                            bet.status === 'won' ? 'bg-green-50 border border-green-100' :
-                            bet.status === 'lost' ? 'bg-red-50 border border-red-100' :
-                            'bg-gray-50 border border-gray-100'
+                            bet.status === 'won' ? 'bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800' :
+                            bet.status === 'lost' ? 'bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800' :
+                            'bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700'
                           }`}>
                             <StatusDot status={bet.status} />
-                            <span className="text-gray-400">{ht}–{at}</span>
-                            <span className="font-medium text-gray-800 flex-1">{socialSelLabel(bet.market_type, bet.selection)}</span>
+                            <span className="text-gray-400 dark:text-gray-500">{ht}–{at}</span>
+                            <span className="font-medium text-gray-800 dark:text-gray-200 flex-1">{socialSelLabel(bet.market_type, bet.selection)}</span>
                             <span className="text-red-600 font-bold">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
                           </div>
                         )

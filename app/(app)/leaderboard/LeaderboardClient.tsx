@@ -201,28 +201,28 @@ function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => v
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
-      <div className="bg-white rounded-t-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-white dark:bg-gray-800 rounded-t-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
           <div className="w-10 h-10 rounded-full bg-red-700 text-white flex items-center justify-center font-bold">
             {(profile.display_name || profile.username)[0].toUpperCase()}
           </div>
           <div className="flex-1">
-            <div className="font-bold text-gray-900">{profile.display_name || profile.username}</div>
-            <div className="text-xs text-gray-400">@{profile.username}</div>
+            <div className="font-bold text-gray-900 dark:text-gray-100">{profile.display_name || profile.username}</div>
+            <div className="text-xs text-gray-400 dark:text-gray-500">@{profile.username}</div>
           </div>
           <div className="text-right">
-            <div className="font-black text-gray-900 text-sm">{profile.balance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
+            <div className="font-black text-gray-900 dark:text-gray-100 text-sm">{profile.balance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
             <div className={`text-xs font-semibold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
           </div>
-          <button onClick={onClose} className="ml-2 text-gray-400 hover:text-gray-600">
+          <button onClick={onClose} className="ml-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </div>
         {/* Body */}
         <div className="overflow-y-auto flex-1 px-4 py-3 space-y-2">
-          {loading && <div className="text-center py-10 text-gray-400 text-sm">Lade Wetthistorie…</div>}
-          {!loading && bets?.length === 0 && <div className="text-center py-10 text-gray-400 text-sm">Noch keine abgeschlossenen Wetten.</div>}
+          {loading && <div className="text-center py-10 text-gray-400 dark:text-gray-500 text-sm">Lade Wetthistorie…</div>}
+          {!loading && bets?.length === 0 && <div className="text-center py-10 text-gray-400 dark:text-gray-500 text-sm">Noch keine abgeschlossenen Wetten.</div>}
           {!loading && bets && bets.length > 0 && (() => {
             type Item = { kind: 'single'; bet: HistoryBet } | { kind: 'combo'; legs: HistoryBet[]; cb: HistoryCombo | undefined }
             const seen = new Set<number>()
@@ -240,14 +240,14 @@ function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => v
                 const ml = b.match ? `${b.match.home_team.name} – ${b.match.away_team.name}` : '—'
                 const score = b.match?.home_score != null ? `${b.match.home_score}:${b.match.away_score}` : null
                 const borderColor = b.status === 'won' ? 'border-l-green-500' : b.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-                const bgColor = b.status === 'won' ? 'bg-green-50' : b.status === 'lost' ? 'bg-red-50/40' : 'bg-white'
+                const bgColor = b.status === 'won' ? 'bg-green-50 dark:bg-green-900/20' : b.status === 'lost' ? 'bg-red-50/40 dark:bg-red-900/20' : 'bg-gray-50 dark:bg-gray-700/40'
                 return (
                   <div key={b.id} className={`flex items-center gap-2.5 py-2 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
                     <StatusIcon status={b.status} size="sm" />
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs text-gray-400 truncate">{ml}{b.match?.matchday ? ` · ST ${b.match.matchday}` : ''}</div>
-                      <div className="text-xs font-semibold text-gray-900">{selLabel(b.market_type, b.selection)}</div>
-                      {score && <div className="text-xs text-gray-400">Ergebnis: <span className="font-semibold text-gray-600">{score}</span></div>}
+                      <div className="text-xs text-gray-400 dark:text-gray-500 truncate">{ml}{b.match?.matchday ? ` · ST ${b.match.matchday}` : ''}</div>
+                      <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">{selLabel(b.market_type, b.selection)}</div>
+                      {score && <div className="text-xs text-gray-400 dark:text-gray-500">Ergebnis: <span className="font-semibold text-gray-600 dark:text-gray-300">{score}</span></div>}
                     </div>
                     <div className="text-right flex-shrink-0 text-xs">
                       <div className="font-black text-red-700">@{b.odds_value.toFixed(2).replace('.', ',')}</div>
@@ -365,11 +365,11 @@ export function LeaderboardClient({
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
-        <button onClick={() => setActiveTab('rangliste')} className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'rangliste' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
+      <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-xl p-1">
+        <button onClick={() => setActiveTab('rangliste')} className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'rangliste' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400'}`}>
           Rangliste
         </button>
-        <button onClick={() => setActiveTab('spieltag')} className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'spieltag' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
+        <button onClick={() => setActiveTab('spieltag')} className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'spieltag' ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400'}`}>
           {matchdayNumber ? `Spieltag ${matchdayNumber}` : 'Spieltag'}
         </button>
       </div>
@@ -404,7 +404,7 @@ export function LeaderboardClient({
               const currentMdPnl = mdStats[profile.id]
 
               return (
-                <div key={profile.id} className={`rounded-xl border overflow-hidden transition-all ${isMe ? 'bg-red-50 border-red-200 shadow-sm' : 'bg-white border-gray-100'}`}>
+                <div key={profile.id} className={`rounded-xl border overflow-hidden transition-all ${isMe ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 shadow-sm' : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700'}`}>
                   <div className="flex items-center gap-3 px-4 py-3">
                     {/* Rank */}
                     <div className="w-8 flex-shrink-0 text-center">
@@ -419,17 +419,17 @@ export function LeaderboardClient({
                     </button>
                     {/* Name + badges */}
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 truncate text-sm flex items-center gap-1 flex-wrap">
+                      <div className="font-semibold text-gray-900 dark:text-gray-100 truncate text-sm flex items-center gap-1 flex-wrap">
                         {profile.display_name || profile.username}
                         {isMe && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Du</span>}
                         {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium" title={`${streak} Spieltage in Folge im Plus`}>🔥 {streak}</span>}
                         {wWins >= 1 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-medium" title={`${wWins}× Spieltagsbester`}>🏅 {wWins}×</span>}
                       </div>
-                      <div className="text-xs text-gray-400">@{profile.username}</div>
+                      <div className="text-xs text-gray-400 dark:text-gray-500">@{profile.username}</div>
                     </div>
                     {/* Balance */}
                     <div className="text-right flex-shrink-0 mr-1">
-                      <div className="font-bold text-gray-900 text-sm">{profile.balance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
+                      <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{profile.balance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
                       <div className={`text-xs font-medium ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-400'}`}>
                         {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
                       </div>
@@ -443,9 +443,9 @@ export function LeaderboardClient({
                   </div>
 
                   {isOpen && (
-                    <div className="px-4 pb-3 border-t border-gray-100 pt-2">
+                    <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-700 pt-2">
                       {!isDeadlinePassed && !isMe ? (
-                        <p className="text-xs text-gray-400 italic">Tipps werden nach Annahmeschluss sichtbar</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 italic">Tipps werden nach Annahmeschluss sichtbar</p>
                       ) : (
                         <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} />
                       )}
@@ -485,7 +485,7 @@ export function LeaderboardClient({
                 <button
                   key={md}
                   onClick={() => router.push(`/leaderboard?spieltag=${md}`)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${md === matchdayNumber ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${md === matchdayNumber ? 'bg-red-700 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
                 >
                   ST {md}
                 </button>
@@ -510,7 +510,7 @@ export function LeaderboardClient({
             )
           })()}
 
-          <div className="text-sm text-gray-500 font-medium px-1">
+          <div className="text-sm text-gray-500 dark:text-gray-400 font-medium px-1">
             Alle Tipps — {matchdayNumber}. Spieltag
             {!isDeadlinePassed && <span className="ml-2 text-xs text-yellow-600">· sichtbar nach Annahmeschluss</span>}
           </div>
@@ -521,12 +521,12 @@ export function LeaderboardClient({
             const pnl = mdStats[profile.id]
             if (!isDeadlinePassed && !isMe) return null
             return (
-              <div key={profile.id} className={`rounded-xl border overflow-hidden ${isMe ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100'}`}>
-                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${isMe ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600'}`}>
+              <div key={profile.id} className={`rounded-xl border overflow-hidden ${isMe ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700'}`}>
+                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${isMe ? 'bg-red-700 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
                     {(profile.display_name || profile.username || '?')[0].toUpperCase()}
                   </div>
-                  <div className="font-semibold text-sm text-gray-900 flex items-center gap-1">
+                  <div className="font-semibold text-sm text-gray-900 dark:text-gray-100 flex items-center gap-1">
                     {profile.display_name || profile.username}
                     {isMe && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Du</span>}
                     {matchdayNumber && weeklyWinners[matchdayNumber] === profile.id && pnl && pnl > 0 && (
@@ -560,7 +560,7 @@ export function LeaderboardClient({
           })}
 
           {!isDeadlinePassed && (
-            <p className="text-center text-xs text-gray-400 py-4">Die Tipps der anderen werden nach Annahmeschluss sichtbar.</p>
+            <p className="text-center text-xs text-gray-400 dark:text-gray-500 py-4">Die Tipps der anderen werden nach Annahmeschluss sichtbar.</p>
           )}
         </div>
       )}

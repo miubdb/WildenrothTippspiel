@@ -104,7 +104,7 @@ export function WetteCard({
     'Einzelwette'
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
       {/* ── Collapsed header — always visible, entire row is the toggle ── */}
       <button
         type="button"
@@ -115,20 +115,20 @@ export function WetteCard({
           {/* Left: type / selection / match / stake */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] text-gray-400 font-medium">{typeLine}</span>
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">{typeLine}</span>
               {wette.type === 'single' && leg0 && (
-                <span className="text-xs font-bold text-gray-900">{leg0.selection}</span>
+                <span className="text-xs font-bold text-gray-900 dark:text-gray-100">{leg0.selection}</span>
               )}
             </div>
             {wette.type === 'single' && leg0 && (
-              <div className="text-[10px] text-gray-500 mt-0.5 leading-snug">{leg0.matchName}</div>
+              <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{leg0.matchName}</div>
             )}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="text-sm font-black text-red-700">@{fmtOdds(wette.totalOdds)}</span>
-              <span className="text-[10px] text-gray-500">{fmt(wette.stake)} €</span>
+              <span className="text-[10px] text-gray-500 dark:text-gray-400">{fmt(wette.stake)} €</span>
               {wette.status === 'pending' && (
-                <span className="text-[10px] text-gray-500">
-                  {'→ mög. '}<span className="font-semibold text-gray-700">{fmt(wette.stake * wette.totalOdds)} €</span>
+                <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                  {'→ mög. '}<span className="font-semibold text-gray-700 dark:text-gray-300">{fmt(wette.stake * wette.totalOdds)} €</span>
                 </span>
               )}
               {wette.status === 'won' && wette.payout != null && (
@@ -167,22 +167,22 @@ export function WetteCard({
 
       {/* ── Expanded: legs + social ── */}
       {open && (
-        <div className="border-t border-gray-100">
+        <div className="border-t border-gray-100 dark:border-gray-700">
           <div className="px-3 py-2 space-y-2">
             {wette.legs.map(leg => {
               const dotCls = leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-amber-400'
-              const oddsCls = leg.status === 'won' ? 'text-green-600' : leg.status === 'lost' ? 'text-red-400' : 'text-red-700'
+              const oddsCls = leg.status === 'won' ? 'text-green-600' : leg.status === 'lost' ? 'text-red-400' : 'text-red-700 dark:text-red-400'
               return (
                 <div key={leg.id} className="flex items-start gap-2">
                   <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5 ${dotCls}`} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-gray-500 leading-snug">{leg.matchName}</div>
+                    <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-snug">{leg.matchName}</div>
                     <div className="flex items-center gap-1 mt-0.5 flex-wrap">
-                      <span className="text-[10px] bg-gray-100 text-gray-500 px-1 py-px rounded">
+                      <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1 py-px rounded">
                         {MARKET_LABEL[leg.market] ?? leg.market}
                       </span>
-                      <span className="text-xs font-semibold text-gray-900">{leg.selection}</span>
-                      {leg.score && <span className="text-[10px] text-gray-400">· {leg.score}</span>}
+                      <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">{leg.selection}</span>
+                      {leg.score && <span className="text-[10px] text-gray-400 dark:text-gray-500">· {leg.score}</span>}
                     </div>
                   </div>
                   <span className={`text-xs font-bold flex-shrink-0 ${oddsCls}`}>
@@ -194,7 +194,7 @@ export function WetteCard({
           </div>
 
           {social && (
-            <div className="border-t border-gray-100 bg-gray-50/60 px-3 py-1.5">
+            <div className="border-t border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-700/40 px-3 py-1.5">
               <CommentSection
                 targetType={social.targetType}
                 targetId={social.targetId}
