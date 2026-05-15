@@ -49,7 +49,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: `
           try {
             var t = localStorage.getItem('theme');
-            var dark = t === 'dark' || (!t || t === 'system') && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            var dark = t === 'dark';
             if (dark) document.documentElement.classList.add('dark');
           } catch(e) {}
         `}} />

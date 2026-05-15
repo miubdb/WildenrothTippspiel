@@ -8,14 +8,14 @@ const ThemeCtx = createContext<{
   theme: Theme
   setTheme: (t: Theme) => void
   resolvedTheme: 'light' | 'dark'
-}>({ theme: 'system', setTheme: () => {}, resolvedTheme: 'light' })
+}>({ theme: 'light', setTheme: () => {}, resolvedTheme: 'light' })
 
 export function useTheme() {
   return useContext(ThemeCtx)
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>('system')
+  const [theme, setThemeState] = useState<Theme>('light')
   const [systemDark, setSystemDark] = useState(false)
 
   useEffect(() => {
