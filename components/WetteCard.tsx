@@ -53,6 +53,8 @@ const MARKET_LABEL: Record<string, string> = {
   btts: 'Beide treffen',
   exact_score: 'Ergebnis',
   handicap: 'Handicap',
+  goalscorer: 'Torschütze',
+  goalscorer_2plus: 'Torschütze 2+',
 }
 
 export function fmt(n: number) {

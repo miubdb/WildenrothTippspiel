@@ -1,4 +1,4 @@
-export type MarketType = '1x2' | 'double_chance' | 'over_under' | 'over_under_3_5' | 'over_under_5_5' | 'over_under_7_5' | 'btts' | 'exact_score' | 'handicap'
+export type MarketType = '1x2' | 'double_chance' | 'over_under' | 'over_under_3_5' | 'over_under_5_5' | 'over_under_7_5' | 'btts' | 'exact_score' | 'handicap' | 'goalscorer' | 'goalscorer_2plus'
 
 export type MatchStatus = 'scheduled' | 'live' | 'finished' | 'cancelled'
 

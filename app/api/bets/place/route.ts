@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < selections.length; i++) {
       for (let j = i + 1; j < selections.length; j++) {
         const a = selections[i], b = selections[j]
-        if (a.matchId === b.matchId && a.marketType !== b.marketType) {
+        if (a.matchId === b.matchId) {
           return NextResponse.json(
             { error: 'Ungültige Kombiwette – in einer Kombiwette darf jedes Spiel nur einmal vorkommen.' },
             { status: 400 }
@@ -137,6 +137,40 @@ export async function POST(request: NextRequest) {
 
   if (!matches || matches.length !== matchIds.length) {
     return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 400 })
+  }
+
+  // Goalscorer validation: player must be offered for that match, and the
+  // submitted odds must match the frozen DB odds (within rounding).
+  const goalscorerSels = selections.filter(s => s.marketType === 'goalscorer' || s.marketType === 'goalscorer_2plus')
+  if (goalscorerSels.length > 0) {
+    const matchPlayerKeys = goalscorerSels.map(s => ({ match_id: s.matchId, player_id: parseInt(s.selection, 10) }))
+    if (matchPlayerKeys.some(k => !Number.isFinite(k.player_id))) {
+      return NextResponse.json({ error: 'Ungültiger Torschützen-Tipp.' }, { status: 400 })
+    }
+    const { data: gsOddsRows } = await supabase
+      .from('match_goalscorer_odds')
+      .select('match_id, player_id, is_offered, is_offered_2plus, odds_score, odds_score_2plus, status')
+      .in('match_id', matchPlayerKeys.map(k => k.match_id))
+      .in('player_id', matchPlayerKeys.map(k => k.player_id))
+
+    const gsMap = new Map(
+      (gsOddsRows ?? []).map(r => [`${r.match_id}-${r.player_id}`, r])
+    )
+
+    for (const s of goalscorerSels) {
+      const row = gsMap.get(`${s.matchId}-${parseInt(s.selection, 10)}`)
+      if (!row) {
+        return NextResponse.json({ error: 'Torschützen-Tipp nicht verfügbar.' }, { status: 400 })
+      }
+      const offered = s.marketType === 'goalscorer' ? row.is_offered : row.is_offered_2plus
+      const expectedOdds = s.marketType === 'goalscorer' ? Number(row.odds_score) : Number(row.odds_score_2plus)
+      if (!offered || row.status !== 'available') {
+        return NextResponse.json({ error: 'Spieler aktuell nicht wettbar.' }, { status: 400 })
+      }
+      if (Math.abs(expectedOdds - s.oddsValue) > 0.011) {
+        return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })
+      }
+    }
   }
 
   // Wildenroth conflict-of-interest check (mirrors the frontend guard).

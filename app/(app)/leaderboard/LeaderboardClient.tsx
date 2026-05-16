@@ -19,8 +19,13 @@ const SEL_LABEL: Record<string, Record<string, string>> = {
   handicap: { home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5' },
 }
 
-function selLabel(marketType: string, selection: string) {
+function selLabel(marketType: string, selection: string, players?: Record<number, string>) {
   if (marketType === 'exact_score') return selection
+  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
+    const id = parseInt(selection, 10)
+    const name = players?.[id] ?? `Spieler #${id}`
+    return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
+  }
   return SEL_LABEL[marketType]?.[selection] ?? selection
 }
 
@@ -75,13 +80,14 @@ function fmtAmt(n: number) {
 
 type ReactionData = { target_type: string; target_id: number; emoji: string; user_id: string }
 
-function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserId, currentUserName, isAdmin, isOwnBets, isDeadlinePassed, onCancel, cancellingId: cancelId }: {
+function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserId, currentUserName, isAdmin, isOwnBets, isDeadlinePassed, onCancel, cancellingId: cancelId, players }: {
   bets: BetRow[]; combos: Record<string, ComboMeta>; noDataLabel: string
   reactions: ReactionData[]; comments: CommentData[]; currentUserId: string | null
   currentUserName: string; isAdmin?: boolean
   isOwnBets?: boolean; isDeadlinePassed?: boolean
   onCancel?: (betId?: number, comboId?: number) => void
   cancellingId?: string | null
+  players?: Record<number, string>
 }) {
   if (bets.length === 0) return <p className="text-xs text-gray-400 italic py-1">{noDataLabel}</p>
 
@@ -105,7 +111,7 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
           id: b.id,
           matchName: m ? `${m.home_team.name} – ${m.away_team.name}` : '—',
           market: b.market_type,
-          selection: selLabel(b.market_type, b.selection),
+          selection: selLabel(b.market_type, b.selection, players),
           odds: b.odds_value,
           status: b.status as WetteStatus,
           score,
@@ -131,7 +137,7 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
             id: leg.id,
             matchName: lm ? `${lm.home_team.name} – ${lm.away_team.name}` : '—',
             market: leg.market_type,
-            selection: selLabel(leg.market_type, leg.selection),
+            selection: selLabel(leg.market_type, leg.selection, players),
             odds: leg.odds_value,
             status: leg.status as WetteStatus,
             score: lscore,
@@ -179,7 +185,7 @@ type HistoryBet = {
 }
 type HistoryCombo = { id: number; stake: number; total_odds: number; status: string; payout: number | null }
 
-function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => void }) {
+function ProfileModal({ profile, onClose, players }: { profile: Profile; onClose: () => void; players?: Record<number, string> }) {
   const [bets, setBets] = useState<HistoryBet[] | null>(null)
   const [combos, setCombos] = useState<Record<number, HistoryCombo>>({})
   const [loading, setLoading] = useState(true)
@@ -246,7 +252,7 @@ function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => v
                     <StatusIcon status={b.status} size="sm" />
                     <div className="flex-1 min-w-0">
                       <div className="text-xs text-gray-400 dark:text-gray-500 truncate">{ml}{b.match?.matchday ? ` · ST ${b.match.matchday}` : ''}</div>
-                      <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">{selLabel(b.market_type, b.selection)}</div>
+                      <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">{selLabel(b.market_type, b.selection, players)}</div>
                       {score && <div className="text-xs text-gray-400 dark:text-gray-500">Ergebnis: <span className="font-semibold text-gray-600 dark:text-gray-300">{score}</span></div>}
                     </div>
                     <div className="text-right flex-shrink-0 text-xs">
@@ -278,7 +284,7 @@ function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => v
                       <div key={leg.id} className="text-xs text-gray-500 flex gap-1">
                         <div className={`w-2 h-2 rounded-full mt-0.5 flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'}`} />
                         <span className="truncate">{leg.match ? `${leg.match.home_team.name} – ${leg.match.away_team.name}` : '—'}</span>
-                        <span className="font-medium text-gray-700 flex-shrink-0">{selLabel(leg.market_type, leg.selection)}</span>
+                        <span className="font-medium text-gray-700 flex-shrink-0">{selLabel(leg.market_type, leg.selection, players)}</span>
                       </div>
                     ))}
                   </div>
@@ -296,7 +302,7 @@ function ProfileModal({ profile, onClose }: { profile: Profile; onClose: () => v
 
 export function LeaderboardClient({
   profiles, currentUserId, currentUserName, isAdmin, matchdayBets, matchdayNumber, allMatchdays, combos,
-  isDeadlinePassed, weeklyWinners, streaks, mdStats, initialReactions, initialComments, initialRecap,
+  isDeadlinePassed, weeklyWinners, streaks, mdStats, initialReactions, initialComments, initialRecap, playerNameMap,
 }: {
   profiles: Profile[]
   currentUserId: string | null
@@ -313,6 +319,7 @@ export function LeaderboardClient({
   initialReactions: { target_type: string; target_id: number; emoji: string; user_id: string }[]
   initialComments: CommentData[]
   initialRecap: RecapData | null
+  playerNameMap?: Record<number, string>
 }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'rangliste' | 'spieltag'>('rangliste')
@@ -447,7 +454,7 @@ export function LeaderboardClient({
                       {!isDeadlinePassed && !isMe ? (
                         <p className="text-xs text-gray-400 dark:text-gray-500 italic">Tipps werden nach Annahmeschluss sichtbar</p>
                       ) : (
-                        <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} />
+                        <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
                       )}
                     </div>
                   )}
@@ -553,7 +560,7 @@ export function LeaderboardClient({
                   })()}
                 </div>
                 <div className="px-4 py-2">
-                  <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} />
+                  <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
                 </div>
               </div>
             )
@@ -566,7 +573,7 @@ export function LeaderboardClient({
       )}
 
       {/* Profile History Modal */}
-      {profileModal && <ProfileModal profile={profileModal} onClose={() => setProfileModal(null)} />}
+      {profileModal && <ProfileModal profile={profileModal} onClose={() => setProfileModal(null)} players={playerNameMap} />}
     </div>
   )
 }

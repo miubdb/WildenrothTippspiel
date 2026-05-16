@@ -24,7 +24,7 @@ interface InviteCode {
   created_at: string
 }
 
-type Tab = 'results' | 'bets' | 'invites' | 'odds'
+type Tab = 'results' | 'bets' | 'invites' | 'odds' | 'goalscorers'
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('results')
@@ -227,18 +227,22 @@ export default function AdminPage() {
         )}
 
         {/* Tab Bar */}
-        <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm">
-          {(['results', 'bets', 'invites', 'odds'] as Tab[]).map((t) => (
+        <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm overflow-x-auto">
+          {(['results', 'bets', 'invites', 'odds', 'goalscorers'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${
+              className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
                 tab === t
                   ? 'bg-red-700 text-white shadow'
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {t === 'results' ? 'Ergebnisse' : t === 'bets' ? 'Tipps' : t === 'invites' ? 'Einladungen' : 'Quoten'}
+              {t === 'results' ? 'Ergebnisse'
+                : t === 'bets' ? 'Tipps'
+                : t === 'invites' ? 'Einladungen'
+                : t === 'odds' ? 'Quoten'
+                : 'Torschützen'}
             </button>
           ))}
         </div>
@@ -429,6 +433,9 @@ export default function AdminPage() {
             />
           </div>
         )}
+
+        {/* Goalscorers Tab */}
+        {tab === 'goalscorers' && <GoalscorersTab matches={matches} onMessage={setMessage} />}
       </div>
     </div>
   )
@@ -438,6 +445,7 @@ const MARKET_LABELS: Record<string, string> = {
   '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
   over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
   btts: 'Beide treffen', exact_score: 'Ergebnis', handicap: 'Handicap',
+  goalscorer: 'Torschütze', goalscorer_2plus: 'Torschütze 2+',
 }
 
 interface OddsValues {
@@ -650,8 +658,13 @@ const SELECTION_LABELS: Record<string, string> = {
   home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
 }
 
-function selLabel(marketType: string, selection: string): string {
+function selLabel(marketType: string, selection: string, players?: Record<number, string>): string {
   if (marketType === 'exact_score') return selection
+  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
+    const id = parseInt(selection, 10)
+    const name = players?.[id] ?? `Spieler #${id}`
+    return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
+  }
   return SELECTION_LABELS[selection] ?? selection
 }
 
@@ -662,13 +675,17 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
   const [bets, setBets] = useState<{ id: string; user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; is_risky: boolean; stake: number | null }[]>([])
   const [profiles, setProfiles] = useState<{ id: string; display_name: string | null; username: string }[]>([])
   const [matchMap, setMatchMap] = useState<Record<number, { home: string; away: string }>>({})
+  const [playerMap, setPlayerMap] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     setLoading(true)
     fetch(`/api/admin/bets?matchday=${selectedMd}`)
       .then(r => r.json())
-      .then(data => { setBets(data.bets ?? []); setProfiles(data.profiles ?? []); setMatchMap(data.matchMap ?? {}) })
+      .then(data => {
+        setBets(data.bets ?? []); setProfiles(data.profiles ?? [])
+        setMatchMap(data.matchMap ?? {}); setPlayerMap(data.playerNameMap ?? {})
+      })
       .finally(() => setLoading(false))
   }, [selectedMd])
 
@@ -729,7 +746,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                         <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5 pl-2">
                           <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
                           <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
-                          <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection)}</span>
+                          <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection, playerMap)}</span>
                           <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                         </div>
                       ))}
@@ -740,7 +757,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                   <div key={bet.id} className="px-4 py-2.5 flex items-center gap-2 text-xs">
                     <span className="text-gray-400">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
                     <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
-                    <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection)}</span>
+                    <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
                     {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
                     <span className="text-red-600 font-bold ml-auto">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
                     <span className="text-gray-400">{bet.stake != null ? `${bet.stake} €` : ''}</span>
@@ -888,6 +905,282 @@ function MatchRow({ match }: { match: MatchRow }) {
           </span>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Goalscorers Admin Tab ───────────────────────────────────────────────
+
+type GsRow = {
+  match_id: number
+  player_id: number
+  status: string
+  is_offered: boolean
+  is_offered_2plus: boolean
+  odds_score: number | null
+  odds_score_2plus: number | null
+  prob_score: number | null
+  prob_score_2plus: number | null
+  frozen_at: string | null
+  player: {
+    id: number; name: string; position: string | null; games: number; minutes: number
+    goals: number; assists: number; is_goalkeeper: boolean
+  }
+}
+
+type ScorerRow = { id: number; player_id: number; goals: number; is_own_goal: boolean }
+
+const STATUS_LABELS: Record<string, string> = {
+  available: 'Verfügbar', questionable: 'Fraglich', missing: 'Fehlt',
+  injured: 'Verletzt', suspended: 'Gesperrt', not_bettable: 'Nicht wettbar',
+}
+
+function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage: (m: string | null) => void }) {
+  // Wildenroth match filter: matches whose teams contain "Wildenroth"
+  const wildenrothMatches = matches.filter(m =>
+    (m.home_team?.name?.includes('Wildenroth') || m.away_team?.name?.includes('Wildenroth'))
+  )
+  const [selectedMatchId, setSelectedMatchId] = useState<number | null>(wildenrothMatches[0]?.id ?? null)
+  const [rows, setRows] = useState<GsRow[]>([])
+  const [scorers, setScorers] = useState<ScorerRow[]>([])
+  const [loading, setLoading] = useState(false)
+  const [freezing, setFreezing] = useState(false)
+  const [savingScorers, setSavingScorers] = useState(false)
+
+  const reload = useCallback(async () => {
+    if (selectedMatchId == null) return
+    setLoading(true)
+    const res = await fetch(`/api/admin/goalscorers/match?matchId=${selectedMatchId}`)
+    const data = await res.json()
+    setLoading(false)
+    if (res.ok) {
+      setRows(data.rows ?? [])
+      setScorers(data.scorers ?? [])
+    } else {
+      onMessage(`Fehler: ${data.error}`)
+    }
+  }, [selectedMatchId, onMessage])
+
+  useEffect(() => { reload() }, [reload])
+
+  async function freezeOrRefresh() {
+    if (selectedMatchId == null) return
+    setFreezing(true)
+    const res = await fetch('/api/admin/goalscorers/match', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId: selectedMatchId, force: true }),
+    })
+    const data = await res.json()
+    setFreezing(false)
+    if (res.ok) { onMessage('Torschützen-Quoten berechnet.'); reload() }
+    else onMessage(`Fehler: ${data.error}`)
+  }
+
+  async function updateAvailability(playerId: number, patch: Partial<{ status: string; is_offered: boolean; is_offered_2plus: boolean }>) {
+    if (selectedMatchId == null) return
+    const res = await fetch('/api/admin/goalscorers/availability', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId: selectedMatchId, playerId, ...patch }),
+    })
+    if (res.ok) reload()
+    else {
+      const data = await res.json()
+      onMessage(`Fehler: ${data.error}`)
+    }
+  }
+
+  async function cancelPlayer(playerId: number, playerName: string) {
+    if (selectedMatchId == null) return
+    if (!confirm(`${playerName} entfernen?\nAlle offenen Torschützenwetten auf diesen Spieler werden storniert und die Einsätze zurückgebucht.`)) return
+    const res = await fetch('/api/admin/goalscorers/cancel-player', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId: selectedMatchId, playerId }),
+    })
+    const data = await res.json()
+    if (res.ok) {
+      onMessage(`Storniert: ${data.cancelledSingles} Einzelwetten, ${data.cancelledCombos} Kombiwetten.`)
+      reload()
+    } else {
+      onMessage(`Fehler: ${data.error}`)
+    }
+  }
+
+  async function saveScorers() {
+    if (selectedMatchId == null) return
+    setSavingScorers(true)
+    const res = await fetch('/api/admin/goalscorers/scorers', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        matchId: selectedMatchId,
+        scorers: scorers.map(s => ({ playerId: s.player_id, goals: s.goals, isOwnGoal: s.is_own_goal })),
+      }),
+    })
+    const data = await res.json()
+    setSavingScorers(false)
+    if (res.ok) {
+      onMessage(`Torschützen gespeichert · ${data.settled} Wette(n) abgerechnet, ${data.combosChecked} Kombi(s) geprüft.`)
+      reload()
+    } else onMessage(`Fehler: ${data.error}`)
+  }
+
+  function addScorerRow() {
+    setScorers(s => [...s, { id: -Date.now(), player_id: rows[0]?.player_id ?? 0, goals: 1, is_own_goal: false }])
+  }
+
+  const selectedMatch = wildenrothMatches.find(m => m.id === selectedMatchId) ?? null
+  const isFinished = selectedMatch?.status === 'finished'
+  const allFrozen = rows.length > 0 && rows.every(r => r.frozen_at)
+
+  return (
+    <div className="space-y-4">
+      {wildenrothMatches.length === 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm rounded-xl px-4 py-3">
+          Keine Wildenroth-Spiele gefunden.
+        </div>
+      )}
+
+      <div className="flex gap-2 flex-wrap">
+        {wildenrothMatches.map(m => {
+          const date = new Date(m.match_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+          const opp = m.home_team?.name?.includes('Wildenroth') ? m.away_team?.short_name : m.home_team?.short_name
+          return (
+            <button key={m.id} onClick={() => setSelectedMatchId(m.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                m.id === selectedMatchId ? 'bg-red-700 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
+              }`}>
+              ST {m.matchday} · {opp} · {date}
+            </button>
+          )
+        })}
+      </div>
+
+      {selectedMatch && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-gray-900">
+                {selectedMatch.home_team?.name} – {selectedMatch.away_team?.name}
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                {allFrozen ? 'Quoten gefroren' : 'Quoten noch nicht berechnet'}
+              </p>
+            </div>
+            <button onClick={freezeOrRefresh} disabled={freezing}
+              className="px-3 py-1.5 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white rounded-lg text-xs font-semibold">
+              {freezing ? '…' : 'Quoten neu berechnen'}
+            </button>
+          </div>
+
+          {loading && <div className="text-center py-6 text-gray-400 text-sm">Lade…</div>}
+
+          {!loading && rows.length === 0 && (
+            <div className="text-center py-6 text-gray-400 text-sm">
+              Noch keine Spieler. &bdquo;Quoten neu berechnen&ldquo; klicken.
+            </div>
+          )}
+
+          {!loading && rows.length > 0 && (
+            <div className="divide-y divide-gray-50">
+              {rows
+                .filter(r => !r.player?.is_goalkeeper)
+                .sort((a, b) => (a.odds_score ?? 99) - (b.odds_score ?? 99))
+                .map(r => (
+                <div key={r.player_id} className="px-3 py-2.5 text-xs">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-gray-900 truncate">{r.player.name}</div>
+                      <div className="text-[10px] text-gray-400">
+                        {r.player.position ?? '–'} · {r.player.games}Sp / {r.player.minutes}min · {r.player.goals}T / {r.player.assists}A
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-gray-500">Trifft</span>
+                      <span className="font-bold text-red-700 tabular-nums">
+                        {r.odds_score != null ? Number(r.odds_score).toFixed(2).replace('.', ',') : '–'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-gray-500">2+</span>
+                      <span className="font-bold text-red-700 tabular-nums">
+                        {r.is_offered_2plus && r.odds_score_2plus != null ? Number(r.odds_score_2plus).toFixed(2).replace('.', ',') : '–'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+                    <select
+                      value={r.status}
+                      onChange={e => updateAvailability(r.player_id, { status: e.target.value })}
+                      className="text-[11px] border border-gray-200 rounded px-1.5 py-0.5"
+                    >
+                      {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                    <label className="text-[11px] flex items-center gap-1">
+                      <input type="checkbox" checked={r.is_offered}
+                        onChange={e => updateAvailability(r.player_id, { is_offered: e.target.checked })} />
+                      angeboten
+                    </label>
+                    <label className="text-[11px] flex items-center gap-1">
+                      <input type="checkbox" checked={r.is_offered_2plus}
+                        onChange={e => updateAvailability(r.player_id, { is_offered_2plus: e.target.checked })} />
+                      2+
+                    </label>
+                    <button onClick={() => cancelPlayer(r.player_id, r.player.name)}
+                      className="ml-auto text-[10px] text-red-600 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50">
+                      Spieler entfernen
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Scorers entry — only after match finished */}
+          {isFinished && (
+            <div className="border-t border-gray-100 px-3 py-3 bg-gray-50">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-bold text-sm text-gray-900">Torschützen eintragen</h4>
+                <button onClick={addScorerRow}
+                  className="text-xs px-2 py-1 bg-white border border-gray-200 rounded-lg text-gray-700 hover:border-red-300">
+                  + Tor
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {scorers.map((s, idx) => (
+                  <div key={s.id} className="flex items-center gap-1.5 text-xs">
+                    <select value={s.player_id}
+                      onChange={e => setScorers(arr => arr.map((x, i) => i === idx ? { ...x, player_id: parseInt(e.target.value) } : x))}
+                      className="flex-1 border border-gray-200 rounded px-2 py-1">
+                      {rows.filter(r => !r.player?.is_goalkeeper).map(r => (
+                        <option key={r.player_id} value={r.player_id}>{r.player.name}</option>
+                      ))}
+                    </select>
+                    <input type="number" min="1" max="10" value={s.goals}
+                      onChange={e => setScorers(arr => arr.map((x, i) => i === idx ? { ...x, goals: parseInt(e.target.value) || 1 } : x))}
+                      className="w-12 text-center border border-gray-200 rounded px-1 py-1" />
+                    <label className="flex items-center gap-1 text-[11px]">
+                      <input type="checkbox" checked={s.is_own_goal}
+                        onChange={e => setScorers(arr => arr.map((x, i) => i === idx ? { ...x, is_own_goal: e.target.checked } : x))} />
+                      ET
+                    </label>
+                    <button onClick={() => setScorers(arr => arr.filter((_, i) => i !== idx))}
+                      className="text-red-600">✕</button>
+                  </div>
+                ))}
+                {scorers.length === 0 && (
+                  <div className="text-xs text-gray-500 italic">Noch keine Torschützen eingetragen.</div>
+                )}
+              </div>
+              <button onClick={saveScorers} disabled={savingScorers}
+                className="mt-3 w-full py-2 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white text-sm font-bold rounded-lg">
+                {savingScorers ? '…' : 'Torschützen speichern & abrechnen'}
+              </button>
+              <p className="text-[10px] text-gray-500 mt-2">
+                Eigentore (ET) zählen nicht für Torschützenwetten.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

@@ -7,6 +7,17 @@ import { useBetSlip } from '@/context/BetSlipContext'
 import { getExactScoreOdds, getForm, getTeamRecord } from '@/lib/odds'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
 
+type GoalscorerRow = {
+  player_id: number
+  player_name: string
+  position: string | null
+  odds_score: number
+  odds_score_2plus: number
+  is_offered: boolean
+  is_offered_2plus: boolean
+  status: string
+}
+
 interface BettingMatchCardProps {
   match: Match
   odds: OddsData | null
@@ -15,11 +26,12 @@ interface BettingMatchCardProps {
   positions?: Record<number, number>
   isWildenrothPlayer?: boolean
   wildenrothTeamId?: number | null
+  goalscorers?: GoalscorerRow[] | null
 }
 
-type Tab = '1x2' | 'goals' | 'exact' | 'handicap'
+type Tab = '1x2' | 'goals' | 'exact' | 'handicap' | 'goalscorer'
 
-export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId }: BettingMatchCardProps) {
+export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, goalscorers }: BettingMatchCardProps) {
   const { selections, addSelection } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
@@ -200,8 +212,11 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       {isScheduled && odds && (
         <div className="border-t border-gray-100 dark:border-gray-700">
           {/* Tab Bar */}
-          <div className="flex border-b border-gray-100 dark:border-gray-700">
-            {([['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap']] as [Tab, string][]).map(([tab, label]) => (
+          <div className="flex border-b border-gray-100 dark:border-gray-700 overflow-x-auto">
+            {(matchInvolvesWildenroth && goalscorers && goalscorers.length > 0
+              ? [['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap'], ['goalscorer', 'Torschützen']] as [Tab, string][]
+              : [['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap']] as [Tab, string][]
+            ).map(([tab, label]) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -401,6 +416,70 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                       onClick={() => add('handicap', 'Handicap', 'away_plus_2_5', `${awayName} +2,5`, odds.hdp_away_plus_2_5)}
                     />
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Goalscorer (Wildenroth only) */}
+            {activeTab === 'goalscorer' && goalscorers && (
+              <div className="space-y-2">
+                <div className="text-xs text-gray-400 dark:text-gray-500 font-medium">
+                  Torschützen – nur Wildenroth-Spieler
+                </div>
+                {goalscorers.filter(g => g.is_offered).length === 0 && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400 italic py-2">
+                    Keine Torschützen verfügbar.
+                  </div>
+                )}
+                {goalscorers
+                  .filter(g => g.is_offered)
+                  .sort((a, b) => a.odds_score - b.odds_score)
+                  .map(g => (
+                    <div key={g.player_id} className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{g.player_name}</div>
+                        {g.position && (
+                          <div className="text-[10px] text-gray-400 dark:text-gray-500">{g.position}</div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() =>
+                          add('goalscorer', 'Torschütze', String(g.player_id), `${g.player_name} trifft`, g.odds_score)
+                        }
+                        className={`flex flex-col items-center justify-center w-20 py-2 px-1 rounded-xl border transition-all active:scale-95 ${
+                          isSelected('goalscorer', String(g.player_id))
+                            ? 'bg-red-700 border-red-700 text-white shadow-md'
+                            : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:border-red-300'
+                        }`}
+                      >
+                        <span className={`text-[10px] ${isSelected('goalscorer', String(g.player_id)) ? 'text-red-100' : 'text-gray-500 dark:text-gray-400'}`}>Trifft</span>
+                        <span className={`text-sm font-black ${isSelected('goalscorer', String(g.player_id)) ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
+                          {g.odds_score.toFixed(2).replace('.', ',')}
+                        </span>
+                      </button>
+                      {g.is_offered_2plus ? (
+                        <button
+                          onClick={() =>
+                            add('goalscorer_2plus', 'Torschütze 2+', String(g.player_id), `${g.player_name} trifft 2+`, g.odds_score_2plus)
+                          }
+                          className={`flex flex-col items-center justify-center w-20 py-2 px-1 rounded-xl border transition-all active:scale-95 ${
+                            isSelected('goalscorer_2plus', String(g.player_id))
+                              ? 'bg-red-700 border-red-700 text-white shadow-md'
+                              : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:border-red-300'
+                          }`}
+                        >
+                          <span className={`text-[10px] ${isSelected('goalscorer_2plus', String(g.player_id)) ? 'text-red-100' : 'text-gray-500 dark:text-gray-400'}`}>Trifft 2+</span>
+                          <span className={`text-sm font-black ${isSelected('goalscorer_2plus', String(g.player_id)) ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
+                            {g.odds_score_2plus.toFixed(2).replace('.', ',')}
+                          </span>
+                        </button>
+                      ) : (
+                        <div className="w-20 text-center text-[10px] text-gray-300 dark:text-gray-600">—</div>
+                      )}
+                    </div>
+                  ))}
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 pt-1">
+                  Eigentore zählen nicht.
                 </div>
               </div>
             )}

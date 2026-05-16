@@ -7,6 +7,7 @@ import { MatchdayRecap } from '@/components/MatchdayRecap'
 import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match } from '@/types'
 import { calculateOdds } from '@/lib/odds'
+import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
 
 export const revalidate = 60
@@ -22,8 +23,13 @@ const SELECTION_DISPLAY: Record<string, Record<string, string>> = {
   handicap: { home_minus_1_5: '–1,5', away_plus_1_5: '+1,5', home_minus_2_5: '–2,5', away_plus_2_5: '+2,5' },
 }
 
-function socialSelLabel(marketType: string, selection: string) {
+function socialSelLabel(marketType: string, selection: string, players?: Record<number, string>) {
   if (marketType === 'exact_score') return selection
+  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
+    const id = parseInt(selection, 10)
+    const name = players?.[id] ?? `Spieler #${id}`
+    return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
+  }
   return SELECTION_DISPLAY[marketType]?.[selection] ?? selection
 }
 
@@ -182,6 +188,100 @@ export default async function TippsPage({
           hdp_home_minus_2_5: odds.hdp_home_minus_2_5,
           hdp_away_plus_2_5:  odds.hdp_away_plus_2_5,
         }, { onConflict: 'match_id' })
+      }
+    }
+  }
+
+  // Goalscorer odds for Wildenroth matches: compute + freeze on first request after Mon 12:00.
+  // Map structure: matchId → array of GoalscorerOffer (only is_offered/is_offered_2plus players).
+  const goalscorerOffersByMatch: Record<number, (GoalscorerOffer & { status: string })[]> = {}
+  // Player name map used by display components for goalscorer selections.
+  const playerNameMap: Record<number, string> = {}
+  {
+    // Identify Wildenroth team via name match against season teams
+    const wildenrothTeamRow = allMatches.flatMap(m => [m.home_team, m.away_team])
+      .find(t => t?.name?.includes('Wildenroth'))
+    const wildenrothId = wildenrothTeamRow?.id ?? null
+
+    if (wildenrothId != null) {
+      const wildenrothMatches = matchdayMatches.filter(
+        m => m.status === 'scheduled' && (m.home_team_id === wildenrothId || m.away_team_id === wildenrothId)
+      )
+
+      // Always fetch active players (needed for name map at display time).
+      const { data: playersRaw } = await supabase
+        .from('wildenroth_players')
+        .select('id, name, position, games, minutes, goals, assists, is_goalkeeper, is_penalty_taker, is_freekick_taker, active')
+        .eq('active', true)
+      const players = (playersRaw ?? []) as WildenrothPlayer[]
+      for (const p of players) playerNameMap[p.id] = p.name
+
+      if (wildenrothMatches.length > 0 && isBettingOpen) {
+        const wmIds = wildenrothMatches.map(m => m.id)
+
+        const { data: existingRows } = await supabase
+          .from('match_goalscorer_odds')
+          .select('match_id, player_id, status, is_offered, is_offered_2plus, prob_score, prob_score_2plus, odds_score, odds_score_2plus, frozen_at')
+          .in('match_id', wmIds)
+
+        const frozenSet = new Set((existingRows ?? []).filter(r => r.frozen_at).map(r => r.match_id))
+
+        for (const m of wildenrothMatches) {
+          if (!frozenSet.has(m.id)) {
+            // Freeze for this match now
+            const offers = computeGoalscorerOffersForMatch(
+              seasonMatches, m.home_team_id, m.away_team_id, wildenrothId, players,
+            )
+            const now = new Date().toISOString()
+            for (const o of offers) {
+              await supabase.from('match_goalscorer_odds').upsert({
+                match_id: m.id,
+                player_id: o.player_id,
+                status: 'available',
+                is_offered: o.is_offered,
+                is_offered_2plus: o.is_offered_2plus,
+                prob_score: o.prob_score,
+                prob_score_2plus: o.prob_score_2plus,
+                odds_score: o.odds_score,
+                odds_score_2plus: o.odds_score_2plus,
+                frozen_at: now,
+                updated_at: now,
+              }, { onConflict: 'match_id,player_id' })
+            }
+          }
+        }
+
+        // (Re)load frozen rows for display
+        const { data: frozenRows } = await supabase
+          .from('match_goalscorer_odds')
+          .select('match_id, player_id, status, is_offered, is_offered_2plus, prob_score, prob_score_2plus, odds_score, odds_score_2plus')
+          .in('match_id', wmIds)
+
+        for (const r of frozenRows ?? []) {
+          const list = goalscorerOffersByMatch[r.match_id] ?? []
+          list.push({
+            player_id: r.player_id,
+            player_name: playerNameMap[r.player_id] ?? '?',
+            position: null,
+            prob_score: Number(r.prob_score ?? 0),
+            prob_score_2plus: Number(r.prob_score_2plus ?? 0),
+            odds_score: Number(r.odds_score ?? 0),
+            odds_score_2plus: Number(r.odds_score_2plus ?? 0),
+            is_offered: r.is_offered,
+            is_offered_2plus: r.is_offered_2plus,
+            status: r.status,
+          })
+          goalscorerOffersByMatch[r.match_id] = list
+        }
+
+        // Fill in position from playerNameMap join (re-query players already loaded)
+        const playerMetaById = new Map(players.map(p => [p.id, p]))
+        for (const matchId of Object.keys(goalscorerOffersByMatch)) {
+          for (const o of goalscorerOffersByMatch[Number(matchId)]) {
+            const p = playerMetaById.get(o.player_id)
+            if (p) o.position = p.position
+          }
+        }
       }
     }
   }
@@ -528,6 +628,7 @@ export default async function TippsPage({
               positions={positions}
               isWildenrothPlayer={isWildenrothPlayer}
               wildenrothTeamId={wildenrothTeamId}
+              goalscorers={goalscorerOffersByMatch[match.id] ?? null}
             />
           ))}
         </div>
@@ -593,7 +694,7 @@ export default async function TippsPage({
                                   <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 py-0.5">
                                     <StatusDot status={leg.status} />
                                     <span className="text-gray-400 dark:text-gray-500">{ht}–{at}</span>
-                                    <span className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection)}</span>
+                                    <span className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</span>
                                     <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                                   </div>
                                 )
@@ -613,7 +714,7 @@ export default async function TippsPage({
                           }`}>
                             <StatusDot status={bet.status} />
                             <span className="text-gray-400 dark:text-gray-500">{ht}–{at}</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200 flex-1">{socialSelLabel(bet.market_type, bet.selection)}</span>
+                            <span className="font-medium text-gray-800 dark:text-gray-200 flex-1">{socialSelLabel(bet.market_type, bet.selection, playerNameMap)}</span>
                             <span className="text-red-600 font-bold">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
                           </div>
                         )
@@ -639,6 +740,7 @@ export default async function TippsPage({
           combos={userCombos}
           matchMap={userMatchMap}
           isDeadlinePassed={isDeadlinePassed}
+          playerNameMap={playerNameMap}
         />
       )}
 

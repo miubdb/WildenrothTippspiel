@@ -325,6 +325,10 @@ export default async function LeaderboardPage({
     }
   }
 
+  // Wildenroth roster for goalscorer bet labels
+  const { data: rosterRows } = await supabase.from('wildenroth_players').select('id, name')
+  const playerNameMap: Record<number, string> = Object.fromEntries((rosterRows ?? []).map(r => [r.id, r.name]))
+
   return (
     <LeaderboardClient
       profiles={profiles ?? []}
@@ -342,6 +346,7 @@ export default async function LeaderboardPage({
       initialReactions={initialReactions}
       initialComments={initialComments}
       initialRecap={leaderboardRecapData}
+      playerNameMap={playerNameMap}
     />
   )
 }

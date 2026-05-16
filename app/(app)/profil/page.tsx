@@ -17,6 +17,8 @@ const MARKET_LABELS: Record<string, string> = {
   btts: 'Beide treffen',
   exact_score: 'Genaues Ergebnis',
   handicap: 'Handicap',
+  goalscorer: 'Torschütze',
+  goalscorer_2plus: 'Torschütze 2+',
 }
 
 const SELECTION_LABELS: Record<string, string> = {
@@ -95,6 +97,12 @@ export default async function ProfilPage() {
       .in('id', comboIds)
     for (const cb of cbData ?? []) comboBetsMap.set(cb.id, cb)
   }
+
+  // Wildenroth roster for goalscorer bet labels
+  const { data: rosterRows } = await supabase
+    .from('wildenroth_players')
+    .select('id, name')
+  const playerNameMap: Record<number, string> = Object.fromEntries((rosterRows ?? []).map(r => [r.id, r.name]))
 
   // Determine per-matchday deadline for cancel eligibility
   const betMatchdays = [...new Set(bets.filter(b => b.match?.matchday).map(b => b.match!.matchday))]
@@ -371,7 +379,7 @@ export default async function ProfilPage() {
             <div className="text-sm">Noch keine Wetten platziert</div>
           </div>
         ) : (
-          <BetHistoryWithCancel items={historyItems as never} matchdayDeadlinesPassed={matchdayDeadlinesPassed} />
+          <BetHistoryWithCancel items={historyItems as never} matchdayDeadlinesPassed={matchdayDeadlinesPassed} playerNameMap={playerNameMap} />
         )}
       </div>
 

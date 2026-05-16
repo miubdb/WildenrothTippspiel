@@ -15,59 +15,24 @@ interface BetSlipContextValue {
   stakes: StakeMap
   comboStake: number
   addSelection: (item: BetSlipItem) => void
-  removeSelection: (matchId: number, marketType: MarketType) => void
+  removeSelection: (matchId: number, marketType: MarketType, selection?: string) => void
   clearSlip: () => void
   setMode: (mode: BetSlipMode) => void
-  setStake: (matchId: number, marketType: MarketType, stake: number) => void
+  setStake: (matchId: number, marketType: MarketType, stake: number, selection?: string) => void
   setComboStake: (stake: number) => void
   totalComboOdds: number
   potentialPayout: number
   isComboValid: boolean
 }
 
-/** Returns true when two selections from the same match can never both win */
-function hasContradiction(a: BetSlipItem, b: BetSlipItem): boolean {
-  if (a.matchId !== b.matchId) return false
-  if (a.marketType === b.marketType) return false
+function isGoalscorerMarket(m: MarketType): boolean {
+  return m === 'goalscorer' || m === 'goalscorer_2plus'
+}
 
-  const has = (m: string, s: string) =>
-    (a.marketType === m && a.selection === s) || (b.marketType === m && b.selection === s)
-
-  // 1X2 ↔ Double Chance
-  if (has('1x2', 'home') && has('double_chance', 'x2')) return true
-  if (has('1x2', 'away') && has('double_chance', '1x')) return true
-  if (has('1x2', 'draw') && has('double_chance', '12')) return true
-
-  // Exact score contradictions
-  const exact = a.marketType === 'exact_score' ? a : b.marketType === 'exact_score' ? b : null
-  if (exact) {
-    const [hg, ag] = exact.selection.split(':').map(Number)
-    const t = hg + ag
-    const diff = hg - ag
-    if (has('1x2', 'home') && ag > hg) return true
-    if (has('1x2', 'away') && hg >= ag) return true
-    if (has('1x2', 'draw') && hg !== ag) return true
-    if (has('over_under_3_5', 'over_3.5') && t <= 3) return true
-    if (has('over_under_3_5', 'under_3.5') && t >= 4) return true
-    if (has('over_under_5_5', 'over_5.5') && t <= 5) return true
-    if (has('over_under_5_5', 'under_5.5') && t >= 6) return true
-    if (has('over_under_7_5', 'over_7.5') && t <= 7) return true
-    if (has('over_under_7_5', 'under_7.5') && t >= 8) return true
-    if (has('btts', 'yes') && (hg === 0 || ag === 0)) return true
-    if (has('btts', 'no') && hg > 0 && ag > 0) return true
-    if (has('handicap', 'home_minus_1_5') && diff < 2) return true
-    if (has('handicap', 'away_plus_1_5') && diff >= 2) return true
-    if (has('handicap', 'home_minus_2_5') && diff < 3) return true
-    if (has('handicap', 'away_plus_2_5') && diff >= 3) return true
-  }
-
-  // Handicap vs 1X2 contradictions
-  if (has('handicap', 'home_minus_1_5') && has('1x2', 'draw')) return true
-  if (has('handicap', 'home_minus_1_5') && has('1x2', 'away')) return true
-  if (has('handicap', 'home_minus_2_5') && has('1x2', 'draw')) return true
-  if (has('handicap', 'home_minus_2_5') && has('1x2', 'away')) return true
-
-  return false
+/** Stable per-line key. Goalscorer lines key by player; all others by market. */
+export function bsKey(matchId: number, marketType: MarketType, selection: string): string {
+  if (isGoalscorerMarket(marketType)) return `${matchId}-${marketType}-${selection}`
+  return `${matchId}-${marketType}`
 }
 
 const BetSlipContext = createContext<BetSlipContextValue | null>(null)
@@ -87,11 +52,18 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     prevCountRef.current = curr
   }, [selections.length])
 
-  const slipKey = (matchId: number, marketType: MarketType) =>
-    `${matchId}-${marketType}`
-
   const addSelection = useCallback((item: BetSlipItem) => {
     setSelections((prev) => {
+      if (isGoalscorerMarket(item.marketType)) {
+        // Goalscorer: each (match, market, player) is independent.
+        // Tapping the same player+market toggles it off.
+        const existing = prev.findIndex(
+          (s) => s.matchId === item.matchId && s.marketType === item.marketType && s.selection === item.selection
+        )
+        if (existing >= 0) return prev.filter((_, i) => i !== existing)
+        return [...prev, item]
+      }
+      // Other markets: one selection per (match, market). Re-tap toggles off; new pick replaces.
       const existing = prev.findIndex(
         (s) => s.matchId === item.matchId && s.marketType === item.marketType
       )
@@ -107,13 +79,17 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const removeSelection = useCallback((matchId: number, marketType: MarketType) => {
+  const removeSelection = useCallback((matchId: number, marketType: MarketType, selection?: string) => {
     setSelections((prev) =>
-      prev.filter((s) => !(s.matchId === matchId && s.marketType === marketType))
+      prev.filter((s) => {
+        if (s.matchId !== matchId || s.marketType !== marketType) return true
+        if (isGoalscorerMarket(marketType)) return s.selection !== selection
+        return false
+      })
     )
     setStakes((prev) => {
       const next = { ...prev }
-      delete next[slipKey(matchId, marketType)]
+      delete next[bsKey(matchId, marketType, selection ?? '')]
       return next
     })
   }, [])
@@ -124,11 +100,11 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     setComboStake(10)
   }, [])
 
-  const setStake = useCallback((matchId: number, marketType: MarketType, stake: number) => {
-    setStakes((prev) => ({ ...prev, [slipKey(matchId, marketType)]: stake }))
+  const setStake = useCallback((matchId: number, marketType: MarketType, stake: number, selection?: string) => {
+    setStakes((prev) => ({ ...prev, [bsKey(matchId, marketType, selection ?? '')]: stake }))
   }, [])
 
-  // Combo is invalid if any two selections are from the same match
+  // Combo is invalid if any two selections are from the same match (same-game-combo is never allowed).
   const isComboValid = mode !== 'combo' ||
     !selections.some((a, i) => selections.slice(i + 1).some(b => a.matchId === b.matchId))
 
@@ -136,7 +112,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
   const potentialPayout = mode === 'combo'
     ? comboStake * totalComboOdds
     : selections.reduce((acc, s) => {
-        const stake = stakes[slipKey(s.matchId, s.marketType)] ?? 10
+        const stake = stakes[bsKey(s.matchId, s.marketType, s.selection)] ?? 10
         return acc + stake * s.oddsValue
       }, 0)
 

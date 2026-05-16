@@ -45,5 +45,8 @@ export async function GET(request: NextRequest) {
     .select('id, display_name, username')
     .in('id', userIds)
 
-  return NextResponse.json({ bets: bets ?? [], profiles: profiles ?? [], matchMap })
+  const { data: roster } = await supabase.from('wildenroth_players').select('id, name')
+  const playerNameMap: Record<number, string> = Object.fromEntries((roster ?? []).map(r => [r.id, r.name]))
+
+  return NextResponse.json({ bets: bets ?? [], profiles: profiles ?? [], matchMap, playerNameMap })
 }

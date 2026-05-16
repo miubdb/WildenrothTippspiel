@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useBetSlip } from '@/context/BetSlipContext'
+import { useBetSlip, bsKey } from '@/context/BetSlipContext'
 import type { MarketType } from '@/types'
 
 export function BetSlip() {
@@ -36,35 +36,35 @@ export function BetSlip() {
 
   if (count === 0) return null
 
-  function slipKey(matchId: number, marketType: MarketType) {
-    return `${matchId}-${marketType}`
+  function key(matchId: number, marketType: MarketType, selection: string) {
+    return bsKey(matchId, marketType, selection)
   }
 
-  function getStake(matchId: number, marketType: MarketType): number {
-    return stakes[slipKey(matchId, marketType)] ?? 10
+  function getStake(matchId: number, marketType: MarketType, selection: string): number {
+    return stakes[key(matchId, marketType, selection)] ?? 10
   }
 
-  function getInputValue(matchId: number, marketType: MarketType): string {
-    return inputValues[slipKey(matchId, marketType)] ?? String(getStake(matchId, marketType))
+  function getInputValue(matchId: number, marketType: MarketType, selection: string): string {
+    return inputValues[key(matchId, marketType, selection)] ?? String(getStake(matchId, marketType, selection))
   }
 
-  function handleStakeButton(matchId: number, marketType: MarketType, amt: number) {
-    setStake(matchId, marketType, amt)
-    setInputValues((v) => ({ ...v, [slipKey(matchId, marketType)]: String(amt) }))
+  function handleStakeButton(matchId: number, marketType: MarketType, selection: string, amt: number) {
+    setStake(matchId, marketType, amt, selection)
+    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(amt) }))
   }
 
-  function handleStakeChange(matchId: number, marketType: MarketType, raw: string) {
-    setInputValues((v) => ({ ...v, [slipKey(matchId, marketType)]: raw }))
+  function handleStakeChange(matchId: number, marketType: MarketType, selection: string, raw: string) {
+    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: raw }))
     const n = parseFloat(raw)
-    if (!isNaN(n) && n >= 1) setStake(matchId, marketType, n)
+    if (!isNaN(n) && n >= 1) setStake(matchId, marketType, n, selection)
   }
 
-  function handleStakeBlur(matchId: number, marketType: MarketType) {
-    const raw = inputValues[slipKey(matchId, marketType)] ?? ''
+  function handleStakeBlur(matchId: number, marketType: MarketType, selection: string) {
+    const raw = inputValues[key(matchId, marketType, selection)] ?? ''
     const n = parseFloat(raw)
-    const validated = !isNaN(n) && n >= 1 ? n : (getStake(matchId, marketType) || 10)
-    setStake(matchId, marketType, validated)
-    setInputValues((v) => ({ ...v, [slipKey(matchId, marketType)]: String(validated) }))
+    const validated = !isNaN(n) && n >= 1 ? n : (getStake(matchId, marketType, selection) || 10)
+    setStake(matchId, marketType, validated, selection)
+    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(validated) }))
   }
 
   function handleComboStakeChange(raw: string) {
@@ -86,7 +86,7 @@ export function BetSlip() {
   }
 
   const totalSingleStake = selections.reduce(
-    (acc, s) => acc + getStake(s.matchId, s.marketType),
+    (acc, s) => acc + getStake(s.matchId, s.marketType, s.selection),
     0
   )
 
@@ -105,7 +105,7 @@ export function BetSlip() {
         marketType: s.marketType,
         selection: s.selection,
         oddsValue: s.oddsValue,
-        stake: getStake(s.matchId, s.marketType),
+        stake: getStake(s.matchId, s.marketType, s.selection),
       })),
       mode,
       comboStake,
@@ -242,7 +242,7 @@ export function BetSlip() {
             <div className="flex-1 overflow-y-auto px-5 space-y-2 pb-2">
               {selections.map((s) => (
                 <div
-                  key={`${s.matchId}-${s.marketType}`}
+                  key={key(s.matchId, s.marketType, s.selection)}
                   className="bg-gray-50 rounded-xl p-3 border border-gray-100"
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -262,7 +262,7 @@ export function BetSlip() {
                         {s.oddsValue.toFixed(2).replace('.', ',')}
                       </span>
                       <button
-                        onClick={() => removeSelection(s.matchId, s.marketType)}
+                        onClick={() => removeSelection(s.matchId, s.marketType, s.selection)}
                         className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-red-700 rounded-full hover:bg-red-50 transition-colors"
                       >
                         ✕
@@ -278,9 +278,9 @@ export function BetSlip() {
                         {[5, 10, 25, 50, 100, 250].map((amt) => (
                           <button
                             key={amt}
-                            onClick={() => handleStakeButton(s.matchId, s.marketType, amt)}
+                            onClick={() => handleStakeButton(s.matchId, s.marketType, s.selection, amt)}
                             className={`text-xs px-2 py-1 rounded-lg font-medium transition-colors ${
-                              getStake(s.matchId, s.marketType) === amt
+                              getStake(s.matchId, s.marketType, s.selection) === amt
                                 ? 'bg-red-700 text-white'
                                 : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
                             }`}
@@ -292,16 +292,16 @@ export function BetSlip() {
                           type="number"
                           min="1"
                           max="250"
-                          value={getInputValue(s.matchId, s.marketType)}
-                          onChange={(e) => handleStakeChange(s.matchId, s.marketType, e.target.value)}
-                          onBlur={() => handleStakeBlur(s.matchId, s.marketType)}
+                          value={getInputValue(s.matchId, s.marketType, s.selection)}
+                          onChange={(e) => handleStakeChange(s.matchId, s.marketType, s.selection, e.target.value)}
+                          onBlur={() => handleStakeBlur(s.matchId, s.marketType, s.selection)}
                           className="w-16 text-center py-1 px-1 border border-gray-200 rounded-lg text-xs font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500"
                         />
                       </div>
                       <span className="text-xs text-gray-500 ml-auto">
                         Gewinn:{' '}
                         <span className="text-green-600 font-semibold">
-                          {(getStake(s.matchId, s.marketType) * s.oddsValue).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                          {(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                         </span>
                       </span>
                     </div>

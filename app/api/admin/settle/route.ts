@@ -123,12 +123,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Fehler beim Aktualisieren des Spiels.' }, { status: 500 })
   }
 
-  // Fetch all pending single bets for this match
+  // Fetch all pending single bets for this match (skip goalscorer markets — those settle
+  // separately once the admin enters who scored, which depends on more than the final score)
   const { data: pendingBets, error: betsError } = await supabase
     .from('bets')
     .select('id, user_id, market_type, selection, stake, odds_value, combo_id')
     .eq('match_id', matchId)
     .eq('status', 'pending')
+    .not('market_type', 'in', '("goalscorer","goalscorer_2plus")')
 
   if (betsError) {
     return NextResponse.json({ error: 'Fehler beim Abrufen der Wetten.' }, { status: 500 })

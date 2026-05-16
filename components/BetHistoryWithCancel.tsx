@@ -33,6 +33,7 @@ type HistoryItem =
 type Props = {
   items: HistoryItem[]
   matchdayDeadlinesPassed: Record<number, boolean>
+  playerNameMap?: Record<number, string>
 }
 
 const MARKET_LABELS: Record<string, string> = {
@@ -45,6 +46,8 @@ const MARKET_LABELS: Record<string, string> = {
   btts: 'Beide treffen',
   exact_score: 'Genaues Ergebnis',
   handicap: 'Handicap',
+  goalscorer: 'Torschütze',
+  goalscorer_2plus: 'Torschütze 2+',
 }
 
 const SELECTION_LABELS: Record<string, string> = {
@@ -70,8 +73,13 @@ const SELECTION_LABELS: Record<string, string> = {
   away_plus_2_5: 'Gast +2,5',
 }
 
-function selLabel(marketType: string, sel: string): string {
+function selLabel(marketType: string, sel: string, players?: Record<number, string>): string {
   if (marketType === 'exact_score') return sel
+  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
+    const id = parseInt(sel, 10)
+    const name = players?.[id] ?? `Spieler #${id}`
+    return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
+  }
   return SELECTION_LABELS[sel] ?? sel
 }
 
@@ -126,8 +134,10 @@ function SingleBetCard({
   cancellable,
   onCancel,
   isCancelling,
+  players,
 }: {
   bet: Bet
+  players?: Record<number, string>
   cancellable: boolean
   onCancel: () => void
   isCancelling: boolean
@@ -150,7 +160,7 @@ function SingleBetCard({
             {MARKET_LABELS[bet.market_type] ?? bet.market_type}
           </span>
           <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {selLabel(bet.market_type, bet.selection)}
+            {selLabel(bet.market_type, bet.selection, players)}
           </span>
         </div>
         {score && (
@@ -189,12 +199,14 @@ function ComboBetCard({
   cancellable,
   onCancel,
   isCancelling,
+  players,
 }: {
   legs: Bet[]
   cb: ComboData | undefined
   cancellable: boolean
   onCancel: () => void
   isCancelling: boolean
+  players?: Record<number, string>
 }) {
   const status = cb?.status ?? legs[0]?.status ?? 'pending'
   const stake = cb?.stake ?? 0
@@ -254,7 +266,7 @@ function ComboBetCard({
                 legStatus === 'lost' ? 'bg-red-400' : 'bg-yellow-400'
               }`} />
               <span className="text-gray-500 dark:text-gray-400 truncate flex-1">{matchLabel(leg)}</span>
-              <span className="font-medium text-gray-800 dark:text-gray-200">{selLabel(leg.market_type, leg.selection)}</span>
+              <span className="font-medium text-gray-800 dark:text-gray-200">{selLabel(leg.market_type, leg.selection, players)}</span>
               {score && <span className="text-gray-400 dark:text-gray-500">({score})</span>}
               <span className="text-red-700 font-bold">@{leg.odds_value !== null ? fmtOdds(leg.odds_value) : '–'}</span>
             </div>
@@ -265,7 +277,7 @@ function ComboBetCard({
   )
 }
 
-export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed }: Props) {
+export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNameMap }: Props) {
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [cancelError, setCancelError] = useState<string | null>(null)
   const router = useRouter()
@@ -317,6 +329,7 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed }: Props) 
               cancellable={cancellable}
               onCancel={() => cancelBet(item.bet.id)}
               isCancelling={cancellingId === `bet-${item.bet.id}`}
+              players={playerNameMap}
             />
           )
         }
@@ -328,6 +341,7 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed }: Props) 
             cancellable={cancellable}
             onCancel={() => cancelBet(undefined, item.comboId)}
             isCancelling={cancellingId === `combo-${item.comboId}`}
+            players={playerNameMap}
           />
         )
       })}

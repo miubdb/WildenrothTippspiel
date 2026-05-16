@@ -139,6 +139,18 @@ export default function AnleitungPage() {
           description="Tippe das exakte Endergebnis. Je unwahrscheinlicher, desto höher die Quote. Sehr unwahrscheinliche Ergebnisse werden ausgeblendet."
           items={[]}
         />
+        <MarketCard
+          title="Torschützen (nur Wildenroth-Spiele)"
+          description="Wette auf einen Wildenroth-Spieler — gibt es nur bei Wildenroth-Spielen."
+          items={[
+            { label: 'Trifft', desc: 'Der Spieler erzielt mindestens 1 Tor' },
+            { label: 'Trifft 2+', desc: 'Der Spieler erzielt mindestens 2 Tore (nur bei ausgewählten Spielern)' },
+          ]}
+        />
+        <div className="text-xs text-gray-500 mt-2 space-y-1">
+          <p>• Eigentore zählen nicht.</p>
+          <p>• Sollte ein Spieler kurzfristig aus dem Kader fallen, wird deine Wette automatisch storniert und der Einsatz zurückgebucht. Bei einer Kombi mit dem betroffenen Tipp wird der gesamte Kombi-Einsatz erstattet.</p>
+        </div>
       </Section>
 
       <Section title="Wildenroth-Spieler & Trainer" emoji="⚽">

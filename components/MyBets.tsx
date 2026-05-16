@@ -28,6 +28,7 @@ interface MyBetsProps {
   combos: ComboData[]
   matchMap: Record<number, { home: string; away: string }>
   isDeadlinePassed: boolean
+  playerNameMap?: Record<number, string>
 }
 
 const SEL_LABELS: Record<string, Record<string, string>> = {
@@ -46,24 +47,29 @@ const SEL_LABELS: Record<string, Record<string, string>> = {
   },
 }
 
-function selLabel(marketType: string, selection: string): string {
+function selLabel(marketType: string, selection: string, players?: Record<number, string>): string {
   if (marketType === 'exact_score') return selection
+  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
+    const id = parseInt(selection, 10)
+    const name = players?.[id] ?? `Spieler #${id}`
+    return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
+  }
   return SEL_LABELS[marketType]?.[selection] ?? selection
 }
 
-function legToWetteLeg(leg: Leg, matchMap: Record<number, { home: string; away: string }>): WetteLeg {
+function legToWetteLeg(leg: Leg, matchMap: Record<number, { home: string; away: string }>, players?: Record<number, string>): WetteLeg {
   const m = matchMap[leg.match_id]
   return {
     id: leg.id,
     matchName: m ? `${m.home} – ${m.away}` : '—',
     market: leg.market_type,
-    selection: selLabel(leg.market_type, leg.selection),
+    selection: selLabel(leg.market_type, leg.selection, players),
     odds: leg.odds_value,
     status: leg.status as WetteStatus,
   }
 }
 
-export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsProps) {
+export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerNameMap }: MyBetsProps) {
   const router = useRouter()
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -110,7 +116,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsPr
       stake: leg.stake ?? 0,
       status: leg.status as WetteStatus,
       betId: leg.id,
-      legs: [legToWetteLeg(leg, matchMap)],
+      legs: [legToWetteLeg(leg, matchMap, playerNameMap)],
     })),
     ...combos.map(combo => ({
       id: `combo-${combo.id}`,
@@ -120,7 +126,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed }: MyBetsPr
       stake: combo.stake,
       status: combo.status as WetteStatus,
       comboId: combo.id,
-      legs: combo.legs.map(l => legToWetteLeg(l, matchMap)),
+      legs: combo.legs.map(l => legToWetteLeg(l, matchMap, playerNameMap)),
     })),
   ]
 

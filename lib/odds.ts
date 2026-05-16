@@ -220,7 +220,7 @@ function getTeamFormMult(matches: Match[], teamId: number): number {
  * multiplier (±20%) then modulates each team's own xG to reflect recent momentum
  * that the season-long averages haven't fully absorbed yet.
  */
-function getMatchXG(
+export function getMatchXG(
   matches: Match[],
   homeTeamId: number,
   awayTeamId: number
