@@ -52,7 +52,7 @@ function selLabel(marketType: string, selection: string, players?: Record<number
   if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
     const id = parseInt(selection, 10)
     const name = players?.[id] ?? `Spieler #${id}`
-    return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
+    return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
   }
   return SEL_LABELS[marketType]?.[selection] ?? selection
 }

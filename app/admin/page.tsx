@@ -445,7 +445,7 @@ const MARKET_LABELS: Record<string, string> = {
   '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
   over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
   btts: 'Beide treffen', exact_score: 'Ergebnis', handicap: 'Handicap',
-  goalscorer: 'Torschütze', goalscorer_2plus: 'Torschütze 2+',
+  goalscorer: 'Torschütze', goalscorer_2plus: 'Mind. 2 Tore',
 }
 
 interface OddsValues {
@@ -663,7 +663,7 @@ function selLabel(marketType: string, selection: string, players?: Record<number
   if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
     const id = parseInt(selection, 10)
     const name = players?.[id] ?? `Spieler #${id}`
-    return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
+    return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
   }
   return SELECTION_LABELS[selection] ?? selection
 }

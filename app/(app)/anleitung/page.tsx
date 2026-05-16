@@ -144,7 +144,7 @@ export default function AnleitungPage() {
           description="Wette auf einen Wildenroth-Spieler — gibt es nur bei Wildenroth-Spielen."
           items={[
             { label: 'Trifft', desc: 'Der Spieler erzielt mindestens 1 Tor' },
-            { label: 'Trifft 2+', desc: 'Der Spieler erzielt mindestens 2 Tore (nur bei ausgewählten Spielern)' },
+            { label: 'Mind. 2 Tore', desc: 'Der Spieler erzielt mindestens 2 Tore (nur bei ausgewählten Spielern)' },
           ]}
         />
         <div className="text-xs text-gray-500 mt-2 space-y-1">
@@ -164,7 +164,7 @@ export default function AnleitungPage() {
             neutrale Tormärkte (Über/Unter, Beide treffen)
           </div>
           <div className="text-xs text-red-700 bg-red-50 rounded px-2 py-1">
-            🚫 Gesperrt: Auswärtssieg, Unentschieden, alle Doppelte-Chance-Picks gegen Wildenroth,
+            🚫 Gesperrt: Wildenroth-Niederlage, Unentschieden, alle Doppelte-Chance-Picks gegen Wildenroth,
             genaue Ergebnisse mit Unentschieden oder Wildenroth-Niederlage
           </div>
         </div>

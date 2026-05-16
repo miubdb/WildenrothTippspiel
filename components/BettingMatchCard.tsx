@@ -76,9 +76,11 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       setTimeout(() => setWildenrothBlockMsg(false), 8000)
       return
     }
-    // Block: a different market from this match is already in the slip.
-    // Multiple picks from the same match cannot be combined.
-    if (selections.some(s => s.matchId === match.id && s.marketType !== marketType)) {
+    // Block: any other selection from this match is already in the slip.
+    // For goalscorer markets toggling the same player off is allowed (handled by addSelection).
+    const isGoalscorerToggleOff = (marketType === 'goalscorer' || marketType === 'goalscorer_2plus')
+      && selections.some(s => s.matchId === match.id && s.marketType === marketType && s.selection === selection)
+    if (!isGoalscorerToggleOff && selections.some(s => s.matchId === match.id)) {
       setComboMatchBlockMsg(true)
       setTimeout(() => setComboMatchBlockMsg(false), 5000)
       return
@@ -212,7 +214,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       {isScheduled && odds && (
         <div className="border-t border-gray-100 dark:border-gray-700">
           {/* Tab Bar */}
-          <div className="flex border-b border-gray-100 dark:border-gray-700 overflow-x-auto">
+          <div className="flex border-b border-gray-100 dark:border-gray-700 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             {(matchInvolvesWildenroth && goalscorers && goalscorers.length > 0
               ? [['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap'], ['goalscorer', 'Torschützen']] as [Tab, string][]
               : [['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap']] as [Tab, string][]
@@ -460,7 +462,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                       {g.is_offered_2plus ? (
                         <button
                           onClick={() =>
-                            add('goalscorer_2plus', 'Torschütze 2+', String(g.player_id), `${g.player_name} trifft 2+`, g.odds_score_2plus)
+                            add('goalscorer_2plus', 'Mindestens 2 Tore', String(g.player_id), `${g.player_name} (mind. 2 Tore)`, g.odds_score_2plus)
                           }
                           className={`flex flex-col items-center justify-center w-20 py-2 px-1 rounded-xl border transition-all active:scale-95 ${
                             isSelected('goalscorer_2plus', String(g.player_id))
@@ -468,7 +470,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                               : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:border-red-300'
                           }`}
                         >
-                          <span className={`text-[10px] ${isSelected('goalscorer_2plus', String(g.player_id)) ? 'text-red-100' : 'text-gray-500 dark:text-gray-400'}`}>Trifft 2+</span>
+                          <span className={`text-[10px] ${isSelected('goalscorer_2plus', String(g.player_id)) ? 'text-red-100' : 'text-gray-500 dark:text-gray-400'}`}>Mind. 2 Tore</span>
                           <span className={`text-sm font-black ${isSelected('goalscorer_2plus', String(g.player_id)) ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
                             {g.odds_score_2plus.toFixed(2).replace('.', ',')}
                           </span>

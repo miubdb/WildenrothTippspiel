@@ -47,7 +47,7 @@ const MARKET_LABELS: Record<string, string> = {
   exact_score: 'Genaues Ergebnis',
   handicap: 'Handicap',
   goalscorer: 'Torschütze',
-  goalscorer_2plus: 'Torschütze 2+',
+  goalscorer_2plus: 'Mindestens 2 Tore',
 }
 
 const SELECTION_LABELS: Record<string, string> = {
@@ -78,7 +78,7 @@ function selLabel(marketType: string, sel: string, players?: Record<number, stri
   if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
     const id = parseInt(sel, 10)
     const name = players?.[id] ?? `Spieler #${id}`
-    return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
+    return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
   }
   return SELECTION_LABELS[sel] ?? sel
 }
