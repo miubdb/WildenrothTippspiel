@@ -84,17 +84,18 @@ export async function POST(request: NextRequest) {
     if (b.combo_id != null) combosToCheck.add(b.combo_id)
   }
 
-  // Settle combos whose all legs are now settled.
+  // Settle combos: mark lost immediately when any leg is lost; won when all settled and none lost.
   for (const comboId of combosToCheck) {
     const { data: legs } = await admin
       .from('bets').select('status, user_id').eq('combo_id', comboId)
     if (!legs) continue
     const allSettled = legs.every(l => l.status !== 'pending')
-    if (!allSettled) continue
     const anyLost = legs.some(l => l.status === 'lost')
+    if (!anyLost && !allSettled) continue
     const { data: combo } = await admin
-      .from('combo_bets').select('id, user_id, stake, total_odds').eq('id', comboId).single()
+      .from('combo_bets').select('id, user_id, stake, total_odds, status').eq('id', comboId).single()
     if (!combo) continue
+    if (combo.status !== 'pending') continue // already settled, skip
     if (anyLost) {
       await admin.from('combo_bets').update({ status: 'lost', payout: 0 }).eq('id', comboId)
     } else {

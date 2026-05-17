@@ -181,15 +181,18 @@ export async function POST(request: NextRequest) {
     const allSettled = comboLegs.every((leg) => leg.status !== 'pending')
     const anyLost = comboLegs.some((leg) => leg.status === 'lost')
 
-    if (!allSettled) continue // Still waiting for other matches
+    // A combo is lost as soon as one leg is lost — no need to wait for remaining legs.
+    if (!anyLost && !allSettled) continue // Still pending, no losses yet
 
     const { data: comboBet } = await supabase
       .from('combo_bets')
-      .select('id, stake, total_odds, user_id')
+      .select('id, stake, total_odds, user_id, status')
       .eq('id', comboId)
       .single()
 
     if (!comboBet) continue
+    // Skip if already settled to avoid double-processing
+    if (comboBet.status !== 'pending') continue
 
     if (anyLost) {
       await supabase

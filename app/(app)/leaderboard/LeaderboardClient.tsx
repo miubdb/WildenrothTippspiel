@@ -122,13 +122,17 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
       const comboLegs = bets.filter(x => x.combo_id === b.combo_id)
       const cb = combos[b.combo_id]
       const totalOdds = cb?.total_odds ?? comboLegs.reduce((acc, l) => acc * l.odds_value, 1)
+      // Derive status from legs as fallback (e.g. if combo_bets row is temporarily unavailable).
+      const derivedStatus: WetteStatus = comboLegs.some(l => l.status === 'lost') ? 'lost'
+        : comboLegs.every(l => l.status === 'won' || l.status === 'cancelled') ? 'won'
+        : 'pending'
       wetten.push({
         id: `combo-${b.combo_id}`,
         type: 'combo',
         totalOdds,
         stake: cb?.stake ?? 0,
         payout: cb?.payout,
-        status: (cb?.status ?? 'pending') as WetteStatus,
+        status: (cb?.status ?? derivedStatus) as WetteStatus,
         comboId: b.combo_id,
         legs: comboLegs.map(leg => {
           const lm = leg.match
