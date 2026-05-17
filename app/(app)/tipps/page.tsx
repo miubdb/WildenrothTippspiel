@@ -371,27 +371,33 @@ export default async function TippsPage({
     }])
   )
 
-  // Social bets: visible after first match kicks off (RLS policy allows this)
-  type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number }
+  // Social bets: visible after first match of matchday kicks off (RLS policy allows this)
+  type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number; stake: number | null }
+  type SocialCombo = { id: number; stake: number; total_odds: number; status: string; payout: number | null }
   type SocialProfile = { id: string; display_name: string | null; username: string }
   let socialBets: SocialBet[] = []
+  let socialCombos: Record<string, SocialCombo> = {}
   let socialProfiles: SocialProfile[] = []
 
   if (isDeadlinePassed && matchdayMatchIds.length > 0) {
     const { data: rawSocial } = await supabase
       .from('bets')
-      .select('id, market_type, selection, odds_value, status, combo_id, user_id, match_id')
+      .select('id, market_type, selection, odds_value, status, combo_id, user_id, match_id, stake')
       .in('match_id', matchdayMatchIds)
       .neq('user_id', user?.id ?? '')
 
     if (rawSocial && rawSocial.length > 0) {
       socialBets = rawSocial
       const uids = [...new Set(rawSocial.map(b => b.user_id))]
-      const { data: pData } = await supabase
-        .from('profiles')
-        .select('id, display_name, username')
-        .in('id', uids)
-      socialProfiles = pData ?? []
+      const comboIds = [...new Set(rawSocial.filter(b => b.combo_id).map(b => b.combo_id as string))]
+      const [pResult, cbResult] = await Promise.all([
+        supabase.from('profiles').select('id, display_name, username').in('id', uids),
+        comboIds.length > 0
+          ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds)
+          : Promise.resolve({ data: [] }),
+      ])
+      socialProfiles = pResult.data ?? []
+      for (const cb of cbResult.data ?? []) socialCombos[String(cb.id)] = cb
     }
   }
 
@@ -634,92 +640,114 @@ export default async function TippsPage({
         </div>
       )}
 
-      {/* Social Bets — visible once matchday has started */}
+      {/* Social Bets — visible once first match of matchday has kicked off */}
       {isDeadlinePassed && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-            <h2 className="font-bold text-gray-900 dark:text-gray-100">Tipps der anderen</h2>
-            {socialProfiles.length > 0 ? (
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{socialProfiles.length} Spieler haben getippt</p>
-            ) : (
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Noch keine Tipps von Mitspielern</p>
-            )}
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+            <div>
+              <h2 className="font-bold text-gray-900 dark:text-gray-100">Tipps der anderen</h2>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                {socialProfiles.length > 0 ? `${socialProfiles.length} Spieler haben getippt` : 'Noch keine Tipps von Mitspielern'}
+              </p>
+            </div>
           </div>
 
           {socialProfiles.length === 0 ? (
-            <div className="px-4 py-6 text-center text-gray-400 dark:text-gray-500 text-sm">
-              Keine Tipps vorhanden
-            </div>
+            <div className="px-4 py-8 text-center text-gray-400 dark:text-gray-500 text-sm">Keine Tipps vorhanden</div>
           ) : (
-            <div className="divide-y divide-gray-50 dark:divide-gray-700">
+            <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {socialProfiles.map(profile => {
                 const userBets = socialBets.filter(b => b.user_id === profile.id)
-                const shownCombos = new Set<string>()
+                const seenCombos = new Set<string>()
                 const initial = (profile.display_name || profile.username)[0].toUpperCase()
                 const singlesCount = userBets.filter(b => !b.combo_id).length
                 const combosCount = new Set(userBets.filter(b => b.combo_id).map(b => b.combo_id)).size
-                const actionCount = singlesCount + combosCount
+                const slipCount = singlesCount + combosCount
 
                 return (
-                  <div key={profile.id} className="px-4 py-3">
-                    <div className="flex items-center gap-2 mb-2.5">
-                      <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-                        <span className="text-red-700 dark:text-red-400 font-bold text-sm">{initial}</span>
+                  <div key={profile.id} className="px-4 py-3 space-y-2">
+                    {/* User header */}
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                        <span className="text-red-700 dark:text-red-400 font-bold text-xs">{initial}</span>
                       </div>
                       <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex-1">
                         {profile.display_name || profile.username}
                       </span>
                       <span className="text-xs text-gray-400 dark:text-gray-500">
-                        {actionCount} {actionCount === 1 ? 'Wette' : 'Wetten'}
+                        {slipCount} {slipCount === 1 ? 'Wettschein' : 'Wettscheine'}
                       </span>
                     </div>
 
-                    <div className="pl-10 space-y-1.5">
-                      {userBets.map(bet => {
-                        if (bet.combo_id) {
-                          if (shownCombos.has(bet.combo_id)) return null
-                          shownCombos.add(bet.combo_id)
-                          const legs = userBets.filter(b => b.combo_id === bet.combo_id)
-                          const comboOdds = legs.reduce((acc, l) => acc * l.odds_value, 1)
-                          return (
-                            <div key={bet.combo_id} className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl p-2.5">
-                              <div className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1.5">
-                                🔗 Kombiwette · {legs.length} Tipps · @{comboOdds.toFixed(2).replace('.', ',')}
+                    {/* Bet cards */}
+                    {userBets.map(bet => {
+                      if (bet.combo_id) {
+                        if (seenCombos.has(bet.combo_id)) return null
+                        seenCombos.add(bet.combo_id)
+                        const legs = userBets.filter(b => b.combo_id === bet.combo_id)
+                        const cb = socialCombos[bet.combo_id]
+                        const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
+                        const stake = cb?.stake ?? 0
+                        const potWin = Math.round(stake * totalOdds * 100) / 100
+                        const comboStatus = cb?.status ?? (legs.some(l => l.status === 'lost') ? 'lost' : legs.every(l => l.status === 'won') ? 'won' : 'pending')
+                        const borderCls = comboStatus === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : comboStatus === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-blue-100 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10'
+                        return (
+                          <div key={bet.combo_id} className={`rounded-xl border overflow-hidden ${borderCls}`}>
+                            {/* Combo header */}
+                            <div className="flex items-center gap-2 px-3 py-2 border-b border-black/5 dark:border-white/5">
+                              <StatusDot status={comboStatus} />
+                              <span className="text-xs font-bold text-blue-700 dark:text-blue-400">🔗 Kombiwette</span>
+                              <span className="text-xs text-gray-500 dark:text-gray-400 ml-0.5">· {legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                              <div className="ml-auto text-right text-xs flex-shrink-0">
+                                {stake > 0 && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
+                                {stake > 0 && comboStatus === 'pending' && <span className="text-gray-400 dark:text-gray-500"> → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span></span>}
+                                {comboStatus === 'won' && cb?.payout != null && <span className="font-bold text-green-600"> +{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
+                                {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through"> {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
                               </div>
+                            </div>
+                            {/* Legs */}
+                            <div className="px-3 py-1.5 space-y-1">
                               {legs.map(leg => {
                                 const m = matchMap.get(leg.match_id)
-                                const ht = m?.home_team?.name ?? '?'
-                                const at = m?.away_team?.name ?? '?'
                                 return (
-                                  <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 py-0.5">
+                                  <div key={leg.id} className="flex items-start gap-1.5 text-xs py-0.5">
                                     <StatusDot status={leg.status} />
-                                    <span className="text-gray-400 dark:text-gray-500">{ht}–{at}</span>
-                                    <span className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</span>
-                                    <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                                    <div className="flex-1 min-w-0">
+                                      <span className="text-gray-400 dark:text-gray-500 text-[10px]">{m?.home_team?.name ?? '?'} – {m?.away_team?.name ?? '?'}</span>
+                                      <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
+                                    </div>
+                                    <span className="text-red-600 dark:text-red-400 font-bold flex-shrink-0">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                                   </div>
                                 )
                               })}
                             </div>
-                          )
-                        }
-
-                        const m = matchMap.get(bet.match_id)
-                        const ht = m?.home_team?.name ?? '?'
-                        const at = m?.away_team?.name ?? '?'
-                        return (
-                          <div key={bet.id} className={`flex items-center gap-2 text-xs rounded-xl px-2.5 py-2 ${
-                            bet.status === 'won' ? 'bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800' :
-                            bet.status === 'lost' ? 'bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800' :
-                            'bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700'
-                          }`}>
-                            <StatusDot status={bet.status} />
-                            <span className="text-gray-400 dark:text-gray-500">{ht}–{at}</span>
-                            <span className="font-medium text-gray-800 dark:text-gray-200 flex-1">{socialSelLabel(bet.market_type, bet.selection, playerNameMap)}</span>
-                            <span className="text-red-600 font-bold">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
                           </div>
                         )
-                      })}
-                    </div>
+                      }
+
+                      // Single bet
+                      const m = matchMap.get(bet.match_id)
+                      const stake = bet.stake ?? 0
+                      const potWin = Math.round(stake * bet.odds_value * 100) / 100
+                      const borderCls = bet.status === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : bet.status === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/40'
+                      return (
+                        <div key={bet.id} className={`rounded-xl border px-3 py-2 ${borderCls}`}>
+                          <div className="flex items-start gap-1.5">
+                            <StatusDot status={bet.status} />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{m?.home_team?.name ?? '?'} – {m?.away_team?.name ?? '?'}</div>
+                              <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">{socialSelLabel(bet.market_type, bet.selection, playerNameMap)}</div>
+                            </div>
+                            <div className="text-right text-xs flex-shrink-0">
+                              <div className="font-bold text-red-700 dark:text-red-400">@{bet.odds_value.toFixed(2).replace('.', ',')}</div>
+                              {stake > 0 && bet.status === 'pending' && <div className="text-gray-400 dark:text-gray-500">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span></div>}
+                              {bet.status === 'won' && <div className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
+                              {bet.status === 'lost' && stake > 0 && <div className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 )
               })}
