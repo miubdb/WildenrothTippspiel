@@ -689,7 +689,11 @@ export default async function TippsPage({
                         const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
                         const stake = cb?.stake ?? 0
                         const potWin = Math.round(stake * totalOdds * 100) / 100
-                        const comboStatus = cb?.status ?? (legs.some(l => l.status === 'lost') ? 'lost' : legs.every(l => l.status === 'won') ? 'won' : 'pending')
+                        const dbSt = cb?.status ?? 'pending'
+                        const comboStatus = (dbSt === 'won' || dbSt === 'lost') ? dbSt
+                          : legs.some(l => l.status === 'lost') ? 'lost'
+                          : legs.every(l => l.status === 'won') ? 'won'
+                          : 'pending'
                         const borderCls = comboStatus === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : comboStatus === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-blue-100 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10'
                         return (
                           <div key={bet.combo_id} className={`rounded-xl border overflow-hidden ${borderCls}`}>

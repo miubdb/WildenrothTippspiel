@@ -208,7 +208,11 @@ function ComboBetCard({
   isCancelling: boolean
   players?: Record<number, string>
 }) {
-  const status = cb?.status ?? legs[0]?.status ?? 'pending'
+  const dbSt = cb?.status ?? 'pending'
+  const status = (dbSt === 'won' || dbSt === 'lost') ? dbSt
+    : legs.some(l => l.status === 'lost') ? 'lost'
+    : legs.every(l => l.status === 'won') ? 'won'
+    : 'pending'
   const stake = cb?.stake ?? 0
   const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * (l.odds_value ?? 1), 1)
   const potentialPayout = stake * totalOdds

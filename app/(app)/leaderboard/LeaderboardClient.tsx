@@ -122,9 +122,12 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
       const comboLegs = bets.filter(x => x.combo_id === b.combo_id)
       const cb = combos[b.combo_id]
       const totalOdds = cb?.total_odds ?? comboLegs.reduce((acc, l) => acc * l.odds_value, 1)
-      // Derive status from legs as fallback (e.g. if combo_bets row is temporarily unavailable).
-      const derivedStatus: WetteStatus = comboLegs.some(l => l.status === 'lost') ? 'lost'
-        : comboLegs.every(l => l.status === 'won' || l.status === 'cancelled') ? 'won'
+      const dbStatus = (cb?.status ?? 'pending') as WetteStatus
+      // Override stale 'pending' DB status when legs already prove the outcome
+      const effectiveStatus: WetteStatus =
+        (dbStatus === 'won' || dbStatus === 'lost') ? dbStatus
+        : comboLegs.some(l => l.status === 'lost') ? 'lost'
+        : comboLegs.every(l => l.status === 'won') ? 'won'
         : 'pending'
       wetten.push({
         id: `combo-${b.combo_id}`,
@@ -132,7 +135,7 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
         totalOdds,
         stake: cb?.stake ?? 0,
         payout: cb?.payout,
-        status: (cb?.status ?? derivedStatus) as WetteStatus,
+        status: effectiveStatus,
         comboId: b.combo_id,
         legs: comboLegs.map(leg => {
           const lm = leg.match
@@ -268,7 +271,11 @@ function ProfileModal({ profile, onClose, players }: { profile: Profile; onClose
                 )
               }
               const cb = item.cb
-              const status = cb?.status ?? 'pending'
+              const dbStatus2 = cb?.status ?? 'pending'
+              const status = (dbStatus2 === 'won' || dbStatus2 === 'lost') ? dbStatus2
+                : item.legs.some(l => l.status === 'lost') ? 'lost'
+                : item.legs.every(l => l.status === 'won') ? 'won'
+                : 'pending'
               const totalOdds = cb?.total_odds ?? item.legs.reduce((a, l) => a * l.odds_value, 1)
               const borderColor = status === 'won' ? 'border-l-green-500' : status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
               const bgColor = status === 'won' ? 'bg-green-50' : status === 'lost' ? 'bg-red-50/40' : 'bg-white'

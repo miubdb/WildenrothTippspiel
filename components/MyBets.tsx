@@ -118,16 +118,24 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
       betId: leg.id,
       legs: [legToWetteLeg(leg, matchMap, playerNameMap)],
     })),
-    ...combos.map(combo => ({
-      id: `combo-${combo.id}`,
-      type: 'combo' as const,
-      isRisky: combo.id === riskyComboId,
-      totalOdds: comboEffOdds.get(combo.id) ?? 1,
-      stake: combo.stake,
-      status: combo.status as WetteStatus,
-      comboId: combo.id,
-      legs: combo.legs.map(l => legToWetteLeg(l, matchMap, playerNameMap)),
-    })),
+    ...combos.map(combo => {
+      const dbSt = combo.status as WetteStatus
+      const effectiveSt: WetteStatus =
+        (dbSt === 'won' || dbSt === 'lost') ? dbSt
+        : combo.legs.some(l => l.status === 'lost') ? 'lost'
+        : combo.legs.every(l => l.status === 'won') ? 'won'
+        : 'pending'
+      return {
+        id: `combo-${combo.id}`,
+        type: 'combo' as const,
+        isRisky: combo.id === riskyComboId,
+        totalOdds: comboEffOdds.get(combo.id) ?? 1,
+        stake: combo.stake,
+        status: effectiveSt,
+        comboId: combo.id,
+        legs: combo.legs.map(l => legToWetteLeg(l, matchMap, playerNameMap)),
+      }
+    }),
   ]
 
   return (
