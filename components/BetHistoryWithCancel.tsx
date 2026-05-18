@@ -154,7 +154,14 @@ function SingleBetCard({
     <div className={`flex items-center gap-3 px-4 py-3 border-l-4 ${borderColor} ${bgColor}`}>
       <StatusIcon status={bet.status} />
       <div className="flex-1 min-w-0">
-        <div className="text-xs text-gray-400 dark:text-gray-500 truncate">{matchLabel(bet)}</div>
+        <div className="flex items-center gap-1.5">
+          {bet.match?.matchday && (
+            <span className="text-[10px] bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">
+              ST {bet.match.matchday}
+            </span>
+          )}
+          <div className="text-xs text-gray-400 dark:text-gray-500 truncate">{matchLabel(bet)}</div>
+        </div>
         <div className="flex items-center gap-1.5 mt-0.5">
           <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded font-medium">
             {MARKET_LABELS[bet.market_type] ?? bet.market_type}
@@ -231,6 +238,11 @@ function ComboBetCard({
           <div className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
             <span className="text-blue-600">🔗</span>
             Kombiwette · {legs.length} Tipps
+            {legs[0]?.match?.matchday && (
+              <span className="text-[10px] bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300 px-1.5 py-0.5 rounded font-semibold">
+                ST {legs[0].match.matchday}
+              </span>
+            )}
           </div>
           <div className="text-xs text-gray-400 dark:text-gray-500">
             Quote {fmtOdds(totalOdds)} · Einsatz {fmtAmt(stake)}€

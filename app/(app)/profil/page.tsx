@@ -349,7 +349,10 @@ export default async function ProfilPage() {
       {balancePoints.length >= 2 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700 flex items-center justify-between">
-            <h2 className="font-bold text-gray-900 dark:text-gray-100">Guthaben-Verlauf</h2>
+            <div>
+              <h2 className="font-bold text-gray-900 dark:text-gray-100">Guthaben-Verlauf</h2>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Stand nach abgeschlossenen Spieltagen</p>
+            </div>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${profit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
               {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €
             </span>

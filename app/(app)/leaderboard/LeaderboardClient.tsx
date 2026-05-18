@@ -406,6 +406,13 @@ export function LeaderboardClient({
             </div>
           )}
 
+          {!isDeadlinePassed && matchdayNumber && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
+              <div className="font-semibold mb-0.5">Stand vor Spieltag {matchdayNumber}</div>
+              <div className="text-blue-600 dark:text-blue-400">Offene Einsätze bleiben bis zur Veröffentlichung verborgen. Dein persönliches Guthaben kann davon abweichen.</div>
+            </div>
+          )}
+
           {top3.length >= 3 && (
             <div className="flex items-end justify-center gap-3 px-2">
               <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} onNameClick={openProfile} displayBalance={!isDeadlinePassed ? top3[1].balance + (pendingStakesPerUser[top3[1].id] ?? 0) : top3[1].balance} />

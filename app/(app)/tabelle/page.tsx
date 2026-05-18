@@ -166,11 +166,12 @@ export default async function TabellePage() {
         </div>
 
         {/* Table Header */}
-        <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
+        <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
           <div className="w-6 text-center">#</div>
           <div>Verein</div>
           <div className="w-6 text-center">Sp</div>
           <div className="w-6 text-center hidden sm:block">S</div>
+          <div className="w-6 text-center hidden sm:block">U</div>
           <div className="w-6 text-center hidden sm:block">N</div>
           <div className="w-12 text-center">Tore</div>
           <div className="w-8 text-center font-bold text-gray-700">P</div>
@@ -191,7 +192,7 @@ export default async function TabellePage() {
           return (
             <div
               key={s.teamId}
-              className={`grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2.5 items-center border-b border-gray-50 last:border-0 ${
+              className={`grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2.5 items-center border-b border-gray-50 last:border-0 ${
                 isWildenroth ? 'bg-red-50' : ''
               }`}
             >
@@ -236,6 +237,9 @@ export default async function TabellePage() {
 
               {/* W */}
               <div className="w-6 text-center text-xs text-green-600 font-semibold hidden sm:block">{s.w}</div>
+
+              {/* D */}
+              <div className="w-6 text-center text-xs text-yellow-600 font-semibold hidden sm:block">{s.d}</div>
 
               {/* L */}
               <div className="w-6 text-center text-xs text-red-500 font-semibold hidden sm:block">{s.l}</div>
