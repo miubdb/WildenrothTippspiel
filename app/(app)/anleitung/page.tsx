@@ -27,7 +27,11 @@ export default function AnleitungPage() {
           </div>
           <div className="flex gap-2">
             <span className="text-red-700 font-bold flex-shrink-0">Schluss:</span>
-            <span>Anpfiff des ersten Spiels des Spieltags</span>
+            <span><strong>Einzelwetten:</strong> bis zum Anpfiff des jeweiligen Spiels</span>
+          </div>
+          <div className="flex gap-2">
+            <span className="text-red-700 font-bold flex-shrink-0 invisible">Schluss:</span>
+            <span><strong>Kombiwetten:</strong> nur wenn alle enthaltenen Spiele noch nicht begonnen haben</span>
           </div>
           <div className="flex gap-2">
             <span className="text-red-700 font-bold flex-shrink-0">Wettscheine:</span>
@@ -39,7 +43,7 @@ export default function AnleitungPage() {
           </div>
           <div className="flex gap-2">
             <span className="text-blue-700 font-bold flex-shrink-0">Storno:</span>
-            <span>Bis zum ersten Anpfiff des Spieltags möglich — der Einsatz wird sofort zurückgebucht</span>
+            <span>Einzelwette: bis zum Anpfiff des Spiels. Kombiwette: bis der erste enthaltene Anpfiff beginnt. Der Einsatz wird sofort zurückgebucht.</span>
           </div>
         </div>
       </Section>

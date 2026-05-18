@@ -214,37 +214,31 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Enforce Tippschluss per Spieltag: once the first match of a matchday kicks off,
-  // no new bets are accepted for the entire matchday (not just that specific match).
-  // This prevents placing bets on later games after an earlier game has started.
-  const matchdayIds = [...new Set(matches.map((m) => m.matchday))]
-  for (const matchday of matchdayIds) {
-    const { data: firstMatchOfDay } = await supabase
-      .from('matches')
-      .select('match_date')
-      .eq('matchday', matchday)
-      .order('match_date', { ascending: true })
-      .limit(1)
-      .single()
-    if (firstMatchOfDay && new Date(firstMatchOfDay.match_date) <= new Date()) {
-      return NextResponse.json(
-        { error: 'Der Annahmeschluss für diesen Spieltag ist abgelaufen. Tippschluss ist der Anpfiff des ersten Spiels.' },
-        { status: 400 }
-      )
+  // Enforce Tippschluss: single bets are valid until that match's own kickoff.
+  // Combo bets require ALL included matches to not have started yet.
+  if (mode === 'combo') {
+    for (const match of matches) {
+      if (new Date(match.match_date) <= new Date() || match.status !== 'scheduled') {
+        return NextResponse.json(
+          { error: 'Für Kombiwetten müssen alle enthaltenen Spiele noch nicht begonnen haben.' },
+          { status: 400 }
+        )
+      }
     }
-  }
-
-  // Also reject bets on matches already finished or settled
-  for (const match of matches) {
-    if (match.status !== 'scheduled') {
-      return NextResponse.json(
-        { error: 'Annahmeschluss für dieses Spiel ist abgelaufen.' },
-        { status: 400 }
-      )
+  } else {
+    for (const sel of selections) {
+      const match = matches.find((m) => m.id === sel.matchId)!
+      if (new Date(match.match_date) <= new Date() || match.status !== 'scheduled') {
+        return NextResponse.json(
+          { error: 'Annahmeschluss für dieses Spiel ist bereits abgelaufen.' },
+          { status: 400 }
+        )
+      }
     }
   }
 
   // Enforce bet limit per matchday: max 3 total, max 2 with odds <= 20
+  const matchdayIds = [...new Set(matches.map((m) => m.matchday))]
   for (const matchday of matchdayIds) {
     // Fetch ALL match IDs for this matchday (not just current selection)
     const { data: allMatchdayMatches } = await supabase

@@ -447,9 +447,9 @@ export function LeaderboardClient({
                     </div>
                     {/* Balance */}
                     <div className="text-right flex-shrink-0 mr-1">
-                      <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{profile.balance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
-                      <div className={`text-xs font-medium ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                        {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
+                      <div className="font-black text-gray-900 dark:text-gray-100 text-base tabular-nums">{profile.balance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 0 })} €</div>
+                      <div className={`text-xs font-bold tabular-nums ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                        {profit >= 0 ? '+' : ''}{fmtAmt(profit)} €
                       </div>
                     </div>
                     {/* Expand chevron */}

@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
         })
         await sendPushToAll(
           `🏟️ Spieltag ${matchday} – Wetten offen!`,
-          `Du kannst jetzt deine Tipps für Spieltag ${matchday} abgeben (bis ${lastDateStr}).`,
+          `Du kannst jetzt deine Tipps für Spieltag ${matchday} abgeben. Tippschluss ist jeweils vor dem Anpfiff des jeweiligen Spiels.`,
           `/tipps?matchday=${matchday}`
         )
         sent.push(`betting_open:${matchday}`)
@@ -141,8 +141,8 @@ export async function GET(request: NextRequest) {
               pushPromises.push(
                 sendPushToUser(
                   profile.id,
-                  '⏰ Noch ~1 Stunde bis Tippschluss!',
-                  `Spieltag ${matchday} startet bald – du hast noch ${3 - totalBets} Wette(n) übrig.`,
+                  '⏰ Erste Partie startet bald!',
+                  `Spieltag ${matchday} – du hast noch ${3 - totalBets} Wettschein(e) übrig. Danach ist nur noch auf spätere Spiele möglich.`,
                   `/tipps?matchday=${matchday}`
                 )
               )

@@ -33,37 +33,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nur offene Wetten können storniert werden.' }, { status: 400 })
     }
 
-    // Find one leg to determine the matchday deadline
-    const { data: legs } = await supabase
+    // Find all legs to determine earliest kickoff across the combo
+    const { data: allLegs } = await supabase
       .from('bets')
       .select('match_id')
       .eq('combo_id', comboId)
-      .limit(1)
 
-    if (!legs || legs.length === 0) {
+    if (!allLegs || allLegs.length === 0) {
       return NextResponse.json({ error: 'Keine Wett-Legs gefunden.' }, { status: 400 })
     }
 
-    // Get matchday of the leg, then find the first match of that matchday
-    const { data: legMatch } = await supabase
-      .from('matches')
-      .select('matchday')
-      .eq('id', legs[0].match_id)
-      .single()
-
-    if (!legMatch) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 400 })
-
-    const { data: firstMatch } = await supabase
+    const allMatchIds = allLegs.map((l) => l.match_id)
+    const { data: firstComboMatch } = await supabase
       .from('matches')
       .select('match_date')
-      .eq('matchday', legMatch.matchday)
+      .in('id', allMatchIds)
       .order('match_date', { ascending: true })
       .limit(1)
       .single()
 
-    if (!firstMatch || new Date(firstMatch.match_date) <= new Date()) {
+    if (!firstComboMatch || new Date(firstComboMatch.match_date) <= new Date()) {
       return NextResponse.json(
-        { error: 'Der Spieltag hat begonnen — Stornierung nicht mehr möglich.' },
+        { error: 'Eines der Spiele hat bereits begonnen — Stornierung nicht mehr möglich.' },
         { status: 400 }
       )
     }
@@ -100,26 +91,18 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Find first match of the matchday
+    // Check that this specific match has not yet kicked off
     const { data: betMatch } = await supabase
       .from('matches')
-      .select('matchday')
+      .select('match_date')
       .eq('id', bet.match_id)
       .single()
 
     if (!betMatch) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 400 })
 
-    const { data: firstMatch } = await supabase
-      .from('matches')
-      .select('match_date')
-      .eq('matchday', betMatch.matchday)
-      .order('match_date', { ascending: true })
-      .limit(1)
-      .single()
-
-    if (!firstMatch || new Date(firstMatch.match_date) <= new Date()) {
+    if (new Date(betMatch.match_date) <= new Date()) {
       return NextResponse.json(
-        { error: 'Der Spieltag hat begonnen — Stornierung nicht mehr möglich.' },
+        { error: 'Das Spiel hat bereits begonnen — Stornierung nicht mehr möglich.' },
         { status: 400 }
       )
     }

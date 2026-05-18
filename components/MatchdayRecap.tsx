@@ -4,6 +4,8 @@ export type RecapData = {
   unluckyBastard: { name: string; odds: number; stake: number; legs: number; wouldHavePayout: number } | null
   biggestLoss: { name: string; loss: number; isCombo: boolean } | null
   safestTip: { name: string; odds: number; payout: number } | null
+  bestCombo: { name: string; odds: number; payout: number; legs: number } | null
+  riskyHit: { name: string; odds: number; payout: number; isCombo: boolean } | null
 }
 
 function fmtAmt(n: number) {
@@ -32,11 +34,8 @@ function HighlightCard({
 }
 
 export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: number }) {
-  const { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip } = data
-  if (!mvp && !bestOdds && !unluckyBastard && !biggestLoss && !safestTip) return null
-
-  const hasTopRow = mvp || bestOdds
-  const hasBottomRow = biggestLoss || safestTip
+  const { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip, bestCombo, riskyHit } = data
+  if (!mvp && !bestOdds && !unluckyBastard && !biggestLoss && !safestTip && !bestCombo && !riskyHit) return null
 
   return (
     <div className="space-y-3">
@@ -47,8 +46,8 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
         <div className="text-red-200 text-sm mt-1">Die Highlights des Spieltags</div>
       </div>
 
-      {/* MVP + Best Odds */}
-      {hasTopRow && (
+      {/* MVP + Mutigster Treffer */}
+      {(mvp || bestOdds) && (
         <div className={`grid gap-3 ${mvp && bestOdds ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {mvp && (
             <HighlightCard
@@ -65,7 +64,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
           {bestOdds && (
             <HighlightCard
               emoji="🎯"
-              title="Mutigster Tipp"
+              title="Mutigster Treffer"
               name={bestOdds.name}
               value={`@${fmtOdds(bestOdds.odds)}`}
               sub={`+${fmtAmt(bestOdds.payout - (bestOdds.payout / bestOdds.odds))} €${bestOdds.isCombo ? ' · Kombi' : ''}`}
@@ -85,7 +84,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
             <div>
               <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">Unlucky Bastard</div>
               <div className="text-xs text-gray-500 dark:text-gray-400">
-                {unluckyBastard.legs}er-Kombi @{fmtOdds(unluckyBastard.odds)} – nur 1 Tipp falsch
+                {unluckyBastard.legs}er-Kombi @{fmtOdds(unluckyBastard.odds)} – nur 1 Tipp daneben
               </div>
             </div>
           </div>
@@ -93,11 +92,11 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
             <div>
               <div className="font-semibold text-gray-900 dark:text-gray-100 text-sm">{unluckyBastard.name}</div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                Einsatz {fmtAmt(unluckyBastard.stake)} € · Wäre{' '}
+                Einsatz {fmtAmt(unluckyBastard.stake)} € · Hätte{' '}
                 <span className="text-green-600 font-semibold">
                   +{fmtAmt(unluckyBastard.wouldHavePayout - unluckyBastard.stake)} €
                 </span>{' '}
-                geworden
+                eingebracht
               </div>
             </div>
             <span className="text-3xl">😭</span>
@@ -105,8 +104,38 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
         </div>
       )}
 
+      {/* Beste Kombi + Risky-Hit */}
+      {(bestCombo || riskyHit) && (
+        <div className={`grid gap-3 ${bestCombo && riskyHit ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {bestCombo && (
+            <HighlightCard
+              emoji="🔗"
+              title="Beste Kombi"
+              name={bestCombo.name}
+              value={`@${fmtOdds(bestCombo.odds)}`}
+              sub={`${bestCombo.legs} Tipps · +${fmtAmt(bestCombo.payout - bestCombo.payout / bestCombo.odds)} €`}
+              accentBg="bg-blue-50"
+              accentBorder="border-blue-100"
+              accentText="text-blue-700"
+            />
+          )}
+          {riskyHit && (
+            <HighlightCard
+              emoji="🎲"
+              title="Risky-Hit"
+              name={riskyHit.name}
+              value={`@${fmtOdds(riskyHit.odds)}`}
+              sub={`+${fmtAmt(riskyHit.payout - riskyHit.payout / riskyHit.odds)} €${riskyHit.isCombo ? ' · Kombi' : ''}`}
+              accentBg="bg-amber-50"
+              accentBorder="border-amber-100"
+              accentText="text-amber-700"
+            />
+          )}
+        </div>
+      )}
+
       {/* Biggest Loss + Safest Tip */}
-      {hasBottomRow && (
+      {(biggestLoss || safestTip) && (
         <div className={`grid gap-3 ${biggestLoss && safestTip ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {biggestLoss && (
             <HighlightCard
@@ -127,9 +156,9 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={safestTip.name}
               value={`@${fmtOdds(safestTip.odds)}`}
               sub={`+${fmtAmt(safestTip.payout - safestTip.payout / safestTip.odds)} €`}
-              accentBg="bg-blue-50"
-              accentBorder="border-blue-100"
-              accentText="text-blue-700"
+              accentBg="bg-teal-50"
+              accentBorder="border-teal-100"
+              accentText="text-teal-700"
             />
           )}
         </div>

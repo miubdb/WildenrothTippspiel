@@ -26,7 +26,7 @@ export default async function LeaderboardPage({
     supabase.from('profiles').select('id, username, display_name, balance').order('balance', { ascending: false }),
     supabase.auth.getUser(),
     supabase.from('matches').select('id, matchday, match_date, status').order('match_date', { ascending: true }),
-    supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id'),
+    supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky'),
     supabase.from('combo_bets').select('id, user_id, stake, total_odds, status, payout'),
   ])
 
@@ -52,7 +52,32 @@ export default async function LeaderboardPage({
     .filter(m => m.status === 'scheduled')
     .map(m => m.matchday)
     .sort((a, b) => a - b)[0]
-  const defaultMatchday = firstScheduledMd ?? (allMatchdays.length > 0 ? Math.max(...allMatchdays) : null)
+
+  // Before Monday 12:00 Berlin → show last completed matchday; after → show upcoming matchday
+  function mondayNoon(refDate: Date): Date {
+    const berlinDate = refDate.toLocaleDateString('sv', { timeZone: 'Europe/Berlin' })
+    const [y, m, d] = berlinDate.split('-').map(Number)
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+    const daysBack = dow === 0 ? 6 : dow - 1
+    const mondayD = d - daysBack
+    const mondayStr = `${y}-${String(m).padStart(2, '0')}-${String(mondayD).padStart(2, '0')}`
+    const probe = new Date(`${mondayStr}T12:00:00Z`)
+    const berlinHour = parseInt(
+      new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', hour12: false }).format(probe), 10
+    )
+    const utcHour = 24 - berlinHour
+    return new Date(`${mondayStr}T${String(utcHour).padStart(2, '0')}:00:00Z`)
+  }
+  const thisWeekMondayNoon = mondayNoon(new Date())
+  const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
+  const completedMatchdays = allMatchdays.filter((md) => {
+    const mdM = allMatches.filter((m) => m.matchday === md)
+    return mdM.length > 0 && mdM.every((m) => m.status === 'finished')
+  })
+  const lastCompletedMd = completedMatchdays.length > 0 ? Math.max(...completedMatchdays) : null
+  const defaultMatchday = isBeforeMondayNoon && lastCompletedMd != null
+    ? lastCompletedMd
+    : (firstScheduledMd ?? (allMatchdays.length > 0 ? Math.max(...allMatchdays) : null))
 
   const requestedMd = params.spieltag ? parseInt(params.spieltag, 10) : null
   const currentMatchday = requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
@@ -319,8 +344,39 @@ export default async function LeaderboardPage({
         }
       }
 
-      if (mvp || bestOdds || unluckyBastard || biggestLoss || safestTip) {
-        leaderboardRecapData = { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip }
+      // Beste Kombi: won combo with highest total_odds
+      const bestComboEntry = wonCombos[0] ?? null
+      const bestCombo: RecapData['bestCombo'] = bestComboEntry ? {
+        name: pMap[bestComboEntry.user_id] ?? 'Unbekannt',
+        odds: bestComboEntry.total_odds,
+        payout: bestComboEntry.payout,
+        legs: (legsByCombo[bestComboEntry.id] ?? []).length,
+      } : null
+
+      // Risky-Hit: won bet (single or combo) that has is_risky=true
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const wonRiskySingles = recapSingles.filter(b => b.status === 'won' && (b as any).is_risky)
+        .sort((a, b) => b.odds_value - a.odds_value)
+      const wonRiskyCombos = recapCombos.filter(c => {
+        const legsOfCombo = allBets.filter(b => b.combo_id === c.id)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return c.status === 'won' && legsOfCombo.some(l => (l as any).is_risky)
+      }).sort((a, b) => b.total_odds - a.total_odds)
+      let riskyHit: RecapData['riskyHit'] = null
+      if (wonRiskySingles[0] || wonRiskyCombos[0]) {
+        const rSingle = wonRiskySingles[0]
+        const rCombo = wonRiskyCombos[0]
+        const rSOdds = rSingle?.odds_value ?? 0
+        const rCOdds = rCombo?.total_odds ?? 0
+        if (rSOdds >= rCOdds && rSingle) {
+          riskyHit = { name: pMap[rSingle.user_id] ?? 'Unbekannt', odds: rSingle.odds_value, payout: rSingle.payout ?? 0, isCombo: false }
+        } else if (rCombo) {
+          riskyHit = { name: pMap[rCombo.user_id] ?? 'Unbekannt', odds: rCombo.total_odds, payout: rCombo.payout, isCombo: true }
+        }
+      }
+
+      if (mvp || bestOdds || unluckyBastard || biggestLoss || safestTip || bestCombo || riskyHit) {
+        leaderboardRecapData = { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip, bestCombo, riskyHit }
       }
     }
   }

@@ -15,16 +15,7 @@ interface MatchRow {
   away_team: { name: string; short_name: string } | null
 }
 
-interface InviteCode {
-  id: string
-  code: string
-  max_uses: number | null
-  used_count: number
-  is_active: boolean
-  created_at: string
-}
-
-type Tab = 'results' | 'bets' | 'invites' | 'odds' | 'goalscorers'
+type Tab = 'results' | 'bets' | 'odds' | 'goalscorers'
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('results')
@@ -33,9 +24,6 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [settleLoading, setSettleLoading] = useState<number | null>(null)
   const [message, setMessage] = useState<string | null>(null)
-  const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([])
-  const [newCode, setNewCode] = useState('')
-  const [newMaxUses, setNewMaxUses] = useState('10')
   const [oddsLoading, setOddsLoading] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [preview, setPreview] = useState<OddsPreviewResponse | null>(null)
@@ -64,18 +52,9 @@ export default function AdminPage() {
     setLoading(false)
   }, [supabase])
 
-  const fetchInviteCodes = useCallback(async () => {
-    const { data } = await supabase
-      .from('invite_codes')
-      .select('*')
-      .order('created_at', { ascending: false })
-    setInviteCodes(data ?? [])
-  }, [supabase])
-
   useEffect(() => {
     fetchMatches()
-    fetchInviteCodes()
-  }, [fetchMatches, fetchInviteCodes])
+  }, [fetchMatches])
 
   function handleScoreChange(
     matchId: number,
@@ -124,31 +103,6 @@ export default function AdminPage() {
     } else {
       setMessage(`Fehler: ${data.error}`)
     }
-  }
-
-  async function createInviteCode() {
-    if (!newCode.trim()) return
-    const maxUses = parseInt(newMaxUses) || null
-
-    const { error } = await supabase.from('invite_codes').insert({
-      code: newCode.trim().toUpperCase(),
-      max_uses: maxUses,
-      used_count: 0,
-      is_active: true,
-    })
-
-    if (error) {
-      setMessage(`Fehler: ${error.message}`)
-    } else {
-      setMessage('Einladungscode erstellt.')
-      setNewCode('')
-      fetchInviteCodes()
-    }
-  }
-
-  async function toggleCode(id: string, current: boolean) {
-    await supabase.from('invite_codes').update({ is_active: !current }).eq('id', id)
-    fetchInviteCodes()
   }
 
   async function recalculateOdds() {
@@ -228,7 +182,7 @@ export default function AdminPage() {
 
         {/* Tab Bar */}
         <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm overflow-x-auto">
-          {(['results', 'bets', 'invites', 'odds', 'goalscorers'] as Tab[]).map((t) => (
+          {(['results', 'bets', 'odds', 'goalscorers'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -240,7 +194,6 @@ export default function AdminPage() {
             >
               {t === 'results' ? 'Ergebnisse'
                 : t === 'bets' ? 'Tipps'
-                : t === 'invites' ? 'Einladungen'
                 : t === 'odds' ? 'Quoten'
                 : 'Torschützen'}
             </button>
@@ -318,82 +271,6 @@ export default function AdminPage() {
 
         {/* Bets Tab */}
         {tab === 'bets' && <AdminBetsTab matches={matches} />}
-
-        {/* Invites Tab */}
-        {tab === 'invites' && (
-          <div className="space-y-4">
-            {/* Create new code */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-              <h2 className="font-bold text-gray-900 mb-3">Neuen Code erstellen</h2>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Code</label>
-                  <input
-                    type="text"
-                    value={newCode}
-                    onChange={(e) => setNewCode(e.target.value.toUpperCase())}
-                    placeholder="z.B. WILDENROTH2025"
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm font-mono uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Max. Verwendungen (leer = unbegrenzt)
-                  </label>
-                  <input
-                    type="number"
-                    value={newMaxUses}
-                    onChange={(e) => setNewMaxUses(e.target.value)}
-                    placeholder="10"
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                  />
-                </div>
-                <button
-                  onClick={createInviteCode}
-                  disabled={!newCode.trim()}
-                  className="w-full py-2.5 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-xl transition-colors text-sm"
-                >
-                  Code erstellen
-                </button>
-              </div>
-            </div>
-
-            {/* Existing codes */}
-            <div className="space-y-2">
-              {inviteCodes.map((code) => (
-                <div
-                  key={code.id}
-                  className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="font-mono font-bold text-gray-900 tracking-widest">
-                      {code.code}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      Verwendet: {code.used_count}
-                      {code.max_uses !== null ? ` / ${code.max_uses}` : ' / ∞'}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => toggleCode(code.id, code.is_active)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                      code.is_active
-                        ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                    }`}
-                  >
-                    {code.is_active ? 'Aktiv' : 'Inaktiv'}
-                  </button>
-                </div>
-              ))}
-              {inviteCodes.length === 0 && (
-                <div className="text-center py-8 text-gray-400 text-sm">
-                  Keine Einladungscodes vorhanden
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Odds Tab */}
         {tab === 'odds' && (
@@ -817,7 +694,7 @@ function MatchSettleCard({
 
       <div className="flex items-center gap-3 mb-3">
         <div className="flex-1 text-right text-sm font-semibold text-gray-900">
-          {match.home_team?.short_name ?? match.home_team?.name ?? '?'}
+          {match.home_team?.name ?? '?'}
         </div>
         <div className="flex items-center gap-1.5">
           <input
@@ -841,7 +718,7 @@ function MatchSettleCard({
           />
         </div>
         <div className="flex-1 text-left text-sm font-semibold text-gray-900">
-          {match.away_team?.short_name ?? match.away_team?.name ?? '?'}
+          {match.away_team?.name ?? '?'}
         </div>
       </div>
 
@@ -890,8 +767,8 @@ function MatchRow({ match }: { match: MatchRow }) {
           </span>
         </div>
         <div className="text-sm font-semibold text-gray-900 mt-0.5">
-          {match.home_team?.short_name ?? '?'} –{' '}
-          {match.away_team?.short_name ?? '?'}
+          {match.home_team?.name ?? '?'} –{' '}
+          {match.away_team?.name ?? '?'}
         </div>
       </div>
       <div className="text-right flex-shrink-0">

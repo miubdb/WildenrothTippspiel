@@ -84,7 +84,18 @@ export default async function TippsPage({
     .map((m) => m.matchday)
     .sort((a, b) => a - b)[0]
 
-  const defaultMatchday = firstScheduled ?? Math.max(...allMatchdays)
+  // Before Monday 12:00 Berlin → default to last completed matchday (Sunday games just ended)
+  // After Monday 12:00 Berlin → default to next upcoming matchday
+  const thisWeekMondayNoon = bettingOpenTime(new Date())
+  const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
+  const completedMatchdays = allMatchdays.filter((md) => {
+    const mdM = allMatches.filter((m) => m.matchday === md)
+    return mdM.length > 0 && mdM.every((m) => m.status === 'finished')
+  })
+  const lastCompletedMd = completedMatchdays.length > 0 ? Math.max(...completedMatchdays) : null
+  const defaultMatchday = isBeforeMondayNoon && lastCompletedMd != null
+    ? lastCompletedMd
+    : (firstScheduled ?? Math.max(...allMatchdays))
   const requestedMd = params.matchday ? parseInt(params.matchday, 10) : null
   const currentMatchday =
     requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
@@ -413,7 +424,7 @@ export default async function TippsPage({
   if (isMatchdayComplete && matchdayMatchIds.length > 0) {
     const { data: recapBets } = await supabase
       .from('bets')
-      .select('id, user_id, stake, odds_value, payout, status, combo_id')
+      .select('id, user_id, stake, odds_value, payout, status, combo_id, is_risky')
       .in('match_id', matchdayMatchIds)
       .in('status', ['won', 'lost'])
 
@@ -527,8 +538,39 @@ export default async function TippsPage({
         }
       }
 
-      if (mvp || bestOdds || unluckyBastard || biggestLoss || safestTip) {
-        recapData = { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip }
+      // Beste Kombi: won combo with highest total_odds
+      const bestComboEntry = wonCombos[0] ?? null
+      const bestCombo: RecapData['bestCombo'] = bestComboEntry ? {
+        name: pMap[bestComboEntry.user_id] ?? 'Unbekannt',
+        odds: bestComboEntry.total_odds,
+        payout: bestComboEntry.payout,
+        legs: (legsByCombo[bestComboEntry.id] ?? []).length,
+      } : null
+
+      // Risky-Hit: won bet (single or combo) that has is_risky=true
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const wonRiskySingles = singleBets.filter(b => b.status === 'won' && (b as any).is_risky)
+        .sort((a, b) => b.odds_value - a.odds_value)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const wonRiskyCombos = recapCombos.filter(c => {
+        const comboLegsForC = recapBets.filter(b => b.combo_id === c.id)
+        return c.status === 'won' && comboLegsForC.some(l => (l as any).is_risky)
+      }).sort((a, b) => b.total_odds - a.total_odds)
+      let riskyHit: RecapData['riskyHit'] = null
+      if (wonRiskySingles[0] || wonRiskyCombos[0]) {
+        const rSingle = wonRiskySingles[0]
+        const rCombo = wonRiskyCombos[0]
+        const rSOdds = rSingle?.odds_value ?? 0
+        const rCOdds = rCombo?.total_odds ?? 0
+        if (rSOdds >= rCOdds && rSingle) {
+          riskyHit = { name: pMap[rSingle.user_id] ?? 'Unbekannt', odds: rSingle.odds_value, payout: rSingle.payout ?? 0, isCombo: false }
+        } else if (rCombo) {
+          riskyHit = { name: pMap[rCombo.user_id] ?? 'Unbekannt', odds: rCombo.total_odds, payout: rCombo.payout, isCombo: true }
+        }
+      }
+
+      if (mvp || bestOdds || unluckyBastard || biggestLoss || safestTip || bestCombo || riskyHit) {
+        recapData = { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip, bestCombo, riskyHit }
       }
     }
   }
@@ -572,20 +614,13 @@ export default async function TippsPage({
           </div>
         )}
 
-        {/* Betting open: show deadline */}
-        {isBettingOpen && deadline && !isDeadlinePassed && matchdayMatches.some(m => m.status === 'scheduled') && (
+        {/* Betting open: per-match deadlines */}
+        {isBettingOpen && matchdayMatches.some(m => m.status === 'scheduled') && (
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2">
-            <div className="text-red-200 text-xs">Annahmeschluss</div>
+            <div className="text-red-200 text-xs">Tippschluss</div>
             <div className="text-white font-semibold text-sm">
-              {deadline.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })}{' '}
-              um {deadline.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })} Uhr
+              Jeweils vor dem Anpfiff des Spiels
             </div>
-          </div>
-        )}
-
-        {isDeadlinePassed && matchdayMatches.some(m => m.status === 'scheduled') && (
-          <div className="mt-3 bg-red-900/60 rounded-xl px-3 py-2 text-red-200 text-xs font-medium">
-            Annahmeschluss überschritten — keine neuen Tipps möglich
           </div>
         )}
       </div>
@@ -615,6 +650,11 @@ export default async function TippsPage({
           )
         })}
       </MatchdayScroller>
+
+      {/* Spieltags-Recap — shown prominently above match cards when matchday is complete */}
+      {isMatchdayComplete && recapData && (
+        <MatchdayRecap data={recapData} matchday={currentMatchday} />
+      )}
 
       {/* Match Cards */}
       {matchdayMatches.length === 0 ? (
@@ -758,11 +798,6 @@ export default async function TippsPage({
             </div>
           )}
         </div>
-      )}
-
-      {/* Spieltags-Recap — shown when all matches in the matchday are finished */}
-      {isMatchdayComplete && recapData && (
-        <MatchdayRecap data={recapData} matchday={currentMatchday} />
       )}
 
       {/* Own placed bets */}
