@@ -15,7 +15,7 @@ interface MatchRow {
   away_team: { name: string; short_name: string } | null
 }
 
-type Tab = 'results' | 'bets' | 'odds' | 'goalscorers'
+type Tab = 'results' | 'bets' | 'quoten'
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('results')
@@ -133,7 +133,7 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => {
-    if (tab === 'odds' && !preview) loadPreview()
+    if (tab === 'quoten' && !preview) loadPreview()
   }, [tab, preview, loadPreview])
 
   const settledMatches = matches.filter((m) => m.status === 'finished')
@@ -182,7 +182,7 @@ export default function AdminPage() {
 
         {/* Tab Bar */}
         <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm overflow-x-auto">
-          {(['results', 'bets', 'odds', 'goalscorers'] as Tab[]).map((t) => (
+          {(['results', 'bets', 'quoten'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -194,8 +194,7 @@ export default function AdminPage() {
             >
               {t === 'results' ? 'Ergebnisse'
                 : t === 'bets' ? 'Tipps'
-                : t === 'odds' ? 'Quoten'
-                : 'Torschützen'}
+                : 'Quoten & Torschützen'}
             </button>
           ))}
         </div>
@@ -272,47 +271,57 @@ export default function AdminPage() {
         {/* Bets Tab */}
         {tab === 'bets' && <AdminBetsTab matches={matches} />}
 
-        {/* Odds Tab */}
-        {tab === 'odds' && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h2 className="font-bold text-gray-900 mb-1">Quoten neu berechnen</h2>
-              <p className="text-sm text-gray-500 mb-4">
-                Berechnet die Quoten für alle geplanten Spiele neu auf Basis der Saisondaten.
-              </p>
-              <button
-                onClick={recalculateOdds}
-                disabled={oddsLoading}
-                className="w-full py-3 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-              >
-                {oddsLoading ? (
-                  <>
-                    <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                    Berechne...
-                  </>
-                ) : (
-                  'Quoten neu berechnen'
-                )}
-              </button>
+        {/* Quoten & Torschützen Tab */}
+        {tab === 'quoten' && (
+          <div className="space-y-6">
+            {/* Odds section */}
+            <div className="space-y-4">
+              <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Quoten</h2>
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                <h3 className="font-bold text-gray-900 mb-1">Quoten neu berechnen</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Berechnet die Quoten für alle geplanten Spiele neu auf Basis der Saisondaten.
+                </p>
+                <button
+                  onClick={recalculateOdds}
+                  disabled={oddsLoading}
+                  className="w-full py-3 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                >
+                  {oddsLoading ? (
+                    <>
+                      <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                      Berechne...
+                    </>
+                  ) : (
+                    'Quoten neu berechnen'
+                  )}
+                </button>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+                <strong>Hinweis:</strong> Quoten werden automatisch aus Kopf-an-Kopf-Statistiken
+                und Saisonleistungen berechnet. Eine 10% Marge wird angewendet.
+              </div>
+
+              <OddsPreviewSection
+                preview={preview}
+                loading={previewLoading}
+                selectedMd={previewMd}
+                onSelectMd={(md) => { setPreviewMd(md); loadPreview(md) }}
+                onReload={() => loadPreview(previewMd)}
+              />
             </div>
 
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
-              <strong>Hinweis:</strong> Quoten werden automatisch aus Kopf-an-Kopf-Statistiken
-              und Saisonleistungen berechnet. Eine 10% Marge wird angewendet.
-            </div>
+            {/* Divider */}
+            <div className="border-t border-gray-200" />
 
-            <OddsPreviewSection
-              preview={preview}
-              loading={previewLoading}
-              selectedMd={previewMd}
-              onSelectMd={(md) => { setPreviewMd(md); loadPreview(md) }}
-              onReload={() => loadPreview(previewMd)}
-            />
+            {/* Goalscorers section */}
+            <div className="space-y-4">
+              <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Torschützen</h2>
+              <GoalscorersTab matches={matches} onMessage={setMessage} />
+            </div>
           </div>
         )}
-
-        {/* Goalscorers Tab */}
-        {tab === 'goalscorers' && <GoalscorersTab matches={matches} onMessage={setMessage} />}
       </div>
     </div>
   )
@@ -361,6 +370,8 @@ function fmt(n: number): string {
   return n.toFixed(2).replace('.', ',')
 }
 
+type OverrideRow = { match_id: number } & Record<string, number | null>
+
 function OddsPreviewSection({
   preview, loading, selectedMd, onSelectMd, onReload,
 }: {
@@ -370,13 +381,59 @@ function OddsPreviewSection({
   onSelectMd: (md: number) => void
   onReload: () => void
 }) {
+  const [overrides, setOverrides] = useState<Record<number, OverrideRow>>({})
+  const [overrideMsg, setOverrideMsg] = useState<string | null>(null)
+
+  const matchday = selectedMd ?? preview?.matchday
+
+  // Load overrides when matchday changes
+  useEffect(() => {
+    if (!matchday) return
+    fetch(`/api/admin/odds/overrides?matchday=${matchday}`)
+      .then(r => r.json())
+      .then(data => {
+        const map: Record<number, OverrideRow> = {}
+        for (const ov of data.overrides ?? []) map[ov.match_id] = ov
+        setOverrides(map)
+      })
+  }, [matchday])
+
+  async function saveOverride(matchId: number, values: Record<string, number | null>) {
+    const res = await fetch('/api/admin/odds/overrides', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId, values }),
+    })
+    const data = await res.json()
+    if (res.ok) {
+      setOverrides(prev => ({ ...prev, [matchId]: { match_id: matchId, ...values } }))
+      setOverrideMsg('Überschreibung gespeichert.')
+      onReload()
+    } else {
+      setOverrideMsg(`Fehler: ${data.error}`)
+    }
+  }
+
+  async function resetOverride(matchId: number) {
+    const res = await fetch('/api/admin/odds/overrides', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId, reset: true }),
+    })
+    if (res.ok) {
+      setOverrides(prev => { const n = { ...prev }; delete n[matchId]; return n })
+      setOverrideMsg('Überschreibung zurückgesetzt.')
+      onReload()
+    }
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
-          <h2 className="font-bold text-gray-900">Quoten-Vorschau</h2>
+          <h3 className="font-bold text-gray-900">Quoten-Vorschau</h3>
           <p className="text-xs text-gray-500 mt-0.5">
-            Berechnete Quoten für den nächsten Spieltag · noch nicht freigeschaltet
+            Berechnete Quoten · gelb = manuell überschrieben
           </p>
         </div>
         <button
@@ -387,6 +444,13 @@ function OddsPreviewSection({
           {loading ? '…' : 'Neu laden'}
         </button>
       </div>
+
+      {overrideMsg && (
+        <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-center gap-2">
+          <span className="flex-1">{overrideMsg}</span>
+          <button onClick={() => setOverrideMsg(null)}>✕</button>
+        </div>
+      )}
 
       {preview?.matchdays && preview.matchdays.length > 0 && (
         <div className="flex flex-wrap gap-1 mb-3">
@@ -446,7 +510,13 @@ function OddsPreviewSection({
 
           <div className="space-y-3">
             {preview.matches.map((m) => (
-              <OddsPreviewMatchCard key={m.match_id} match={m} />
+              <OddsPreviewMatchCard
+                key={m.match_id}
+                match={m}
+                override={overrides[m.match_id] ?? null}
+                onSave={(values) => saveOverride(m.match_id, values)}
+                onReset={() => resetOverride(m.match_id)}
+              />
             ))}
           </div>
         </>
@@ -455,39 +525,202 @@ function OddsPreviewSection({
   )
 }
 
-function OddsPreviewMatchCard({ match }: { match: OddsPreviewMatch }) {
+const OVERRIDE_FIELDS: { col: string; label: string }[][] = [
+  [
+    { col: 'home_win', label: '1' }, { col: 'draw', label: 'X' }, { col: 'away_win', label: '2' },
+  ],
+  [
+    { col: 'odds_1x', label: '1X' }, { col: 'odds_12', label: '12' }, { col: 'odds_x2', label: 'X2' },
+  ],
+  [
+    { col: 'over_2_5', label: 'Ü2,5' }, { col: 'under_2_5', label: 'U2,5' },
+    { col: 'over_3_5', label: 'Ü3,5' }, { col: 'under_3_5', label: 'U3,5' },
+  ],
+  [
+    { col: 'over_5_5', label: 'Ü5,5' }, { col: 'under_5_5', label: 'U5,5' },
+    { col: 'over_7_5', label: 'Ü7,5' }, { col: 'under_7_5', label: 'U7,5' },
+  ],
+  [
+    { col: 'btts_yes', label: 'BTTS Ja' }, { col: 'btts_no', label: 'BTTS Nein' },
+  ],
+  [
+    { col: 'hdp_home_minus_1_5', label: 'H-1,5' }, { col: 'hdp_away_plus_1_5', label: 'G+1,5' },
+    { col: 'hdp_home_minus_2_5', label: 'H-2,5' }, { col: 'hdp_away_plus_2_5', label: 'G+2,5' },
+  ],
+]
+
+function OddsPreviewMatchCard({
+  match, override, onSave, onReset,
+}: {
+  match: OddsPreviewMatch
+  override: OverrideRow | null
+  onSave: (values: Record<string, number | null>) => Promise<void>
+  onReset: () => Promise<void>
+}) {
   const o = match.odds
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const allFields = OVERRIDE_FIELDS.flat()
+  const initDraft = () => Object.fromEntries(
+    allFields.map(f => [f.col, override?.[f.col] != null ? String(override[f.col]) : ''])
+  )
+  const [draft, setDraft] = useState<Record<string, string>>(initDraft)
+
+  const hasOverride = override != null && allFields.some(f => override[f.col] != null)
+
+  function openEdit() {
+    setDraft(initDraft())
+    setEditing(true)
+  }
+
+  async function handleSave() {
+    const values: Record<string, number | null> = {}
+    for (const { col } of allFields) {
+      const raw = draft[col].trim().replace(',', '.')
+      if (raw === '') {
+        values[col] = null
+      } else {
+        const n = parseFloat(raw)
+        if (isNaN(n) || n <= 1.0 || n > 999) {
+          alert(`Ungültiger Wert für ${col}: muss >1,00 sein.`)
+          return
+        }
+        values[col] = n
+      }
+    }
+    setSaving(true)
+    await onSave(values)
+    setSaving(false)
+    setEditing(false)
+  }
+
+  async function handleReset() {
+    if (!confirm('Alle Überschreibungen für dieses Spiel zurücksetzen?')) return
+    setSaving(true)
+    await onReset()
+    setSaving(false)
+    setEditing(false)
+  }
+
+  function isOverridden(col: string): boolean {
+    return override?.[col] != null
+  }
+
+  function displayOdds(col: string, autoVal: number): string {
+    const ov = override?.[col]
+    return ov != null ? fmt(Number(ov)) : fmt(autoVal)
+  }
+
   return (
-    <div className="border border-gray-100 rounded-xl overflow-hidden">
-      <div className="bg-gray-50 px-3 py-2 flex items-center justify-between">
-        <div className="text-sm font-semibold text-gray-800">
+    <div className={`border rounded-xl overflow-hidden ${hasOverride ? 'border-amber-300' : 'border-gray-100'}`}>
+      <div className="bg-gray-50 px-3 py-2 flex items-center gap-2">
+        <div className="text-sm font-semibold text-gray-800 flex-1 min-w-0 truncate">
           {match.home_team} – {match.away_team}
         </div>
-        <div className="text-[10px] text-gray-500">
+        {hasOverride && (
+          <span className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded flex-shrink-0">
+            Überschrieben
+          </span>
+        )}
+        <div className="text-[10px] text-gray-500 flex-shrink-0">
           {new Date(match.match_date).toLocaleString('de-DE', {
             timeZone: 'Europe/Berlin',
             day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
           })}
-          {match.frozen_at && <span className="ml-2 text-amber-700 font-semibold">· eingefroren</span>}
+          {match.frozen_at && <span className="ml-1 text-amber-700 font-semibold">· eingefroren</span>}
         </div>
+        <button
+          onClick={editing ? () => setEditing(false) : openEdit}
+          className="text-[10px] px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 flex-shrink-0"
+        >
+          {editing ? 'Schließen' : 'Bearbeiten'}
+        </button>
       </div>
+
+      {/* Override edit form */}
+      {editing && (
+        <div className="px-3 py-3 bg-amber-50 border-b border-amber-200 space-y-2">
+          <div className="text-xs font-semibold text-amber-800 mb-1">
+            Manuelle Quoten-Überschreibung · leer lassen = Auto-Quote
+          </div>
+          {OVERRIDE_FIELDS.map((group, gi) => (
+            <div key={gi} className="flex flex-wrap gap-2">
+              {group.map(({ col, label }) => (
+                <div key={col} className="flex items-center gap-1">
+                  <span className={`text-[10px] font-medium w-12 text-right ${isOverridden(col) ? 'text-amber-700' : 'text-gray-500'}`}>
+                    {label}
+                  </span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={draft[col]}
+                    placeholder={fmt(o[col as keyof OddsValues])}
+                    onChange={e => setDraft(prev => ({ ...prev, [col]: e.target.value }))}
+                    className={`w-16 text-center text-xs py-1 border rounded focus:outline-none focus:ring-1 focus:ring-amber-400 ${
+                      draft[col] ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white'
+                    }`}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+            >
+              {saving ? 'Speichern…' : 'Speichern'}
+            </button>
+            {hasOverride && (
+              <button
+                onClick={handleReset}
+                disabled={saving}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 text-xs font-semibold rounded-lg transition-colors"
+              >
+                Zurücksetzen
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="p-3 space-y-2 text-xs">
         <OddsRow label="1X2" cells={[
-          ['1', fmt(o.home_win)], ['X', fmt(o.draw)], ['2', fmt(o.away_win)],
+          ['1', displayOdds('home_win', o.home_win), isOverridden('home_win')],
+          ['X', displayOdds('draw', o.draw), isOverridden('draw')],
+          ['2', displayOdds('away_win', o.away_win), isOverridden('away_win')],
         ]} />
         <OddsRow label="Dopp. Chance" cells={[
-          ['1X', fmt(o.odds_1x)], ['12', fmt(o.odds_12)], ['X2', fmt(o.odds_x2)],
+          ['1X', displayOdds('odds_1x', o.odds_1x), isOverridden('odds_1x')],
+          ['12', displayOdds('odds_12', o.odds_12), isOverridden('odds_12')],
+          ['X2', displayOdds('odds_x2', o.odds_x2), isOverridden('odds_x2')],
         ]} />
-        <OddsRow label="Ü/U 2,5" cells={[['Ü', fmt(o.over_2_5)], ['U', fmt(o.under_2_5)]]} />
-        <OddsRow label="Ü/U 3,5" cells={[['Ü', fmt(o.over_3_5)], ['U', fmt(o.under_3_5)]]} />
-        <OddsRow label="Ü/U 5,5" cells={[['Ü', fmt(o.over_5_5)], ['U', fmt(o.under_5_5)]]} />
-        <OddsRow label="Ü/U 7,5" cells={[['Ü', fmt(o.over_7_5)], ['U', fmt(o.under_7_5)]]} />
-        <OddsRow label="BTTS" cells={[['Ja', fmt(o.btts_yes)], ['Nein', fmt(o.btts_no)]]} />
+        <OddsRow label="Ü/U 2,5" cells={[
+          ['Ü', displayOdds('over_2_5', o.over_2_5), isOverridden('over_2_5')],
+          ['U', displayOdds('under_2_5', o.under_2_5), isOverridden('under_2_5')],
+        ]} />
+        <OddsRow label="Ü/U 3,5" cells={[
+          ['Ü', displayOdds('over_3_5', o.over_3_5), isOverridden('over_3_5')],
+          ['U', displayOdds('under_3_5', o.under_3_5), isOverridden('under_3_5')],
+        ]} />
+        <OddsRow label="Ü/U 5,5" cells={[
+          ['Ü', displayOdds('over_5_5', o.over_5_5), isOverridden('over_5_5')],
+          ['U', displayOdds('under_5_5', o.under_5_5), isOverridden('under_5_5')],
+        ]} />
+        <OddsRow label="Ü/U 7,5" cells={[
+          ['Ü', displayOdds('over_7_5', o.over_7_5), isOverridden('over_7_5')],
+          ['U', displayOdds('under_7_5', o.under_7_5), isOverridden('under_7_5')],
+        ]} />
+        <OddsRow label="BTTS" cells={[
+          ['Ja', displayOdds('btts_yes', o.btts_yes), isOverridden('btts_yes')],
+          ['Nein', displayOdds('btts_no', o.btts_no), isOverridden('btts_no')],
+        ]} />
         <OddsRow label="Handicap" cells={[
-          ['H -1,5', fmt(o.hdp_home_minus_1_5)],
-          ['G +1,5', fmt(o.hdp_away_plus_1_5)],
-          ['H -2,5', fmt(o.hdp_home_minus_2_5)],
-          ['G +2,5', fmt(o.hdp_away_plus_2_5)],
+          ['H -1,5', displayOdds('hdp_home_minus_1_5', o.hdp_home_minus_1_5), isOverridden('hdp_home_minus_1_5')],
+          ['G +1,5', displayOdds('hdp_away_plus_1_5', o.hdp_away_plus_1_5), isOverridden('hdp_away_plus_1_5')],
+          ['H -2,5', displayOdds('hdp_home_minus_2_5', o.hdp_home_minus_2_5), isOverridden('hdp_home_minus_2_5')],
+          ['G +2,5', displayOdds('hdp_away_plus_2_5', o.hdp_away_plus_2_5), isOverridden('hdp_away_plus_2_5')],
         ]} />
         {match.exact_scores.length > 0 && (
           <div className="pt-1">
@@ -507,15 +740,15 @@ function OddsPreviewMatchCard({ match }: { match: OddsPreviewMatch }) {
   )
 }
 
-function OddsRow({ label, cells }: { label: string; cells: [string, string][] }) {
+function OddsRow({ label, cells }: { label: string; cells: [string, string, boolean?][] }) {
   return (
     <div className="flex items-center gap-2">
       <div className="w-24 text-gray-500 flex-shrink-0">{label}</div>
       <div className="flex-1 flex gap-1.5 flex-wrap">
-        {cells.map(([k, v]) => (
-          <div key={k} className="flex items-center gap-1 bg-white border border-gray-200 rounded px-2 py-0.5">
+        {cells.map(([k, v, overridden]) => (
+          <div key={k} className={`flex items-center gap-1 rounded px-2 py-0.5 border ${overridden ? 'bg-amber-50 border-amber-300' : 'bg-white border-gray-200'}`}>
             <span className="text-gray-500">{k}</span>
-            <span className="font-bold text-red-700">{v}</span>
+            <span className={`font-bold ${overridden ? 'text-amber-700' : 'text-red-700'}`}>{v}</span>
           </div>
         ))}
       </div>

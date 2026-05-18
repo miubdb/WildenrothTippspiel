@@ -1,5 +1,4 @@
 import webpush from 'web-push'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 function initVapid() {
@@ -13,7 +12,8 @@ function initVapid() {
 export async function sendPushToUser(userId: string, title: string, body: string, url = '/tipps') {
   if (!process.env.VAPID_SUBJECT || !process.env.VAPID_PRIVATE_KEY) return
   initVapid()
-  const supabase = await createClient()
+  // Use admin client so this works in cron/server contexts regardless of RLS
+  const supabase = createAdminClient()
   const { data: subs } = await supabase
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth_key')

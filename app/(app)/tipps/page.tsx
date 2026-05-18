@@ -297,6 +297,43 @@ export default async function TippsPage({
     }
   }
 
+  // Apply admin odds overrides (override any market value if set)
+  if (isBettingOpen && matchdayMatches.some(m => m.status === 'scheduled')) {
+    const scheduledIds = matchdayMatches.filter(m => m.status === 'scheduled').map(m => m.id)
+    if (scheduledIds.length > 0) {
+      const { data: overrideRows } = await supabase
+        .from('match_odds_overrides')
+        .select('*')
+        .in('match_id', scheduledIds)
+      for (const ov of overrideRows ?? []) {
+        const existing = oddsMap[ov.match_id]
+        if (!existing) continue
+        const merged = { ...existing }
+        if (ov.home_win != null) merged.home_win = Number(ov.home_win)
+        if (ov.draw != null) merged.draw = Number(ov.draw)
+        if (ov.away_win != null) merged.away_win = Number(ov.away_win)
+        if (ov.odds_1x != null) merged.odds_1x = Number(ov.odds_1x)
+        if (ov.odds_x2 != null) merged.odds_x2 = Number(ov.odds_x2)
+        if (ov.odds_12 != null) merged.odds_12 = Number(ov.odds_12)
+        if (ov.over_2_5 != null) merged.over_2_5 = Number(ov.over_2_5)
+        if (ov.under_2_5 != null) merged.under_2_5 = Number(ov.under_2_5)
+        if (ov.over_3_5 != null) merged.over_3_5 = Number(ov.over_3_5)
+        if (ov.under_3_5 != null) merged.under_3_5 = Number(ov.under_3_5)
+        if (ov.over_5_5 != null) merged.over_5_5 = Number(ov.over_5_5)
+        if (ov.under_5_5 != null) merged.under_5_5 = Number(ov.under_5_5)
+        if (ov.over_7_5 != null) merged.over_7_5 = Number(ov.over_7_5)
+        if (ov.under_7_5 != null) merged.under_7_5 = Number(ov.under_7_5)
+        if (ov.btts_yes != null) merged.btts_yes = Number(ov.btts_yes)
+        if (ov.btts_no != null) merged.btts_no = Number(ov.btts_no)
+        if (ov.hdp_home_minus_1_5 != null) merged.hdp_home_minus_1_5 = Number(ov.hdp_home_minus_1_5)
+        if (ov.hdp_away_plus_1_5 != null) merged.hdp_away_plus_1_5 = Number(ov.hdp_away_plus_1_5)
+        if (ov.hdp_home_minus_2_5 != null) merged.hdp_home_minus_2_5 = Number(ov.hdp_home_minus_2_5)
+        if (ov.hdp_away_plus_2_5 != null) merged.hdp_away_plus_2_5 = Number(ov.hdp_away_plus_2_5)
+        oddsMap[ov.match_id] = merged
+      }
+    }
+  }
+
   // Standings positions
   const teamPtsMap = new Map<number, { pts: number; gd: number; gf: number }>()
   for (const m of seasonMatches) {
