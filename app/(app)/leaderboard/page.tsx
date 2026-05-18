@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { LeaderboardClient } from './LeaderboardClient'
 import type { BetRow, ComboMeta, MatchdayStats } from './LeaderboardClient'
 import type { CommentData } from '@/components/CommentSection'
@@ -90,6 +91,46 @@ export default async function LeaderboardPage({
   const isDeadlinePassed = firstMatch ? new Date(firstMatch.match_date) <= new Date() : false
   const isMatchdayComplete = matchdayMatches.length > 0 && matchdayMatches.every(m => m.status === 'finished')
   const matchdayMatchIds = new Set(matchdayMatches.map(m => m.id))
+
+  // Pre-matchday balance: add back pending stakes so leaderboard shows "Stand vor Spieltag N"
+  // before tipps are revealed. This prevents other users inferring stake amounts from reduced balances.
+  const pendingStakesPerUser: Record<string, number> = {}
+  const betCountsPerUser: Record<string, number> = {}
+  if (!isDeadlinePassed && matchdayMatchIds.size > 0) {
+    const adminSupa = createAdminClient()
+    const matchIdArr = [...matchdayMatchIds]
+    const { data: pendingBetRows } = await adminSupa
+      .from('bets')
+      .select('id, user_id, stake, combo_id')
+      .in('match_id', matchIdArr)
+      .eq('status', 'pending')
+    const seenComboIds = new Set<number>()
+    for (const b of pendingBetRows ?? []) {
+      if (!b.combo_id) {
+        pendingStakesPerUser[b.user_id] = (pendingStakesPerUser[b.user_id] ?? 0) + (b.stake ?? 0)
+        betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
+      } else if (!seenComboIds.has(Number(b.combo_id))) {
+        seenComboIds.add(Number(b.combo_id))
+        betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
+      }
+    }
+    if (seenComboIds.size > 0) {
+      const { data: comboPendingRows } = await adminSupa
+        .from('combo_bets')
+        .select('id, user_id, stake')
+        .in('id', [...seenComboIds])
+      for (const c of comboPendingRows ?? []) {
+        pendingStakesPerUser[c.user_id] = (pendingStakesPerUser[c.user_id] ?? 0) + c.stake
+      }
+    }
+  }
+
+  // Sort profiles by pre-matchday balance when before reveal
+  const sortedProfiles = [...(profiles ?? [])].sort((a, b) => {
+    const balA = a.balance + (pendingStakesPerUser[a.id] ?? 0)
+    const balB = b.balance + (pendingStakesPerUser[b.id] ?? 0)
+    return isDeadlinePassed ? b.balance - a.balance : balB - balA
+  })
 
   // Bets for selected matchday
   const matchdayBets: BetRow[] = []
@@ -437,7 +478,7 @@ export default async function LeaderboardPage({
 
   return (
     <LeaderboardClient
-      profiles={profiles ?? []}
+      profiles={sortedProfiles}
       currentUserId={user?.id ?? null}
       currentUserName={currentUserName}
       isAdmin={isAdmin}
@@ -453,6 +494,8 @@ export default async function LeaderboardPage({
       initialComments={initialComments}
       initialRecap={leaderboardRecapData}
       playerNameMap={playerNameMap}
+      pendingStakesPerUser={pendingStakesPerUser}
+      betCountsPerUser={betCountsPerUser}
     />
   )
 }

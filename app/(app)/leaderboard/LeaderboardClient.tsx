@@ -315,6 +315,7 @@ function ProfileModal({ profile, onClose, players }: { profile: Profile; onClose
 export function LeaderboardClient({
   profiles, currentUserId, currentUserName, isAdmin, matchdayBets, matchdayNumber, allMatchdays, combos,
   isDeadlinePassed, weeklyWinners, streaks, mdStats, initialReactions, initialComments, initialRecap, playerNameMap,
+  pendingStakesPerUser, betCountsPerUser,
 }: {
   profiles: Profile[]
   currentUserId: string | null
@@ -332,6 +333,8 @@ export function LeaderboardClient({
   initialComments: CommentData[]
   initialRecap: RecapData | null
   playerNameMap?: Record<number, string>
+  pendingStakesPerUser: Record<string, number>
+  betCountsPerUser: Record<string, number>
 }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'rangliste' | 'spieltag'>('rangliste')
@@ -405,16 +408,19 @@ export function LeaderboardClient({
 
           {top3.length >= 3 && (
             <div className="flex items-end justify-center gap-3 px-2">
-              <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} onNameClick={openProfile} />
-              <PodiumCard rank={1} profile={top3[0]} isMe={top3[0].id === currentUserId} weeklyWins={weeklyWinCounts[top3[0].id] ?? 0} streak={streaks[top3[0].id] ?? 0} featured onNameClick={openProfile} />
-              <PodiumCard rank={3} profile={top3[2]} isMe={top3[2].id === currentUserId} weeklyWins={weeklyWinCounts[top3[2].id] ?? 0} streak={streaks[top3[2].id] ?? 0} onNameClick={openProfile} />
+              <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} onNameClick={openProfile} displayBalance={!isDeadlinePassed ? top3[1].balance + (pendingStakesPerUser[top3[1].id] ?? 0) : top3[1].balance} />
+              <PodiumCard rank={1} profile={top3[0]} isMe={top3[0].id === currentUserId} weeklyWins={weeklyWinCounts[top3[0].id] ?? 0} streak={streaks[top3[0].id] ?? 0} featured onNameClick={openProfile} displayBalance={!isDeadlinePassed ? top3[0].balance + (pendingStakesPerUser[top3[0].id] ?? 0) : top3[0].balance} />
+              <PodiumCard rank={3} profile={top3[2]} isMe={top3[2].id === currentUserId} weeklyWins={weeklyWinCounts[top3[2].id] ?? 0} streak={streaks[top3[2].id] ?? 0} onNameClick={openProfile} displayBalance={!isDeadlinePassed ? top3[2].balance + (pendingStakesPerUser[top3[2].id] ?? 0) : top3[2].balance} />
             </div>
           )}
 
           <div className="space-y-2">
             {profiles.map((profile, idx) => {
               const rank = idx + 1
-              const profit = profile.balance - STARTING_BALANCE
+              const displayBalance = !isDeadlinePassed
+                ? profile.balance + (pendingStakesPerUser[profile.id] ?? 0)
+                : profile.balance
+              const profit = displayBalance - STARTING_BALANCE
               const isMe = profile.id === currentUserId
               const isOpen = expanded.has(profile.id)
               const userBets = matchdayBets.filter(b => b.user_id === profile.id)
@@ -448,7 +454,7 @@ export function LeaderboardClient({
                     </div>
                     {/* Balance */}
                     <div className="text-right flex-shrink-0 mr-1">
-                      <div className="font-black text-gray-900 dark:text-gray-100 text-base tabular-nums">{fmtAmt(profile.balance)} €</div>
+                      <div className="font-black text-gray-900 dark:text-gray-100 text-base tabular-nums">{fmtAmt(displayBalance)} €</div>
                       <div className={`text-xs font-bold tabular-nums ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-400'}`}>
                         {profit >= 0 ? '+' : ''}{fmtAmt(profit)} €
                       </div>
@@ -497,6 +503,14 @@ export function LeaderboardClient({
           {/* Recap */}
           {initialRecap && <MatchdayRecap data={initialRecap} matchday={matchdayNumber ?? 0} />}
 
+          {/* Pre-reveal hint */}
+          {!isDeadlinePassed && matchdayNumber && (
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
+              <div className="font-semibold mb-0.5">Rangliste: Stand vor Spieltag {matchdayNumber}</div>
+              <div className="text-blue-600 dark:text-blue-400">Offene Einsätze bleiben bis zur Veröffentlichung verborgen. Dein persönliches Guthaben kann davon abweichen.</div>
+            </div>
+          )}
+
           {/* Matchday selector — auto-scrolls to active matchday */}
           {allMatchdays.length > 1 && (
             <MatchdayScroller activeIndex={allMatchdays.indexOf(matchdayNumber ?? allMatchdays[0])}>
@@ -538,7 +552,29 @@ export function LeaderboardClient({
             const isMe = profile.id === currentUserId
             const userBets = matchdayBets.filter(b => b.user_id === profile.id)
             const pnl = mdStats[profile.id]
-            if (!isDeadlinePassed && !isMe) return null
+            const displayBalancePre = profile.balance + (pendingStakesPerUser[profile.id] ?? 0)
+
+            // Before reveal: show other users with count only (no bet details)
+            if (!isDeadlinePassed && !isMe) {
+              const count = betCountsPerUser[profile.id] ?? 0
+              if (count === 0) return null
+              return (
+                <div key={profile.id} className="rounded-xl border bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700 overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5">
+                    <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                      {(profile.display_name || profile.username || '?')[0].toUpperCase()}
+                    </div>
+                    <div className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+                      {profile.display_name || profile.username}
+                    </div>
+                    <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+                      {count} Wettschein{count !== 1 ? 'e' : ''} platziert
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+
             return (
               <div key={profile.id} className={`rounded-xl border overflow-hidden ${isMe ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700'}`}>
                 <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
@@ -564,9 +600,18 @@ export function LeaderboardClient({
                       if (!b.combo_id) { slipCount++ }
                       else if (!seenCombos.has(b.combo_id)) { seenCombos.add(b.combo_id); slipCount++ }
                     }
+                    // Before reveal, for own bets show count from betCountsPerUser (accurate)
+                    const displayCount = !isDeadlinePassed && isMe
+                      ? (betCountsPerUser[profile.id] ?? slipCount)
+                      : slipCount
                     return (
-                      <div className="ml-auto text-xs text-gray-400">
-                        {slipCount} Wettschein{slipCount !== 1 ? 'e' : ''}
+                      <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+                        {!isDeadlinePassed && isMe && (
+                          <span className="mr-1 text-gray-500 dark:text-gray-400 font-medium">
+                            Stand vor ST {matchdayNumber}: {fmtAmt(displayBalancePre)} €
+                          </span>
+                        )}
+                        {displayCount} Wettschein{displayCount !== 1 ? 'e' : ''}
                       </div>
                     )
                   })()}
@@ -590,11 +635,11 @@ export function LeaderboardClient({
   )
 }
 
-function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak, onNameClick }: {
+function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak, onNameClick, displayBalance }: {
   rank: number; profile: Profile; isMe: boolean; featured?: boolean
-  weeklyWins: number; streak: number; onNameClick: (p: Profile) => void
+  weeklyWins: number; streak: number; onNameClick: (p: Profile) => void; displayBalance: number
 }) {
-  const profit = profile.balance - STARTING_BALANCE
+  const profit = displayBalance - STARTING_BALANCE
   const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'
   const heights = { 1: 'h-32', 2: 'h-24', 3: 'h-20' } as const
   const colors = { 1: 'bg-yellow-100 border-2 border-yellow-300', 2: 'bg-gray-100 border-2 border-gray-300', 3: 'bg-orange-50 border-2 border-orange-200' } as const
@@ -606,7 +651,7 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
       </button>
       <div className="text-center mb-1">
         <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate max-w-20">{profile.display_name || profile.username}</div>
-        <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(profile.balance)} €</div>
+        <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(displayBalance)} €</div>
         <div className={`text-xs font-semibold tabular-nums leading-tight ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €</div>
         <div className="flex items-center justify-center gap-1 mt-0.5">
           {streak >= 2 && <span className="text-xs">🔥{streak}</span>}

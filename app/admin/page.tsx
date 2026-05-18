@@ -843,6 +843,11 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                   shownCombos.add(bet.combo_id)
                   const legs = userBets.filter(b => b.combo_id === bet.combo_id)
                   const comboOdds = legs.reduce((acc, l) => acc * l.odds_value, 1)
+                  // Compute effective combo status from legs — same logic as the app
+                  const effectiveComboStatus =
+                    legs.some(l => l.status === 'lost') ? 'lost' :
+                    legs.every(l => l.status === 'won') ? 'won' :
+                    'pending'
                   return (
                     <div key={bet.combo_id} className="px-4 py-2.5">
                       <div className="flex items-center gap-1.5 mb-1.5">
@@ -850,10 +855,11 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                           {bet.is_risky ? '🎲 RISKY' : '🔗 KOMBI'}
                         </span>
                         <span className="text-xs text-gray-500">{legs.length} Tipps · @{comboOdds.toFixed(2).replace('.', ',')}</span>
-                        <StatusChip status={bet.status} />
+                        <StatusChip status={effectiveComboStatus} />
                       </div>
                       {legs.map(leg => (
                         <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5 pl-2">
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-500' : 'bg-yellow-400'}`} />
                           <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
                           <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
                           <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection, playerMap)}</span>
