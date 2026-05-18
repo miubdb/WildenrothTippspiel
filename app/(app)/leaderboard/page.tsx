@@ -287,9 +287,9 @@ export default async function LeaderboardPage({
         const sOdds = topSingle?.odds_value ?? 0
         const cOdds = topCombo?.total_odds ?? 0
         if (sOdds >= cOdds && topSingle) {
-          bestOdds = { name: pMap[topSingle.user_id] ?? 'Unbekannt', odds: topSingle.odds_value, payout: topSingle.payout ?? 0, isCombo: false }
+          bestOdds = { name: pMap[topSingle.user_id] ?? 'Unbekannt', odds: topSingle.odds_value, stake: topSingle.stake ?? 0, payout: topSingle.payout ?? 0, isCombo: false }
         } else if (topCombo) {
-          bestOdds = { name: pMap[topCombo.user_id] ?? 'Unbekannt', odds: topCombo.total_odds, payout: topCombo.payout, isCombo: true }
+          bestOdds = { name: pMap[topCombo.user_id] ?? 'Unbekannt', odds: topCombo.total_odds, stake: topCombo.stake, payout: topCombo.payout, isCombo: true, legs: (allComboLegs.filter(l => l.combo_id === topCombo.id)).length }
         }
       }
 
@@ -308,12 +308,61 @@ export default async function LeaderboardPage({
         .filter(x => x.lostCount === 1 && x.legs.length >= 2 && x.legs.every(l => l.status !== 'pending'))
         .sort((a, b) => b.c.total_odds - a.c.total_odds)
       const unlucky = unluckyResults[0] ?? null
+
+      // Fetch detailed leg info for unlucky bastard
+      const RECAP_MKT_LBL: Record<string, string> = {
+        '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
+        over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
+        btts: 'Beide treffen', handicap: 'Handicap', exact_score: 'Ergebnis',
+        goalscorer: 'Torschütze', goalscorer_2plus: 'Mind. 2 Tore',
+      }
+      const RECAP_SEL_LBL: Record<string, Record<string, string>> = {
+        '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
+        double_chance: { '1x': '1X', x2: 'X2', '12': '12' },
+        over_under: { 'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5' },
+        over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
+        over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
+        over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
+        btts: { yes: 'Beide treffen', no: 'Nicht beide' },
+        handicap: { home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5' },
+      }
+      // Wildenroth player name map for goalscorer labels in recap
+      const recapPlayerMap: Record<number, string> = {}
+      const { data: recapPlayers } = await supabase.from('wildenroth_players').select('id, name')
+      for (const p of recapPlayers ?? []) recapPlayerMap[p.id] = p.name
+
+      let unluckyLegDetails: import('@/components/MatchdayRecap').RecapLegDetail[] = []
+      if (unlucky) {
+        const { data: legDetailRows } = await supabase
+          .from('bets')
+          .select('market_type, selection, odds_value, status, match:matches(home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name))')
+          .eq('combo_id', unlucky.c.id)
+          .order('id')
+        unluckyLegDetails = (legDetailRows ?? []).map(l => {
+          const m = Array.isArray(l.match) ? l.match[0] : l.match
+          const ht = m ? (Array.isArray(m.home_team) ? m.home_team[0] : m.home_team) : null
+          const at = m ? (Array.isArray(m.away_team) ? m.away_team[0] : m.away_team) : null
+          const sel = l.market_type === 'exact_score' ? l.selection
+            : (l.market_type === 'goalscorer' || l.market_type === 'goalscorer_2plus')
+              ? (recapPlayerMap[parseInt(l.selection, 10)] ?? l.selection)
+              : (RECAP_SEL_LBL[l.market_type]?.[l.selection] ?? l.selection)
+          return {
+            matchName: `${ht?.name ?? '?'} – ${at?.name ?? '?'}`,
+            market: RECAP_MKT_LBL[l.market_type] ?? l.market_type,
+            selection: sel,
+            odds: l.odds_value,
+            status: l.status as 'won' | 'lost' | 'pending',
+          }
+        })
+      }
+
       const unluckyBastard: RecapData['unluckyBastard'] = unlucky ? {
         name: pMap[unlucky.c.user_id] ?? 'Unbekannt',
         odds: unlucky.c.total_odds,
         stake: unlucky.c.stake,
         legs: unlucky.legs.length,
         wouldHavePayout: Math.round(unlucky.c.stake * unlucky.c.total_odds * 100) / 100,
+        legDetails: unluckyLegDetails,
       } : null
 
       // Biggest Loss
@@ -338,9 +387,9 @@ export default async function LeaderboardPage({
         const sOdds = safeSingles[0]?.odds_value ?? Infinity
         const cOdds = safeCombos[0]?.total_odds ?? Infinity
         if (sOdds <= cOdds && safeSingles[0]) {
-          safestTip = { name: pMap[safeSingles[0].user_id] ?? 'Unbekannt', odds: safeSingles[0].odds_value, payout: safeSingles[0].payout ?? 0 }
+          safestTip = { name: pMap[safeSingles[0].user_id] ?? 'Unbekannt', odds: safeSingles[0].odds_value, stake: safeSingles[0].stake ?? 0, payout: safeSingles[0].payout ?? 0 }
         } else if (safeCombos[0]) {
-          safestTip = { name: pMap[safeCombos[0].user_id] ?? 'Unbekannt', odds: safeCombos[0].total_odds, payout: safeCombos[0].payout }
+          safestTip = { name: pMap[safeCombos[0].user_id] ?? 'Unbekannt', odds: safeCombos[0].total_odds, stake: safeCombos[0].stake, payout: safeCombos[0].payout }
         }
       }
 
@@ -349,6 +398,7 @@ export default async function LeaderboardPage({
       const bestCombo: RecapData['bestCombo'] = bestComboEntry ? {
         name: pMap[bestComboEntry.user_id] ?? 'Unbekannt',
         odds: bestComboEntry.total_odds,
+        stake: bestComboEntry.stake,
         payout: bestComboEntry.payout,
         legs: (legsByCombo[bestComboEntry.id] ?? []).length,
       } : null
@@ -369,9 +419,9 @@ export default async function LeaderboardPage({
         const rSOdds = rSingle?.odds_value ?? 0
         const rCOdds = rCombo?.total_odds ?? 0
         if (rSOdds >= rCOdds && rSingle) {
-          riskyHit = { name: pMap[rSingle.user_id] ?? 'Unbekannt', odds: rSingle.odds_value, payout: rSingle.payout ?? 0, isCombo: false }
+          riskyHit = { name: pMap[rSingle.user_id] ?? 'Unbekannt', odds: rSingle.odds_value, stake: rSingle.stake ?? 0, payout: rSingle.payout ?? 0, isCombo: false }
         } else if (rCombo) {
-          riskyHit = { name: pMap[rCombo.user_id] ?? 'Unbekannt', odds: rCombo.total_odds, payout: rCombo.payout, isCombo: true }
+          riskyHit = { name: pMap[rCombo.user_id] ?? 'Unbekannt', odds: rCombo.total_odds, stake: rCombo.stake, payout: rCombo.payout, isCombo: true }
         }
       }
 

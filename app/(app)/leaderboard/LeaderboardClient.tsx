@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { WetteCard, type WetteData, type WetteStatus, type WetteSocial } from '@/components/WetteCard'
 import type { CommentData } from '@/components/CommentSection'
 import { MatchdayRecap, type RecapData } from '@/components/MatchdayRecap'
@@ -447,7 +448,7 @@ export function LeaderboardClient({
                     </div>
                     {/* Balance */}
                     <div className="text-right flex-shrink-0 mr-1">
-                      <div className="font-black text-gray-900 dark:text-gray-100 text-base tabular-nums">{profile.balance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 0 })} €</div>
+                      <div className="font-black text-gray-900 dark:text-gray-100 text-base tabular-nums">{fmtAmt(profile.balance)} €</div>
                       <div className={`text-xs font-bold tabular-nums ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-400'}`}>
                         {profit >= 0 ? '+' : ''}{fmtAmt(profit)} €
                       </div>
@@ -496,9 +497,9 @@ export function LeaderboardClient({
           {/* Recap */}
           {initialRecap && <MatchdayRecap data={initialRecap} matchday={matchdayNumber ?? 0} />}
 
-          {/* Matchday selector */}
+          {/* Matchday selector — auto-scrolls to active matchday */}
           {allMatchdays.length > 1 && (
-            <div className="flex gap-1 overflow-x-auto pb-1 scrollbar-hide">
+            <MatchdayScroller activeIndex={allMatchdays.indexOf(matchdayNumber ?? allMatchdays[0])}>
               {allMatchdays.map(md => (
                 <button
                   key={md}
@@ -508,7 +509,7 @@ export function LeaderboardClient({
                   ST {md}
                 </button>
               ))}
-            </div>
+            </MatchdayScroller>
           )}
 
           {/* Wochentippkönig banner */}
@@ -604,8 +605,9 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
         {(profile.display_name || profile.username || '?')[0].toUpperCase()}
       </button>
       <div className="text-center mb-1">
-        <div className="text-xs font-semibold text-gray-800 truncate max-w-20">{profile.display_name || profile.username}</div>
-        <div className={`text-xs font-medium ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €</div>
+        <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate max-w-20">{profile.display_name || profile.username}</div>
+        <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(profile.balance)} €</div>
+        <div className={`text-xs font-semibold tabular-nums leading-tight ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €</div>
         <div className="flex items-center justify-center gap-1 mt-0.5">
           {streak >= 2 && <span className="text-xs">🔥{streak}</span>}
           {weeklyWins >= 1 && <span className="text-xs">🏅{weeklyWins}×</span>}
