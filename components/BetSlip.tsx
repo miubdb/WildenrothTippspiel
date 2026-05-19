@@ -5,6 +5,17 @@ import { useRouter } from 'next/navigation'
 import { useBetSlip, bsKey } from '@/context/BetSlipContext'
 import type { MarketType } from '@/types'
 
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+    </svg>
+  )
+}
+
 export function BetSlip() {
   const router = useRouter()
   const {
@@ -27,8 +38,6 @@ export function BetSlip() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
-  // Local string state for stake inputs so the user can freely edit (clear, overwrite, etc.)
-  // without the controlled component immediately re-parsing and jumping back.
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [comboInputValue, setComboInputValue] = useState('10')
 
@@ -85,6 +94,15 @@ export function BetSlip() {
     setComboInputValue(String(amt))
   }
 
+  // Clear all: reset local input state, close sheet, then clear context
+  function handleClearSlip() {
+    setOpen(false)
+    setInputValues({})
+    setComboInputValue('10')
+    setError(null)
+    clearSlip()
+  }
+
   const totalSingleStake = selections.reduce(
     (acc, s) => acc + getStake(s.matchId, s.marketType, s.selection),
     0
@@ -93,6 +111,12 @@ export function BetSlip() {
   const isRiskyEligible =
     (mode === 'single' && selections.length === 1 && selections[0].oddsValue > 20) ||
     (mode === 'combo' && isComboValid && totalComboOdds > 20)
+
+  // Show combo odds in label only when combo mode, valid, and ≥2 selections
+  const showComboOdds = mode === 'combo' && isComboValid && count >= 2
+  const comboOddsLabel = showComboOdds
+    ? `@${totalComboOdds.toFixed(2).replace('.', ',')}`
+    : null
 
   async function placebet() {
     setError(null)
@@ -167,14 +191,17 @@ export function BetSlip() {
           <span className="w-6 h-6 bg-white text-red-700 rounded-full flex items-center justify-center font-bold text-xs">
             {count}
           </span>
-          {mode === 'combo' ? 'Kombiwette' : 'Wettschein'}
+          {mode === 'combo' && comboOddsLabel
+            ? <>Kombiwette <span className="text-red-200 font-bold">{comboOddsLabel}</span></>
+            : mode === 'combo' ? 'Kombiwette' : 'Wettschein'
+          }
         </button>
       )}
 
       {/* Expanded Bottom Sheet */}
       {open && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
-          {/* Backdrop */}
+          {/* Backdrop — closes sheet only */}
           <div
             className="absolute inset-0 bg-black/40"
             onClick={() => setOpen(false)}
@@ -190,21 +217,34 @@ export function BetSlip() {
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
               <div>
-                <h2 className="font-bold text-gray-900 text-lg">Wettschein</h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-bold text-gray-900 text-lg">
+                    {mode === 'combo' ? 'Kombiwette' : 'Wettschein'}
+                  </h2>
+                  {mode === 'combo' && comboOddsLabel && (
+                    <span className="text-red-700 font-black text-lg">{comboOddsLabel}</span>
+                  )}
+                </div>
                 <p className="text-gray-500 text-xs">
                   {count} {count === 1 ? 'Auswahl' : 'Auswahlen'}
                 </p>
               </div>
               <div className="flex items-center gap-2">
+                {/* Trash: clears entire slip */}
                 <button
-                  onClick={clearSlip}
-                  className="text-xs text-gray-400 hover:text-red-700 transition-colors px-2 py-1 rounded-lg hover:bg-red-50"
+                  onClick={handleClearSlip}
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-red-700 hover:bg-red-50 transition-colors"
+                  title="Wettschein leeren"
+                  aria-label="Wettschein leeren"
                 >
-                  Leeren
+                  <TrashIcon className="w-4 h-4" />
                 </button>
+                {/* X: closes sheet only */}
                 <button
                   onClick={() => setOpen(false)}
                   className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  title="Schließen"
+                  aria-label="Wettschein schließen"
                 >
                   ✕
                 </button>
@@ -261,9 +301,11 @@ export function BetSlip() {
                       <span className="text-red-700 font-bold text-sm">
                         {s.oddsValue.toFixed(2).replace('.', ',')}
                       </span>
+                      {/* Small X: removes only this selection */}
                       <button
                         onClick={() => removeSelection(s.matchId, s.marketType, s.selection)}
                         className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-red-700 rounded-full hover:bg-red-50 transition-colors"
+                        aria-label="Tipp entfernen"
                       >
                         ✕
                       </button>
