@@ -63,16 +63,17 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
         if (existing >= 0) return prev.filter((_, i) => i !== existing)
         return [...prev, item]
       }
-      // Other markets: one selection per (match, market). Re-tap toggles off; new pick replaces.
-      const existing = prev.findIndex(
-        (s) => s.matchId === item.matchId && s.marketType === item.marketType
+      // Non-goalscorer: one selection per match, cross-market.
+      // Same selection → toggle off; any other selection from same match → replace.
+      const existingIdx = prev.findIndex(
+        (s) => s.matchId === item.matchId && !isGoalscorerMarket(s.marketType)
       )
-      if (existing >= 0) {
-        if (prev[existing].selection === item.selection) {
-          return prev.filter((_, i) => i !== existing)
+      if (existingIdx >= 0) {
+        if (prev[existingIdx].marketType === item.marketType && prev[existingIdx].selection === item.selection) {
+          return prev.filter((_, i) => i !== existingIdx)
         }
         const next = [...prev]
-        next[existing] = item
+        next[existingIdx] = item
         return next
       }
       return [...prev, item]

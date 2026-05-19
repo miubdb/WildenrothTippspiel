@@ -36,7 +36,6 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
   const [wildenrothBlockMsg, setWildenrothBlockMsg] = useState(false)
-  const [comboMatchBlockMsg, setComboMatchBlockMsg] = useState(false)
 
   const homeName = match.home_team?.name ?? 'Heim'
   const awayName = match.away_team?.name ?? 'Gast'
@@ -76,15 +75,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       setTimeout(() => setWildenrothBlockMsg(false), 8000)
       return
     }
-    // Block: any other selection from this match is already in the slip.
-    // For goalscorer markets toggling the same player off is allowed (handled by addSelection).
-    const isGoalscorerToggleOff = (marketType === 'goalscorer' || marketType === 'goalscorer_2plus')
-      && selections.some(s => s.matchId === match.id && s.marketType === marketType && s.selection === selection)
-    if (!isGoalscorerToggleOff && selections.some(s => s.matchId === match.id)) {
-      setComboMatchBlockMsg(true)
-      setTimeout(() => setComboMatchBlockMsg(false), 5000)
-      return
-    }
+    // Context handles toggle-off (same selection) and cross-market replacement (different selection, same match).
     addSelection({ matchId: match.id, matchLabel, marketType: marketType as never, marketLabel, selection, selectionLabel, oddsValue })
   }
 
@@ -201,16 +192,8 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         </div>
       )}
 
-      {comboMatchBlockMsg && (
-        <div className="border-t border-orange-100 bg-orange-50 px-4 py-2.5 flex items-start gap-2">
-          <span className="text-base flex-shrink-0">🚫</span>
-          <div className="text-xs text-orange-700 leading-snug">
-            <span className="font-bold">Kombiwette:</span> Dieses Spiel ist bereits im Wettschein. In einer Kombiwette darf jedes Spiel nur einmal vorkommen.
-          </div>
-        </div>
-      )}
 
-      {/* Betting Markets */}
+{/* Betting Markets */}
       {isScheduled && odds && (
         <div className="border-t border-gray-100 dark:border-gray-700">
           {/* Tab Bar */}
