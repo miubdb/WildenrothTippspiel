@@ -112,11 +112,25 @@ export function BetSlip() {
     (mode === 'single' && selections.length === 1 && selections[0].oddsValue > 20) ||
     (mode === 'combo' && isComboValid && totalComboOdds > 20)
 
-  // Show combo odds in label only when combo mode, valid, and ≥2 selections
+  // Collapsed bar labels
   const showComboOdds = mode === 'combo' && isComboValid && count >= 2
   const comboOddsLabel = showComboOdds
     ? `@${totalComboOdds.toFixed(2).replace('.', ',')}`
     : null
+
+  let barTitle: string
+  let barSub: string
+  if (mode === 'single') {
+    barTitle = count === 1 ? 'Einzelwette' : `${count} Einzelwetten`
+    barSub = count === 1
+      ? `@${selections[0].oddsValue.toFixed(2).replace('.', ',')} · Zum Wettschein`
+      : `Zum Wettschein`
+  } else {
+    barTitle = `Kombiwette · ${count} Tipps`
+    barSub = isComboValid
+      ? `Gesamtquote @${totalComboOdds.toFixed(2).replace('.', ',')} · Zum Wettschein`
+      : 'Ungültige Kombination · Zum Wettschein'
+  }
 
   async function placebet() {
     setError(null)
@@ -182,19 +196,22 @@ export function BetSlip() {
         </div>
       )}
 
-      {/* Floating Button / Collapsed State */}
+      {/* Collapsed Bottom Bar */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-20 right-4 z-40 bg-red-700 text-white rounded-full shadow-2xl flex items-center gap-2 px-4 py-3 font-semibold text-sm active:scale-95 transition-transform"
+          className="fixed bottom-20 left-3 right-3 z-40 bg-red-700 text-white rounded-2xl shadow-2xl flex items-center gap-3 px-4 py-3 active:scale-[0.985] transition-transform"
         >
-          <span className="w-6 h-6 bg-white text-red-700 rounded-full flex items-center justify-center font-bold text-xs">
+          <span className="w-7 h-7 bg-white/20 text-white rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 border border-white/30">
             {count}
           </span>
-          {mode === 'combo' && comboOddsLabel
-            ? <>Kombiwette <span className="text-red-200 font-bold">{comboOddsLabel}</span></>
-            : mode === 'combo' ? 'Kombiwette' : 'Wettschein'
-          }
+          <div className="flex-1 min-w-0 text-left">
+            <div className="font-bold text-sm leading-tight truncate">{barTitle}</div>
+            <div className="text-red-200 text-xs mt-0.5 truncate">{barSub}</div>
+          </div>
+          <svg className="w-4 h-4 text-red-200 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 15l7-7 7 7" />
+          </svg>
         </button>
       )}
 

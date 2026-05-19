@@ -36,6 +36,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
   const [wildenrothBlockMsg, setWildenrothBlockMsg] = useState(false)
+  const [replacedMsg, setReplacedMsg] = useState(false)
 
   const homeName = match.home_team?.name ?? 'Heim'
   const awayName = match.away_team?.name ?? 'Gast'
@@ -75,8 +76,17 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       setTimeout(() => setWildenrothBlockMsg(false), 8000)
       return
     }
-    // Context handles toggle-off (same selection) and cross-market replacement (different selection, same match).
+    // Detect cross-market replacement before calling context (which will mutate selections).
+    const existingForMatch = selections.find(
+      s => s.matchId === match.id && s.marketType !== 'goalscorer' && s.marketType !== 'goalscorer_2plus'
+    )
+    const willReplace = existingForMatch != null &&
+      !(existingForMatch.marketType === marketType && existingForMatch.selection === selection)
     addSelection({ matchId: match.id, matchLabel, marketType: marketType as never, marketLabel, selection, selectionLabel, oddsValue })
+    if (willReplace) {
+      setReplacedMsg(true)
+      setTimeout(() => setReplacedMsg(false), 3000)
+    }
   }
 
   // Exact score grid (calculated client-side)
@@ -182,7 +192,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         </div>
       )}
 
-      {/* Wildenroth conflict-of-interest toast (shown when a blocked selection is tapped) */}
+      {/* Wildenroth conflict-of-interest toast */}
       {wildenrothBlockMsg && (
         <div className="border-t border-red-100 bg-red-50 px-4 py-3 flex items-start gap-2">
           <span className="text-lg flex-shrink-0">⚽🚫</span>
@@ -192,8 +202,17 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         </div>
       )}
 
+      {/* Replacement hint — shown briefly when a prior selection for this match was swapped out */}
+      {replacedMsg && (
+        <div className="border-t border-blue-100 bg-blue-50 px-4 py-2 flex items-center gap-2">
+          <svg className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          <span className="text-xs text-blue-700">Tipp für dieses Spiel wurde ersetzt.</span>
+        </div>
+      )}
 
-{/* Betting Markets */}
+      {/* Betting Markets */}
       {isScheduled && odds && (
         <div className="border-t border-gray-100 dark:border-gray-700">
           {/* Tab Bar */}
