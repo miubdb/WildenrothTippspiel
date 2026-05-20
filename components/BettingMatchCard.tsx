@@ -51,6 +51,8 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   })
 
   const isScheduled = match.status === 'scheduled'
+  const isLive = match.status === 'live'
+  const isFinished = match.status === 'finished'
 
   const matchInvolvesWildenroth = wildenrothTeamId != null &&
     (match.home_team_id === wildenrothTeamId || match.away_team_id === wildenrothTeamId)
@@ -113,13 +115,31 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     .slice(0, 5)
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <div className={`bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden transition-opacity ${
+      isLive
+        ? 'border-orange-200 dark:border-orange-800 opacity-70'
+        : isFinished
+        ? 'border-gray-100 dark:border-gray-700 opacity-60'
+        : 'border-gray-100 dark:border-gray-700'
+    }`}>
       {/* Match Header */}
       <button
-        className="w-full bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-700 px-4 py-2.5 flex items-center justify-between active:bg-gray-200 dark:active:bg-gray-600"
+        className={`w-full px-4 py-2.5 flex items-center justify-between active:opacity-80 ${
+          isLive
+            ? 'bg-orange-50 dark:bg-orange-900/20'
+            : 'bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-700'
+        }`}
         onClick={() => setShowDetail((v) => !v)}
       >
-        <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">{dateStr} · {timeStr} Uhr</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">{dateStr} · {timeStr} Uhr</span>
+          {isLive && (
+            <span className="flex items-center gap-1 text-[10px] font-bold text-orange-600 dark:text-orange-400 bg-orange-100 dark:bg-orange-900/40 px-1.5 py-0.5 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse" />
+              Live
+            </span>
+          )}
+        </div>
         <span className="text-xs text-gray-400 dark:text-gray-500">{showDetail ? '▲ Details' : '▼ Details'}</span>
       </button>
 
@@ -492,10 +512,15 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       )}
 
       {!isScheduled && (
-        <div className="border-t border-gray-100 dark:border-gray-700 px-4 py-2">
-          <div className="text-center text-xs text-gray-400 dark:text-gray-500">
-            {match.status === 'finished' ? 'Spiel beendet' : 'Annahmeschluss überschritten'}
-          </div>
+        <div className={`border-t px-4 py-2.5 flex items-center justify-center gap-1.5 ${
+          isLive
+            ? 'border-orange-100 dark:border-orange-900 bg-orange-50/60 dark:bg-orange-900/10'
+            : 'border-gray-100 dark:border-gray-700'
+        }`}>
+          {isLive && <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse flex-shrink-0" />}
+          <span className={`text-xs font-medium ${isLive ? 'text-orange-600 dark:text-orange-400' : 'text-gray-400 dark:text-gray-500'}`}>
+            {isLive ? 'Spiel läuft – keine Tipps mehr möglich' : 'Spiel beendet – Tippschluss abgelaufen'}
+          </span>
         </div>
       )}
     </div>
