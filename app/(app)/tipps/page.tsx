@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { BettingMatchCard } from '@/components/BettingMatchCard'
 import { BetSlip } from '@/components/BetSlip'
 import { MyBets } from '@/components/MyBets'
@@ -301,7 +302,8 @@ export default async function TippsPage({
   if (isBettingOpen && matchdayMatches.some(m => m.status === 'scheduled')) {
     const scheduledIds = matchdayMatches.filter(m => m.status === 'scheduled').map(m => m.id)
     if (scheduledIds.length > 0) {
-      const { data: overrideRows } = await supabase
+      // Use admin client to bypass RLS — overrides must be visible to all users, not just admins.
+      const { data: overrideRows } = await createAdminClient()
         .from('match_odds_overrides')
         .select('*')
         .in('match_id', scheduledIds)

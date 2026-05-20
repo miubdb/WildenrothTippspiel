@@ -90,6 +90,9 @@ export default async function LeaderboardPage({
   const firstMatch = matchdayMatches[0]
   const isDeadlinePassed = firstMatch ? new Date(firstMatch.match_date) <= new Date() : false
   const isMatchdayComplete = matchdayMatches.length > 0 && matchdayMatches.every(m => m.status === 'finished')
+  // Default to Spieltag tab once the matchday kicks off, back to Rangliste once fully settled
+  const hasMatchdayStarted = matchdayMatches.some(m => m.status === 'live' || m.status === 'finished')
+  const defaultTabIsSpielTag = hasMatchdayStarted && !isMatchdayComplete
   const matchdayMatchIds = new Set(matchdayMatches.map(m => m.id))
 
   // Pre-matchday balance: add back pending stakes so leaderboard shows "Stand vor Spieltag N"
@@ -496,6 +499,7 @@ export default async function LeaderboardPage({
       playerNameMap={playerNameMap}
       pendingStakesPerUser={pendingStakesPerUser}
       betCountsPerUser={betCountsPerUser}
+      defaultTabIsSpielTag={defaultTabIsSpielTag}
     />
   )
 }

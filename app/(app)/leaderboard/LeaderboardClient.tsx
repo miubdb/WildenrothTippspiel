@@ -315,7 +315,7 @@ function ProfileModal({ profile, onClose, players }: { profile: Profile; onClose
 export function LeaderboardClient({
   profiles, currentUserId, currentUserName, isAdmin, matchdayBets, matchdayNumber, allMatchdays, combos,
   isDeadlinePassed, weeklyWinners, streaks, mdStats, initialReactions, initialComments, initialRecap, playerNameMap,
-  pendingStakesPerUser, betCountsPerUser,
+  pendingStakesPerUser, betCountsPerUser, defaultTabIsSpielTag,
 }: {
   profiles: Profile[]
   currentUserId: string | null
@@ -335,9 +335,12 @@ export function LeaderboardClient({
   playerNameMap?: Record<number, string>
   pendingStakesPerUser: Record<string, number>
   betCountsPerUser: Record<string, number>
+  defaultTabIsSpielTag: boolean
 }) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'rangliste' | 'spieltag'>('rangliste')
+  const [activeTab, setActiveTab] = useState<'rangliste' | 'spieltag'>(
+    defaultTabIsSpielTag ? 'spieltag' : 'rangliste'
+  )
   const [expanded, setExpanded] = useState<Set<string>>(new Set(currentUserId ? [currentUserId] : []))
   const [profileModal, setProfileModal] = useState<Profile | null>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
@@ -532,6 +535,43 @@ export function LeaderboardClient({
               ))}
             </MatchdayScroller>
           )}
+
+          {/* ── Spieltag-Rangliste ── */}
+          {isDeadlinePassed && matchdayNumber && (() => {
+            const ranked = [...profiles]
+              .map(p => ({ p, pnl: mdStats[p.id] ?? 0 }))
+              .filter(x => x.pnl !== 0 || mdStats[x.p.id] !== null)
+              .sort((a, b) => b.pnl - a.pnl)
+            if (ranked.length === 0) return null
+            return (
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-700 flex items-center gap-2">
+                  <span className="text-sm font-bold text-gray-900 dark:text-gray-100">Spieltag {matchdayNumber} – Rangliste</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">(abgerechnete Wetten)</span>
+                </div>
+                {ranked.map(({ p, pnl }, idx) => {
+                  const isMe = p.id === currentUserId
+                  return (
+                    <div key={p.id} className={`flex items-center gap-3 px-4 py-2 border-b border-gray-50 dark:border-gray-700/50 last:border-0 ${isMe ? 'bg-red-50 dark:bg-red-900/20' : ''}`}>
+                      <span className="w-6 text-center text-xs font-bold text-gray-400 flex-shrink-0">
+                        {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                      </span>
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${isMe ? 'bg-red-700 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
+                        {(p.display_name || p.username || '?')[0].toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0 text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                        {p.display_name || p.username}
+                        {isMe && <span className="ml-1.5 text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">Du</span>}
+                      </div>
+                      <div className={`text-sm font-black tabular-nums flex-shrink-0 ${pnl > 0 ? 'text-green-600' : pnl < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                        {pnl >= 0 ? '+' : ''}{fmtAmt(pnl)} €
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })()}
 
           {/* Wochentippkönig banner */}
           {matchdayNumber && weeklyWinners[matchdayNumber] && (() => {
