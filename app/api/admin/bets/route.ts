@@ -39,6 +39,13 @@ export async function GET(request: NextRequest) {
     .in('match_id', matchIds)
     .order('created_at', { ascending: true })
 
+  const comboIds = [...new Set((bets ?? []).filter(b => b.combo_id).map(b => b.combo_id as number))]
+  const { data: comboBets } = comboIds.length > 0
+    ? await supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds)
+    : { data: [] }
+  const comboMap: Record<number, { stake: number; total_odds: number; status: string; payout: number | null }> =
+    Object.fromEntries((comboBets ?? []).map(c => [c.id, c]))
+
   const userIds = [...new Set((bets ?? []).map(b => b.user_id))]
   const { data: profiles } = await supabase
     .from('profiles')
@@ -48,5 +55,5 @@ export async function GET(request: NextRequest) {
   const { data: roster } = await supabase.from('wildenroth_players').select('id, name')
   const playerNameMap: Record<number, string> = Object.fromEntries((roster ?? []).map(r => [r.id, r.name]))
 
-  return NextResponse.json({ bets: bets ?? [], profiles: profiles ?? [], matchMap, playerNameMap })
+  return NextResponse.json({ bets: bets ?? [], profiles: profiles ?? [], matchMap, playerNameMap, comboMap })
 }

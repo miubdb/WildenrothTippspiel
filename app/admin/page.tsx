@@ -786,6 +786,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
   const [profiles, setProfiles] = useState<{ id: string; display_name: string | null; username: string }[]>([])
   const [matchMap, setMatchMap] = useState<Record<number, { home: string; away: string }>>({})
   const [playerMap, setPlayerMap] = useState<Record<number, string>>({})
+  const [comboMap, setComboMap] = useState<Record<number, { stake: number; total_odds: number; status: string; payout: number | null }>>({})
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -795,6 +796,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
       .then(data => {
         setBets(data.bets ?? []); setProfiles(data.profiles ?? [])
         setMatchMap(data.matchMap ?? {}); setPlayerMap(data.playerNameMap ?? {})
+        setComboMap(data.comboMap ?? {})
       })
       .finally(() => setLoading(false))
   }, [selectedMd])
@@ -854,7 +856,10 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                         <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
                           {bet.is_risky ? '🎲 RISKY' : '🔗 KOMBI'}
                         </span>
-                        <span className="text-xs text-gray-500">{legs.length} Tipps · @{comboOdds.toFixed(2).replace('.', ',')}</span>
+                        <span className="text-xs text-gray-500">
+                          {legs.length} Tipps · @{comboOdds.toFixed(2).replace('.', ',')}
+                          {comboMap[Number(bet.combo_id)]?.stake != null && ` · ${comboMap[Number(bet.combo_id)].stake} €`}
+                        </span>
                         <StatusChip status={effectiveComboStatus} />
                       </div>
                       {legs.map(leg => (
