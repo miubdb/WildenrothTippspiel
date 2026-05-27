@@ -42,6 +42,10 @@ export default function AnleitungPage() {
             <span>Maximal <strong>250 € pro Wettschein</strong></span>
           </div>
           <div className="flex gap-2">
+            <span className="text-orange-600 font-bold flex-shrink-0">Inaktiv:</span>
+            <span>Wer in einem Spieltag <strong>keine einzige Wette</strong> platziert, zahlt automatisch <strong>100 € Strafe</strong> — wird nach Spieltagsabrechnung abgezogen</span>
+          </div>
+          <div className="flex gap-2">
             <span className="text-blue-700 font-bold flex-shrink-0">Storno:</span>
             <span>Einzelwette: bis zum Anpfiff des Spiels. Kombiwette: bis der erste enthaltene Anpfiff beginnt. Der Einsatz wird sofort zurückgebucht.</span>
           </div>

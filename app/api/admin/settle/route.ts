@@ -282,6 +282,44 @@ export async function POST(request: NextRequest) {
           `/tipps?matchday=${matchday}`
         )
       }
+
+      // Apply 100 € inactivity penalty per user who placed no bets this matchday.
+      // Dedup via push_reminders so this only runs once even if multiple matches settle simultaneously.
+      const { error: penaltyDedupError } = await admin
+        .from('push_reminders')
+        .insert({ type: 'inactivity_fee', matchday })
+
+      if (!penaltyDedupError) {
+        const { data: mdMatchRows } = await admin
+          .from('matches')
+          .select('id')
+          .eq('matchday', matchday)
+        const mdMatchIds = (mdMatchRows ?? []).map(m => m.id)
+
+        if (mdMatchIds.length > 0) {
+          const { data: activeBetRows } = await admin
+            .from('bets')
+            .select('user_id')
+            .in('match_id', mdMatchIds)
+          const activeUserIds = new Set((activeBetRows ?? []).map(b => b.user_id as string))
+
+          const { data: allProfiles } = await admin
+            .from('profiles')
+            .select('id, balance')
+
+          const INACTIVITY_PENALTY = 100
+          await Promise.allSettled(
+            (allProfiles ?? [])
+              .filter(p => !activeUserIds.has(p.id))
+              .map(p =>
+                admin
+                  .from('profiles')
+                  .update({ balance: Math.max(0, (p.balance as number) - INACTIVITY_PENALTY) })
+                  .eq('id', p.id)
+              )
+          )
+        }
+      }
     }
   }
 
