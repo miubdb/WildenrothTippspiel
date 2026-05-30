@@ -15,7 +15,7 @@ export default function AnleitungPage() {
           möglichst viel daraus zu machen. Wer am Ende der Saison das höchste Guthaben hat, gewinnt.
         </p>
         <div className="mt-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800">
-          💰 Nach jedem abgeschlossenen Spieltag gibt es automatisch <strong>10 € Taschengeld</strong> — auch nach einer Pechsträhne geht es weiter.
+          💰 Jeden <strong>Montag um 12:00 Uhr</strong> gibt es automatisch <strong>10 € Taschengeld</strong> — auch nach einer Pechsträhne geht es weiter.
         </div>
       </Section>
 

@@ -321,25 +321,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Give 10 € pocket money to all users at matchday completion (replaces weekly Monday cron).
-      const { error: pocketMoneyDedupError } = await admin
-        .from('push_reminders')
-        .insert({ type: 'pocket_money', matchday })
-
-      if (!pocketMoneyDedupError) {
-        const { data: pmProfiles } = await admin
-          .from('profiles')
-          .select('id, balance')
-
-        await Promise.allSettled(
-          (pmProfiles ?? []).map(p =>
-            admin
-              .from('profiles')
-              .update({ balance: (p.balance as number) + 10 })
-              .eq('id', p.id)
-          )
-        )
-      }
     }
   }
 
