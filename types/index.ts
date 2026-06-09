@@ -84,6 +84,20 @@ export interface BetSlipItem {
   oddsValue: number
 }
 
+/** A result row from `prior_season_matches` — used as historical prior for xG when a team has little current-season data. */
+export interface PriorMatch {
+  id: number
+  season: string
+  league_name: string
+  league_level: 'kreisklasse' | 'kreisliga' | 'bezirksliga'
+  league_number: string | null
+  home_team: string
+  away_team: string
+  home_score: number
+  away_score: number
+  match_date: string
+}
+
 export interface OddsData {
   home_win: number
   draw: number
