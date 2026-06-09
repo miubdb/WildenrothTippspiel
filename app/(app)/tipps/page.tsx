@@ -663,6 +663,14 @@ export default async function TippsPage({
 
   return (
     <div className="px-4 py-4 space-y-4">
+      {/* ↓↓↓ SOMMERPAUSE-BANNER — zum Entfernen diese 9 Zeilen löschen ↓↓↓ */}
+      <div className="bg-gradient-to-r from-amber-400 to-orange-400 text-white rounded-2xl px-5 py-4 shadow-sm">
+        <div className="text-amber-900 text-xs font-medium uppercase tracking-wide">SpVgg Wildenroth</div>
+        <div className="text-2xl font-black mt-0.5">☀️ Sommerpause</div>
+        <div className="text-amber-900 text-sm mt-1 font-medium">Kreisliga loading… 🚀 Wir kommen wieder!</div>
+      </div>
+      {/* ↑↑↑ SOMMERPAUSE-BANNER Ende ↑↑↑ */}
+
       {/* Matchday Header */}
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4 shadow-sm">
         <div className="flex items-center justify-between">
