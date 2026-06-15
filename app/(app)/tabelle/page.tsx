@@ -243,15 +243,15 @@ export default async function TabellePage() {
         </div>
 
         {/* Table Header */}
-        <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
+        <div className="grid grid-cols-[auto_1fr_auto_auto] sm:grid-cols-[auto_1fr_auto_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
           <div className="w-6 text-center">#</div>
           <div>Verein</div>
-          <div className="w-6 text-center">Sp</div>
+          <div className="w-6 text-center hidden sm:block">Sp</div>
           <div className="w-6 text-center hidden sm:block">S</div>
           <div className="w-6 text-center hidden sm:block">U</div>
           <div className="w-6 text-center hidden sm:block">N</div>
-          <div className="w-12 text-center">Tore</div>
-          <div className="w-8 text-center font-bold text-gray-700">P</div>
+          <div className="w-10 text-center">Tore</div>
+          <div className="w-7 text-center font-bold text-gray-700">P</div>
         </div>
 
         {/* Rows */}
@@ -269,7 +269,7 @@ export default async function TabellePage() {
           return (
             <div
               key={s.teamId}
-              className={`grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2.5 items-center border-b border-gray-50 last:border-0 ${
+              className={`grid grid-cols-[auto_1fr_auto_auto] sm:grid-cols-[auto_1fr_auto_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2.5 items-center border-b border-gray-50 last:border-0 ${
                 isWildenroth ? 'bg-red-50' : ''
               }`}
             >
@@ -292,7 +292,7 @@ export default async function TabellePage() {
               <div className="flex items-start gap-1.5 min-w-0">
                 <TeamLogo name={s.teamName} size="xs" className="mt-0.5" />
                 <div className="min-w-0">
-                <div className={`text-sm font-semibold leading-tight ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
+                <div className={`text-sm font-semibold leading-tight truncate ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
                   {s.teamName}
                   {isWildenroth && <span className="ml-1 text-xs text-red-400">⚽</span>}
                 </div>
@@ -313,7 +313,7 @@ export default async function TabellePage() {
               </div>
 
               {/* Played */}
-              <div className="w-6 text-center text-xs text-gray-500">{s.played}</div>
+              <div className="w-6 text-center text-xs text-gray-500 hidden sm:block">{s.played}</div>
 
               {/* W */}
               <div className="w-6 text-center text-xs text-green-600 font-semibold hidden sm:block">{s.w}</div>
@@ -325,12 +325,12 @@ export default async function TabellePage() {
               <div className="w-6 text-center text-xs text-red-500 font-semibold hidden sm:block">{s.l}</div>
 
               {/* Goals */}
-              <div className="w-12 text-center text-xs text-gray-600">
+              <div className="w-10 text-center text-xs text-gray-600">
                 {s.gf}:{s.ga}
               </div>
 
               {/* Points */}
-              <div className={`w-8 text-center text-sm font-black ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
+              <div className={`w-7 text-center text-sm font-black ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
                 {s.pts}
               </div>
             </div>
