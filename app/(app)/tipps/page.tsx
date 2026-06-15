@@ -6,8 +6,8 @@ import { MyBets } from '@/components/MyBets'
 import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { MatchdayRecap } from '@/components/MatchdayRecap'
 import type { RecapData } from '@/components/MatchdayRecap'
-import type { Match } from '@/types'
-import { calculateOdds } from '@/lib/odds'
+import type { Match, PriorMatch } from '@/types'
+import { calculateOdds, buildPriorContext } from '@/lib/odds'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
 
@@ -77,6 +77,19 @@ export default async function TippsPage({
     home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
     away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
   }))
+
+  const { data: priorMatchesRaw } = await supabase
+    .from('prior_season_matches')
+    .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date')
+
+  const priorMatches: PriorMatch[] = (priorMatchesRaw ?? []) as PriorMatch[]
+
+  const teamNames = new Map<number, string>()
+  for (const m of allMatches) {
+    if (m.home_team) teamNames.set(m.home_team_id, m.home_team.name)
+    if (m.away_team) teamNames.set(m.away_team_id, m.away_team.name)
+  }
+  const priorCtx = buildPriorContext(priorMatches, teamNames)
 
   const allMatchdays = [...new Set(allMatches.map((m) => m.matchday))].sort((a, b) => a - b)
 
@@ -170,7 +183,7 @@ export default async function TippsPage({
     if (toFreeze.length > 0) {
       const now = new Date().toISOString()
       for (const m of toFreeze) {
-        const odds = calculateOdds(oddsMatches, m.home_team_id, m.away_team_id)
+        const odds = calculateOdds(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
         oddsMap[m.id] = odds
         // Upsert: safe to call concurrently — snapshot cutoff is deterministic,
         // so any two simultaneous requests produce identical values.

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { calculateOdds, getExactScoreOdds } from '@/lib/odds'
-import type { Match } from '@/types'
+import { calculateOdds, getExactScoreOdds, buildPriorContext } from '@/lib/odds'
+import type { Match, PriorMatch } from '@/types'
 
 const SEASON_START = '2025-08-01'
 
@@ -53,6 +53,19 @@ export async function GET(request: Request) {
     away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
   }))
 
+  const { data: priorMatchesRaw } = await supabase
+    .from('prior_season_matches')
+    .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date')
+
+  const priorMatches: PriorMatch[] = (priorMatchesRaw ?? []) as PriorMatch[]
+
+  const teamNames = new Map<number, string>()
+  for (const m of allMatches) {
+    if (m.home_team) teamNames.set(m.home_team_id, m.home_team.name)
+    if (m.away_team) teamNames.set(m.away_team_id, m.away_team.name)
+  }
+  const priorCtx = buildPriorContext(priorMatches, teamNames)
+
   const matchdays = [...new Set(allMatches.map((m) => m.matchday))].sort((a, b) => a - b)
 
   // Default: first matchday that still has at least one scheduled match
@@ -90,8 +103,8 @@ export async function GET(request: Request) {
   const frozenMap = new Map((frozenRows ?? []).map((r) => [r.match_id, r.frozen_at]))
 
   const previews = matchdayMatches.map((m) => {
-    const odds = calculateOdds(oddsMatches, m.home_team_id, m.away_team_id)
-    const exact = getExactScoreOdds(oddsMatches, m.home_team_id, m.away_team_id).slice(0, 12)
+    const odds = calculateOdds(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+    const exact = getExactScoreOdds(oddsMatches, m.home_team_id, m.away_team_id, priorCtx).slice(0, 12)
     return {
       match_id: m.id,
       match_number: m.match_number,

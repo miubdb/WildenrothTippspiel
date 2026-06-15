@@ -1,4 +1,4 @@
-import type { Match, OddsData } from '@/types'
+import type { Match, OddsData, PriorMatch } from '@/types'
 
 // ---------- Constants ----------
 
@@ -23,6 +23,18 @@ const XG_PRIOR = 5
 const FORM_GAMES = 5
 const FORM_MULT_BASE = 0.80
 const FORM_MULT_RANGE = 0.40 // result range [0.80, 1.20]
+
+// Prior-season cross-league normalization.
+// Prior games count at half weight vs current-season games; a full prior season
+// (~15 home + 15 away games) contributes ~7.5 pseudo-observations each side.
+const PRIOR_WEIGHT = 0.5
+// League-strength multiplier: how team performance in the prior league translates
+// to the target league. Bezirksliga teams are stronger, Kreisklasse teams weaker.
+const LEAGUE_STRENGTH: Record<PriorMatch['league_level'], number> = {
+  bezirksliga: 1.10,
+  kreisliga:   1.00,
+  kreisklasse: 0.90,
+}
 
 // ---------- Math helpers ----------
 
@@ -150,6 +162,159 @@ export function getTeamRecord(matches: Match[], teamId: number) {
   return { played: games.length, w, d, l, gf, ga, gd: gf - ga, pts: w * 3 + d }
 }
 
+// ---------- Prior-season cross-league normalization ----------
+
+interface LeagueAvg {
+  homeAvg: number
+  awayAvg: number
+  level: PriorMatch['league_level']
+}
+
+interface PriorTeamStats {
+  homeAtk: number  // expected home goals scored in target-league units
+  homeDef: number  // expected home goals conceded in target-league units
+  awayAtk: number  // expected away goals scored in target-league units
+  awayDef: number  // expected away goals conceded in target-league units
+  homeGames: number
+  awayGames: number
+}
+
+export interface PriorContext {
+  priorMatches: PriorMatch[]
+  teamNames: Map<number, string>
+  leagueAvgs: Map<string, LeagueAvg>
+}
+
+/** Pre-compute per-league goal averages once before the match loop. */
+function buildLeagueAvgs(priorMatches: PriorMatch[]): Map<string, LeagueAvg> {
+  const acc = new Map<string, { homeGoals: number; awayGoals: number; games: number; level: PriorMatch['league_level'] }>()
+  for (const m of priorMatches) {
+    const key = m.league_number ?? m.league_name
+    if (!acc.has(key)) acc.set(key, { homeGoals: 0, awayGoals: 0, games: 0, level: m.league_level })
+    const d = acc.get(key)!
+    d.homeGoals += m.home_score
+    d.awayGoals += m.away_score
+    d.games++
+  }
+  const result = new Map<string, LeagueAvg>()
+  for (const [key, d] of acc) {
+    result.set(key, {
+      homeAvg: d.homeGoals / d.games,
+      awayAvg: d.awayGoals / d.games,
+      level: d.level,
+    })
+  }
+  return result
+}
+
+/**
+ * Normalize a team's prior-season stats to target-league units.
+ *
+ * For each metric the rate vs. the prior-league average is computed, then scaled
+ * by the league-strength factor and projected onto the target-league average:
+ *   normalizedGoals = (teamAvg / leagueAvg) × strengthFactor × TARGET_LEAGUE_AVG
+ */
+function getPriorTeamStats(
+  priorMatches: PriorMatch[],
+  leagueAvgs: Map<string, LeagueAvg>,
+  teamName: string
+): PriorTeamStats | null {
+  type HomeAcc = { homeScored: number[]; homeConceded: number[]; level: PriorMatch['league_level'] }
+  type AwayAcc = { awayScored: number[]; awayConceded: number[]; level: PriorMatch['league_level'] }
+  const homeByLeague = new Map<string, HomeAcc>()
+  const awayByLeague = new Map<string, AwayAcc>()
+
+  for (const m of priorMatches) {
+    const key = m.league_number ?? m.league_name
+    if (m.home_team === teamName) {
+      if (!homeByLeague.has(key)) homeByLeague.set(key, { homeScored: [], homeConceded: [], level: m.league_level })
+      const d = homeByLeague.get(key)!
+      d.homeScored.push(m.home_score)
+      d.homeConceded.push(m.away_score)
+    }
+    if (m.away_team === teamName) {
+      if (!awayByLeague.has(key)) awayByLeague.set(key, { awayScored: [], awayConceded: [], level: m.league_level })
+      const d = awayByLeague.get(key)!
+      d.awayScored.push(m.away_score)
+      d.awayConceded.push(m.home_score)
+    }
+  }
+
+  if (homeByLeague.size === 0 && awayByLeague.size === 0) return null
+
+  let homeAtkSum = 0, homeDefSum = 0, homeGamesTotal = 0
+  let awayAtkSum = 0, awayDefSum = 0, awayGamesTotal = 0
+
+  for (const [key, data] of homeByLeague) {
+    const la = leagueAvgs.get(key)
+    if (!la) continue
+    const sf = LEAGUE_STRENGTH[la.level]
+    const n = data.homeScored.length
+    const avgScored    = data.homeScored.reduce((s, v) => s + v, 0) / n
+    const avgConceded  = data.homeConceded.reduce((s, v) => s + v, 0) / n
+    // home goals scored → rate vs la.homeAvg → scale to LEAGUE_HOME_XG
+    homeAtkSum += (la.homeAvg > 0 ? avgScored   / la.homeAvg : 1.0) * sf * LEAGUE_HOME_XG * n
+    // home goals conceded = away team's goals → rate vs la.awayAvg → scale to LEAGUE_AWAY_XG
+    homeDefSum += (la.awayAvg > 0 ? avgConceded / la.awayAvg : 1.0) * sf * LEAGUE_AWAY_XG * n
+    homeGamesTotal += n
+  }
+
+  for (const [key, data] of awayByLeague) {
+    const la = leagueAvgs.get(key)
+    if (!la) continue
+    const sf = LEAGUE_STRENGTH[la.level]
+    const n = data.awayScored.length
+    const avgScored    = data.awayScored.reduce((s, v) => s + v, 0) / n
+    const avgConceded  = data.awayConceded.reduce((s, v) => s + v, 0) / n
+    // away goals scored → rate vs la.awayAvg → scale to LEAGUE_AWAY_XG
+    awayAtkSum += (la.awayAvg > 0 ? avgScored   / la.awayAvg : 1.0) * sf * LEAGUE_AWAY_XG * n
+    // away goals conceded = home team's goals → rate vs la.homeAvg → scale to LEAGUE_HOME_XG
+    awayDefSum += (la.homeAvg > 0 ? avgConceded / la.homeAvg : 1.0) * sf * LEAGUE_HOME_XG * n
+    awayGamesTotal += n
+  }
+
+  if (homeGamesTotal === 0 && awayGamesTotal === 0) return null
+
+  return {
+    homeAtk: homeGamesTotal > 0 ? homeAtkSum / homeGamesTotal : LEAGUE_HOME_XG,
+    homeDef: homeGamesTotal > 0 ? homeDefSum / homeGamesTotal : LEAGUE_AWAY_XG,
+    awayAtk: awayGamesTotal > 0 ? awayAtkSum / awayGamesTotal : LEAGUE_AWAY_XG,
+    awayDef: awayGamesTotal > 0 ? awayDefSum / awayGamesTotal : LEAGUE_HOME_XG,
+    homeGames: homeGamesTotal,
+    awayGames: awayGamesTotal,
+  }
+}
+
+/**
+ * Blend prior-season pseudo-observations into current-season stats.
+ * If there are no current-season games (n=0), the prior fully determines the estimate.
+ * As current data accumulates, its influence grows and the prior fades naturally.
+ */
+function augmentStat(
+  current: { avg: number; n: number },
+  priorAvg: number,
+  priorN: number
+): { avg: number; n: number } {
+  if (priorN === 0) return current
+  if (current.n === 0) return { avg: priorAvg, n: priorN }
+  const totalN = current.n + priorN
+  return {
+    avg: (current.n * current.avg + priorN * priorAvg) / totalN,
+    n: totalN,
+  }
+}
+
+/**
+ * Build a PriorContext from prior-season matches and the team-ID→name mapping.
+ * Call this once before the per-match odds loop for efficiency.
+ */
+export function buildPriorContext(
+  priorMatches: PriorMatch[],
+  teamNames: Map<number, string>
+): PriorContext {
+  return { priorMatches, teamNames, leagueAvgs: buildLeagueAvgs(priorMatches) }
+}
+
 // ---------- xG estimation — geometric-mean attack/defense model with Bayesian shrinkage ----------
 
 /**
@@ -223,12 +388,35 @@ function getTeamFormMult(matches: Match[], teamId: number): number {
 export function getMatchXG(
   matches: Match[],
   homeTeamId: number,
-  awayTeamId: number
+  awayTeamId: number,
+  priorCtx?: PriorContext
 ): { homeXG: number; awayXG: number } {
-  const homeAtk = homeGoalsScored(matches, homeTeamId)    // home team goals scored at home
-  const awayDef = awayGoalsConceded(matches, awayTeamId)  // away team goals conceded away
-  const awayAtk = awayGoalsScored(matches, awayTeamId)    // away team goals scored away
-  const homeDef = homeGoalsConceded(matches, homeTeamId)  // home team goals conceded at home
+  let homeAtk = homeGoalsScored(matches, homeTeamId)    // home team goals scored at home
+  let awayDef = awayGoalsConceded(matches, awayTeamId)  // away team goals conceded away
+  let awayAtk = awayGoalsScored(matches, awayTeamId)    // away team goals scored away
+  let homeDef = homeGoalsConceded(matches, homeTeamId)  // home team goals conceded at home
+
+  if (priorCtx) {
+    const homeName = priorCtx.teamNames.get(homeTeamId)
+    const awayName = priorCtx.teamNames.get(awayTeamId)
+
+    if (homeName) {
+      const ps = getPriorTeamStats(priorCtx.priorMatches, priorCtx.leagueAvgs, homeName)
+      if (ps) {
+        const pw = ps.homeGames * PRIOR_WEIGHT
+        homeAtk = augmentStat(homeAtk, ps.homeAtk, pw)
+        homeDef = augmentStat(homeDef, ps.homeDef, pw)
+      }
+    }
+    if (awayName) {
+      const ps = getPriorTeamStats(priorCtx.priorMatches, priorCtx.leagueAvgs, awayName)
+      if (ps) {
+        const pw = ps.awayGames * PRIOR_WEIGHT
+        awayAtk = augmentStat(awayAtk, ps.awayAtk, pw)
+        awayDef = augmentStat(awayDef, ps.awayDef, pw)
+      }
+    }
+  }
 
   const rawHomeXG = Math.sqrt(homeAtk.avg * awayDef.avg)
   const rawAwayXG = Math.sqrt(awayAtk.avg * homeDef.avg)
@@ -249,9 +437,10 @@ export function getMatchXG(
 export function calculateOdds(
   matches: Match[],
   homeTeamId: number,
-  awayTeamId: number
+  awayTeamId: number,
+  priorCtx?: PriorContext
 ): OddsData {
-  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId)
+  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
   const matrix = buildScoreMatrix(homeXG, awayXG)
 
   // Aggregate raw probabilities from the joint score distribution
@@ -319,9 +508,10 @@ const MAX_EXACT_ODDS = 60
 export function getExactScoreOdds(
   matches: Match[],
   homeTeamId: number,
-  awayTeamId: number
+  awayTeamId: number,
+  priorCtx?: PriorContext
 ): { score: string; odds: number }[] {
-  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId)
+  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
 
   const results: { score: string; odds: number; total: number; homeGoals: number }[] = []
 
