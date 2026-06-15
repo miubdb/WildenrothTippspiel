@@ -28,6 +28,7 @@ export default function AdminPage() {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [preview, setPreview] = useState<OddsPreviewResponse | null>(null)
   const [previewMd, setPreviewMd] = useState<number | null>(null)
+  const [playerSuggestions, setPlayerSuggestions] = useState<string[]>([])
 
   const supabase = createClient()
 
@@ -55,6 +56,12 @@ export default function AdminPage() {
   useEffect(() => {
     fetchMatches()
   }, [fetchMatches])
+
+  useEffect(() => {
+    supabase.from('league_players').select('name').then(({ data }) => {
+      if (data) setPlayerSuggestions([...new Set(data.map((p: { name: string }) => p.name))])
+    })
+  }, [supabase])
 
   function handleScoreChange(
     matchId: number,
@@ -256,7 +263,7 @@ export default function AdminPage() {
                 </h2>
                 <div className="space-y-2">
                   {settledMatches.slice(0, 10).map((match) => (
-                    <MatchRow key={match.id} match={match} />
+                    <MatchRow key={match.id} match={match} playerSuggestions={playerSuggestions} />
                   ))}
                 </div>
               </div>
@@ -984,7 +991,7 @@ function MatchSettleCard({
   )
 }
 
-function MatchRow({ match }: { match: MatchRow }) {
+function MatchRow({ match, playerSuggestions }: { match: MatchRow; playerSuggestions?: string[] }) {
   const matchDate = new Date(match.match_date)
   const dateStr = matchDate.toLocaleDateString('de-DE', {
     weekday: 'short',
@@ -995,37 +1002,222 @@ function MatchRow({ match }: { match: MatchRow }) {
     hour: '2-digit',
     minute: '2-digit',
   })
+  const [showLineups, setShowLineups] = useState(false)
 
   return (
     <div
-      className={`bg-white rounded-xl border shadow-sm px-4 py-3 flex items-center gap-3 ${
-        match.status === 'finished' ? 'border-gray-100 opacity-70' : 'border-gray-100'
+      className={`bg-white rounded-xl border shadow-sm overflow-hidden ${
+        match.status === 'finished' ? 'border-gray-100' : 'border-gray-100'
       }`}
     >
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">ST {match.matchday}</span>
-          <span className="text-xs text-gray-300">·</span>
-          <span className="text-xs text-gray-400">
-            {dateStr} {timeStr}
-          </span>
+      <div className="px-4 py-3 flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">ST {match.matchday}</span>
+            <span className="text-xs text-gray-300">·</span>
+            <span className="text-xs text-gray-400">
+              {dateStr} {timeStr}
+            </span>
+          </div>
+          <div className="text-sm font-semibold text-gray-900 mt-0.5">
+            {match.home_team?.name ?? '?'} –{' '}
+            {match.away_team?.name ?? '?'}
+          </div>
         </div>
-        <div className="text-sm font-semibold text-gray-900 mt-0.5">
-          {match.home_team?.name ?? '?'} –{' '}
-          {match.away_team?.name ?? '?'}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {match.status === 'finished' && match.home_score !== null ? (
+            <span className="inline-block bg-gray-800 text-white text-xs font-bold px-2.5 py-1 rounded-lg">
+              {match.home_score}:{match.away_score}
+            </span>
+          ) : (
+            <span className="inline-block bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-lg">
+              Geplant
+            </span>
+          )}
+          {match.status === 'finished' && (
+            <button
+              onClick={() => setShowLineups(v => !v)}
+              className="text-[10px] px-2 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50"
+            >
+              {showLineups ? 'Aufstellung ▲' : 'Aufstellung ▼'}
+            </button>
+          )}
         </div>
       </div>
-      <div className="text-right flex-shrink-0">
-        {match.status === 'finished' && match.home_score !== null ? (
-          <span className="inline-block bg-gray-800 text-white text-xs font-bold px-2.5 py-1 rounded-lg">
-            {match.home_score}:{match.away_score}
-          </span>
-        ) : (
-          <span className="inline-block bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-lg">
-            Geplant
-          </span>
-        )}
-      </div>
+      {showLineups && match.status === 'finished' && (
+        <LineupsSection
+          matchId={match.id}
+          homeTeam={match.home_team?.name ?? ''}
+          awayTeam={match.away_team?.name ?? ''}
+          playerSuggestions={playerSuggestions ?? []}
+        />
+      )}
+    </div>
+  )
+}
+
+type LineupEntryRow = {
+  id: number
+  match_id: number
+  team_name: string
+  player_name: string
+  minutes_played: number
+  goals: number
+  assists: number
+}
+
+function LineupsSection({
+  matchId,
+  homeTeam,
+  awayTeam,
+  playerSuggestions,
+}: {
+  matchId: number
+  homeTeam: string
+  awayTeam: string
+  playerSuggestions: string[]
+}) {
+  const [lineups, setLineups] = useState<LineupEntryRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [addingTeam, setAddingTeam] = useState<string | null>(null)
+  const [newPlayer, setNewPlayer] = useState('')
+  const [newMinutes, setNewMinutes] = useState('90')
+  const [newGoals, setNewGoals] = useState('0')
+  const [newAssists, setNewAssists] = useState('0')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const datalistId = `players-${matchId}`
+
+  const reload = useCallback(async () => {
+    const res = await fetch(`/api/admin/lineups?match_id=${matchId}`)
+    const data = await res.json()
+    setLoading(false)
+    if (res.ok) setLineups(data.lineups ?? [])
+  }, [matchId])
+
+  useEffect(() => { reload() }, [reload])
+
+  async function addEntry(teamName: string) {
+    if (!newPlayer.trim()) return
+    setSaving(true)
+    setError(null)
+    const res = await fetch('/api/admin/lineups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        match_id: matchId,
+        team_name: teamName,
+        player_name: newPlayer.trim(),
+        minutes_played: parseInt(newMinutes) || 90,
+        goals: parseInt(newGoals) || 0,
+        assists: parseInt(newAssists) || 0,
+      }),
+    })
+    const data = await res.json()
+    setSaving(false)
+    if (res.ok) {
+      setNewPlayer(''); setNewMinutes('90'); setNewGoals('0'); setNewAssists('0')
+      setAddingTeam(null)
+      reload()
+    } else {
+      setError(data.error ?? 'Fehler')
+    }
+  }
+
+  async function deleteEntry(id: number) {
+    const res = await fetch(`/api/admin/lineups?id=${id}`, { method: 'DELETE' })
+    if (res.ok) reload()
+  }
+
+  const homeLineup = lineups.filter(e => e.team_name === homeTeam)
+  const awayLineup = lineups.filter(e => e.team_name === awayTeam)
+
+  return (
+    <div className="border-t border-gray-100 bg-gray-50 px-3 py-3">
+      <datalist id={datalistId}>
+        {playerSuggestions.map(p => <option key={p} value={p} />)}
+      </datalist>
+
+      {loading && <div className="text-xs text-gray-400 py-2 text-center">Lade Aufstellung…</div>}
+      {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
+
+      {!loading && (
+        <div className="grid grid-cols-2 gap-3">
+          {[{ team: homeTeam, entries: homeLineup }, { team: awayTeam, entries: awayLineup }].map(({ team, entries }) => (
+            <div key={team}>
+              <div className="text-[11px] font-bold text-gray-700 mb-1 truncate">{team}</div>
+              <div className="space-y-1 mb-2">
+                {entries.length === 0 && (
+                  <div className="text-[10px] text-gray-400 italic">Keine Einträge</div>
+                )}
+                {entries.map(e => (
+                  <div key={e.id} className="flex items-center gap-1 text-[10px] bg-white border border-gray-100 rounded px-1.5 py-1">
+                    <span className="flex-1 font-medium text-gray-800 truncate">{e.player_name}</span>
+                    <span className="text-gray-400">{e.minutes_played}&apos;</span>
+                    {e.goals > 0 && <span className="text-green-700 font-bold">{e.goals}T</span>}
+                    {e.assists > 0 && <span className="text-blue-600 font-bold">{e.assists}A</span>}
+                    <button onClick={() => deleteEntry(e.id)} className="text-red-500 ml-1">✕</button>
+                  </div>
+                ))}
+              </div>
+
+              {addingTeam === team ? (
+                <div className="space-y-1">
+                  <input
+                    list={datalistId}
+                    value={newPlayer}
+                    onChange={e => setNewPlayer(e.target.value)}
+                    placeholder="Spielername"
+                    className="w-full text-[11px] border border-gray-200 rounded px-2 py-1"
+                  />
+                  <div className="flex gap-1">
+                    <input
+                      type="number" min="0" max="120" value={newMinutes}
+                      onChange={e => setNewMinutes(e.target.value)}
+                      className="w-14 text-[11px] border border-gray-200 rounded px-1.5 py-1 text-center"
+                      placeholder="Min"
+                    />
+                    <input
+                      type="number" min="0" max="20" value={newGoals}
+                      onChange={e => setNewGoals(e.target.value)}
+                      className="w-10 text-[11px] border border-gray-200 rounded px-1.5 py-1 text-center"
+                      placeholder="T"
+                    />
+                    <input
+                      type="number" min="0" max="20" value={newAssists}
+                      onChange={e => setNewAssists(e.target.value)}
+                      className="w-10 text-[11px] border border-gray-200 rounded px-1.5 py-1 text-center"
+                      placeholder="A"
+                    />
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => addEntry(team)}
+                      disabled={saving || !newPlayer.trim()}
+                      className="flex-1 py-1 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white text-[10px] font-semibold rounded"
+                    >
+                      {saving ? '…' : 'Hinzufügen'}
+                    </button>
+                    <button
+                      onClick={() => { setAddingTeam(null); setNewPlayer(''); setNewMinutes('90'); setNewGoals('0'); setNewAssists('0') }}
+                      className="px-2 py-1 border border-gray-200 rounded text-[10px] text-gray-600"
+                    >
+                      Abbrechen
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setAddingTeam(team); setNewPlayer(''); setNewMinutes('90'); setNewGoals('0'); setNewAssists('0') }}
+                  className="w-full py-1 border border-dashed border-gray-300 rounded text-[10px] text-gray-500 hover:border-red-300 hover:text-red-600"
+                >
+                  + Spieler
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
