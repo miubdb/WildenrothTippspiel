@@ -98,6 +98,25 @@ export interface PriorMatch {
   match_date: string
 }
 
+export interface LeaguePlayer {
+  id: number
+  name: string
+  team_name: string
+  goals: number
+  games: number
+}
+
+export interface LineupEntry {
+  id: number
+  match_id: number
+  team_name: string
+  player_name: string
+  minutes_played: number
+  goals: number
+  assists: number
+  created_at: string
+}
+
 export interface OddsData {
   home_win: number
   draw: number

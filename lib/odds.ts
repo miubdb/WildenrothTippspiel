@@ -1,4 +1,4 @@
-import type { Match, OddsData, PriorMatch } from '@/types'
+import type { Match, OddsData, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 
 // ---------- Constants ----------
 
@@ -183,6 +183,64 @@ export interface PriorContext {
   priorMatches: PriorMatch[]
   teamNames: Map<number, string>
   leagueAvgs: Map<string, LeagueAvg>
+  homeAdvMap: Map<string, number>
+  awayAdvMap: Map<string, number>
+  leaguePlayers: Map<string, LeaguePlayer[]>
+  lineups: Map<string, LineupEntry[]>
+}
+
+const HOME_ADV_CAP_LOW = 0.75
+const HOME_ADV_CAP_HIGH = 1.40
+
+/**
+ * Build per-team home/away advantage factors from prior-season data.
+ * Factor = teamAvg / leagueAvg, capped to [0.75, 1.40].
+ * Applied as a multiplier to rawHomeXG / rawAwayXG before Bayesian shrinkage.
+ */
+function buildHomeAdvantageMap(priorMatches: PriorMatch[]): {
+  homeAdvMap: Map<string, number>
+  awayAdvMap: Map<string, number>
+} {
+  const homeGoals = new Map<string, number>()
+  const homeGames = new Map<string, number>()
+  const awayGoals = new Map<string, number>()
+  const awayGames = new Map<string, number>()
+
+  let totalHomeGoals = 0
+  let totalHomeGames = 0
+  let totalAwayGoals = 0
+  let totalAwayGames = 0
+
+  for (const m of priorMatches) {
+    homeGoals.set(m.home_team, (homeGoals.get(m.home_team) ?? 0) + m.home_score)
+    homeGames.set(m.home_team, (homeGames.get(m.home_team) ?? 0) + 1)
+    awayGoals.set(m.away_team, (awayGoals.get(m.away_team) ?? 0) + m.away_score)
+    awayGames.set(m.away_team, (awayGames.get(m.away_team) ?? 0) + 1)
+    totalHomeGoals += m.home_score
+    totalHomeGames++
+    totalAwayGoals += m.away_score
+    totalAwayGames++
+  }
+
+  const leagueHomeAvg = totalHomeGames > 0 ? totalHomeGoals / totalHomeGames : LEAGUE_HOME_XG
+  const leagueAwayAvg = totalAwayGames > 0 ? totalAwayGoals / totalAwayGames : LEAGUE_AWAY_XG
+
+  const homeAdvMap = new Map<string, number>()
+  const awayAdvMap = new Map<string, number>()
+
+  for (const [team, g] of homeGames) {
+    const avg = (homeGoals.get(team) ?? 0) / g
+    const factor = leagueHomeAvg > 0 ? avg / leagueHomeAvg : 1.0
+    homeAdvMap.set(team, Math.min(HOME_ADV_CAP_HIGH, Math.max(HOME_ADV_CAP_LOW, factor)))
+  }
+
+  for (const [team, g] of awayGames) {
+    const avg = (awayGoals.get(team) ?? 0) / g
+    const factor = leagueAwayAvg > 0 ? avg / leagueAwayAvg : 1.0
+    awayAdvMap.set(team, Math.min(HOME_ADV_CAP_HIGH, Math.max(HOME_ADV_CAP_LOW, factor)))
+  }
+
+  return { homeAdvMap, awayAdvMap }
 }
 
 /** Pre-compute per-league goal averages once before the match loop. */
@@ -310,9 +368,35 @@ function augmentStat(
  */
 export function buildPriorContext(
   priorMatches: PriorMatch[],
-  teamNames: Map<number, string>
+  teamNames: Map<number, string>,
+  leaguePlayers: LeaguePlayer[] = [],
+  lineupEntries: LineupEntry[] = []
 ): PriorContext {
-  return { priorMatches, teamNames, leagueAvgs: buildLeagueAvgs(priorMatches) }
+  const { homeAdvMap, awayAdvMap } = buildHomeAdvantageMap(priorMatches)
+
+  const leaguePlayersMap = new Map<string, LeaguePlayer[]>()
+  for (const p of leaguePlayers) {
+    const arr = leaguePlayersMap.get(p.team_name) ?? []
+    arr.push(p)
+    leaguePlayersMap.set(p.team_name, arr)
+  }
+
+  const lineupsMap = new Map<string, LineupEntry[]>()
+  for (const e of lineupEntries) {
+    const arr = lineupsMap.get(e.team_name) ?? []
+    arr.push(e)
+    lineupsMap.set(e.team_name, arr)
+  }
+
+  return {
+    priorMatches,
+    teamNames,
+    leagueAvgs: buildLeagueAvgs(priorMatches),
+    homeAdvMap,
+    awayAdvMap,
+    leaguePlayers: leaguePlayersMap,
+    lineups: lineupsMap,
+  }
 }
 
 // ---------- xG estimation — geometric-mean attack/defense model with Bayesian shrinkage ----------
@@ -371,6 +455,35 @@ function getTeamFormMult(matches: Match[], teamId: number): number {
 }
 
 /**
+ * Roster factor based on recent lineup data vs last-season key player goals.
+ * Returns a multiplier [0.90, 1.0] reflecting whether key scorers are active.
+ */
+function getRosterFactor(teamName: string, priorCtx: PriorContext): number {
+  const recentLineups = priorCtx.lineups.get(teamName) ?? []
+  const uniqueMatches = new Set(recentLineups.map(e => e.match_id))
+  if (uniqueMatches.size < 3) return 1.0
+
+  const last5MatchIds = [...uniqueMatches].slice(-5)
+  const recentPlayers = new Set(
+    recentLineups.filter(e => last5MatchIds.includes(e.match_id)).map(e => e.player_name)
+  )
+
+  const keyPlayers = priorCtx.leaguePlayers.get(teamName) ?? []
+  const totalKeyGoals = keyPlayers.reduce((s, p) => s + p.goals, 0)
+  if (totalKeyGoals === 0) return 1.0
+
+  const activeGoals = keyPlayers
+    .filter(p => recentPlayers.has(p.name))
+    .reduce((s, p) => s + p.goals, 0)
+
+  const activeGoalShare = activeGoals / totalKeyGoals
+
+  if (activeGoalShare < 0.5) return 0.90
+  if (activeGoalShare < 0.7) return 0.95
+  return 1.0
+}
+
+/**
  * Geometric-mean xG model with Bayesian shrinkage and form adjustment.
  *
  * Why geometric mean (not arithmetic, not full product):
@@ -396,10 +509,10 @@ export function getMatchXG(
   let awayAtk = awayGoalsScored(matches, awayTeamId)    // away team goals scored away
   let homeDef = homeGoalsConceded(matches, homeTeamId)  // home team goals conceded at home
 
-  if (priorCtx) {
-    const homeName = priorCtx.teamNames.get(homeTeamId)
-    const awayName = priorCtx.teamNames.get(awayTeamId)
+  const homeName = priorCtx?.teamNames.get(homeTeamId)
+  const awayName = priorCtx?.teamNames.get(awayTeamId)
 
+  if (priorCtx) {
     if (homeName) {
       const ps = getPriorTeamStats(priorCtx.priorMatches, priorCtx.leagueAvgs, homeName)
       if (ps) {
@@ -418,17 +531,23 @@ export function getMatchXG(
     }
   }
 
-  const rawHomeXG = Math.sqrt(homeAtk.avg * awayDef.avg)
-  const rawAwayXG = Math.sqrt(awayAtk.avg * homeDef.avg)
+  const homeAdvFactor = (homeName && priorCtx?.homeAdvMap.get(homeName)) ?? 1.0
+  const awayAdvFactor = (awayName && priorCtx?.awayAdvMap.get(awayName)) ?? 1.0
+
+  const rawHomeXG = Math.sqrt(homeAtk.avg * awayDef.avg) * homeAdvFactor
+  const rawAwayXG = Math.sqrt(awayAtk.avg * homeDef.avg) * awayAdvFactor
   const homeN = (homeAtk.n + awayDef.n) / 2
   const awayN = (awayAtk.n + homeDef.n) / 2
 
   const homeFormMult = getTeamFormMult(matches, homeTeamId)
   const awayFormMult = getTeamFormMult(matches, awayTeamId)
 
+  const homeRosterFactor = homeName && priorCtx ? getRosterFactor(homeName, priorCtx) : 1.0
+  const awayRosterFactor = awayName && priorCtx ? getRosterFactor(awayName, priorCtx) : 1.0
+
   return {
-    homeXG: Math.max(0.25, bayesianXG(rawHomeXG, LEAGUE_HOME_XG, homeN) * homeFormMult),
-    awayXG: Math.max(0.25, bayesianXG(rawAwayXG, LEAGUE_AWAY_XG, awayN) * awayFormMult),
+    homeXG: Math.max(0.25, bayesianXG(rawHomeXG, LEAGUE_HOME_XG, homeN) * homeFormMult * homeRosterFactor),
+    awayXG: Math.max(0.25, bayesianXG(rawAwayXG, LEAGUE_AWAY_XG, awayN) * awayFormMult * awayRosterFactor),
   }
 }
 
