@@ -15,7 +15,7 @@ interface MatchRow {
   away_team: { name: string; short_name: string } | null
 }
 
-type Tab = 'results' | 'bets' | 'quoten'
+type Tab = 'results' | 'bets' | 'quoten' | 'saison'
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('results')
@@ -24,6 +24,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [settleLoading, setSettleLoading] = useState<number | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const [seasonResetLoading, setSeasonResetLoading] = useState(false)
   const [oddsLoading, setOddsLoading] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [preview, setPreview] = useState<OddsPreviewResponse | null>(null)
@@ -125,6 +126,20 @@ export default function AdminPage() {
     }
   }
 
+  async function resetSeasonBalances() {
+    if (!confirm('Alle Guthaben auf 1.000 € zurücksetzen? Das kann nicht rückgängig gemacht werden.')) return
+    setSeasonResetLoading(true)
+    setMessage(null)
+    const res = await fetch('/api/admin/season-reset', { method: 'POST' })
+    const data = await res.json()
+    setSeasonResetLoading(false)
+    if (res.ok) {
+      setMessage('Alle Guthaben wurden auf 1.000 € zurückgesetzt.')
+    } else {
+      setMessage(`Fehler: ${data.error}`)
+    }
+  }
+
   const loadPreview = useCallback(async (matchday?: number | null) => {
     setPreviewLoading(true)
     const qs = matchday != null ? `?matchday=${matchday}` : ''
@@ -189,7 +204,7 @@ export default function AdminPage() {
 
         {/* Tab Bar */}
         <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm overflow-x-auto">
-          {(['results', 'bets', 'quoten'] as Tab[]).map((t) => (
+          {(['results', 'bets', 'quoten', 'saison'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -201,7 +216,8 @@ export default function AdminPage() {
             >
               {t === 'results' ? 'Ergebnisse'
                 : t === 'bets' ? 'Tipps'
-                : 'Quoten & Torschützen'}
+                : t === 'quoten' ? 'Quoten & Torschützen'
+                : 'Saison'}
             </button>
           ))}
         </div>
@@ -326,6 +342,35 @@ export default function AdminPage() {
             <div className="space-y-4">
               <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Torschützen</h2>
               <GoalscorersTab matches={matches} onMessage={setMessage} />
+            </div>
+          </div>
+        )}
+
+        {/* Saison Tab */}
+        {tab === 'saison' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-bold text-gray-900 mb-1">Neue Saison starten</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Setzt alle Guthaben auf <strong>1.000 €</strong> zurück. Bisherige Wetten bleiben
+                als Saison 25/26 erhalten und sind im Spielerprofil unter &quot;Letzte Saison&quot; einsehbar.
+              </p>
+              <button
+                onClick={resetSeasonBalances}
+                disabled={seasonResetLoading}
+                className="w-full py-3 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white font-bold rounded-xl transition-colors text-sm"
+              >
+                {seasonResetLoading ? 'Wird zurückgesetzt…' : 'Alle Guthaben auf 1.000 € zurücksetzen'}
+              </button>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+              <div className="text-sm font-semibold text-amber-800 mb-1">Saisonwechsel Saison 26/27</div>
+              <p className="text-xs text-amber-700">
+                Nach dem Reset werden alle neuen Wetten automatisch der Saison <strong>26/27</strong> zugeordnet.
+                Die Statistiken auf den Spielerprofilen zeigen die aktuelle Saison — die letzte Saison
+                ist dort im Detail-Bereich einklappbar sichtbar.
+              </p>
             </div>
           </div>
         )}

@@ -61,10 +61,13 @@ export default async function ProfilPage() {
     .single()
   if (!profile) redirect('/login')
 
+  const CURRENT_SEASON = '26/27'
+  const PREV_SEASON = '25/26'
+
   const { data: betsRaw } = await supabase
     .from('bets')
     .select(
-      `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id,
+      `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id, season,
        match:matches(id, matchday, match_date, home_score, away_score, status,
          home_team:teams!matches_home_team_id_fkey(name, short_name),
          away_team:teams!matches_away_team_id_fkey(name, short_name)
@@ -72,9 +75,9 @@ export default async function ProfilPage() {
     )
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
-    .limit(60)
+    .limit(120)
 
-  const bets = (betsRaw ?? []).map(b => ({
+  const allBets = (betsRaw ?? []).map(b => ({
     ...b,
     match: (() => {
       const m = Array.isArray(b.match) ? b.match[0] : b.match
@@ -87,8 +90,12 @@ export default async function ProfilPage() {
     })(),
   }))
 
+  // Split by season: current = '26/27' (or unknown), prev = '25/26'
+  const bets = allBets.filter(b => !b.season || b.season === CURRENT_SEASON)
+  const prevBets = allBets.filter(b => b.season === PREV_SEASON)
+
   // Fetch combo_bets metadata
-  const comboIds = [...new Set(bets.filter(b => b.combo_id).map(b => b.combo_id as string))]
+  const comboIds = [...new Set(allBets.filter(b => b.combo_id).map(b => b.combo_id as string))]
   const comboBetsMap = new Map<string, { id: string; stake: number; total_odds: number; status: string; payout: number | null }>()
   if (comboIds.length > 0) {
     const { data: cbData } = await supabase
@@ -154,7 +161,15 @@ export default async function ProfilPage() {
     [...comboBetsMap.values()].reduce((acc, cb) => acc + cb.stake, 0)
   const totalPayout = singleBets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0) +
     [...comboBetsMap.values()].filter(cb => cb.status === 'won').reduce((acc, cb) => acc + (cb.payout ?? 0), 0)
-  const profit = profile.balance - 1000
+  const profit = profile.balance - (profile.season_start_balance ?? 1000)
+
+  // Previous season quick stats
+  const prevSingleBets = prevBets.filter(b => !b.combo_id)
+  const prevWon = prevSingleBets.filter(b => b.status === 'won').length
+  const prevLost = prevSingleBets.filter(b => b.status === 'lost').length
+  const prevStaked = prevSingleBets.reduce((acc, b) => acc + (b.stake ?? 0), 0)
+  const prevPayout = prevSingleBets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0)
+  const prevProfit = prevPayout - prevStaked
 
   // Extended stats
   const settledCount = wonBets + lostBets
@@ -253,18 +268,46 @@ export default async function ProfilPage() {
       {/* Balance */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
-          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Guthaben</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Guthaben <span className="text-[10px]">26/27</span></div>
           <div className="text-xl font-black text-gray-900 dark:text-gray-100">
             {profile.balance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
           </div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
-          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Gewinn/Verlust</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Gewinn/Verlust <span className="text-[10px]">26/27</span></div>
           <div className={`text-xl font-black ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-900'}`}>
             {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
           </div>
         </div>
       </div>
+
+      {/* Previous season summary (collapsed by default — client-side toggle not available in RSC, show always but compact) */}
+      {prevBets.length > 0 && (
+        <details className="bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-600 dark:text-gray-300 list-none flex items-center justify-between">
+            <span>Letzte Saison 25/26</span>
+            <span className="text-xs text-gray-400">{prevBets.length} Wetten ▼</span>
+          </summary>
+          <div className="px-4 pb-4 pt-1 grid grid-cols-2 gap-3">
+            <div className="bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
+              <div className="text-xs text-gray-400 mb-1">Gewonnen / Verloren</div>
+              <div className="font-black text-sm text-gray-800 dark:text-gray-100">{prevWon}W / {prevLost}V</div>
+            </div>
+            <div className="bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
+              <div className="text-xs text-gray-400 mb-1">Ergebnis 25/26</div>
+              <div className={`font-black text-sm ${prevProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {prevProfit >= 0 ? '+' : ''}{prevProfit.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="col-span-2 bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
+              <div className="text-xs text-gray-400 mb-1">Eingesetzt / Ausgezahlt</div>
+              <div className="font-bold text-sm text-gray-800 dark:text-gray-100">
+                {prevStaked.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })} / {prevPayout.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+        </details>
+      )}
 
       {/* Stats */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">

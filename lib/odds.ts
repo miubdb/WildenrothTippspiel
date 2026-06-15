@@ -531,8 +531,8 @@ export function getMatchXG(
     }
   }
 
-  const homeAdvFactor = (homeName && priorCtx?.homeAdvMap.get(homeName)) ?? 1.0
-  const awayAdvFactor = (awayName && priorCtx?.awayAdvMap.get(awayName)) ?? 1.0
+  const homeAdvFactor: number = (homeName ? priorCtx?.homeAdvMap.get(homeName) : undefined) ?? 1.0
+  const awayAdvFactor: number = (awayName ? priorCtx?.awayAdvMap.get(awayName) : undefined) ?? 1.0
 
   const rawHomeXG = Math.sqrt(homeAtk.avg * awayDef.avg) * homeAdvFactor
   const rawAwayXG = Math.sqrt(awayAtk.avg * homeDef.avg) * awayAdvFactor
