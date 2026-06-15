@@ -16,7 +16,7 @@ export function MatchdayScroller({
     if (!el) return
     const active = el.children[activeIndex] as HTMLElement | undefined
     if (!active) return
-    el.scrollLeft = active.offsetLeft - el.offsetWidth / 2 + active.offsetWidth / 2
+    el.scrollLeft = Math.max(0, active.offsetLeft - 16)
   }, [activeIndex])
 
   return (

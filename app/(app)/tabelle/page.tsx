@@ -1,11 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
-
-function shortTeamName(name: string): string {
-  // Strip common club prefixes only at the START of the name
-  return name.replace(/^(SpVgg|SpFr|TSV|FC|SV|VfL|1\.\s*SC|SC)\s+/i, '').trim()
-}
+import { TeamLogo } from '@/components/TeamLogo'
 
 export const revalidate = 60
 
@@ -293,9 +289,11 @@ export default async function TabellePage() {
               </div>
 
               {/* Team */}
-              <div>
+              <div className="flex items-start gap-1.5 min-w-0">
+                <TeamLogo name={s.teamName} size="xs" className="mt-0.5" />
+                <div className="min-w-0">
                 <div className={`text-sm font-semibold leading-tight ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
-                  {shortTeamName(s.teamName)}
+                  {s.teamName}
                   {isWildenroth && <span className="ml-1 text-xs text-red-400">⚽</span>}
                 </div>
                 {/* Form */}
@@ -310,6 +308,7 @@ export default async function TabellePage() {
                       {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
                     </span>
                   ))}
+                </div>
                 </div>
               </div>
 
@@ -406,7 +405,7 @@ export default async function TabellePage() {
                 {topAttacks.map((s, i) => (
                   <div key={s.teamId} className="flex items-center px-4 py-2.5 gap-3">
                     <div className="text-sm font-bold text-gray-300 w-4">{i + 1}</div>
-                    <div className="flex-1 text-sm font-medium text-gray-800">{shortTeamName(s.teamName)}</div>
+                    <div className="flex-1 text-sm font-medium text-gray-800">{s.teamName}</div>
                     <div className="text-sm font-bold text-gray-900">{s.gf}</div>
                     <div className="text-xs text-gray-400">Tore</div>
                   </div>

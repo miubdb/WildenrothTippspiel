@@ -281,34 +281,6 @@ export default async function ProfilPage() {
         </div>
       </div>
 
-      {/* Previous season summary (collapsed by default — client-side toggle not available in RSC, show always but compact) */}
-      {prevBets.length > 0 && (
-        <details className="bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-600 dark:text-gray-300 list-none flex items-center justify-between">
-            <span>Letzte Saison 25/26</span>
-            <span className="text-xs text-gray-400">{prevBets.length} Wetten ▼</span>
-          </summary>
-          <div className="px-4 pb-4 pt-1 grid grid-cols-2 gap-3">
-            <div className="bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
-              <div className="text-xs text-gray-400 mb-1">Gewonnen / Verloren</div>
-              <div className="font-black text-sm text-gray-800 dark:text-gray-100">{prevWon}W / {prevLost}V</div>
-            </div>
-            <div className="bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
-              <div className="text-xs text-gray-400 mb-1">Ergebnis 25/26</div>
-              <div className={`font-black text-sm ${prevProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {prevProfit >= 0 ? '+' : ''}{prevProfit.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
-              </div>
-            </div>
-            <div className="col-span-2 bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
-              <div className="text-xs text-gray-400 mb-1">Eingesetzt / Ausgezahlt</div>
-              <div className="font-bold text-sm text-gray-800 dark:text-gray-100">
-                {prevStaked.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })} / {prevPayout.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
-              </div>
-            </div>
-          </div>
-        </details>
-      )}
-
       {/* Stats */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
@@ -434,6 +406,34 @@ export default async function ProfilPage() {
         displayName={profile.display_name || profile.username}
         username={profile.username}
       />
+
+      {/* Previous season summary — at the bottom, collapsed by default */}
+      {prevBets.length > 0 && (
+        <details className="bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-600 dark:text-gray-300 list-none flex items-center justify-between">
+            <span>Letzte Saison 25/26</span>
+            <span className="text-xs text-gray-400">{prevBets.length} Wetten ▼</span>
+          </summary>
+          <div className="px-4 pb-4 pt-1 grid grid-cols-2 gap-3">
+            <div className="bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
+              <div className="text-xs text-gray-400 mb-1">Gewonnen / Verloren</div>
+              <div className="font-black text-sm text-gray-800 dark:text-gray-100">{prevWon}W / {prevLost}V</div>
+            </div>
+            <div className="bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
+              <div className="text-xs text-gray-400 mb-1">Ergebnis 25/26</div>
+              <div className={`font-black text-sm ${prevProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {prevProfit >= 0 ? '+' : ''}{prevProfit.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="col-span-2 bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
+              <div className="text-xs text-gray-400 mb-1">Eingesetzt / Ausgezahlt</div>
+              <div className="font-bold text-sm text-gray-800 dark:text-gray-100">
+                {prevStaked.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })} / {prevPayout.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+        </details>
+      )}
 
       <SignOutButton />
     </div>
