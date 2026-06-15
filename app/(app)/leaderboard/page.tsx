@@ -27,8 +27,8 @@ export default async function LeaderboardPage({
     supabase.from('profiles').select('id, username, display_name, balance').order('balance', { ascending: false }),
     supabase.auth.getUser(),
     supabase.from('matches').select('id, matchday, match_date, status').order('match_date', { ascending: true }),
-    supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky'),
-    supabase.from('combo_bets').select('id, user_id, stake, total_odds, status, payout'),
+    supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season'),
+    supabase.from('combo_bets').select('id, user_id, stake, total_odds, status, payout, season'),
   ])
 
   // Current user profile (for name + admin flag)
@@ -41,15 +41,22 @@ export default async function LeaderboardPage({
     : { data: null }
   const isAdmin = adminCheck?.is_admin ?? false
 
-  const allMatches = allMatchesRaw ?? []
-  const allBets = allBetsRaw ?? []
-  const allCombos = allCombosRaw ?? []
+  const CURRENT_SEASON = '26/27'
+  const SEASON_START = '2026-08-01'
 
-  // All matchdays
-  const allMatchdays = [...new Set(allMatches.map(m => m.matchday))].sort((a, b) => a - b)
+  const allMatchesRaw2 = allMatchesRaw ?? []
+  // Only current-season matches drive the leaderboard matchday list
+  const seasonMatches = allMatchesRaw2.filter(m => m.match_date >= SEASON_START)
+  // Fall back to 1-28 placeholder when no season matches exist yet
+  const allMatchdays = seasonMatches.length > 0
+    ? [...new Set(seasonMatches.map(m => m.matchday))].sort((a, b) => a - b)
+    : Array.from({ length: 28 }, (_, i) => i + 1)
+  const allMatches = allMatchesRaw2
+  const allBets = (allBetsRaw ?? []).filter(b => !b.season || b.season === CURRENT_SEASON)
+  const allCombos = (allCombosRaw ?? []).filter(c => !c.season || c.season === CURRENT_SEASON)
 
   // Current matchday for Spieltag tab
-  const firstScheduledMd = allMatches
+  const firstScheduledMd = seasonMatches
     .filter(m => m.status === 'scheduled')
     .map(m => m.matchday)
     .sort((a, b) => a - b)[0]
@@ -72,19 +79,22 @@ export default async function LeaderboardPage({
   const thisWeekMondayNoon = mondayNoon(new Date())
   const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
   const completedMatchdays = allMatchdays.filter((md) => {
-    const mdM = allMatches.filter((m) => m.matchday === md)
+    const mdM = seasonMatches.filter((m) => m.matchday === md)
     return mdM.length > 0 && mdM.every((m) => m.status === 'finished')
   })
   const lastCompletedMd = completedMatchdays.length > 0 ? Math.max(...completedMatchdays) : null
-  const defaultMatchday = isBeforeMondayNoon && lastCompletedMd != null
-    ? lastCompletedMd
-    : (firstScheduledMd ?? (allMatchdays.length > 0 ? Math.max(...allMatchdays) : null))
+  // Pre-season: no season matches → default to Spieltag 1
+  const defaultMatchday = seasonMatches.length === 0
+    ? 1
+    : isBeforeMondayNoon && lastCompletedMd != null
+      ? lastCompletedMd
+      : (firstScheduledMd ?? (allMatchdays.length > 0 ? Math.max(...allMatchdays) : null))
 
   const requestedMd = params.spieltag ? parseInt(params.spieltag, 10) : null
   const currentMatchday = requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
 
   const matchdayMatches = currentMatchday != null
-    ? allMatches.filter(m => m.matchday === currentMatchday).sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+    ? seasonMatches.filter(m => m.matchday === currentMatchday).sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
     : []
 
   const firstMatch = matchdayMatches[0]

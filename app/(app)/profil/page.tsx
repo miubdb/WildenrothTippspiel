@@ -95,7 +95,7 @@ export default async function ProfilPage() {
   const prevBets = allBets.filter(b => b.season === PREV_SEASON)
 
   // Fetch combo_bets metadata
-  const comboIds = [...new Set(allBets.filter(b => b.combo_id).map(b => b.combo_id as string))]
+  const comboIds = [...new Set(bets.filter(b => b.combo_id).map(b => b.combo_id as string))]
   const comboBetsMap = new Map<string, { id: string; stake: number; total_odds: number; status: string; payout: number | null }>()
   if (comboIds.length > 0) {
     const { data: cbData } = await supabase

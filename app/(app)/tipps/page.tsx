@@ -91,9 +91,16 @@ export default async function TippsPage({
   }
   const priorCtx = buildPriorContext(priorMatches, teamNames)
 
-  const allMatchdays = [...new Set(allMatches.map((m) => m.matchday))].sort((a, b) => a - b)
+  const SEASON_START_TIPPS = '2026-08-01'
+  const seasonMatches = allMatches.filter((m) => m.match_date >= SEASON_START_TIPPS)
+  const isPreSeason = seasonMatches.length === 0
 
-  const firstScheduled = allMatches
+  // Pre-season: show 1-28 placeholder; in-season: derive from actual matches
+  const allMatchdays = isPreSeason
+    ? Array.from({ length: 28 }, (_, i) => i + 1)
+    : [...new Set(seasonMatches.map((m) => m.matchday))].sort((a, b) => a - b)
+
+  const firstScheduled = seasonMatches
     .filter((m) => m.status === 'scheduled')
     .map((m) => m.matchday)
     .sort((a, b) => a - b)[0]
@@ -103,18 +110,20 @@ export default async function TippsPage({
   const thisWeekMondayNoon = bettingOpenTime(new Date())
   const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
   const completedMatchdays = allMatchdays.filter((md) => {
-    const mdM = allMatches.filter((m) => m.matchday === md)
+    const mdM = seasonMatches.filter((m) => m.matchday === md)
     return mdM.length > 0 && mdM.every((m) => m.status === 'finished')
   })
   const lastCompletedMd = completedMatchdays.length > 0 ? Math.max(...completedMatchdays) : null
-  const defaultMatchday = isBeforeMondayNoon && lastCompletedMd != null
-    ? lastCompletedMd
-    : (firstScheduled ?? Math.max(...allMatchdays))
+  const defaultMatchday = isPreSeason
+    ? 1
+    : isBeforeMondayNoon && lastCompletedMd != null
+      ? lastCompletedMd
+      : (firstScheduled ?? Math.max(...allMatchdays))
   const requestedMd = params.matchday ? parseInt(params.matchday, 10) : null
   const currentMatchday =
     requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
 
-  const matchdayMatches = allMatches
+  const matchdayMatches = seasonMatches
     .filter((m) => m.matchday === currentMatchday)
     .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
 
@@ -126,7 +135,7 @@ export default async function TippsPage({
   const isBettingOpen = !bettingOpens || new Date() >= bettingOpens
 
   const SEASON_START = '2026-08-01'
-  const seasonMatches = allMatches.filter((m) => m.match_date >= SEASON_START)
+  // seasonMatches already declared above as filtered by SEASON_START_TIPPS (same value)
 
   // Odds snapshot: freeze odds at Monday 12:00 — only use matches finished before that cutoff
   const oddsSnapshotCutoff = bettingOpens ?? deadline
@@ -734,9 +743,9 @@ export default async function TippsPage({
       {/* Matchday Selector */}
       <MatchdayScroller activeIndex={allMatchdays.indexOf(currentMatchday)}>
         {allMatchdays.map((md) => {
-          const mdMatches = allMatches.filter((m) => m.matchday === md)
+          const mdMatches = seasonMatches.filter((m) => m.matchday === md)
           const hasScheduled = mdMatches.some((m) => m.status === 'scheduled')
-          const allFinished = mdMatches.every((m) => m.status === 'finished')
+          const allFinished = mdMatches.length > 0 && mdMatches.every((m) => m.status === 'finished')
           return (
             <Link
               key={md}
@@ -748,7 +757,7 @@ export default async function TippsPage({
                   ? 'bg-red-800/40 text-red-300'
                   : hasScheduled
                   ? 'bg-red-600 text-white ring-1 ring-red-400'
-                  : 'bg-red-800/40 text-red-300'
+                  : 'bg-red-800/40 text-red-300/60'
               }`}
             >
               {md}
@@ -763,7 +772,13 @@ export default async function TippsPage({
       )}
 
       {/* Match Cards */}
-      {matchdayMatches.length === 0 ? (
+      {isPreSeason ? (
+        <div className="text-center py-16 text-gray-400 dark:text-gray-500">
+          <div className="text-4xl mb-3">📅</div>
+          <div className="font-medium text-gray-600 dark:text-gray-300">Spielplan wird noch veröffentlicht</div>
+          <div className="text-sm mt-1">Die Saison 26/27 startet im August 2026</div>
+        </div>
+      ) : matchdayMatches.length === 0 ? (
         <div className="text-center py-16 text-gray-400 dark:text-gray-500">
           <div className="text-4xl mb-3">⚽</div>
           <div className="font-medium">Keine Spiele</div>

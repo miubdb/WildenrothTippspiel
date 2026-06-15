@@ -197,7 +197,16 @@ export default async function TabellePage() {
   // Only current season matches for standings and form
   const matches = allRaw.filter((m) => m.match_date >= '2026-08-01')
 
-  const standings = computeStandings(matches)
+  const computedStandings = computeStandings(matches)
+
+  // Pre-season: no matches yet → show all 15 teams with 0 stats sorted alphabetically
+  const standings: Standing[] = computedStandings.length > 0
+    ? computedStandings
+    : [...OUR_TEAMS].sort().map((name, idx) => ({
+        teamId: -(idx + 1),
+        teamName: name,
+        played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0, ppg: 0, form: [],
+      }))
   const wildenrothPos = standings.findIndex((s) => s.teamName.includes('Wildenroth')) + 1
   const playedMatchdays = Math.max(
     ...matches.filter((m) => m.status === 'finished').map((m) => m.matchday),
