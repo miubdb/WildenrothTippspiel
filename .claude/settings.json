@@ -1,4 +1,12 @@
 {
+  "permissions": {
+    "allow": [
+      "mcp__66e3f53c-bd8e-4ca6-a4ab-b2f53560ff41__apply_migration",
+      "mcp__66e3f53c-bd8e-4ca6-a4ab-b2f53560ff41__execute_sql",
+      "mcp__66e3f53c-bd8e-4ca6-a4ab-b2f53560ff41__list_tables",
+      "mcp__66e3f53c-bd8e-4ca6-a4ab-b2f53560ff41__get_project"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {
