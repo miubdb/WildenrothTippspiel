@@ -23,4 +23,4 @@
   strong attacker vs strong defence yields moderate xG (correct), but a strong attacker vs
   weak defence still yields amplified xG, so matchup differentiation is preserved.
 
-**Season filter:** only matches with `match_date >= '2025-08-01'` count for odds and standings.
+**Season filter:** only matches with `match_date >= '2026-08-01'` count for odds and standings.

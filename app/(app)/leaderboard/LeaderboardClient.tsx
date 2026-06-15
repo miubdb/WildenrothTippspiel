@@ -384,7 +384,7 @@ export function LeaderboardClient({
     <div className="px-4 py-4 space-y-4">
       {/* Header */}
       <div className="bg-gradient-to-br from-red-700 to-red-900 text-white rounded-2xl px-5 py-5 shadow-sm">
-        <div className="text-red-200 text-xs font-medium uppercase tracking-wide mb-1">Saison 2025/26</div>
+        <div className="text-red-200 text-xs font-medium uppercase tracking-wide mb-1">Saison 2026/27</div>
         <h1 className="text-2xl font-black">Rangliste</h1>
         <p className="text-red-200 text-sm mt-1">{profiles.length} Teilnehmer · Startkapital 1.000 €</p>
       </div>

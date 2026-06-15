@@ -218,7 +218,7 @@ export default function AnleitungPage() {
       </Section>
 
       <div className="pb-4 text-center text-xs text-gray-400">
-        SpVgg Wildenroth Tippspiel · Saison 25/26<br />
+        SpVgg Wildenroth Tippspiel · Saison 26/27<br />
         Nur mit Spielgeld — keine echten Einsätze
       </div>
     </div>

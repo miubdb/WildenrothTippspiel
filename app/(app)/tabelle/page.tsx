@@ -129,7 +129,7 @@ export default async function TabellePage() {
   }))
 
   // Only current season matches for standings and form
-  const matches = allRaw.filter((m) => m.match_date >= '2025-08-01')
+  const matches = allRaw.filter((m) => m.match_date >= '2026-08-01')
 
   const standings = computeStandings(matches)
   const wildenrothPos = standings.findIndex((s) => s.teamName.includes('Wildenroth')) + 1
@@ -147,10 +147,10 @@ export default async function TabellePage() {
     <div className="px-4 py-4 space-y-4">
       {/* Header */}
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4 shadow-sm">
-        <div className="text-red-200 text-xs font-medium uppercase tracking-wide">Saison 25/26</div>
+        <div className="text-red-200 text-xs font-medium uppercase tracking-wide">Saison 26/27</div>
         <div className="text-2xl font-black mt-0.5">Tabelle</div>
         <div className="text-red-200 text-sm mt-1">
-          Kreisklasse Gruppe 1 · {playedMatchdays}. Spieltag gespielt
+          Kreisliga Gruppe 2 · {playedMatchdays}. Spieltag gespielt
         </div>
         {wildenrothPos > 0 && (
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2 text-sm">
@@ -182,13 +182,13 @@ export default async function TabellePage() {
           const pos = idx + 1
           const total = standings.length
           const isWildenroth = s.teamName.includes('Wildenroth')
-          // Zones for 14-team Kreisklasse:
-          // Platz 1: Aufstieg direkt, Platz 2: Aufstieg Relegation
-          // Platz 11-12: Abstieg Relegation, Platz 13-14: Direktabstieg
+          // Zones for 15-team Kreisliga:
+          // Platz 1: Aufstieg direkt, Platz 2: Aufstiegsrelegation
+          // Platz 13-14: Abstiegsrelegation, Platz 15: Direktabstieg
           const isPromotion = pos === 1
           const isPromotionPlayoff = pos === 2
-          const isDirect = total >= 14 && pos >= total - 1         // 13-14
-          const isPlayoff = total >= 14 && pos >= total - 3 && pos <= total - 2  // 11-12
+          const isDirect = total >= 15 && pos === total             // 15
+          const isPlayoff = total >= 15 && pos >= total - 2 && pos <= total - 1  // 13-14
           return (
             <div
               key={s.teamId}
@@ -271,11 +271,11 @@ export default async function TabellePage() {
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded-full bg-orange-200" />
-            <span>Abstiegsrelegation (Platz 11–12)</span>
+            <span>Abstiegsrelegation (Platz 13–14)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded-full bg-red-500" />
-            <span>Direktabstieg (Platz 13–14)</span>
+            <span>Direktabstieg (Platz 15)</span>
           </div>
         </div>
       </div>

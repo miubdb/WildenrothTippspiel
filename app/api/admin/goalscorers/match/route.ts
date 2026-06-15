@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
   const players = (playersRaw ?? []) as WildenrothPlayer[]
 
   // Season fixtures (same window as main odds logic)
-  const SEASON_START = '2025-08-01'
+  const SEASON_START = '2026-08-01'
   const { data: matchesRaw } = await supabase
     .from('matches')
     .select('id, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status')

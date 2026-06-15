@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { calculateOdds, getExactScoreOdds, buildPriorContext } from '@/lib/odds'
 import type { Match, PriorMatch } from '@/types'
 
-const SEASON_START = '2025-08-01'
+const SEASON_START = '2026-08-01'
 
 /** Returns Monday 12:00 Europe/Berlin of the week containing firstMatchDate. */
 function bettingOpenTime(firstMatchDate: Date): Date {

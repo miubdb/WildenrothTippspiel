@@ -125,7 +125,7 @@ export default async function TippsPage({
   const bettingOpens = deadline ? bettingOpenTime(deadline) : null
   const isBettingOpen = !bettingOpens || new Date() >= bettingOpens
 
-  const SEASON_START = '2025-08-01'
+  const SEASON_START = '2026-08-01'
   const seasonMatches = allMatches.filter((m) => m.match_date >= SEASON_START)
 
   // Odds snapshot: freeze odds at Monday 12:00 — only use matches finished before that cutoff
