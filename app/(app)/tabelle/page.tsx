@@ -110,6 +110,72 @@ function computeStandings(matches: Match[]): Standing[] {
   return result
 }
 
+interface PriorStanding {
+  team: string
+  leagueName: string
+  leagueLevel: string
+  pos: number
+  totalTeams: number
+  games: number
+  pts: number
+  gf: number
+  ga: number
+  gd: number
+}
+
+const LEAGUE_LEVEL_ORDER: Record<string, number> = { bezirksliga: 0, kreisliga: 1, kreisklasse: 2 }
+
+function leagueShort(leagueName: string): string {
+  if (leagueName.includes('Bezirksliga')) return 'Bezirksliga'
+  const m = leagueName.match(/Gruppe\s+(\d+|[A-Z])/i)
+  if (leagueName.includes('Kreisliga')) return `Kreisliga ${m?.[1] ?? ''}`
+  if (leagueName.includes('Kreisklasse')) return `Kreisklasse ${m?.[1] ?? ''}`
+  return leagueName
+}
+
+async function getPriorStandings(supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>): Promise<PriorStanding[]> {
+  const { data } = await supabase.rpc('get_prior_standings' as never)
+  if (data) return data as PriorStanding[]
+
+  // Fallback: compute client-side from prior_season_matches
+  const { data: rows } = await supabase.from('prior_season_matches').select('home_team,away_team,home_score,away_score,league_name,league_level,league_number')
+  if (!rows) return []
+
+  type TeamKey = string
+  const stats = new Map<TeamKey, { team: string; leagueName: string; leagueLevel: string; leagueNumber: string; pts: number; gf: number; ga: number; games: number }>()
+
+  for (const r of rows) {
+    const hn = `${r.home_team}::${r.league_number}`
+    const an = `${r.away_team}::${r.league_number}`
+    if (!stats.has(hn)) stats.set(hn, { team: r.home_team, leagueName: r.league_name, leagueLevel: r.league_level, leagueNumber: r.league_number, pts: 0, gf: 0, ga: 0, games: 0 })
+    if (!stats.has(an)) stats.set(an, { team: r.away_team, leagueName: r.league_name, leagueLevel: r.league_level, leagueNumber: r.league_number, pts: 0, gf: 0, ga: 0, games: 0 })
+    const h = stats.get(hn)!; const a = stats.get(an)!
+    const hs = r.home_score; const as_ = r.away_score
+    h.gf += hs; h.ga += as_; h.games++
+    a.gf += as_; a.ga += hs; a.games++
+    if (hs > as_) { h.pts += 3 } else if (hs === as_) { h.pts++; a.pts++ } else { a.pts += 3 }
+  }
+
+  // Rank within each league
+  const byLeague = new Map<string, typeof stats extends Map<string, infer V> ? V[] : never>()
+  for (const [, v] of stats) {
+    const arr = byLeague.get(v.leagueNumber) ?? []
+    arr.push(v as never)
+    byLeague.set(v.leagueNumber, arr as never)
+  }
+
+  const result: PriorStanding[] = []
+  for (const [, teams] of byLeague) {
+    const sorted = [...teams].sort((a, b) => b.pts - a.pts || (b.gf - b.ga) - (a.gf - a.ga) || b.gf - a.gf)
+    sorted.forEach((t, i) => {
+      result.push({ team: t.team, leagueName: t.leagueName, leagueLevel: t.leagueLevel, pos: i + 1, totalTeams: sorted.length, games: t.games, pts: t.pts, gf: t.gf, ga: t.ga, gd: t.gf - t.ga })
+    })
+  }
+  return result
+}
+
+const OUR_TEAMS = new Set(['TSV Geiselbullach','SpVgg Wildenroth','SC Schöngeising','TSV Altenstadt','TSV Peiting','FC Wildsteig/Rottenbuch','SC Unterpfaffenhofen','SV Fuchstal','TSV 1882 Landsberg II','FC Aich','SC Oberweikertshofen II','TSV Türkenfeld','SV Igling','FC Issing','VfL Denklingen'])
+
 export default async function TabellePage() {
   const supabase = await createClient()
 
@@ -137,6 +203,12 @@ export default async function TabellePage() {
     ...matches.filter((m) => m.status === 'finished').map((m) => m.matchday),
     0
   )
+
+  // Prior season standings for pre-season display
+  const priorStandings = playedMatchdays === 0 ? await getPriorStandings(supabase) : []
+  const ourPriorStandings = priorStandings
+    .filter(s => OUR_TEAMS.has(s.team))
+    .sort((a, b) => (LEAGUE_LEVEL_ORDER[a.leagueLevel] ?? 9) - (LEAGUE_LEVEL_ORDER[b.leagueLevel] ?? 9) || b.pts - a.pts)
 
   // Top scorers (goals per game) - derived from team averages
   const topAttacks = [...standings]
@@ -280,49 +352,86 @@ export default async function TabellePage() {
         </div>
       </div>
 
-      {/* Team Stats Cards */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Beste Angriffe</h2>
+      {/* Team Stats: pre-season = prior standings; in-season = current stats */}
+      {playedMatchdays === 0 && ourPriorStandings.length > 0 ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <h2 className="font-bold text-gray-900">Teamstatistiken</h2>
+            <div className="text-xs text-gray-400 mt-0.5">Abschneiden Saison 25/26 · geordnet nach Ligaebene</div>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {ourPriorStandings.map((s, idx) => {
+              const isWildenroth = s.team.includes('Wildenroth')
+              const levelColor = s.leagueLevel === 'bezirksliga' ? 'bg-purple-100 text-purple-700' : s.leagueLevel === 'kreisliga' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+              return (
+                <div key={s.team} className={`px-4 py-3 ${isWildenroth ? 'bg-red-50' : ''}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-bold text-gray-400 w-5">{idx + 1}.</span>
+                    <span className={`text-sm font-semibold flex-1 ${isWildenroth ? 'text-red-700' : 'text-gray-800'}`}>
+                      {s.team}{isWildenroth && <span className="ml-1 text-xs text-red-400">⚽</span>}
+                    </span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${levelColor}`}>
+                      Platz {s.pos}/{s.totalTeams} · {leagueShort(s.leagueName)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1 text-center text-xs ml-7">
+                    <StatCell label="Punkte" value={String(s.pts)} highlight={isWildenroth} />
+                    <StatCell label="Spiele" value={String(s.games)} />
+                    <StatCell label="Tore" value={`${s.gf}:${s.ga}`} />
+                    <StatCell label="Diff." value={s.gd >= 0 ? `+${s.gd}` : String(s.gd)} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
-        <div className="divide-y divide-gray-50">
-          {topAttacks.map((s, i) => (
-            <div key={s.teamId} className="flex items-center px-4 py-2.5 gap-3">
-              <div className="text-sm font-bold text-gray-300 w-4">{i + 1}</div>
-              <div className="flex-1 text-sm font-medium text-gray-800">
-                {shortTeamName(s.teamName)}
+      ) : (
+        <>
+          {/* Beste Angriffe (in-season) */}
+          {topAttacks.length > 0 && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100">
+                <h2 className="font-bold text-gray-900">Beste Angriffe</h2>
               </div>
-              <div className="text-sm font-bold text-gray-900">{s.gf}</div>
-              <div className="text-xs text-gray-400">Tore</div>
+              <div className="divide-y divide-gray-50">
+                {topAttacks.map((s, i) => (
+                  <div key={s.teamId} className="flex items-center px-4 py-2.5 gap-3">
+                    <div className="text-sm font-bold text-gray-300 w-4">{i + 1}</div>
+                    <div className="flex-1 text-sm font-medium text-gray-800">{shortTeamName(s.teamName)}</div>
+                    <div className="text-sm font-bold text-gray-900">{s.gf}</div>
+                    <div className="text-xs text-gray-400">Tore</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
-      </div>
+          )}
 
-      {/* All team stats */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Teamstatistiken</h2>
-          <div className="text-xs text-gray-400 mt-0.5">Alle {standings.length} Vereine</div>
-        </div>
-        <div className="divide-y divide-gray-50">
-          {standings.map((s) => (
-            <div key={s.teamId} className={`px-4 py-3 ${s.teamName.includes('Wildenroth') ? 'bg-red-50' : ''}`}>
-              <div className={`font-semibold text-sm mb-2 ${s.teamName.includes('Wildenroth') ? 'text-red-700' : 'text-gray-800'}`}>
-                {s.teamName}
-              </div>
-              <div className="grid grid-cols-6 gap-1 text-center text-xs">
-                <StatCell label="Punkte" value={String(s.pts)} highlight={s.teamName.includes('Wildenroth')} />
-                <StatCell label="Siege" value={String(s.w)} />
-                <StatCell label="Unent." value={String(s.d)} />
-                <StatCell label="Niederl." value={String(s.l)} />
-                <StatCell label="Tordiff." value={s.gd >= 0 ? `+${s.gd}` : String(s.gd)} />
-                <StatCell label="P/Spiel" value={s.ppg.toFixed(2)} />
-              </div>
+          {/* All team stats (in-season) */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100">
+              <h2 className="font-bold text-gray-900">Teamstatistiken</h2>
+              <div className="text-xs text-gray-400 mt-0.5">Alle {standings.length} Vereine</div>
             </div>
-          ))}
-        </div>
-      </div>
+            <div className="divide-y divide-gray-50">
+              {standings.map((s) => (
+                <div key={s.teamId} className={`px-4 py-3 ${s.teamName.includes('Wildenroth') ? 'bg-red-50' : ''}`}>
+                  <div className={`font-semibold text-sm mb-2 ${s.teamName.includes('Wildenroth') ? 'text-red-700' : 'text-gray-800'}`}>
+                    {s.teamName}
+                  </div>
+                  <div className="grid grid-cols-6 gap-1 text-center text-xs">
+                    <StatCell label="Punkte" value={String(s.pts)} highlight={s.teamName.includes('Wildenroth')} />
+                    <StatCell label="Siege" value={String(s.w)} />
+                    <StatCell label="Unent." value={String(s.d)} />
+                    <StatCell label="Niederl." value={String(s.l)} />
+                    <StatCell label="Tordiff." value={s.gd >= 0 ? `+${s.gd}` : String(s.gd)} />
+                    <StatCell label="P/Spiel" value={s.ppg.toFixed(2)} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -531,11 +531,12 @@ export function getMatchXG(
     }
   }
 
-  const homeAdvFactor: number = (homeName ? priorCtx?.homeAdvMap.get(homeName) : undefined) ?? 1.0
-  const awayAdvFactor: number = (awayName ? priorCtx?.awayAdvMap.get(awayName) : undefined) ?? 1.0
-
-  const rawHomeXG = Math.sqrt(homeAtk.avg * awayDef.avg) * homeAdvFactor
-  const rawAwayXG = Math.sqrt(awayAtk.avg * homeDef.avg) * awayAdvFactor
+  // homeAdvMap/awayAdvMap are NOT applied here: getPriorTeamStats already
+  // normalises home/away rates independently per league. Applying the raw
+  // scoring-rate factor on top would double-count team quality (a dominant
+  // Kreisklasse team looks artificially strong vs a weak Bezirksliga team).
+  const rawHomeXG = Math.sqrt(homeAtk.avg * awayDef.avg)
+  const rawAwayXG = Math.sqrt(awayAtk.avg * homeDef.avg)
   const homeN = (homeAtk.n + awayDef.n) / 2
   const awayN = (awayAtk.n + homeDef.n) / 2
 
