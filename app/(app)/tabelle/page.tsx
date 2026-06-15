@@ -184,11 +184,11 @@ export default async function TabellePage() {
           const isWildenroth = s.teamName.includes('Wildenroth')
           // Zones for 15-team Kreisliga:
           // Platz 1: Aufstieg direkt, Platz 2: Aufstiegsrelegation
-          // Platz 13-14: Abstiegsrelegation, Platz 15: Direktabstieg
+          // Platz 12-13: Abstiegsrelegation, Platz 14-15: Direktabstieg
           const isPromotion = pos === 1
           const isPromotionPlayoff = pos === 2
-          const isDirect = total >= 15 && pos === total             // 15
-          const isPlayoff = total >= 15 && pos >= total - 2 && pos <= total - 1  // 13-14
+          const isDirect = total >= 15 && pos >= total - 1          // 14-15
+          const isPlayoff = total >= 15 && pos >= total - 3 && pos <= total - 2  // 12-13
           return (
             <div
               key={s.teamId}
@@ -271,11 +271,11 @@ export default async function TabellePage() {
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded-full bg-orange-200" />
-            <span>Abstiegsrelegation (Platz 13–14)</span>
+            <span>Abstiegsrelegation (Platz 12–13)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded-full bg-red-500" />
-            <span>Direktabstieg (Platz 15)</span>
+            <span>Direktabstieg (Platz 14–15)</span>
           </div>
         </div>
       </div>

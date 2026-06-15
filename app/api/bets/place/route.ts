@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { isAgainstWildenroth } from '@/lib/wildenroth'
 
 const MAX_STAKE = 250
+const CURRENT_SEASON = '26/27'
 
 interface PlaceBetSelection {
   matchId: number
@@ -344,6 +345,7 @@ export async function POST(request: NextRequest) {
         total_odds: Math.round(totalOdds * 100) / 100,
         status: 'pending',
         payout: null,
+        season: CURRENT_SEASON,
       })
       .select('id')
       .single()
@@ -364,6 +366,7 @@ export async function POST(request: NextRequest) {
       payout: null,
       combo_id: comboBet.id,
       is_risky: isRisky ?? false,
+      season: CURRENT_SEASON,
     }))
 
     const { error: betsError } = await supabase.from('bets').insert(betRows)
@@ -383,6 +386,7 @@ export async function POST(request: NextRequest) {
       payout: null,
       combo_id: null,
       is_risky: isRisky ?? false,
+      season: CURRENT_SEASON,
     }))
 
     const { error: betsError } = await supabase.from('bets').insert(betRows)
