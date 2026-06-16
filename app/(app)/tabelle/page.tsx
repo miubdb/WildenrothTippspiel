@@ -242,100 +242,93 @@ export default async function TabellePage() {
           <h2 className="font-bold text-gray-900">Tabellenstand</h2>
         </div>
 
-        {/* Table Header */}
-        <div className="grid grid-cols-[auto_1fr_auto_auto] sm:grid-cols-[auto_1fr_auto_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
-          <div className="w-6 text-center">#</div>
-          <div>Verein</div>
-          <div className="w-6 text-center hidden sm:block">Sp</div>
-          <div className="w-6 text-center hidden sm:block">S</div>
-          <div className="w-6 text-center hidden sm:block">U</div>
-          <div className="w-6 text-center hidden sm:block">N</div>
-          <div className="w-10 text-center">Tore</div>
-          <div className="w-7 text-center font-bold text-gray-700">P</div>
+        {/* Scrollable wrapper */}
+        <div className="overflow-x-auto">
+          {/* Table Header */}
+          <div className="grid grid-cols-[auto_minmax(120px,1fr)_auto_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100 min-w-[340px]">
+            <div className="w-6 text-center">#</div>
+            <div>Verein</div>
+            <div className="w-6 text-center">Sp</div>
+            <div className="w-6 text-center text-green-600">S</div>
+            <div className="w-6 text-center text-yellow-600">U</div>
+            <div className="w-6 text-center text-red-500">N</div>
+            <div className="w-10 text-center">Tore</div>
+            <div className="w-7 text-center font-bold text-gray-700">P</div>
+          </div>
+
+          {/* Rows */}
+          {standings.map((s, idx) => {
+            const pos = idx + 1
+            const total = standings.length
+            const isWildenroth = s.teamName.includes('Wildenroth')
+            const isPromotion = pos === 1
+            const isPromotionPlayoff = pos === 2
+            const isDirect = total >= 15 && pos >= total - 1
+            const isPlayoff = total >= 15 && pos >= total - 3 && pos <= total - 2
+            return (
+              <div
+                key={s.teamId}
+                className={`grid grid-cols-[auto_minmax(120px,1fr)_auto_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2.5 items-center border-b border-gray-50 last:border-0 min-w-[340px] ${
+                  isWildenroth ? 'bg-red-50' : ''
+                }`}
+              >
+                {/* Position */}
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                  isPromotion
+                    ? 'bg-green-600 text-white'
+                    : isPromotionPlayoff
+                    ? 'bg-green-200 text-green-800'
+                    : isDirect
+                    ? 'bg-red-500 text-white'
+                    : isPlayoff
+                    ? 'bg-orange-200 text-orange-700'
+                    : 'text-gray-400'
+                }`}>
+                  {pos}
+                </div>
+
+                {/* Team */}
+                <div className="flex items-start gap-1.5 min-w-0">
+                  <TeamLogo name={s.teamName} size="xs" className="mt-0.5 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <div className={`text-sm font-semibold leading-tight truncate ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
+                      {s.teamName}
+                      {isWildenroth && <span className="ml-1 text-xs text-red-400">⚽</span>}
+                    </div>
+                    {/* Form */}
+                    <div className="flex gap-0.5 mt-0.5">
+                      {s.form.map((r, i) => (
+                        <span
+                          key={i}
+                          className={`w-3.5 h-3.5 rounded-sm text-white text-[8px] font-bold flex items-center justify-center ${
+                            r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-yellow-400' : 'bg-red-400'
+                          }`}
+                        >
+                          {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Played */}
+                <div className="w-6 text-center text-xs text-gray-500">{s.played}</div>
+                {/* W */}
+                <div className="w-6 text-center text-xs text-green-600 font-semibold">{s.w}</div>
+                {/* D */}
+                <div className="w-6 text-center text-xs text-yellow-600 font-semibold">{s.d}</div>
+                {/* L */}
+                <div className="w-6 text-center text-xs text-red-500 font-semibold">{s.l}</div>
+                {/* Goals */}
+                <div className="w-10 text-center text-xs text-gray-600">{s.gf}:{s.ga}</div>
+                {/* Points */}
+                <div className={`w-7 text-center text-sm font-black ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
+                  {s.pts}
+                </div>
+              </div>
+            )
+          })}
         </div>
-
-        {/* Rows */}
-        {standings.map((s, idx) => {
-          const pos = idx + 1
-          const total = standings.length
-          const isWildenroth = s.teamName.includes('Wildenroth')
-          // Zones for 15-team Kreisliga:
-          // Platz 1: Aufstieg direkt, Platz 2: Aufstiegsrelegation
-          // Platz 12-13: Abstiegsrelegation, Platz 14-15: Direktabstieg
-          const isPromotion = pos === 1
-          const isPromotionPlayoff = pos === 2
-          const isDirect = total >= 15 && pos >= total - 1          // 14-15
-          const isPlayoff = total >= 15 && pos >= total - 3 && pos <= total - 2  // 12-13
-          return (
-            <div
-              key={s.teamId}
-              className={`grid grid-cols-[auto_1fr_auto_auto] sm:grid-cols-[auto_1fr_auto_auto_auto_auto_auto_auto] gap-x-2 px-3 py-2.5 items-center border-b border-gray-50 last:border-0 ${
-                isWildenroth ? 'bg-red-50' : ''
-              }`}
-            >
-              {/* Position */}
-              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                isPromotion
-                  ? 'bg-green-600 text-white'
-                  : isPromotionPlayoff
-                  ? 'bg-green-200 text-green-800'
-                  : isDirect
-                  ? 'bg-red-500 text-white'
-                  : isPlayoff
-                  ? 'bg-orange-200 text-orange-700'
-                  : 'text-gray-400'
-              }`}>
-                {pos}
-              </div>
-
-              {/* Team */}
-              <div className="flex items-start gap-1.5 min-w-0">
-                <TeamLogo name={s.teamName} size="xs" className="mt-0.5" />
-                <div className="min-w-0">
-                <div className={`text-sm font-semibold leading-tight truncate ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
-                  {s.teamName}
-                  {isWildenroth && <span className="ml-1 text-xs text-red-400">⚽</span>}
-                </div>
-                {/* Form */}
-                <div className="flex gap-0.5 mt-0.5">
-                  {s.form.map((r, i) => (
-                    <span
-                      key={i}
-                      className={`w-3.5 h-3.5 rounded-sm text-white text-[8px] font-bold flex items-center justify-center ${
-                        r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-yellow-400' : 'bg-red-400'
-                      }`}
-                    >
-                      {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
-                    </span>
-                  ))}
-                </div>
-                </div>
-              </div>
-
-              {/* Played */}
-              <div className="w-6 text-center text-xs text-gray-500 hidden sm:block">{s.played}</div>
-
-              {/* W */}
-              <div className="w-6 text-center text-xs text-green-600 font-semibold hidden sm:block">{s.w}</div>
-
-              {/* D */}
-              <div className="w-6 text-center text-xs text-yellow-600 font-semibold hidden sm:block">{s.d}</div>
-
-              {/* L */}
-              <div className="w-6 text-center text-xs text-red-500 font-semibold hidden sm:block">{s.l}</div>
-
-              {/* Goals */}
-              <div className="w-10 text-center text-xs text-gray-600">
-                {s.gf}:{s.ga}
-              </div>
-
-              {/* Points */}
-              <div className={`w-7 text-center text-sm font-black ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
-                {s.pts}
-              </div>
-            </div>
-          )
-        })}
       </div>
 
       {/* Legend */}
