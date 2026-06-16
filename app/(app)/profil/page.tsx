@@ -94,7 +94,7 @@ export default async function ProfilPage() {
   const bets = allBets.filter(b => !b.season || b.season === CURRENT_SEASON)
   const prevBets = allBets.filter(b => b.season === PREV_SEASON)
 
-  // Fetch combo_bets metadata
+  // Fetch combo_bets metadata — current season
   const comboIds = [...new Set(bets.filter(b => b.combo_id).map(b => b.combo_id as string))]
   const comboBetsMap = new Map<string, { id: string; stake: number; total_odds: number; status: string; payout: number | null }>()
   if (comboIds.length > 0) {
@@ -103,6 +103,17 @@ export default async function ProfilPage() {
       .select('id, stake, total_odds, status, payout')
       .in('id', comboIds)
     for (const cb of cbData ?? []) comboBetsMap.set(cb.id, cb)
+  }
+
+  // Fetch combo_bets metadata — previous season
+  const prevComboIds = [...new Set(prevBets.filter(b => b.combo_id).map(b => b.combo_id as string))]
+  const prevComboBetsMap = new Map<string, { id: string; stake: number; total_odds: number; status: string; payout: number | null }>()
+  if (prevComboIds.length > 0) {
+    const { data: pcbData } = await supabase
+      .from('combo_bets')
+      .select('id, stake, total_odds, status, payout')
+      .in('id', prevComboIds)
+    for (const cb of pcbData ?? []) prevComboBetsMap.set(cb.id, cb)
   }
 
   // Wildenroth roster for goalscorer bet labels
@@ -163,12 +174,19 @@ export default async function ProfilPage() {
     [...comboBetsMap.values()].filter(cb => cb.status === 'won').reduce((acc, cb) => acc + (cb.payout ?? 0), 0)
   const profit = profile.balance - (profile.season_start_balance ?? 1000)
 
-  // Previous season quick stats
+  // Previous season quick stats (singles + combos)
   const prevSingleBets = prevBets.filter(b => !b.combo_id)
-  const prevWon = prevSingleBets.filter(b => b.status === 'won').length
-  const prevLost = prevSingleBets.filter(b => b.status === 'lost').length
+  const prevSingleWon = prevSingleBets.filter(b => b.status === 'won').length
+  const prevSingleLost = prevSingleBets.filter(b => b.status === 'lost').length
+  const prevComboWon = [...prevComboBetsMap.values()].filter(cb => cb.status === 'won').length
+  const prevComboLost = [...prevComboBetsMap.values()].filter(cb => cb.status === 'lost').length
+  const prevWon = prevSingleWon + prevComboWon
+  const prevLost = prevSingleLost + prevComboLost
+  const prevTotalBets = prevSingleBets.length + prevComboBetsMap.size
   const prevStaked = prevSingleBets.reduce((acc, b) => acc + (b.stake ?? 0), 0)
+    + [...prevComboBetsMap.values()].reduce((acc, cb) => acc + cb.stake, 0)
   const prevPayout = prevSingleBets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0)
+    + [...prevComboBetsMap.values()].filter(cb => cb.status === 'won').reduce((acc, cb) => acc + (cb.payout ?? 0), 0)
   const prevProfit = prevPayout - prevStaked
 
   // Extended stats
@@ -412,7 +430,7 @@ export default async function ProfilPage() {
         <details className="bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
           <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-600 dark:text-gray-300 list-none flex items-center justify-between">
             <span>Letzte Saison 25/26</span>
-            <span className="text-xs text-gray-400">{prevBets.length} Wetten ▼</span>
+            <span className="text-xs text-gray-400">{prevTotalBets} Wetten ▼</span>
           </summary>
           <div className="px-4 pb-4 pt-1 grid grid-cols-2 gap-3">
             <div className="bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
