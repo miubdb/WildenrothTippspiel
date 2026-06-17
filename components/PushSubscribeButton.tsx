@@ -1,9 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
 
 export function PushSubscribeButton() {
   const [state, setState] = useState<'unsupported' | 'loading' | 'subscribed' | 'unsubscribed'>('loading')
+  const supabase = createClient()
 
   useEffect(() => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
@@ -24,13 +26,25 @@ export function PushSubscribeButton() {
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
       })
-      await fetch('/api/push/subscribe', {
+      const res = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sub.toJSON()),
       })
+
+      if (res.ok) {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          await supabase.from('notification_preferences').upsert({
+            user_id: user.id,
+            push_enabled: true,
+          })
+        }
+      }
+
       setState('subscribed')
-    } catch {
+    } catch (err) {
+      console.error('Push subscribe error:', err)
       setState('unsubscribed')
     }
   }
@@ -49,7 +63,8 @@ export function PushSubscribeButton() {
         await sub.unsubscribe()
       }
       setState('unsubscribed')
-    } catch {
+    } catch (err) {
+      console.error('Push unsubscribe error:', err)
       setState('unsubscribed')
     }
   }
@@ -60,11 +75,11 @@ export function PushSubscribeButton() {
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
       <div className="flex items-center justify-between">
         <div>
-          <div className="font-semibold text-gray-900 text-sm">Push-Benachrichtigungen</div>
+          <div className="font-semibold text-gray-900 text-sm">Browser Push-Notifications</div>
           <div className="text-xs text-gray-400 mt-0.5">
             {state === 'subscribed'
-              ? 'Wettentscheide, Tippschluss-Reminder & Spieltags-Recap'
-              : 'Erhalte Tipperinnerungen, Ergebnisse & Spieltags-Highlights'}
+              ? 'Browser hat Zugriff auf Benachrichtigungen'
+              : 'Erlaube dem Browser, Benachrichtigungen zu senden'}
           </div>
         </div>
         {state === 'loading' ? (

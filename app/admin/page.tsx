@@ -24,7 +24,7 @@ interface AdminUser {
   is_admin: boolean
 }
 
-type Tab = 'results' | 'bets' | 'quoten' | 'saison'
+type Tab = 'results' | 'bets' | 'quoten' | 'saison' | 'push'
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('results')
@@ -280,7 +280,7 @@ export default function AdminPage() {
 
         {/* Tab Bar */}
         <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm overflow-x-auto">
-          {(['results', 'bets', 'quoten', 'saison'] as Tab[]).map((t) => (
+          {(['results', 'bets', 'quoten', 'saison', 'push'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -293,7 +293,8 @@ export default function AdminPage() {
               {t === 'results' ? 'Ergebnisse'
                 : t === 'bets' ? 'Tipps'
                 : t === 'quoten' ? 'Quoten & Torschützen'
-                : 'Saison'}
+                : t === 'saison' ? 'Saison'
+                : 'Push'}
             </button>
           ))}
         </div>
@@ -558,6 +559,116 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        {/* Push Tab */}
+        {tab === 'push' && (
+          <AdminPushTab />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function AdminPushTab() {
+  const [stats, setStats] = useState<{
+    totalEligibleUsers: number
+    usersWithPushEnabled: number
+    activeSubscriptions: number
+    enablementRate: string | number
+    recentErrors: Array<{ category: string; title: string; error_message: string | null }>
+  } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [testLoading, setTestLoading] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    loadStats()
+  }, [])
+
+  async function loadStats() {
+    setLoading(true)
+    const res = await fetch('/api/push/test')
+    if (res.ok) {
+      const data = await res.json()
+      setStats(data.pushOverview)
+    }
+    setLoading(false)
+  }
+
+  async function sendTestToMe() {
+    setTestLoading(true)
+    const res = await fetch('/api/push/test', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    setTestLoading(false)
+
+    if (res.ok) {
+      setMessage('✓ Test-Push gesendet')
+      setTimeout(() => setMessage(null), 3000)
+    } else {
+      const err = await res.json()
+      setMessage(`✗ ${err.error}`)
+    }
+  }
+
+  if (loading) return <div className="text-center py-8 text-gray-400">Lade Push-Daten…</div>
+
+  if (!stats) return <div className="text-red-600 text-sm">Fehler beim Laden der Push-Daten</div>
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+          <div className="text-2xl font-black text-blue-600">{stats.usersWithPushEnabled}</div>
+          <div className="text-[10px] text-blue-700 font-semibold leading-tight">
+            Nutzer Push aktiv
+          </div>
+        </div>
+        <div className="bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+          <div className="text-2xl font-black text-green-600">{stats.activeSubscriptions}</div>
+          <div className="text-[10px] text-green-700 font-semibold leading-tight">
+            Aktive Subscriptions
+          </div>
+        </div>
+        <div className="bg-purple-50 border border-purple-200 rounded-xl px-3 py-2 col-span-2">
+          <div className="text-2xl font-black text-purple-600">
+            {typeof stats.enablementRate === 'string' ? stats.enablementRate : stats.enablementRate.toFixed(1)}%
+          </div>
+          <div className="text-[10px] text-purple-700 font-semibold leading-tight">
+            Aktivierungsquote ({stats.totalEligibleUsers} berechtigt)
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={sendTestToMe}
+        disabled={testLoading}
+        className="w-full py-2 px-3 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors"
+      >
+        {testLoading ? '🧪 Test wird gesendet…' : '🧪 Test-Push an mich'}
+      </button>
+
+      {message && (
+        <div className="px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg">{message}</div>
+      )}
+
+      {stats.recentErrors && stats.recentErrors.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+          <div className="text-xs font-semibold text-red-700 mb-2">⚠️ Letzte Fehler</div>
+          <div className="space-y-1 text-[11px] text-red-600">
+            {stats.recentErrors.slice(0, 5).map((err, i) => (
+              <div key={i} className="line-clamp-2">
+                <strong>{err.title}:</strong> {err.error_message}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+        <strong>ℹ️ Info:</strong> Die Cron-Job wird alle 15 Minuten ausgeführt und sendet zeitgesteuerte Benachrichtigungen
+        wie "Spieltag offen" und "Noch Wettscheine frei".
       </div>
     </div>
   )

@@ -9,35 +9,103 @@ function initVapid() {
   )
 }
 
-export async function sendPushToUser(userId: string, title: string, body: string, url = '/tipps') {
-  if (!process.env.VAPID_SUBJECT || !process.env.VAPID_PRIVATE_KEY) return
-  initVapid()
-  // Use admin client so this works in cron/server contexts regardless of RLS
+async function logNotification(
+  userId: string | null,
+  category: string,
+  title: string,
+  body: string,
+  dedupeKey: string | null,
+  status: 'sent' | 'failed' | 'skipped',
+  errorMessage?: string
+) {
   const supabase = createAdminClient()
+  try {
+    await supabase.from('notification_log').insert({
+      user_id: userId,
+      category,
+      title,
+      body,
+      dedupe_key: dedupeKey,
+      status,
+      error_message: errorMessage,
+      sent_at: status === 'sent' ? new Date().toISOString() : null,
+    })
+  } catch {
+    // Silently fail on logging errors
+  }
+}
+
+export async function sendPushToUser(
+  userId: string,
+  title: string,
+  body: string,
+  url = '/tipps',
+  category = 'manual',
+  dedupeKey?: string
+) {
+  if (!process.env.VAPID_SUBJECT || !process.env.VAPID_PRIVATE_KEY) {
+    await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', 'VAPID keys missing')
+    return
+  }
+
+  const supabase = createAdminClient()
+
+  if (dedupeKey) {
+    const { data: existing } = await supabase
+      .from('notification_log')
+      .select('id')
+      .eq('dedupe_key', dedupeKey)
+      .eq('status', 'sent')
+      .limit(1)
+      .single()
+
+    if (existing) {
+      await logNotification(userId, category, title, body, dedupeKey, 'skipped', 'Already sent')
+      return
+    }
+  }
+
+  const { data: prefData } = await supabase
+    .from('notification_preferences')
+    .select('push_enabled')
+    .eq('user_id', userId)
+    .single()
+
+  if (!prefData?.push_enabled) {
+    await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', 'User disabled push')
+    return
+  }
+
+  initVapid()
   const { data: subs } = await supabase
     .from('push_subscriptions')
-    .select('endpoint, p256dh, auth_key')
+    .select('endpoint, p256dh, auth')
     .eq('user_id', userId)
 
-  if (!subs || subs.length === 0) return
+  if (!subs || subs.length === 0) {
+    await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', 'No subscriptions')
+    return
+  }
 
   const payload = JSON.stringify({ title, body, url })
   const failed: string[] = []
+  let sentCount = 0
 
   await Promise.allSettled(
     subs.map(async (sub) => {
       try {
         await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           payload
         )
-      } catch {
+        sentCount++
+      } catch (err) {
         failed.push(sub.endpoint)
+        console.error(`Push failed for ${sub.endpoint}:`, err)
       }
     })
   )
 
-  // Remove expired/invalid subscriptions
   if (failed.length > 0) {
     await supabase
       .from('push_subscriptions')
@@ -45,30 +113,65 @@ export async function sendPushToUser(userId: string, title: string, body: string
       .eq('user_id', userId)
       .in('endpoint', failed)
   }
+
+  if (sentCount > 0) {
+    await logNotification(userId, category, title, body, dedupeKey ?? null, 'sent')
+  } else {
+    await logNotification(
+      userId,
+      category,
+      title,
+      body,
+      dedupeKey ?? null,
+      'failed',
+      `All ${failed.length} subscriptions failed`
+    )
+  }
 }
 
-export async function sendPushToAll(title: string, body: string, url = '/tipps') {
+export async function sendPushToAll(title: string, body: string, url = '/tipps', category = 'broadcast', dedupeKey?: string) {
   if (!process.env.VAPID_SUBJECT || !process.env.VAPID_PRIVATE_KEY) return
   initVapid()
+
   const admin = createAdminClient()
+
+  if (dedupeKey) {
+    const { data: existing } = await admin
+      .from('notification_log')
+      .select('id')
+      .eq('dedupe_key', dedupeKey)
+      .eq('status', 'sent')
+      .limit(1)
+      .single()
+
+    if (existing) {
+      console.log(`Push deduplicated: ${dedupeKey}`)
+      return
+    }
+  }
+
   const { data: subs } = await admin
     .from('push_subscriptions')
-    .select('user_id, endpoint, p256dh, auth_key')
+    .select('user_id, endpoint, p256dh, auth')
 
   if (!subs || subs.length === 0) return
 
   const payload = JSON.stringify({ title, body, url })
   const failed: string[] = []
+  const sentUsers = new Set<string>()
+  const failedUsers = new Set<string>()
 
   await Promise.allSettled(
     subs.map(async (sub) => {
       try {
         await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
           payload
         )
-      } catch {
+        sentUsers.add(sub.user_id)
+      } catch (err) {
         failed.push(sub.endpoint)
+        failedUsers.add(sub.user_id)
       }
     })
   )
@@ -78,5 +181,13 @@ export async function sendPushToAll(title: string, body: string, url = '/tipps')
       .from('push_subscriptions')
       .delete()
       .in('endpoint', failed)
+  }
+
+  for (const userId of sentUsers) {
+    logNotification(userId, category, title, body, dedupeKey ?? null, 'sent').catch(() => {})
+  }
+
+  if (dedupeKey) {
+    await logNotification(null, category, title, body, dedupeKey, 'sent').catch(() => {})
   }
 }

@@ -230,7 +230,14 @@ export async function POST(request: NextRequest) {
       .eq('id', userId)
 
     pushNotifications.push(
-      sendPushToUser(userId, '🎉 Wette gewonnen!', `+${amount.toFixed(2)} € wurden deinem Konto gutgeschrieben.`, '/profil')
+      sendPushToUser(
+        userId,
+        '🎉 Wette gewonnen!',
+        `+${amount.toFixed(2)} € wurden deinem Konto gutgeschrieben.`,
+        '/profil',
+        'settlement_win',
+        `settlement-win-${userId}-${matchId}`
+      )
     )
   }
 
@@ -243,7 +250,14 @@ export async function POST(request: NextRequest) {
   )
   for (const uid of loserIds) {
     pushNotifications.push(
-      sendPushToUser(uid, '😬 Wette verloren', 'Deine Wette wurde leider nicht gewonnen. Viel Glück beim nächsten Spieltag!', '/tipps')
+      sendPushToUser(
+        uid,
+        '😬 Wette verloren',
+        'Deine Wette wurde leider nicht gewonnen. Viel Glück beim nächsten Spieltag!',
+        '/tipps',
+        'settlement_loss',
+        `settlement-loss-${uid}-${matchId}`
+      )
     )
   }
 
@@ -279,7 +293,9 @@ export async function POST(request: NextRequest) {
         await sendPushToAll(
           '📊 Spieltags-Recap verfügbar',
           `Der ${matchday}. Spieltag ist abgeschlossen – schau dir die Highlights an!`,
-          `/tipps?matchday=${matchday}`
+          `/tipps?matchday=${matchday}`,
+          'matchday_recap',
+          `recap-${matchday}`
         )
       }
 
