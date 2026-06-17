@@ -1,3 +1,8 @@
+'use client'
+
+import { useState } from 'react'
+import { ShareCard, type ShareCardData } from './ShareCard'
+
 export type RecapLegDetail = {
   matchName: string
   market: string
@@ -55,13 +60,14 @@ function fmtOdds(n: number) {
 
 function HighlightCard({
   emoji, title, name, value, detail, sub,
-  accentBg, accentBorder, accentText,
+  accentBg, accentBorder, accentText, onShare,
 }: {
   emoji: string; title: string; name: string; value: string; detail?: string; sub?: string
-  accentBg: string; accentBorder: string; accentText: string
+  accentBg: string; accentBorder: string; accentText: string; onShare?: () => void
 }) {
   return (
-    <div className={`rounded-2xl border ${accentBorder} ${accentBg} dark:bg-gray-800 dark:border-gray-700 px-4 py-3`}>
+    <div className={`relative rounded-2xl border ${accentBorder} ${accentBg} dark:bg-gray-800 dark:border-gray-700 px-4 py-3`}>
+      {onShare && <ShareButton onClick={onShare} />}
       <div className="text-xl mb-1.5">{emoji}</div>
       <div className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wide">{title}</div>
       <div className="font-bold text-gray-900 dark:text-gray-100 text-sm mt-0.5 truncate">{name}</div>
@@ -143,7 +149,44 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
   )
 }
 
+type ShareState = { type: 'mvp' | 'risky' | 'pechvogel' | 'ranking'; data: ShareCardData } | null
+
+function ShareButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Teilen"
+      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-white/80 dark:bg-gray-700/80 flex items-center justify-center text-sm shadow-sm hover:scale-110 transition"
+    >
+      📤
+    </button>
+  )
+}
+
+function ShareModal({ share, onClose }: { share: NonNullable<ShareState>; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div className="flex flex-col items-center gap-3" onClick={e => e.stopPropagation()}>
+        <ShareCard type={share.type} data={share.data} />
+        <p className="text-white text-xs text-center">Screenshot machen und teilen 📱</p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-5 py-2 rounded-full bg-white text-gray-900 font-semibold text-sm"
+        >
+          Schließen
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: number }) {
+  const [share, setShare] = useState<ShareState>(null)
   const { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip, bestCombo, riskyHit } = data
   const wildenrothOptimist = data.wildenrothOptimist ?? null
   const craziestBet = data.craziestBet ?? null
@@ -170,6 +213,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={mvp.name}
               value={`+${fmtAmt(mvp.profit)} €`}
               detail={tpl('mvp', mvp.name)}
+              onShare={() => setShare({ type: 'mvp', data: { matchday, name: mvp.name, value: `+${fmtAmt(mvp.profit)} €`, subtitle: tpl('mvp', mvp.name) } })}
               accentBg="bg-green-50"
               accentBorder="border-green-200"
               accentText="text-green-600"
@@ -215,6 +259,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={riskyHit.name}
               value={`@${fmtOdds(riskyHit.odds)}`}
               detail={`Einsatz ${fmtAmt(riskyHit.stake)} € → +${fmtAmt(riskyHit.payout - riskyHit.stake)} €${riskyHit.isCombo ? ' · Kombi' : ''}`}
+              onShare={() => setShare({ type: 'risky', data: { matchday, name: riskyHit.name, value: `@${fmtOdds(riskyHit.odds)}`, subtitle: tpl('riskyHit', riskyHit.name, riskyHit.odds) } })}
               accentBg="bg-amber-50"
               accentBorder="border-amber-200"
               accentText="text-amber-700"
@@ -233,6 +278,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={biggestLoss.name}
               value={`-${fmtAmt(biggestLoss.loss)} €`}
               detail={tpl('pechvogel', biggestLoss.name)}
+              onShare={() => setShare({ type: 'pechvogel', data: { matchday, name: biggestLoss.name, value: `-${fmtAmt(biggestLoss.loss)} €`, subtitle: tpl('pechvogel', biggestLoss.name) } })}
               accentBg="bg-red-50"
               accentBorder="border-red-200"
               accentText="text-red-600"
@@ -299,6 +345,8 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
           accentText="text-emerald-700"
         />
       )}
+
+      {share && <ShareModal share={share} onClose={() => setShare(null)} />}
     </div>
   )
 }

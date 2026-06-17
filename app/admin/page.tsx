@@ -15,6 +15,15 @@ interface MatchRow {
   away_team: { name: string; short_name: string } | null
 }
 
+interface AdminUser {
+  id: string
+  username: string
+  display_name: string | null
+  balance: number
+  eligible_for_current_season: boolean
+  is_admin: boolean
+}
+
 type Tab = 'results' | 'bets' | 'quoten' | 'saison'
 
 export default function AdminPage() {
@@ -30,8 +39,57 @@ export default function AdminPage() {
   const [preview, setPreview] = useState<OddsPreviewResponse | null>(null)
   const [previewMd, setPreviewMd] = useState<number | null>(null)
   const [playerSuggestions, setPlayerSuggestions] = useState<string[]>([])
+  const [seasonStarted, setSeasonStarted] = useState(false)
+  const [seasonToggleLoading, setSeasonToggleLoading] = useState(false)
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [eligBalance, setEligBalance] = useState<Record<string, string>>({})
+  const [pendingBetsByMatch, setPendingBetsByMatch] = useState<Record<number, number>>({})
 
   const supabase = createClient()
+
+  const fetchSeasonData = useCallback(async () => {
+    const [{ data: setting }, { data: profs }] = await Promise.all([
+      supabase.from('app_settings').select('value').eq('key', 'season_started').single(),
+      supabase.from('profiles').select('id, username, display_name, balance, eligible_for_current_season, is_admin').order('username'),
+    ])
+    setSeasonStarted(setting?.value === 'true')
+    setUsers((profs ?? []) as AdminUser[])
+  }, [supabase])
+
+  const fetchPendingCounts = useCallback(async () => {
+    const { data } = await supabase.from('bets').select('match_id').eq('status', 'pending')
+    const counts: Record<number, number> = {}
+    for (const b of (data ?? []) as { match_id: number | null }[]) {
+      if (b.match_id != null) counts[b.match_id] = (counts[b.match_id] ?? 0) + 1
+    }
+    setPendingBetsByMatch(counts)
+  }, [supabase])
+
+  useEffect(() => { fetchSeasonData(); fetchPendingCounts() }, [fetchSeasonData, fetchPendingCounts])
+
+  async function toggleSeasonStarted(value: boolean) {
+    setSeasonToggleLoading(true)
+    setMessage(null)
+    const res = await fetch('/api/admin/season', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'toggle_season_started', value }),
+    })
+    setSeasonToggleLoading(false)
+    if (res.ok) { setSeasonStarted(value); setMessage(value ? 'Saison als gestartet markiert.' : 'Saisonstart-Flag entfernt.') }
+    else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
+  }
+
+  async function setUserEligible(userId: string, eligible: boolean, balance?: number) {
+    setMessage(null)
+    const res = await fetch('/api/admin/season', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_user_eligible', userId, eligible, balance }),
+    })
+    if (res.ok) { setMessage('Spieler aktualisiert.'); fetchSeasonData() }
+    else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
+  }
 
   const fetchMatches = useCallback(async () => {
     setLoading(true)
@@ -225,6 +283,29 @@ export default function AdminPage() {
         {/* Results Tab */}
         {tab === 'results' && (
           <div className="space-y-4">
+            {/* Status overview */}
+            {(() => {
+              const noResult = matches.filter(m => m.status !== 'finished' && new Date(m.match_date) <= new Date())
+              const unsettled = matches.filter(m => m.home_score != null && m.away_score != null && m.status !== 'finished')
+              const openBets = Object.values(pendingBetsByMatch).reduce((a, b) => a + b, 0)
+              return (
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-3 text-center">
+                    <div className="text-2xl font-black text-red-600">{noResult.length}</div>
+                    <div className="text-[10px] text-red-700 font-semibold mt-0.5 leading-tight">Spiele ohne Ergebnis</div>
+                  </div>
+                  <div className="bg-orange-50 border border-orange-200 rounded-xl px-3 py-3 text-center">
+                    <div className="text-2xl font-black text-orange-600">{unsettled.length}</div>
+                    <div className="text-[10px] text-orange-700 font-semibold mt-0.5 leading-tight">Spiele nicht settled</div>
+                  </div>
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-3 text-center">
+                    <div className="text-2xl font-black text-blue-600">{openBets}</div>
+                    <div className="text-[10px] text-blue-700 font-semibold mt-0.5 leading-tight">offene Wetten</div>
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* Pending settlement */}
             {pendingMatches.length > 0 && (
               <div>
@@ -240,6 +321,7 @@ export default function AdminPage() {
                       onChange={(side, val) => handleScoreChange(match.id, side, val)}
                       onSettle={() => settleMatch(match.id)}
                       loading={settleLoading === match.id}
+                      pendingBets={pendingBetsByMatch[match.id]}
                     />
                   ))}
                 </div>
@@ -265,6 +347,7 @@ export default function AdminPage() {
                       onSettle={() => settleMatch(match.id)}
                       loading={settleLoading === match.id}
                       isUpcoming
+                      pendingBets={pendingBetsByMatch[match.id]}
                     />
                   ))}
                 </div>
@@ -371,6 +454,65 @@ export default function AdminPage() {
                 Die Statistiken auf den Spielerprofilen zeigen die aktuelle Saison — die letzte Saison
                 ist dort im Detail-Bereich einklappbar sichtbar.
               </p>
+            </div>
+
+            {/* Saison manuell starten */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-bold text-gray-900 mb-1">Saison manuell starten</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Ist die Saison gestartet, können sich neu registrierte Spieler nicht mehr automatisch beteiligen.
+                Auch ohne Flag gilt die Saison als gestartet, sobald das erste Spiel des 1. Spieltags angepfiffen wurde.
+              </p>
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+                <div className="text-sm font-semibold text-gray-900">
+                  Status: {seasonStarted ? <span className="text-green-600">Gestartet</span> : <span className="text-gray-500">Nicht gestartet</span>}
+                </div>
+                <button
+                  onClick={() => toggleSeasonStarted(!seasonStarted)}
+                  disabled={seasonToggleLoading}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${seasonStarted ? 'bg-gray-500 hover:bg-gray-600' : 'bg-red-700 hover:bg-red-800'}`}
+                >
+                  {seasonStarted ? 'Flag entfernen' : 'Saison starten'}
+                </button>
+              </div>
+            </div>
+
+            {/* Spieler-Berechtigung */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-bold text-gray-900 mb-1">Spieler-Berechtigung</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Berechtigung für die aktuelle Saison verwalten. Für Nachzügler kann ein Startguthaben gesetzt werden.
+              </p>
+              <div className="space-y-2">
+                {users.map((u) => (
+                  <div key={u.id} className="flex items-center gap-2 flex-wrap bg-gray-50 rounded-xl px-3 py-2.5">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-gray-900 truncate">
+                        {u.display_name || u.username}{u.is_admin && <span className="ml-1 text-[10px] text-red-600 font-bold">ADMIN</span>}
+                      </div>
+                      <div className="text-[11px] text-gray-400">{u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € · {u.eligible_for_current_season ? 'berechtigt' : 'nicht berechtigt'}</div>
+                    </div>
+                    <input
+                      type="number"
+                      placeholder="Guthaben"
+                      value={eligBalance[u.id] ?? ''}
+                      onChange={(e) => setEligBalance(prev => ({ ...prev, [u.id]: e.target.value }))}
+                      className="w-24 text-sm py-1.5 px-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                    />
+                    <button
+                      onClick={() => {
+                        const raw = eligBalance[u.id]
+                        const bal = raw != null && raw !== '' ? parseFloat(raw) : undefined
+                        setUserEligible(u.id, !u.eligible_for_current_season, bal)
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white ${u.eligible_for_current_season ? 'bg-gray-500 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'}`}
+                    >
+                      {u.eligible_for_current_season ? 'Sperren' : 'Freischalten'}
+                    </button>
+                  </div>
+                ))}
+                {users.length === 0 && <div className="text-sm text-gray-400 text-center py-4">Keine Spieler geladen.</div>}
+              </div>
             </div>
           </div>
         )}
@@ -964,6 +1106,7 @@ function MatchSettleCard({
   onSettle,
   loading,
   isUpcoming,
+  pendingBets,
 }: {
   match: MatchRow
   score: { home: string; away: string }
@@ -971,6 +1114,7 @@ function MatchSettleCard({
   onSettle: () => void
   loading: boolean
   isUpcoming?: boolean
+  pendingBets?: number
 }) {
   const matchDate = new Date(match.match_date)
   const dateStr = matchDate.toLocaleDateString('de-DE', {
@@ -985,7 +1129,12 @@ function MatchSettleCard({
         <div className={`text-xs font-medium px-2 py-1 rounded-lg ${isUpcoming ? 'text-blue-600 bg-blue-50' : 'text-orange-600 bg-orange-50'}`}>
           Spieltag {match.matchday}{isUpcoming ? ' · Verlegt?' : ''}
         </div>
-        <div className="text-xs text-gray-500">{dateStr}</div>
+        <div className="flex items-center gap-2">
+          {pendingBets != null && pendingBets > 0 && (
+            <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-blue-50 text-blue-600">{pendingBets} offen</span>
+          )}
+          <div className="text-xs text-gray-500">{dateStr}</div>
+        </div>
       </div>
 
       <div className="flex items-center gap-3 mb-3">
