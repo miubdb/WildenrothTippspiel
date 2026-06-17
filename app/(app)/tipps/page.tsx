@@ -8,6 +8,7 @@ import { MatchdayRecap } from '@/components/MatchdayRecap'
 import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch } from '@/types'
 import { calculateOdds, buildPriorContext } from '@/lib/odds'
+import { isSeasonStarted } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
 
@@ -375,13 +376,18 @@ export default async function TippsPage({
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Fetch user profile (for Wildenroth player flag)
-  const isWildenrothPlayer = user ? await supabase
+  // Fetch user profile (Wildenroth flag + season eligibility)
+  const { data: userProfile } = user ? await supabase
     .from('profiles')
-    .select('is_wildenroth')
+    .select('is_wildenroth, eligible_for_current_season, is_admin')
     .eq('id', user.id)
-    .single()
-    .then(({ data }) => data?.is_wildenroth ?? false) : false
+    .single() : { data: null }
+  const isWildenrothPlayer = userProfile?.is_wildenroth ?? false
+
+  // Saisonstart-Regel: nicht teilnahmeberechtigte Nutzer bekommen eine Hinweis-Seite
+  const seasonStarted = await isSeasonStarted(supabase)
+  const isNotEligible = seasonStarted && !!user
+    && !userProfile?.eligible_for_current_season && !userProfile?.is_admin
 
   // Find Wildenroth team ID
   const wildenrothTeam = allMatches.flatMap(m => [m.home_team, m.away_team])
@@ -485,7 +491,7 @@ export default async function TippsPage({
   if (isMatchdayComplete && matchdayMatchIds.length > 0) {
     const { data: recapBets } = await supabase
       .from('bets')
-      .select('id, user_id, stake, odds_value, payout, status, combo_id, is_risky')
+      .select('id, user_id, match_id, market_type, selection, stake, odds_value, payout, status, combo_id, is_risky')
       .in('match_id', matchdayMatchIds)
       .in('status', ['won', 'lost'])
 
@@ -677,10 +683,69 @@ export default async function TippsPage({
         }
       }
 
-      if (mvp || bestOdds || unluckyBastard || biggestLoss || safestTip || bestCombo || riskyHit) {
-        recapData = { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip, bestCombo, riskyHit }
+      // Wildenroth-Optimist: highest stake single bet on a Wildenroth win
+      let wildenrothOptimist: RecapData['wildenrothOptimist'] = null
+      if (wildenrothTeamId != null) {
+        const wOpt = singleBets
+          .filter(b => {
+            const m = matchMap.get((b as { match_id?: number }).match_id ?? -1)
+            if (!m) return false
+            const wIsHome = m.home_team_id === wildenrothTeamId
+            const wIsAway = m.away_team_id === wildenrothTeamId
+            if (!wIsHome && !wIsAway) return false
+            return b.market_type === '1x2' && ((wIsHome && b.selection === 'home') || (wIsAway && b.selection === 'away'))
+          })
+          .sort((a, b) => (b.stake ?? 0) - (a.stake ?? 0))[0]
+        if (wOpt) wildenrothOptimist = { name: pMap[wOpt.user_id] ?? 'Unbekannt', stake: wOpt.stake ?? 0, odds: wOpt.odds_value }
+      }
+
+      // Craziest Bet: non-cancelled bet/combo with highest odds (win or loss); tie → higher stake
+      const craziestSingle = [...singleBets].sort((a, b) => (b.odds_value - a.odds_value) || ((b.stake ?? 0) - (a.stake ?? 0)))[0] ?? null
+      const craziestCombo = [...recapCombos].sort((a, b) => (b.total_odds - a.total_odds) || (b.stake - a.stake))[0] ?? null
+      let craziestBet: RecapData['craziestBet'] = null
+      if (craziestSingle || craziestCombo) {
+        const sO = craziestSingle?.odds_value ?? 0
+        const cO = craziestCombo?.total_odds ?? 0
+        if (sO >= cO && craziestSingle) {
+          craziestBet = { name: pMap[craziestSingle.user_id] ?? 'Unbekannt', odds: craziestSingle.odds_value, stake: craziestSingle.stake ?? 0, isCombo: false, won: craziestSingle.status === 'won' }
+        } else if (craziestCombo) {
+          craziestBet = { name: pMap[craziestCombo.user_id] ?? 'Unbekannt', odds: craziestCombo.total_odds, stake: craziestCombo.stake, isCombo: true, won: craziestCombo.status === 'won' }
+        }
+      }
+
+      // Safest Banker: won bet/combo with the LOWEST odds
+      const lowSingle = wonSingles.length > 0 ? [...wonSingles].sort((a, b) => a.odds_value - b.odds_value)[0] : null
+      const lowCombo = wonCombos.length > 0 ? [...wonCombos].sort((a, b) => a.total_odds - b.total_odds)[0] : null
+      let safestBanker: RecapData['safestBanker'] = null
+      if (lowSingle || lowCombo) {
+        const sO = lowSingle?.odds_value ?? Infinity
+        const cO = lowCombo?.total_odds ?? Infinity
+        if (sO <= cO && lowSingle) {
+          safestBanker = { name: pMap[lowSingle.user_id] ?? 'Unbekannt', odds: lowSingle.odds_value, stake: lowSingle.stake ?? 0, payout: lowSingle.payout ?? 0, isCombo: false }
+        } else if (lowCombo) {
+          safestBanker = { name: pMap[lowCombo.user_id] ?? 'Unbekannt', odds: lowCombo.total_odds, stake: lowCombo.stake, payout: lowCombo.payout, isCombo: true }
+        }
+      }
+
+      if (mvp || bestOdds || unluckyBastard || biggestLoss || safestTip || bestCombo || riskyHit || wildenrothOptimist || craziestBet || safestBanker) {
+        recapData = { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip, bestCombo, riskyHit, wildenrothOptimist, craziestBet, safestBanker }
       }
     }
+  }
+
+  if (isNotEligible) {
+    return (
+      <div className="px-4 py-8 text-center space-y-4">
+        <div className="text-5xl">⏸️</div>
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-5">
+          <h2 className="font-black text-lg text-gray-900 mb-2">Saison bereits gestartet</h2>
+          <p className="text-sm text-gray-600">
+            Die Saison läuft bereits. Ein automatischer Einstieg in die aktuelle Saison ist nicht mehr möglich.
+            Wende dich bei Fragen bitte an den Admin → Jani
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -801,52 +866,82 @@ export default async function TippsPage({
         </div>
       )}
 
-      {/* Social Bets — visible once first match of matchday has kicked off */}
-      {isDeadlinePassed && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
-            <div>
+      {/* Social Bets — grouped by match, visible once first match of matchday has kicked off */}
+      {isDeadlinePassed && (() => {
+        const activeSocial = socialBets.filter(b => b.status !== 'cancelled')
+        const profileMap = new Map(socialProfiles.map(p => [p.id, p]))
+        const nameOf = (uid: string) => {
+          const p = profileMap.get(uid)
+          return p ? (p.display_name || p.username) : 'Unbekannt'
+        }
+        const initialOf = (uid: string) => (nameOf(uid)[0] ?? '?').toUpperCase()
+        const totalTippers = new Set(activeSocial.map(b => b.user_id)).size
+
+        return (
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
               <h2 className="font-bold text-gray-900 dark:text-gray-100">Tipps der anderen</h2>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                {socialProfiles.length > 0 ? `${socialProfiles.length} Spieler haben getippt` : 'Noch keine Tipps von Mitspielern'}
+                {totalTippers > 0 ? `${totalTippers} Spieler haben getippt` : 'Noch keine Tipps von Mitspielern'}
               </p>
             </div>
-          </div>
 
-          {socialProfiles.length === 0 ? (
-            <div className="px-4 py-8 text-center text-gray-400 dark:text-gray-500 text-sm">Keine Tipps vorhanden</div>
-          ) : (
-            <div className="divide-y divide-gray-100 dark:divide-gray-700">
-              {socialProfiles.map(profile => {
-                const userBets = socialBets.filter(b => b.user_id === profile.id)
-                const seenCombos = new Set<string>()
-                const initial = (profile.display_name || profile.username)[0].toUpperCase()
-                const singlesCount = userBets.filter(b => !b.combo_id).length
-                const combosCount = new Set(userBets.filter(b => b.combo_id).map(b => b.combo_id)).size
-                const slipCount = singlesCount + combosCount
+            {activeSocial.length === 0 ? (
+              <div className="px-4 py-8 text-center text-gray-400 dark:text-gray-500 text-sm">Keine Tipps vorhanden</div>
+            ) : (
+              <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                {matchdayMatches.map(match => {
+                  // Singles on this match
+                  const singles = activeSocial.filter(b => !b.combo_id && b.match_id === match.id)
+                  // Combos that contain a leg for this match (show once each)
+                  const comboIdsHere = [...new Set(activeSocial.filter(b => b.combo_id && b.match_id === match.id).map(b => b.combo_id as string))]
+                  if (singles.length === 0 && comboIdsHere.length === 0) return null
 
-                return (
-                  <div key={profile.id} className="px-4 py-3 space-y-2">
-                    {/* User header */}
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-                        <span className="text-red-700 dark:text-red-400 font-bold text-xs">{initial}</span>
+                  return (
+                    <div key={match.id} className="px-4 py-3 space-y-2">
+                      {/* Match header */}
+                      <div className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-gray-100">
+                        <span className="truncate">{match.home_team?.name ?? '?'}</span>
+                        <span className="text-gray-400 dark:text-gray-500 text-xs">vs</span>
+                        <span className="truncate">{match.away_team?.name ?? '?'}</span>
+                        {match.status === 'finished' && match.home_score != null && (
+                          <span className="ml-auto text-xs font-black text-red-700 dark:text-red-400">{match.home_score}:{match.away_score}</span>
+                        )}
                       </div>
-                      <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex-1">
-                        {profile.display_name || profile.username}
-                      </span>
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
-                        {slipCount} {slipCount === 1 ? 'Wettschein' : 'Wettscheine'}
-                      </span>
-                    </div>
 
-                    {/* Bet cards */}
-                    {userBets.map(bet => {
-                      if (bet.combo_id) {
-                        if (seenCombos.has(bet.combo_id)) return null
-                        seenCombos.add(bet.combo_id)
-                        const legs = userBets.filter(b => b.combo_id === bet.combo_id)
-                        const cb = socialCombos[bet.combo_id]
+                      {/* Single bets on this match */}
+                      {singles.map(bet => {
+                        const stake = bet.stake ?? 0
+                        const potWin = Math.round(stake * bet.odds_value * 100) / 100
+                        const borderCls = bet.status === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : bet.status === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/40'
+                        return (
+                          <div key={bet.id} className={`rounded-xl border px-3 py-2 ${borderCls}`}>
+                            <div className="flex items-center gap-2">
+                              <div className="w-6 h-6 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                                <span className="text-red-700 dark:text-red-400 font-bold text-[10px]">{initialOf(bet.user_id)}</span>
+                              </div>
+                              <StatusDot status={bet.status} />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{nameOf(bet.user_id)}</div>
+                                <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">{socialSelLabel(bet.market_type, bet.selection, playerNameMap)}</div>
+                              </div>
+                              <div className="text-right text-xs flex-shrink-0">
+                                <div className="font-bold text-red-700 dark:text-red-400">@{bet.odds_value.toFixed(2).replace('.', ',')}</div>
+                                {stake > 0 && bet.status === 'pending' && <div className="text-gray-400 dark:text-gray-500">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span></div>}
+                                {bet.status === 'won' && <div className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
+                                {bet.status === 'lost' && stake > 0 && <div className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      {/* Combos that touch this match */}
+                      {comboIdsHere.map(comboId => {
+                        const legs = activeSocial.filter(b => b.combo_id === comboId)
+                        if (legs.length === 0) return null
+                        const owner = legs[0].user_id
+                        const cb = socialCombos[comboId]
                         const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
                         const stake = cb?.stake ?? 0
                         const potWin = Math.round(stake * totalOdds * 100) / 100
@@ -857,28 +952,29 @@ export default async function TippsPage({
                           : 'pending'
                         const borderCls = comboStatus === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : comboStatus === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-blue-100 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10'
                         return (
-                          <div key={bet.combo_id} className={`rounded-xl border overflow-hidden ${borderCls}`}>
-                            {/* Combo header */}
+                          <div key={comboId} className={`rounded-xl border overflow-hidden ${borderCls}`}>
                             <div className="flex items-center gap-2 px-3 py-2 border-b border-black/5 dark:border-white/5">
+                              <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
+                                <span className="text-blue-700 dark:text-blue-400 font-bold text-[10px]">{initialOf(owner)}</span>
+                              </div>
                               <StatusDot status={comboStatus} />
-                              <span className="text-xs font-bold text-blue-700 dark:text-blue-400">🔗 Kombiwette</span>
-                              <span className="text-xs text-gray-500 dark:text-gray-400 ml-0.5">· {legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                              <span className="text-[10px] font-bold bg-blue-600 text-white rounded px-1.5 py-0.5">KOMBI</span>
+                              <span className="text-xs text-gray-500 dark:text-gray-400 ml-0.5 truncate">{nameOf(owner)} · {legs.length} · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
                               <div className="ml-auto text-right text-xs flex-shrink-0">
-                                {stake > 0 && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
-                                {stake > 0 && comboStatus === 'pending' && <span className="text-gray-400 dark:text-gray-500"> → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span></span>}
-                                {comboStatus === 'won' && cb?.payout != null && <span className="font-bold text-green-600"> +{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
-                                {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through"> {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
+                                {stake > 0 && comboStatus === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span></span>}
+                                {comboStatus === 'won' && cb?.payout != null && <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
+                                {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span>}
                               </div>
                             </div>
-                            {/* Legs */}
                             <div className="px-3 py-1.5 space-y-1">
                               {legs.map(leg => {
-                                const m = matchMap.get(leg.match_id)
+                                const lm = matchMap.get(leg.match_id)
+                                const isThis = leg.match_id === match.id
                                 return (
-                                  <div key={leg.id} className="flex items-start gap-1.5 text-xs py-0.5">
+                                  <div key={leg.id} className={`flex items-start gap-1.5 text-xs py-0.5 ${isThis ? 'font-semibold' : ''}`}>
                                     <StatusDot status={leg.status} />
                                     <div className="flex-1 min-w-0">
-                                      <span className="text-gray-400 dark:text-gray-500 text-[10px]">{m?.home_team?.name ?? '?'} – {m?.away_team?.name ?? '?'}</span>
+                                      <span className="text-gray-400 dark:text-gray-500 text-[10px]">{lm?.home_team?.name ?? '?'} – {lm?.away_team?.name ?? '?'}</span>
                                       <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
                                     </div>
                                     <span className="text-red-600 dark:text-red-400 font-bold flex-shrink-0">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
@@ -888,38 +984,15 @@ export default async function TippsPage({
                             </div>
                           </div>
                         )
-                      }
-
-                      // Single bet
-                      const m = matchMap.get(bet.match_id)
-                      const stake = bet.stake ?? 0
-                      const potWin = Math.round(stake * bet.odds_value * 100) / 100
-                      const borderCls = bet.status === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : bet.status === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/40'
-                      return (
-                        <div key={bet.id} className={`rounded-xl border px-3 py-2 ${borderCls}`}>
-                          <div className="flex items-start gap-1.5">
-                            <StatusDot status={bet.status} />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{m?.home_team?.name ?? '?'} – {m?.away_team?.name ?? '?'}</div>
-                              <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">{socialSelLabel(bet.market_type, bet.selection, playerNameMap)}</div>
-                            </div>
-                            <div className="text-right text-xs flex-shrink-0">
-                              <div className="font-bold text-red-700 dark:text-red-400">@{bet.odds_value.toFixed(2).replace('.', ',')}</div>
-                              {stake > 0 && bet.status === 'pending' && <div className="text-gray-400 dark:text-gray-500">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</span></div>}
-                              {bet.status === 'won' && <div className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
-                              {bet.status === 'lost' && stake > 0 && <div className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
+                      })}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Own placed bets */}
       {user && (userSingles.length > 0 || userCombos.length > 0) && (

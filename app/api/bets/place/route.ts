@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isAgainstWildenroth } from '@/lib/wildenroth'
+import { isSeasonStarted } from '@/lib/season'
 
 const MAX_STAKE = 250
 const CURRENT_SEASON = '26/27'
@@ -29,6 +30,19 @@ export async function POST(request: NextRequest) {
 
   if (!user) {
     return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 })
+  }
+
+  // Saisonstart-Regel: nach Saisonstart dürfen nur berechtigte Nutzer (oder Admins) wetten
+  const seasonStarted = await isSeasonStarted(supabase)
+  if (seasonStarted) {
+    const { data: eligProfile } = await supabase
+      .from('profiles')
+      .select('eligible_for_current_season, is_admin')
+      .eq('id', user.id)
+      .single()
+    if (!eligProfile?.is_admin && !eligProfile?.eligible_for_current_season) {
+      return NextResponse.json({ error: 'NOT_ELIGIBLE' }, { status: 403 })
+    }
   }
 
   let body: PlaceBetBody

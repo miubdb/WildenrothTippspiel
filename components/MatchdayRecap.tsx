@@ -17,6 +17,33 @@ export type RecapData = {
   safestTip: { name: string; odds: number; stake: number; payout: number } | null
   bestCombo: { name: string; odds: number; stake: number; payout: number; legs: number } | null
   riskyHit: { name: string; odds: number; stake: number; payout: number; isCombo: boolean } | null
+  wildenrothOptimist?: { name: string; stake: number; odds: number } | null
+  craziestBet?: { name: string; odds: number; stake: number; isCombo: boolean; won: boolean } | null
+  safestBanker?: { name: string; odds: number; stake: number; payout: number; isCombo: boolean } | null
+}
+
+// Simple template texts per category — deterministic pick by name hash so the
+// same person always gets the same style, but variety across people.
+function nameHash(name: string): number {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return h
+}
+function pickTemplate(templates: string[], name: string): string {
+  return templates[nameHash(name) % templates.length]
+}
+const TEMPLATES = {
+  mvp: ['{name} räumt heute richtig ab.', '{name} lacht sich ins Fäustchen.'],
+  pechvogel: ['{name} hatte heute kein Glück.', 'Heute ist nicht {name}s Tag.'],
+  riskyHit: ['{name} hat Nerven aus Stahl — Quote {odds} gecasht.'],
+  craziestBet: ['{name} ist mit Quote {odds} ins Risiko gegangen.'],
+  wildenrothOptimist: ['{name} glaubt an die Truppe.'],
+  safestBanker: ['{name} spielt auf Sicherheit — und behält Recht.'],
+}
+function tpl(category: keyof typeof TEMPLATES, name: string, odds?: number): string {
+  return pickTemplate(TEMPLATES[category], name)
+    .replace('{name}', name)
+    .replace('{odds}', odds != null ? fmtOdds(odds) : '')
 }
 
 function fmtAmt(n: number) {
@@ -118,7 +145,11 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
 
 export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: number }) {
   const { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip, bestCombo, riskyHit } = data
-  if (!mvp && !bestOdds && !unluckyBastard && !biggestLoss && !safestTip && !bestCombo && !riskyHit) return null
+  const wildenrothOptimist = data.wildenrothOptimist ?? null
+  const craziestBet = data.craziestBet ?? null
+  const safestBanker = data.safestBanker ?? null
+  if (!mvp && !bestOdds && !unluckyBastard && !biggestLoss && !safestTip && !bestCombo && !riskyHit
+    && !wildenrothOptimist && !craziestBet && !safestBanker) return null
 
   return (
     <div className="space-y-3">
@@ -138,7 +169,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Spieltags-König"
               name={mvp.name}
               value={`+${fmtAmt(mvp.profit)} €`}
-              detail="Höchster Nettogewinn des Spieltags"
+              detail={tpl('mvp', mvp.name)}
               accentBg="bg-green-50"
               accentBorder="border-green-200"
               accentText="text-green-600"
@@ -201,7 +232,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Größter Verlust"
               name={biggestLoss.name}
               value={`-${fmtAmt(biggestLoss.loss)} €`}
-              detail={biggestLoss.isCombo ? 'Kombiwette' : 'Einzelwette'}
+              detail={tpl('pechvogel', biggestLoss.name)}
               accentBg="bg-red-50"
               accentBorder="border-red-200"
               accentText="text-red-600"
@@ -220,6 +251,53 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
             />
           )}
         </div>
+      )}
+
+      {/* Wildenroth-Optimist + Craziest Bet */}
+      {(wildenrothOptimist || craziestBet) && (
+        <div className={`grid gap-3 ${wildenrothOptimist && craziestBet ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {wildenrothOptimist && (
+            <HighlightCard
+              emoji="❤️"
+              title="Wildenroth-Optimist"
+              name={wildenrothOptimist.name}
+              value={`${fmtAmt(wildenrothOptimist.stake)} €`}
+              detail={tpl('wildenrothOptimist', wildenrothOptimist.name)}
+              sub={`Quote @${fmtOdds(wildenrothOptimist.odds)} auf den Sieg`}
+              accentBg="bg-rose-50"
+              accentBorder="border-rose-200"
+              accentText="text-rose-700"
+            />
+          )}
+          {craziestBet && (
+            <HighlightCard
+              emoji="🤪"
+              title="Verrückteste Wette"
+              name={craziestBet.name}
+              value={`@${fmtOdds(craziestBet.odds)}`}
+              detail={tpl('craziestBet', craziestBet.name, craziestBet.odds)}
+              sub={`Einsatz ${fmtAmt(craziestBet.stake)} € · ${craziestBet.isCombo ? 'Kombi' : 'Einzel'} · ${craziestBet.won ? 'getroffen ✅' : 'daneben ❌'}`}
+              accentBg="bg-fuchsia-50"
+              accentBorder="border-fuchsia-200"
+              accentText="text-fuchsia-700"
+            />
+          )}
+        </div>
+      )}
+
+      {/* Safest Banker */}
+      {safestBanker && (
+        <HighlightCard
+          emoji="🛡️"
+          title="Safest Banker"
+          name={safestBanker.name}
+          value={`@${fmtOdds(safestBanker.odds)}`}
+          detail={tpl('safestBanker', safestBanker.name)}
+          sub={`Einsatz ${fmtAmt(safestBanker.stake)} € → +${fmtAmt(safestBanker.payout - safestBanker.stake)} €${safestBanker.isCombo ? ' · Kombi' : ''}`}
+          accentBg="bg-emerald-50"
+          accentBorder="border-emerald-200"
+          accentText="text-emerald-700"
+        />
       )}
     </div>
   )

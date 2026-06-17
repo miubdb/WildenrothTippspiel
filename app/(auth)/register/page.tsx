@@ -103,6 +103,13 @@ export default function RegisterPage() {
       .update({ used_count: inviteData.used_count + 1 })
       .eq('id', inviteData.id)
 
+    // Saisonstart-Regel: bei Registrierung nach Saisonstart als nicht teilnahmeberechtigt markieren
+    try {
+      await fetch('/api/auth/register-eligibility', { method: 'POST' })
+    } catch {
+      // best-effort; Admin kann Berechtigung manuell setzen
+    }
+
     router.push('/tipps')
     router.refresh()
   }

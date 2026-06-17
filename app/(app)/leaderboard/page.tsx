@@ -24,7 +24,7 @@ export default async function LeaderboardPage({
     { data: allBetsRaw },
     { data: allCombosRaw },
   ] = await Promise.all([
-    supabase.from('profiles').select('id, username, display_name, balance').order('balance', { ascending: false }),
+    supabase.from('profiles').select('id, username, display_name, balance, eligible_for_current_season, is_admin').or('eligible_for_current_season.eq.true,is_admin.eq.true').order('balance', { ascending: false }),
     supabase.auth.getUser(),
     supabase.from('matches').select('id, matchday, match_date, status').order('match_date', { ascending: true }),
     supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season'),
