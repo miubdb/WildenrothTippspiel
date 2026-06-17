@@ -18,6 +18,23 @@ jobs:
           echo "⏰ Starte Cron-Job: $(date -u)"
           echo "📍 Ziel: ${{ secrets.APP_URL }}/api/cron/notifications"
 
+          # Prüfe auf fehlende Secrets (vor dem curl-Aufruf)
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "❌ FEHLER: GitHub Secret CRON_SECRET ist nicht gesetzt!"
+            exit 1
+          fi
+          if [ -z "${{ secrets.APP_URL }}" ]; then
+            echo "❌ FEHLER: GitHub Secret APP_URL ist nicht gesetzt!"
+            exit 1
+          fi
+
+          # Prüfe auf nicht-ASCII-Zeichen im CRON_SECRET (ungültig in HTTP-Headern)
+          if echo "${{ secrets.CRON_SECRET }}" | grep -qP '[^\x00-\x7F]'; then
+            echo "❌ FEHLER: CRON_SECRET enthält nicht-ASCII-Zeichen (z.B. Umlaute)."
+            echo "   Bitte CRON_SECRET in Vercel und GitHub mit nur ASCII-Zeichen neu setzen."
+            exit 1
+          fi
+
           RESPONSE=$(curl -s -w "\n%{http_code}" \
             --max-time 30 \
             -X GET \
@@ -30,17 +47,6 @@ jobs:
 
           echo "📊 HTTP Status: $HTTP_CODE"
           echo "📝 Response: $HTTP_BODY"
-
-          # Prüfe auf fehlende Secrets
-          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
-            echo "❌ FEHLER: GitHub Secret CRON_SECRET ist nicht gesetzt!"
-            exit 1
-          fi
-
-          if [ -z "${{ secrets.APP_URL }}" ]; then
-            echo "❌ FEHLER: GitHub Secret APP_URL ist nicht gesetzt!"
-            exit 1
-          fi
 
           # Auswertung HTTP-Status
           if [ "$HTTP_CODE" = "401" ]; then
