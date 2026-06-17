@@ -2,34 +2,72 @@ name: Push-Benachrichtigungen Cron
 
 on:
   schedule:
-    # Alle 30 Minuten (GitHub Actions Free Tier: 2000 min/Monat, reicht locker)
-    # 30-min Intervall = ~1440 Runs/Monat à ~5 Sekunden = ~120 Minuten/Monat
-    - cron: '*/30 * * * *'
-  # Manuell auslösbar zum Testen
+    # Läuft um :07 und :37 jeder Stunde (nicht zur vollen/:30 — GitHub verzögert dann öfter)
+    - cron: '7,37 * * * *'
+  # Manuell auslösbar über GitHub UI → Actions → Run workflow
   workflow_dispatch:
 
 jobs:
   send-notifications:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
 
     steps:
-      - name: Push-Benachrichtigungen auslösen
+      - name: Cron-Route aufrufen
         run: |
+          echo "⏰ Starte Cron-Job: $(date -u)"
+          echo "📍 Ziel: ${{ secrets.APP_URL }}/api/cron/notifications"
+
           RESPONSE=$(curl -s -w "\n%{http_code}" \
+            --max-time 30 \
             -X GET \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Accept: application/json" \
             "${{ secrets.APP_URL }}/api/cron/notifications")
 
           HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
           HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
 
-          echo "HTTP Status: $HTTP_CODE"
-          echo "Response: $HTTP_BODY"
+          echo "📊 HTTP Status: $HTTP_CODE"
+          echo "📝 Response: $HTTP_BODY"
 
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ Cron failed with status $HTTP_CODE"
+          # Prüfe auf fehlende Secrets
+          if [ -z "${{ secrets.CRON_SECRET }}" ]; then
+            echo "❌ FEHLER: GitHub Secret CRON_SECRET ist nicht gesetzt!"
             exit 1
           fi
 
-          echo "✅ Cron erfolgreich ausgeführt"
+          if [ -z "${{ secrets.APP_URL }}" ]; then
+            echo "❌ FEHLER: GitHub Secret APP_URL ist nicht gesetzt!"
+            exit 1
+          fi
+
+          # Auswertung HTTP-Status
+          if [ "$HTTP_CODE" = "401" ]; then
+            echo "❌ FEHLER: CRON_SECRET ungültig oder nicht gesetzt (401 Unauthorized)"
+            exit 1
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "❌ FEHLER: Route nicht gefunden (404) — APP_URL prüfen"
+            exit 1
+          elif [ "$HTTP_CODE" = "500" ]; then
+            echo "❌ FEHLER: Interner Serverfehler (500)"
+            exit 1
+          elif [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ FEHLER: Unerwarteter HTTP-Status $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "✅ Cron erfolgreich — gesendete Pushes:"
+          echo "$HTTP_BODY" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    sent = data.get('sent', [])
+    if sent:
+        for s in sent: print(f'  • {s}')
+    else:
+        print('  (keine Pushes fällig)')
+    print(f'Timestamp: {data.get(\"timestamp\", \"?\")}')
+except Exception as e:
+    print(f'Response konnte nicht geparst werden: {e}')
+" || echo "(JSON-Parsing fehlgeschlagen)"
