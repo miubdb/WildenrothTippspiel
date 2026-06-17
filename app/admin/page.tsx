@@ -136,6 +136,22 @@ export default function AdminPage() {
     }))
   }
 
+  async function postponeMatch(matchId: number) {
+    setMessage(null)
+    const res = await fetch('/api/admin/match-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId, action: 'postpone' }),
+    })
+    if (res.ok) {
+      setMessage('Spiel als verschoben markiert.')
+      fetchMatches()
+    } else {
+      const d = await res.json()
+      setMessage(`Fehler: ${d.error}`)
+    }
+  }
+
   async function settleMatch(matchId: number) {
     const score = scores[matchId]
     if (!score || score.home === '' || score.away === '') {
@@ -225,6 +241,8 @@ export default function AdminPage() {
   const upcomingMatches = matches.filter(
     (m) => m.status === 'scheduled' && new Date(m.match_date) > new Date()
   )
+  // Postponed games — awaiting reschedule
+  const postponedMatches = matches.filter((m) => m.status === 'postponed')
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -285,7 +303,7 @@ export default function AdminPage() {
           <div className="space-y-4">
             {/* Status overview */}
             {(() => {
-              const noResult = matches.filter(m => m.status !== 'finished' && new Date(m.match_date) <= new Date())
+              const noResult = matches.filter(m => m.status !== 'finished' && m.status !== 'postponed' && new Date(m.match_date) <= new Date())
               const unsettled = matches.filter(m => m.home_score != null && m.away_score != null && m.status !== 'finished')
               const openBets = Object.values(pendingBetsByMatch).reduce((a, b) => a + b, 0)
               return (
@@ -320,6 +338,7 @@ export default function AdminPage() {
                       score={scores[match.id] ?? { home: '', away: '' }}
                       onChange={(side, val) => handleScoreChange(match.id, side, val)}
                       onSettle={() => settleMatch(match.id)}
+                      onPostpone={() => postponeMatch(match.id)}
                       loading={settleLoading === match.id}
                       pendingBets={pendingBetsByMatch[match.id]}
                     />
@@ -345,9 +364,32 @@ export default function AdminPage() {
                       score={scores[match.id] ?? { home: '', away: '' }}
                       onChange={(side, val) => handleScoreChange(match.id, side, val)}
                       onSettle={() => settleMatch(match.id)}
+                      onPostpone={() => postponeMatch(match.id)}
                       loading={settleLoading === match.id}
                       isUpcoming
                       pendingBets={pendingBetsByMatch[match.id]}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Postponed */}
+            {postponedMatches.length > 0 && (
+              <div>
+                <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">
+                  Verschobene Spiele ({postponedMatches.length})
+                </h2>
+                <p className="text-xs text-gray-400 mb-2">
+                  Sobald ein neuer Termin feststeht, Datum aktualisieren → Spiel wird wieder als &quot;Geplant&quot; geführt.
+                </p>
+                <div className="space-y-2">
+                  {postponedMatches.map((match) => (
+                    <PostponedMatchCard
+                      key={match.id}
+                      match={match}
+                      onRescheduled={fetchMatches}
+                      onMessage={setMessage}
                     />
                   ))}
                 </div>
@@ -1104,6 +1146,7 @@ function MatchSettleCard({
   score,
   onChange,
   onSettle,
+  onPostpone,
   loading,
   isUpcoming,
   pendingBets,
@@ -1112,6 +1155,7 @@ function MatchSettleCard({
   score: { home: string; away: string }
   onChange: (side: 'home' | 'away', val: string) => void
   onSettle: () => void
+  onPostpone?: () => void
   loading: boolean
   isUpcoming?: boolean
   pendingBets?: number
@@ -1167,19 +1211,98 @@ function MatchSettleCard({
         </div>
       </div>
 
-      <button
-        onClick={onSettle}
-        disabled={loading || score.home === '' || score.away === ''}
-        className="w-full py-2 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
-      >
-        {loading ? (
-          <>
-            <span className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" />
-            Abrechnen...
-          </>
-        ) : (
-          'Ergebnis eintragen & abrechnen'
+      <div className="flex gap-2">
+        <button
+          onClick={onSettle}
+          disabled={loading || score.home === '' || score.away === ''}
+          className="flex-1 py-2 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
+        >
+          {loading ? (
+            <>
+              <span className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" />
+              Abrechnen...
+            </>
+          ) : (
+            'Ergebnis & abrechnen'
+          )}
+        </button>
+        {onPostpone && (
+          <button
+            onClick={onPostpone}
+            disabled={loading}
+            className="py-2 px-3 bg-yellow-100 hover:bg-yellow-200 disabled:opacity-50 text-yellow-800 font-semibold rounded-lg transition-colors text-sm"
+          >
+            Verschoben
+          </button>
         )}
+      </div>
+    </div>
+  )
+}
+
+function PostponedMatchCard({
+  match,
+  onRescheduled,
+  onMessage,
+}: {
+  match: MatchRow
+  onRescheduled: () => void
+  onMessage: (msg: string) => void
+}) {
+  const [newDate, setNewDate] = useState('')
+  const [newTime, setNewTime] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function reschedule() {
+    if (!newDate || !newTime) { onMessage('Bitte Datum und Uhrzeit angeben.'); return }
+    setLoading(true)
+    const isoDate = new Date(`${newDate}T${newTime}:00`).toISOString()
+    const res = await fetch('/api/admin/match-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId: match.id, action: 'reschedule', newDate: isoDate }),
+    })
+    setLoading(false)
+    if (res.ok) {
+      onMessage('Nachholtermin gespeichert — Spiel ist wieder als geplant geführt.')
+      onRescheduled()
+    } else {
+      const d = await res.json()
+      onMessage(`Fehler: ${d.error}`)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-yellow-200 shadow-sm p-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold px-2 py-1 rounded-lg bg-yellow-100 text-yellow-800">
+          Spieltag {match.matchday} · Verschoben
+        </span>
+      </div>
+      <div className="text-sm font-semibold text-gray-900 mb-3">
+        {match.home_team?.name ?? '?'} – {match.away_team?.name ?? '?'}
+      </div>
+      <p className="text-xs text-gray-500 mb-2">Neuen Termin eintragen:</p>
+      <div className="flex gap-2 mb-3">
+        <input
+          type="date"
+          value={newDate}
+          onChange={(e) => setNewDate(e.target.value)}
+          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+        />
+        <input
+          type="time"
+          value={newTime}
+          onChange={(e) => setNewTime(e.target.value)}
+          className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+        />
+      </div>
+      <button
+        onClick={reschedule}
+        disabled={loading || !newDate || !newTime}
+        className="w-full py-2 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors text-sm"
+      >
+        {loading ? 'Speichern...' : 'Nachholtermin speichern'}
       </button>
     </div>
   )

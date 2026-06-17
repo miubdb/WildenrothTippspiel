@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nur offene Wetten können storniert werden.' }, { status: 400 })
     }
 
-    // Find all legs to determine earliest kickoff across the combo
+    // Find all legs to determine if any match has actually started
     const { data: allLegs } = await supabase
       .from('bets')
       .select('match_id')
@@ -44,15 +44,16 @@ export async function POST(request: NextRequest) {
     }
 
     const allMatchIds = allLegs.map((l) => l.match_id)
-    const { data: firstComboMatch } = await supabase
+    const { data: comboMatches } = await supabase
       .from('matches')
-      .select('match_date')
+      .select('match_date, status')
       .in('id', allMatchIds)
-      .order('match_date', { ascending: true })
-      .limit(1)
-      .single()
 
-    if (!firstComboMatch || new Date(firstComboMatch.match_date) <= new Date()) {
+    // Block if any match has actually started (not just postponed — postponed means no kickoff yet)
+    const startedMatch = (comboMatches ?? []).find(
+      (m) => m.status !== 'postponed' && new Date(m.match_date) <= new Date()
+    )
+    if (startedMatch) {
       return NextResponse.json(
         { error: 'Eines der Spiele hat bereits begonnen — Stornierung nicht mehr möglich.' },
         { status: 400 }
@@ -94,13 +95,14 @@ export async function POST(request: NextRequest) {
     // Check that this specific match has not yet kicked off
     const { data: betMatch } = await supabase
       .from('matches')
-      .select('match_date')
+      .select('match_date, status')
       .eq('id', bet.match_id)
       .single()
 
     if (!betMatch) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 400 })
 
-    if (new Date(betMatch.match_date) <= new Date()) {
+    // Postponed matches have no actual kickoff yet — cancellation stays open regardless of original date
+    if (betMatch.status !== 'postponed' && new Date(betMatch.match_date) <= new Date()) {
       return NextResponse.json(
         { error: 'Das Spiel hat bereits begonnen — Stornierung nicht mehr möglich.' },
         { status: 400 }

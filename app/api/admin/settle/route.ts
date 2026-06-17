@@ -263,10 +263,10 @@ export async function POST(request: NextRequest) {
       .select('status')
       .eq('matchday', matchday)
 
+    const nonPostponedInMatchday = (matchdayMatches ?? []).filter(m => m.status !== 'postponed')
     const allFinished =
-      matchdayMatches &&
-      matchdayMatches.length > 0 &&
-      matchdayMatches.every((m) => m.status === 'finished')
+      nonPostponedInMatchday.length > 0 &&
+      nonPostponedInMatchday.every((m) => m.status === 'finished')
 
     if (allFinished) {
       const admin = createAdminClient()

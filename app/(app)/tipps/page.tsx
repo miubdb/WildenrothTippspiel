@@ -112,7 +112,8 @@ export default async function TippsPage({
   const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
   const completedMatchdays = allMatchdays.filter((md) => {
     const mdM = seasonMatches.filter((m) => m.matchday === md)
-    return mdM.length > 0 && mdM.every((m) => m.status === 'finished')
+    const nonPostponed = mdM.filter((m) => m.status !== 'postponed')
+    return nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
   })
   const lastCompletedMd = completedMatchdays.length > 0 ? Math.max(...completedMatchdays) : null
   const defaultMatchday = isPreSeason
@@ -482,9 +483,10 @@ export default async function TippsPage({
   // Build match label map for social section
   const matchMap = new Map(matchdayMatches.map(m => [m.id, m]))
 
-  // Spieltags-Recap: computed when all matches in the matchday are finished
-  const isMatchdayComplete = matchdayMatches.length > 0 &&
-    matchdayMatches.every(m => m.status === 'finished')
+  // Spieltags-Recap: complete when all non-postponed matches are finished (≥1 must be finished)
+  const nonPostponedMatches = matchdayMatches.filter(m => m.status !== 'postponed')
+  const isMatchdayComplete = nonPostponedMatches.length > 0 &&
+    nonPostponedMatches.every(m => m.status === 'finished')
 
   let recapData: RecapData | null = null
 

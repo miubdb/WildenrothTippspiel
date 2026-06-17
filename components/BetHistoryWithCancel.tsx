@@ -319,12 +319,21 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
   }
 
   function canCancel(item: HistoryItem): boolean {
-    const matchday = item.kind === 'single'
-      ? item.bet.match?.matchday
-      : item.legs[0]?.match?.matchday
-    if (!matchday) return false
-    // If matchday is in the map, use that; otherwise deadline has passed (all matches finished)
-    return !(matchdayDeadlinesPassed[matchday] ?? true)
+    const now = new Date()
+    if (item.kind === 'single') {
+      const m = item.bet.match
+      if (!m) return false
+      // Postponed = no actual kickoff yet; cancellable until kickoff of rescheduled game
+      if (m.status === 'postponed') return true
+      return new Date(m.match_date) > now
+    }
+    // Combo: locked as soon as any non-postponed leg's match has started
+    for (const leg of item.legs) {
+      const m = leg.match
+      if (!m) continue
+      if (m.status !== 'postponed' && new Date(m.match_date) <= now) return false
+    }
+    return item.legs.length > 0
   }
 
   return (
