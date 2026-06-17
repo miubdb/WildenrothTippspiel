@@ -1,0 +1,35 @@
+name: Push-Benachrichtigungen Cron
+
+on:
+  schedule:
+    # Alle 30 Minuten (GitHub Actions Free Tier: 2000 min/Monat, reicht locker)
+    # 30-min Intervall = ~1440 Runs/Monat à ~5 Sekunden = ~120 Minuten/Monat
+    - cron: '*/30 * * * *'
+  # Manuell auslösbar zum Testen
+  workflow_dispatch:
+
+jobs:
+  send-notifications:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Push-Benachrichtigungen auslösen
+        run: |
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X GET \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.APP_URL }}/api/cron/notifications")
+
+          HTTP_BODY=$(echo "$RESPONSE" | head -n -1)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $HTTP_BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Cron failed with status $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "✅ Cron erfolgreich ausgeführt"

@@ -1,5 +1,25 @@
 @AGENTS.md
 
+## Branch- und Deployment-Strategie
+
+**Zwei Branches:**
+- `integration` = Entwicklung/Test → Vercel Preview Deployment
+- `main` = Produktion → Vercel Production Deployment
+
+**WICHTIG – Pushes:**
+- Claude pusht Änderungen **ausschließlich auf `integration`**: `git push origin integration`
+- **Niemals direkt auf `main` pushen**, außer der Nutzer sagt ausdrücklich: „Bitte integration nach main übernehmen" oder „Bitte auf production deployen"
+- Kein `git push origin integration:main` als Standard-Commit-Abschluss
+
+**Merge nach main (nur auf explizite Anweisung):**
+```bash
+git push origin integration:main
+```
+
+**Warum:** Jeder Push auf `main` erzeugt ein neues Vercel Production Deployment.
+Jeder Push auf `integration` erzeugt ein Vercel Preview Deployment.
+Beide Branches gleichzeitig zu pushen erzeugt doppelte Deployments und ist zu vermeiden.
+
 ## Odds model (lib/odds.ts)
 
 **Unified Poisson model** — all markets (1X2, DC, O/U, BTTS, Exact Score) derive from a single
