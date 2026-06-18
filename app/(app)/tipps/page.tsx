@@ -737,14 +737,21 @@ export default async function TippsPage({
 
   if (isNotEligible) {
     return (
-      <div className="px-4 py-8 text-center space-y-4">
-        <div className="text-5xl">⏸️</div>
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-5">
-          <h2 className="font-black text-lg text-gray-900 mb-2">Saison bereits gestartet</h2>
+      <div className="px-4 py-8 space-y-4 max-w-lg mx-auto">
+        <div className="text-center text-5xl">⏳</div>
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-5 text-center">
+          <h2 className="font-black text-lg text-gray-900 mb-2">Freischaltung ausstehend</h2>
           <p className="text-sm text-gray-600">
-            Die Saison läuft bereits. Ein automatischer Einstieg in die aktuelle Saison ist nicht mehr möglich.
-            Wende dich bei Fragen bitte an den Admin → Jani
+            Du hast dich nach Saisonstart registriert. Jani schaltet dich in Kürze für die aktuelle Saison frei.
           </p>
+        </div>
+        <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-2">
+          <div className="text-sm font-semibold text-gray-700">Was du schon jetzt tun kannst:</div>
+          <ul className="text-sm text-gray-500 space-y-1 list-disc list-inside">
+            <li>Rangliste anschauen</li>
+            <li>Profil einrichten (Avatar, Lieblingsverein)</li>
+            <li>Spielregeln lesen</li>
+          </ul>
         </div>
       </div>
     )

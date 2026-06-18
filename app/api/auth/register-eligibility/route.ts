@@ -4,23 +4,29 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { isSeasonStarted } from '@/lib/season'
 
 /** Called right after a successful sign-up.
- *  If the season has already started, the freshly created profile is marked
- *  as NOT eligible for the current season (default is eligible=true). */
-export async function POST() {
+ *  Sets is_wildenroth flag and, if season already started,
+ *  marks the new user as ineligible for the current season. */
+export async function POST(req: Request) {
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  let isWildenroth = false
+  try {
+    const body = await req.json()
+    isWildenroth = body.isWildenroth === true
+  } catch { /* body is optional */ }
+
   const seasonStarted = await isSeasonStarted(supabase)
-  if (!seasonStarted) return NextResponse.json({ ok: true, eligible: true })
-
   const admin = createAdminClient()
-  await admin
-    .from('profiles')
-    .update({ eligible_for_current_season: false })
-    .eq('id', user.id)
 
-  return NextResponse.json({ ok: true, eligible: false })
+  const updates: Record<string, unknown> = {}
+  if (isWildenroth) updates.is_wildenroth = true
+  if (seasonStarted) updates.eligible_for_current_season = false
+
+  if (Object.keys(updates).length > 0) {
+    await admin.from('profiles').update(updates).eq('id', user.id)
+  }
+
+  return NextResponse.json({ ok: true, eligible: !seasonStarted })
 }

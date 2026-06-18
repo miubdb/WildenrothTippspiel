@@ -22,6 +22,7 @@ interface AdminUser {
   balance: number
   eligible_for_current_season: boolean
   is_admin: boolean
+  is_wildenroth: boolean
 }
 
 type Tab = 'results' | 'bets' | 'quoten' | 'saison' | 'push'
@@ -50,7 +51,7 @@ export default function AdminPage() {
   const fetchSeasonData = useCallback(async () => {
     const [{ data: setting }, { data: profs }] = await Promise.all([
       supabase.from('app_settings').select('value').eq('key', 'season_started').single(),
-      supabase.from('profiles').select('id, username, display_name, balance, eligible_for_current_season, is_admin').order('username'),
+      supabase.from('profiles').select('id, username, display_name, balance, eligible_for_current_season, is_admin, is_wildenroth').order('username'),
     ])
     setSeasonStarted(setting?.value === 'true')
     setUsers((profs ?? []) as AdminUser[])
@@ -88,6 +89,17 @@ export default function AdminPage() {
       body: JSON.stringify({ action: 'set_user_eligible', userId, eligible, balance }),
     })
     if (res.ok) { setMessage('Spieler aktualisiert.'); fetchSeasonData() }
+    else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
+  }
+
+  async function toggleUserWildenroth(userId: string, value: boolean) {
+    setMessage(null)
+    const res = await fetch('/api/admin/season', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_user_wildenroth', userId, value }),
+    })
+    if (res.ok) { setMessage('Wildenroth-Flag aktualisiert.'); fetchSeasonData() }
     else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
   }
 
@@ -530,11 +542,20 @@ export default function AdminPage() {
                 {users.map((u) => (
                   <div key={u.id} className="flex items-center gap-2 flex-wrap bg-gray-50 rounded-xl px-3 py-2.5">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-gray-900 truncate">
-                        {u.display_name || u.username}{u.is_admin && <span className="ml-1 text-[10px] text-red-600 font-bold">ADMIN</span>}
+                      <div className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1 flex-wrap">
+                        {u.display_name || u.username}
+                        {u.is_admin && <span className="text-[10px] text-red-600 font-bold">ADMIN</span>}
+                        {u.is_wildenroth && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽ Wildenroth</span>}
                       </div>
                       <div className="text-[11px] text-gray-400">{u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € · {u.eligible_for_current_season ? 'berechtigt' : 'nicht berechtigt'}</div>
                     </div>
+                    <button
+                      onClick={() => toggleUserWildenroth(u.id, !u.is_wildenroth)}
+                      className={`px-2 py-1.5 rounded-lg text-xs font-bold border ${u.is_wildenroth ? 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'}`}
+                      title="Wildenroth-Spieler/Trainer"
+                    >
+                      ⚽
+                    </button>
                     <input
                       type="number"
                       placeholder="Guthaben"

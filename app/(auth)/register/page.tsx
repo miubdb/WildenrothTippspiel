@@ -15,6 +15,7 @@ export default function RegisterPage() {
     password: '',
     passwordConfirm: '',
   })
+  const [isWildenroth, setIsWildenroth] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -103,14 +104,18 @@ export default function RegisterPage() {
       .update({ used_count: inviteData.used_count + 1 })
       .eq('id', inviteData.id)
 
-    // Saisonstart-Regel: bei Registrierung nach Saisonstart als nicht teilnahmeberechtigt markieren
+    // Saisonstart-Regel + Wildenroth-Flag setzen
     try {
-      await fetch('/api/auth/register-eligibility', { method: 'POST' })
+      await fetch('/api/auth/register-eligibility', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isWildenroth }),
+      })
     } catch {
       // best-effort; Admin kann Berechtigung manuell setzen
     }
 
-    router.push('/tipps')
+    router.push('/willkommen')
     router.refresh()
   }
 
@@ -216,6 +221,20 @@ export default function RegisterPage() {
             placeholder="••••••••"
           />
         </div>
+
+        {/* Wildenroth-Spieler */}
+        <label className="flex items-start gap-3 cursor-pointer bg-gray-50 rounded-xl px-4 py-3 border border-gray-200 hover:border-red-300 transition-colors">
+          <input
+            type="checkbox"
+            checked={isWildenroth}
+            onChange={e => setIsWildenroth(e.target.checked)}
+            className="mt-0.5 w-4 h-4 rounded accent-red-700 flex-shrink-0"
+          />
+          <div>
+            <div className="text-sm font-semibold text-gray-800">Ich bin aktiver Spieler, Trainer oder Torwarttrainer der 1. Mannschaft von SpVgg Wildenroth</div>
+            <div className="text-xs text-gray-500 mt-0.5">Wildenroth-Spieler dürfen nicht gegen die eigene Mannschaft tippen.</div>
+          </div>
+        </label>
 
         {error && (
           <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl border border-red-100">
