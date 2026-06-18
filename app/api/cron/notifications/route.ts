@@ -83,8 +83,8 @@ export async function GET(request: NextRequest) {
       const deadline = firstDate
       const minutesTillDeadline = (deadline.getTime() - now.getTime()) / 60000
 
-      // Send "bets remaining" reminder 45-75 min before first match
-      if (minutesTillDeadline >= 45 && minutesTillDeadline < 75) {
+      // Send "bets remaining" reminder 2.5h before first match (window: 135–165 min)
+      if (minutesTillDeadline >= 135 && minutesTillDeadline < 165) {
         const matchdayMatches = allMatches.filter(m => m.matchday === matchday)
         const matchdayMatchIds = matchdayMatches.map(m => m.id)
 
