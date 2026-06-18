@@ -4,6 +4,16 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser } from '@/lib/push'
 
 export async function POST(request: NextRequest) {
+  // Env check first — surface missing vars immediately
+  const missingEnv = ['SUPABASE_SERVICE_ROLE_KEY', 'VAPID_SUBJECT', 'VAPID_PRIVATE_KEY', 'NEXT_PUBLIC_VAPID_PUBLIC_KEY']
+    .filter(k => !process.env[k])
+  if (missingEnv.length > 0) {
+    return NextResponse.json(
+      { error: `Fehlende Umgebungsvariablen in Vercel: ${missingEnv.join(', ')}` },
+      { status: 500 }
+    )
+  }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 })
@@ -24,13 +34,6 @@ export async function POST(request: NextRequest) {
   }
 
   const userId = targetUserId ?? user.id
-
-  // Check if user has push enabled
-  const { data: prefs } = await admin
-    .from('notification_preferences')
-    .select('push_enabled')
-    .eq('user_id', userId)
-    .single()
 
   // Check if user has subscriptions
   const { data: subs } = await admin
