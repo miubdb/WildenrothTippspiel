@@ -4,6 +4,7 @@ import { PushSubscribeButton } from '@/components/PushSubscribeButton'
 import { ProfileEditForm } from '@/components/ProfileEditForm'
 import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { crestPath } from '@/lib/teams'
 
 export const revalidate = 60
 
@@ -273,11 +274,20 @@ export default async function ProfilPage({
       {/* Profile Header */}
       <div className="bg-gradient-to-br from-red-700 to-red-900 text-white rounded-2xl px-5 py-5 shadow-sm">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center flex-shrink-0">
-            <span className="text-red-700 font-black text-2xl">
-              {(profile.display_name || profile.username || '?')[0].toUpperCase()}
-            </span>
-          </div>
+          {profile.avatar_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={profile.avatar_url}
+              alt="Avatar"
+              className="w-16 h-16 rounded-full object-cover flex-shrink-0 border-2 border-white/40"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center flex-shrink-0">
+              <span className="text-red-700 font-black text-2xl">
+                {(profile.display_name || profile.username || '?')[0].toUpperCase()}
+              </span>
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-black truncate">
               {profile.display_name || profile.username}
@@ -285,6 +295,21 @@ export default async function ProfilPage({
             <p className="text-red-200 text-sm">@{profile.username}</p>
             <p className="text-red-200 text-xs mt-0.5">{user.email}</p>
           </div>
+        </div>
+        {profile.bio && (
+          <p className="text-sm text-red-100 mt-3 italic">{profile.bio}</p>
+        )}
+        <div className="flex items-center gap-3 mt-3 text-xs text-red-200">
+          {profile.favorite_team && (
+            <span className="flex items-center gap-1.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={crestPath(profile.favorite_team)} alt="" className="w-4 h-4 object-contain" />
+              {profile.favorite_team}
+            </span>
+          )}
+          <span>
+            Mitglied seit {new Date(profile.created_at).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}
+          </span>
         </div>
       </div>
 
@@ -426,8 +451,12 @@ export default async function ProfilPage({
 
       {/* Profile Edit */}
       <ProfileEditForm
+        userId={user.id}
         displayName={profile.display_name || profile.username}
         username={profile.username}
+        avatarUrl={profile.avatar_url ?? null}
+        bio={profile.bio ?? null}
+        favoriteTeam={profile.favorite_team ?? null}
       />
 
       {/* Previous season summary — at the bottom, collapsed by default */}

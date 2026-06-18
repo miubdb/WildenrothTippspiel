@@ -1,104 +1,151 @@
+import { HelpAccordion } from '@/components/HelpAccordion'
+
 export const revalidate = 86400
 
 export default function AnleitungPage() {
   return (
-    <div className="px-4 py-4 space-y-4">
+    <div className="px-4 py-4 space-y-3">
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4">
         <div className="text-red-200 text-xs font-medium uppercase tracking-wide">SpVgg Wildenroth</div>
         <div className="text-2xl font-black mt-0.5">So funktioniert&apos;s</div>
-        <div className="text-red-200 text-sm mt-1">Das Wichtigste auf einen Blick</div>
+        <div className="text-red-200 text-sm mt-1">Tippe auf einen Abschnitt für Details</div>
       </div>
 
-      <Section title="Das Ziel" emoji="🏆">
+      {/* Das Wichtigste — offen */}
+      <HelpAccordion title="Das Ziel" emoji="🏆" defaultOpen>
         <p>
           Du startest mit <strong>1.000 € Spielguthaben</strong> und versuchst, durch clevere Tipps
           möglichst viel daraus zu machen. Wer am Ende der Saison das höchste Guthaben hat, gewinnt.
         </p>
-        <div className="mt-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800">
+        <div className="mt-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg px-3 py-2 text-sm text-green-800 dark:text-green-300">
           💰 Jeden <strong>Montag um 12:00 Uhr</strong> gibt es automatisch <strong>10 € Taschengeld</strong> — auch nach einer Pechsträhne geht es weiter.
         </div>
-      </Section>
+      </HelpAccordion>
 
-      <Section title="Wetten platzieren & stornieren" emoji="⏰">
-        <div className="space-y-1.5 text-sm">
-          <div className="flex gap-2">
-            <span className="text-red-700 font-bold flex-shrink-0">Öffnet:</span>
-            <span>Montag 12:00 Uhr der Spielwoche</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-red-700 font-bold flex-shrink-0">Schluss:</span>
-            <span><strong>Einzelwetten:</strong> bis zum Anpfiff des jeweiligen Spiels</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-red-700 font-bold flex-shrink-0 invisible">Schluss:</span>
-            <span><strong>Kombiwetten:</strong> nur wenn alle enthaltenen Spiele noch nicht begonnen haben</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-red-700 font-bold flex-shrink-0">Wettscheine:</span>
-            <span>Maximal <strong>3 Wettscheine</strong> pro Spieltag (2 normale + 1 Risky)</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-red-700 font-bold flex-shrink-0">Einsatz:</span>
-            <span>Maximal <strong>250 € pro Wettschein</strong></span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-orange-600 font-bold flex-shrink-0">Inaktiv:</span>
-            <span>Wer in einem Spieltag <strong>keine einzige Wette</strong> platziert, zahlt automatisch <strong>100 € Strafe</strong> — wird nach Spieltagsabrechnung abgezogen</span>
-          </div>
-          <div className="flex gap-2">
-            <span className="text-blue-700 font-bold flex-shrink-0">Storno:</span>
-            <span>Einzelwette: bis zum Anpfiff des Spiels. Kombiwette: bis der erste enthaltene Anpfiff beginnt. Der Einsatz wird sofort zurückgebucht.</span>
-          </div>
-        </div>
-      </Section>
-
-      <Section title="Risky Wette" emoji="🎲">
-        <p>
-          Der Wettschein mit der <strong>höchsten Quote</strong> belegt automatisch den Risky-Slot —
-          vorausgesetzt, die Quote beträgt <strong>mindestens 20,00</strong>.
+      {/* App installieren — offen, neue User brauchen das zuerst */}
+      <HelpAccordion title="App installieren" emoji="📱" defaultOpen>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Installiere die App auf dem Home-Bildschirm, damit du Push-Benachrichtigungen erhalten kannst und sie sich wie eine echte App anfühlt.
         </p>
-        <div className="mt-2 space-y-1">
-          <div className="text-xs bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-gray-600">
-            Beispiel: Du hast 2 normale Wettscheine (Quote 2,10 und 5,40) und eine Kombiwette mit Quote 23,50.
-            Die Kombi wird automatisch als Risky gewertet — du hast alle 3 Slots genutzt.
+        <div className="space-y-3 mt-2">
+          <div className="border border-gray-100 dark:border-gray-700 rounded-xl p-3 space-y-1.5">
+            <div className="font-semibold text-gray-700 dark:text-gray-200 text-xs">🍎 iPhone mit Safari</div>
+            <ol className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5 list-decimal list-inside">
+              <li>Webseite in <strong>Safari</strong> öffnen</li>
+              <li>Auf das <strong>Teilen-Symbol</strong> tippen (Quadrat mit Pfeil nach oben — unten in der Mitte bzw. in der Adressleiste)</li>
+              <li>Im Menü nach unten scrollen</li>
+              <li>„Zum Home-Bildschirm" auswählen</li>
+              <li>Namen eingeben und „Hinzufügen" tippen</li>
+            </ol>
+            <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+              Hinweis: Push-Benachrichtigungen funktionieren auf dem iPhone <strong>nur</strong>, wenn die App über Safari zum Home-Bildschirm hinzugefügt wurde.
+            </div>
+          </div>
+          <div className="border border-gray-100 dark:border-gray-700 rounded-xl p-3 space-y-1.5">
+            <div className="font-semibold text-gray-700 dark:text-gray-200 text-xs">🤖 Android mit Chrome</div>
+            <ol className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5 list-decimal list-inside">
+              <li>Webseite in <strong>Chrome</strong> öffnen</li>
+              <li>Oben rechts auf das <strong>Drei-Punkte-Menü</strong> tippen</li>
+              <li>„App installieren" bzw. „Zum Startbildschirm hinzufügen" auswählen</li>
+              <li>Bestätigen</li>
+            </ol>
+          </div>
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
+            💡 Aktiviere danach unter <strong>Profil</strong> die Benachrichtigungen, damit du Reminder, Ergebnisse und den Spieltags-Recap nicht verpasst.
           </div>
         </div>
-      </Section>
+      </HelpAccordion>
 
-      <Section title="Kombiwetten" emoji="🔗">
+      {/* Push-Benachrichtigungen — NEU */}
+      <HelpAccordion title="Benachrichtigungen" emoji="🔔">
+        <p>
+          Wenn du Push-Benachrichtigungen aktiviert hast (unter <strong>Profil</strong>), bekommst du automatisch Bescheid:
+        </p>
+        <div className="mt-2 space-y-2">
+          <NotifItem emoji="🏟️" title="Spieltag offen" desc="Sobald ein neuer Spieltag wettbar ist (Montag 12:00 Uhr)." />
+          <NotifItem emoji="👀" title="Tipp-Erinnerung" desc="Ca. 2,5 Stunden vor dem ersten Spiel, falls du noch nicht alle Wettscheine genutzt hast." />
+          <NotifItem emoji="🎉" title="Wette gewonnen" desc="Direkt nach der Abrechnung — mit einem Tipp auf die Benachrichtigung springst du zur gewonnenen Wette." />
+          <NotifItem emoji="😬" title="Wette verloren" desc="Auch das erfährst du sofort, fair ist fair." />
+          <NotifItem emoji="📊" title="Spieltags-Recap" desc="Wenn alle Spiele eines Spieltags abgerechnet sind." />
+        </div>
+      </HelpAccordion>
+
+      {/* Spieltags-Recap — NEU */}
+      <HelpAccordion title="Spieltags-Recap" emoji="📊">
+        <p>
+          Nach jedem abgeschlossenen Spieltag gibt es eine Übersicht: alle Ergebnisse, dein persönlicher
+          Spieltags-Gewinn oder -Verlust und die Rangliste, wer an diesem Spieltag am meisten herausgeholt hat.
+        </p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Du erreichst den Recap über die Push-Benachrichtigung oder direkt in der App.
+        </p>
+      </HelpAccordion>
+
+      {/* Wetten platzieren & stornieren */}
+      <HelpAccordion title="Wetten platzieren & stornieren" emoji="⏰">
+        <div className="space-y-1.5 text-sm">
+          <Row label="Öffnet:" value="Montag 12:00 Uhr der Spielwoche" />
+          <Row label="Schluss:" value={<><strong>Einzelwetten:</strong> bis zum Anpfiff des jeweiligen Spiels</>} />
+          <Row label="" value={<><strong>Kombiwetten:</strong> nur wenn alle enthaltenen Spiele noch nicht begonnen haben</>} />
+          <Row label="Wettscheine:" value={<>Maximal <strong>3 Wettscheine</strong> pro Spieltag (2 normale + 1 Risky)</>} />
+          <Row label="Einsatz:" value={<>Maximal <strong>250 € pro Wettschein</strong></>} />
+          <Row label="Inaktiv:" labelColor="text-orange-600" value={<>Wer in einem Spieltag <strong>keine einzige Wette</strong> platziert, zahlt automatisch <strong>100 € Strafe</strong> — wird nach Spieltagsabrechnung abgezogen</>} />
+          <Row label="Storno:" labelColor="text-blue-700 dark:text-blue-400" value="Einzelwette: bis zum Anpfiff des Spiels. Kombiwette: bis der erste enthaltene Anpfiff beginnt. Der Einsatz wird sofort zurückgebucht." />
+        </div>
+      </HelpAccordion>
+
+      {/* Risky Wette — geschärft */}
+      <HelpAccordion title="Risky Wette" emoji="🎲">
+        <p>
+          Neben den 2 normalen Wettscheinen hast du <strong>einen zusätzlichen Risky-Slot</strong> pro Spieltag.
+          Diesen darfst du nur mit einem Wettschein belegen, dessen <strong>Quote mindestens 20,00</strong> beträgt
+          (Einzel- oder Kombiwette). So kannst du einen dritten, mutigen Tipp setzen.
+        </p>
+        <div className="mt-2 text-xs bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-600 dark:text-gray-300">
+          Beispiel: Du hast 2 normale Wettscheine genutzt und legst zusätzlich eine Kombiwette mit Quote 23,50 — diese läuft als Risky und füllt deinen 3. Slot.
+        </div>
+        <div className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+          Ein Bonus auf die Quote gibt es nicht — die Auszahlung ist wie immer Einsatz × Quote. Der Risky-Slot ist einfach dein dritter Wettschein für die hohen Quoten.
+        </div>
+      </HelpAccordion>
+
+      {/* Kombiwetten */}
+      <HelpAccordion title="Kombiwetten" emoji="🔗">
         <p>
           Wenn du mehrere Tipps aus verschiedenen Spielen zusammenstellst, entsteht automatisch eine Kombiwette.
           Die Quoten werden miteinander multipliziert — das erhöht den möglichen Gewinn erheblich.
         </p>
-        <div className="mt-2 bg-gray-50 rounded-xl px-4 py-3 text-sm">
-          <div className="text-gray-600">Sieg Heimteam <span className="font-bold text-red-700">@1,45</span> × Über 3,5 <span className="font-bold text-red-700">@1,80</span></div>
-          <div className="flex items-center justify-between mt-1 pt-1 border-t border-gray-200">
-            <span className="text-gray-500">20 € Einsatz →</span>
+        <div className="mt-2 bg-gray-50 dark:bg-gray-700/40 rounded-xl px-4 py-3 text-sm">
+          <div className="text-gray-600 dark:text-gray-300">Sieg Heimteam <span className="font-bold text-red-700 dark:text-red-400">@1,45</span> × Über 3,5 <span className="font-bold text-red-700 dark:text-red-400">@1,80</span></div>
+          <div className="flex items-center justify-between mt-1 pt-1 border-t border-gray-200 dark:border-gray-600">
+            <span className="text-gray-500 dark:text-gray-400">20 € Einsatz →</span>
             <span className="font-bold text-green-600">52,20 € Auszahlung</span>
           </div>
         </div>
         <div className="mt-2 space-y-1">
-          <div className="text-xs text-red-700 bg-red-50 rounded px-2 py-1">
+          <div className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1">
             ⚠️ Ein falscher Tipp macht die gesamte Kombiwette verloren.
           </div>
-          <div className="text-xs text-orange-700 bg-orange-50 rounded px-2 py-1">
+          <div className="text-xs text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 rounded px-2 py-1">
             🚫 Aus demselben Spiel darf nur ein Tipp in eine Kombiwette — z.B. nicht gleichzeitig Auswärtssieg und Doppelte Chance X2.
           </div>
         </div>
-      </Section>
+      </HelpAccordion>
 
-      <Section title="Quoten" emoji="📊">
-        <p className="text-sm font-semibold text-gray-700">Gewinn = Einsatz × Quote</p>
-        <p className="text-sm text-gray-500 mt-0.5">Beispiel: 20 € × 2,50 = <strong>50 € Auszahlung</strong></p>
+      {/* Quoten */}
+      <HelpAccordion title="Quoten" emoji="📈">
+        <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Gewinn = Einsatz × Quote</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Beispiel: 20 € × 2,50 = <strong>50 € Auszahlung</strong></p>
         <div className="mt-2 space-y-1.5">
           <QuoteExample odds={1.20} explanation="Klarer Favorit" />
           <QuoteExample odds={2.50} explanation="Ausgeglichenes Duell" />
           <QuoteExample odds={6.00} explanation="Außenseiter" />
           <QuoteExample odds={20.00} explanation="Sehr unwahrscheinlich" />
         </div>
-      </Section>
+      </HelpAccordion>
 
-      <Section title="Wettmärkte" emoji="📋">
+      {/* Wettmärkte */}
+      <HelpAccordion title="Wettmärkte" emoji="📋">
         <MarketCard
           title="1X2 — Spielausgang"
           items={[
@@ -155,69 +202,31 @@ export default function AnleitungPage() {
             { label: 'Mind. 2 Tore', desc: 'Der Spieler erzielt mindestens 2 Tore (nur bei ausgewählten Spielern)' },
           ]}
         />
-        <div className="text-xs text-gray-500 mt-2 space-y-1">
+        <div className="text-xs text-gray-500 dark:text-gray-400 mt-2 space-y-1">
           <p>• Eigentore zählen nicht.</p>
           <p>• Sollte ein Spieler kurzfristig aus dem Kader fallen, wird deine Wette automatisch storniert und der Einsatz zurückgebucht. Bei einer Kombi mit dem betroffenen Tipp wird der gesamte Kombi-Einsatz erstattet.</p>
         </div>
-      </Section>
+      </HelpAccordion>
 
-      <Section title="Wildenroth-Spieler & Trainer" emoji="⚽">
+      {/* Wildenroth-Spieler & Trainer */}
+      <HelpAccordion title="Wildenroth-Spieler & Trainer" emoji="⚽">
         <p>
           Als aktiver Spieler oder Trainer der SpVgg Wildenroth darfst du bei Wildenroth-Spielen
           <strong> nicht gegen Wildenroth wetten</strong>.
         </p>
         <div className="mt-2 space-y-1">
-          <div className="text-xs text-green-700 bg-green-50 rounded px-2 py-1">
+          <div className="text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 rounded px-2 py-1">
             ✅ Erlaubt: Wildenroth-Sieg (1X2), genaues Ergebnis mit Wildenroth-Sieg,
             neutrale Tormärkte (Über/Unter, Beide treffen)
           </div>
-          <div className="text-xs text-red-700 bg-red-50 rounded px-2 py-1">
+          <div className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1">
             🚫 Gesperrt: Wildenroth-Niederlage, Unentschieden, alle Doppelte-Chance-Picks gegen Wildenroth,
             genaue Ergebnisse mit Unentschieden oder Wildenroth-Niederlage
           </div>
         </div>
-      </Section>
+      </HelpAccordion>
 
-      <Section title="App installieren" emoji="📱">
-        <div className="space-y-3">
-          <div className="border border-gray-100 rounded-xl p-3 space-y-1.5">
-            <div className="font-semibold text-gray-700 text-xs">🍎 iPhone mit Safari</div>
-            <ol className="text-xs text-gray-500 space-y-0.5 list-decimal list-inside">
-              <li>Webseite in Safari öffnen</li>
-              <li>Unten rechts auf die drei Punkte tippen</li>
-              <li>„Teilen" auswählen</li>
-              <li>Unten auf „Mehr anzeigen" tippen</li>
-              <li>„Zum Home-Bildschirm" auswählen</li>
-              <li>Namen eingeben und „Hinzufügen" tippen</li>
-            </ol>
-          </div>
-          <div className="border border-gray-100 rounded-xl p-3 space-y-1.5">
-            <div className="font-semibold text-gray-700 text-xs">🍎 iPhone mit Chrome</div>
-            <ol className="text-xs text-gray-500 space-y-0.5 list-decimal list-inside">
-              <li>Webseite in Chrome öffnen</li>
-              <li>Oben rechts auf das Teilen-Symbol tippen</li>
-              <li>Unten auf „Mehr anzeigen" tippen</li>
-              <li>„Zum Home-Bildschirm" auswählen</li>
-              <li>Namen eingeben und „Hinzufügen" tippen</li>
-            </ol>
-          </div>
-          <div className="border border-gray-100 rounded-xl p-3 space-y-1.5">
-            <div className="font-semibold text-gray-700 text-xs">🤖 Android mit Chrome</div>
-            <ol className="text-xs text-gray-500 space-y-0.5 list-decimal list-inside">
-              <li>Webseite in Chrome öffnen</li>
-              <li>Rechts in der Adressleiste auf „Mehr" tippen</li>
-              <li>„Zum Home-Bildschirm hinzufügen" auswählen</li>
-              <li>„Installieren" tippen</li>
-            </ol>
-          </div>
-          <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-700">
-            💡 Empfohlen: Aktiviere anschließend unter <strong>Profil</strong> die Benachrichtigungen,
-            damit du keine Auswertung, Reminder oder Spieltags-Updates verpasst.
-          </div>
-        </div>
-      </Section>
-
-      <div className="pb-4 text-center text-xs text-gray-400">
+      <div className="pb-4 text-center text-xs text-gray-400 dark:text-gray-500">
         SpVgg Wildenroth Tippspiel · Saison 26/27<br />
         Nur mit Spielgeld — keine echten Einsätze
       </div>
@@ -225,14 +234,25 @@ export default function AnleitungPage() {
   )
 }
 
-function Section({ title, emoji, children }: { title: string; emoji: string; children: React.ReactNode }) {
+function Row({ label, value, labelColor }: { label: string; value: React.ReactNode; labelColor?: string }) {
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2">
-        <span className="text-xl">{emoji}</span>
-        <h2 className="font-bold text-gray-900">{title}</h2>
+    <div className="flex gap-2">
+      <span className={`font-bold flex-shrink-0 ${labelColor ?? 'text-red-700 dark:text-red-400'} ${label ? '' : 'invisible'}`}>
+        {label || 'Schluss:'}
+      </span>
+      <span className="text-gray-600 dark:text-gray-300">{value}</span>
+    </div>
+  )
+}
+
+function NotifItem({ emoji, title, desc }: { emoji: string; title: string; desc: string }) {
+  return (
+    <div className="flex gap-2.5 items-start">
+      <span className="text-base flex-shrink-0">{emoji}</span>
+      <div>
+        <div className="font-semibold text-gray-800 dark:text-gray-200 text-sm">{title}</div>
+        <div className="text-xs text-gray-500 dark:text-gray-400">{desc}</div>
       </div>
-      <div className="px-4 py-3 text-sm text-gray-600 space-y-2">{children}</div>
     </div>
   )
 }
@@ -245,15 +265,15 @@ function MarketCard({
   items: { label: string; desc: string }[]
 }) {
   return (
-    <div className="border border-gray-100 rounded-xl p-3 space-y-1.5">
-      <div className="font-semibold text-gray-800 text-sm">{title}</div>
-      {description && <p className="text-xs text-gray-500">{description}</p>}
+    <div className="border border-gray-100 dark:border-gray-700 rounded-xl p-3 space-y-1.5">
+      <div className="font-semibold text-gray-800 dark:text-gray-200 text-sm">{title}</div>
+      {description && <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>}
       {items.length > 0 && (
         <div className="space-y-1">
           {items.map((item) => (
             <div key={item.label} className="flex gap-2 text-xs">
-              <span className="bg-red-100 text-red-700 font-bold px-1.5 py-0.5 rounded flex-shrink-0">{item.label}</span>
-              <span className="text-gray-600">{item.desc}</span>
+              <span className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 font-bold px-1.5 py-0.5 rounded flex-shrink-0">{item.label}</span>
+              <span className="text-gray-600 dark:text-gray-300">{item.desc}</span>
             </div>
           ))}
         </div>
@@ -265,10 +285,10 @@ function MarketCard({
 function QuoteExample({ odds, explanation }: { odds: number; explanation: string }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="w-12 text-center font-black text-base text-gray-900 bg-gray-100 rounded-lg py-1 flex-shrink-0">
+      <div className="w-12 text-center font-black text-base text-gray-900 dark:text-gray-100 bg-gray-100 dark:bg-gray-700 rounded-lg py-1 flex-shrink-0">
         {odds.toFixed(2).replace('.', ',')}
       </div>
-      <div className="text-gray-500 text-xs flex-1">{explanation}</div>
+      <div className="text-gray-500 dark:text-gray-400 text-xs flex-1">{explanation}</div>
     </div>
   )
 }

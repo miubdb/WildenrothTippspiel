@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { WetteCard, type WetteData, type WetteStatus, type WetteSocial } from '@/components/WetteCard'
 import type { CommentData } from '@/components/CommentSection'
@@ -54,26 +55,6 @@ export type ComboMeta = { id: number; stake: number; total_odds: number; status:
 export type MatchdayStats = Record<string, number | null>
 
 // ── Shared helpers ─────────────────────────────────────────────────────
-
-function StatusIcon({ status, size = 'md' }: { status: string; size?: 'sm' | 'md' }) {
-  const sz = size === 'sm' ? 'w-5 h-5' : 'w-7 h-7'
-  const ico = size === 'sm' ? 'w-2.5 h-2.5' : 'w-3.5 h-3.5'
-  if (status === 'won') return (
-    <div className={`${sz} rounded-full bg-green-500 flex items-center justify-center flex-shrink-0`}>
-      <svg className={`${ico} text-white`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-    </div>
-  )
-  if (status === 'lost') return (
-    <div className={`${sz} rounded-full bg-red-500 flex items-center justify-center flex-shrink-0`}>
-      <svg className={`${ico} text-white`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-    </div>
-  )
-  return (
-    <div className={`${sz} rounded-full bg-yellow-400 flex items-center justify-center flex-shrink-0`}>
-      <svg className={`${ico} text-white`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-    </div>
-  )
-}
 
 function fmtAmt(n: number) {
   return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -184,132 +165,6 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
   )
 }
 
-// ── Profile History Modal ──────────────────────────────────────────────
-
-type HistoryBet = {
-  id: number; market_type: string; selection: string; stake: number | null; odds_value: number
-  status: string; payout: number | null; combo_id: number | null; created_at: string
-  match: { matchday: number; home_score: number | null; away_score: number | null; status: string; home_team: { name: string }; away_team: { name: string } } | null
-}
-type HistoryCombo = { id: number; stake: number; total_odds: number; status: string; payout: number | null }
-
-function ProfileModal({ profile, onClose, players }: { profile: Profile; onClose: () => void; players?: Record<number, string> }) {
-  const [bets, setBets] = useState<HistoryBet[] | null>(null)
-  const [combos, setCombos] = useState<Record<number, HistoryCombo>>({})
-  const [loading, setLoading] = useState(true)
-
-  useState(() => {
-    fetch(`/api/profiles/${profile.id}/bets`)
-      .then(r => r.json())
-      .then(data => {
-        setBets(data.bets ?? [])
-        const cm: Record<number, HistoryCombo> = {}
-        for (const c of data.combos ?? []) cm[c.id] = c
-        setCombos(cm)
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  })
-
-  const profit = profile.balance - STARTING_BALANCE
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-t-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
-          <div className="w-10 h-10 rounded-full bg-red-700 text-white flex items-center justify-center font-bold">
-            {(profile.display_name || profile.username)[0].toUpperCase()}
-          </div>
-          <div className="flex-1">
-            <div className="font-bold text-gray-900 dark:text-gray-100">{profile.display_name || profile.username}</div>
-            <div className="text-xs text-gray-400 dark:text-gray-500">@{profile.username}</div>
-          </div>
-          <div className="text-right">
-            <div className="font-black text-gray-900 dark:text-gray-100 text-sm">{profile.balance.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })}</div>
-            <div className={`text-xs font-semibold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
-          </div>
-          <button onClick={onClose} className="ml-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
-        </div>
-        {/* Body */}
-        <div className="overflow-y-auto flex-1 px-4 py-3 space-y-2">
-          {loading && <div className="text-center py-10 text-gray-400 dark:text-gray-500 text-sm">Lade Wetthistorie…</div>}
-          {!loading && bets?.length === 0 && <div className="text-center py-10 text-gray-400 dark:text-gray-500 text-sm">Noch keine abgeschlossenen Wetten.</div>}
-          {!loading && bets && bets.length > 0 && (() => {
-            type Item = { kind: 'single'; bet: HistoryBet } | { kind: 'combo'; legs: HistoryBet[]; cb: HistoryCombo | undefined }
-            const seen = new Set<number>()
-            const items: Item[] = []
-            for (const b of bets) {
-              if (!b.combo_id) items.push({ kind: 'single', bet: b })
-              else if (!seen.has(b.combo_id)) {
-                seen.add(b.combo_id)
-                items.push({ kind: 'combo', legs: bets.filter(x => x.combo_id === b.combo_id), cb: combos[b.combo_id] })
-              }
-            }
-            return items.map((item, i) => {
-              if (item.kind === 'single') {
-                const b = item.bet
-                const ml = b.match ? `${b.match.home_team.name} – ${b.match.away_team.name}` : '—'
-                const score = b.match?.home_score != null ? `${b.match.home_score}:${b.match.away_score}` : null
-                const borderColor = b.status === 'won' ? 'border-l-green-500' : b.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-                const bgColor = b.status === 'won' ? 'bg-green-50 dark:bg-green-900/20' : b.status === 'lost' ? 'bg-red-50/40 dark:bg-red-900/20' : 'bg-gray-50 dark:bg-gray-700/40'
-                return (
-                  <div key={b.id} className={`flex items-center gap-2.5 py-2 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
-                    <StatusIcon status={b.status} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs text-gray-400 dark:text-gray-500 truncate">{ml}{b.match?.matchday ? ` · ST ${b.match.matchday}` : ''}</div>
-                      <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">{selLabel(b.market_type, b.selection, players)}</div>
-                      {score && <div className="text-xs text-gray-400 dark:text-gray-500">Ergebnis: <span className="font-semibold text-gray-600 dark:text-gray-300">{score}</span></div>}
-                    </div>
-                    <div className="text-right flex-shrink-0 text-xs">
-                      <div className="font-black text-red-700">@{b.odds_value.toFixed(2).replace('.', ',')}</div>
-                      {b.status === 'won' && b.payout != null && <div className="font-bold text-green-600">+{b.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
-                      {b.status === 'lost' && <div className="text-red-400 line-through">{(b.stake ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
-                    </div>
-                  </div>
-                )
-              }
-              const cb = item.cb
-              const dbStatus2 = cb?.status ?? 'pending'
-              const status = (dbStatus2 === 'won' || dbStatus2 === 'lost') ? dbStatus2
-                : item.legs.some(l => l.status === 'lost') ? 'lost'
-                : item.legs.every(l => l.status === 'won') ? 'won'
-                : 'pending'
-              const totalOdds = cb?.total_odds ?? item.legs.reduce((a, l) => a * l.odds_value, 1)
-              const borderColor = status === 'won' ? 'border-l-green-500' : status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-              const bgColor = status === 'won' ? 'bg-green-50' : status === 'lost' ? 'bg-red-50/40' : 'bg-white'
-              return (
-                <div key={i} className={`py-2 px-3 border-l-4 ${borderColor} ${bgColor} rounded-r-lg`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <StatusIcon status={status} size="sm" />
-                    <div className="flex-1 text-xs">
-                      <span className="font-bold text-blue-600">🔗 Kombi</span>
-                      <span className="text-gray-400"> · Quote {totalOdds.toFixed(2).replace('.', ',')}</span>
-                    </div>
-                    {status === 'won' && cb?.payout != null && <div className="text-xs font-black text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
-                    {status === 'lost' && <div className="text-xs text-red-400 line-through">{(cb?.stake ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>}
-                  </div>
-                  <div className="pl-7 space-y-0.5">
-                    {item.legs.map(leg => (
-                      <div key={leg.id} className="text-xs text-gray-500 flex gap-1">
-                        <div className={`w-2 h-2 rounded-full mt-0.5 flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'}`} />
-                        <span className="truncate">{leg.match ? `${leg.match.home_team.name} – ${leg.match.away_team.name}` : '—'}</span>
-                        <span className="font-medium text-gray-700 flex-shrink-0">{selLabel(leg.market_type, leg.selection, players)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })
-          })()}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Main Export ────────────────────────────────────────────────────────
 
 export function LeaderboardClient({
@@ -342,7 +197,6 @@ export function LeaderboardClient({
     defaultTabIsSpielTag ? 'spieltag' : 'rangliste'
   )
   const [expanded, setExpanded] = useState<Set<string>>(new Set(currentUserId ? [currentUserId] : []))
-  const [profileModal, setProfileModal] = useState<Profile | null>(null)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [cancelError, setCancelError] = useState<string | null>(null)
 
@@ -366,11 +220,6 @@ export function LeaderboardClient({
   function toggle(id: string) {
     setExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
-
-  const openProfile = useCallback((profile: Profile) => {
-    if (profile.id === currentUserId) return // own profile has its own page
-    setProfileModal(profile)
-  }, [currentUserId])
 
   const top3 = profiles.slice(0, 3)
 
@@ -418,9 +267,9 @@ export function LeaderboardClient({
 
           {top3.length >= 3 && (
             <div className="flex items-end justify-center gap-3 px-2">
-              <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} onNameClick={openProfile} displayBalance={!isDeadlinePassed ? top3[1].balance + (pendingStakesPerUser[top3[1].id] ?? 0) : top3[1].balance} />
-              <PodiumCard rank={1} profile={top3[0]} isMe={top3[0].id === currentUserId} weeklyWins={weeklyWinCounts[top3[0].id] ?? 0} streak={streaks[top3[0].id] ?? 0} featured onNameClick={openProfile} displayBalance={!isDeadlinePassed ? top3[0].balance + (pendingStakesPerUser[top3[0].id] ?? 0) : top3[0].balance} />
-              <PodiumCard rank={3} profile={top3[2]} isMe={top3[2].id === currentUserId} weeklyWins={weeklyWinCounts[top3[2].id] ?? 0} streak={streaks[top3[2].id] ?? 0} onNameClick={openProfile} displayBalance={!isDeadlinePassed ? top3[2].balance + (pendingStakesPerUser[top3[2].id] ?? 0) : top3[2].balance} />
+              <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} displayBalance={!isDeadlinePassed ? top3[1].balance + (pendingStakesPerUser[top3[1].id] ?? 0) : top3[1].balance} />
+              <PodiumCard rank={1} profile={top3[0]} isMe={top3[0].id === currentUserId} weeklyWins={weeklyWinCounts[top3[0].id] ?? 0} streak={streaks[top3[0].id] ?? 0} featured displayBalance={!isDeadlinePassed ? top3[0].balance + (pendingStakesPerUser[top3[0].id] ?? 0) : top3[0].balance} />
+              <PodiumCard rank={3} profile={top3[2]} isMe={top3[2].id === currentUserId} weeklyWins={weeklyWinCounts[top3[2].id] ?? 0} streak={streaks[top3[2].id] ?? 0} displayBalance={!isDeadlinePassed ? top3[2].balance + (pendingStakesPerUser[top3[2].id] ?? 0) : top3[2].balance} />
             </div>
           )}
 
@@ -445,17 +294,19 @@ export function LeaderboardClient({
                     <div className="w-8 flex-shrink-0 text-center">
                       {rank <= 3 ? <span className="text-lg">{rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'}</span> : <span className="text-sm font-bold text-gray-400">{rank}</span>}
                     </div>
-                    {/* Avatar — click opens profile modal */}
-                    <button
-                      onClick={() => openProfile(profile)}
+                    {/* Avatar — links to public profile */}
+                    <Link
+                      href={`/spieler/${profile.id}`}
                       className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-sm ${isMe ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                     >
                       {(profile.display_name || profile.username || '?')[0].toUpperCase()}
-                    </button>
+                    </Link>
                     {/* Name + badges */}
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-gray-900 dark:text-gray-100 truncate text-sm flex items-center gap-1 flex-wrap">
-                        {profile.display_name || profile.username}
+                        <Link href={`/spieler/${profile.id}`} className="hover:underline">
+                          {profile.display_name || profile.username}
+                        </Link>
                         {isMe && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Du</span>}
                         {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium" title={`${streak} Spieltage in Folge im Plus`}>🔥 {streak}</span>}
                         {wWins >= 1 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-medium" title={`${wWins}× Spieltagsbester`}>🏅 {wWins}×</span>}
@@ -676,15 +527,13 @@ export function LeaderboardClient({
         </div>
       )}
 
-      {/* Profile History Modal */}
-      {profileModal && <ProfileModal profile={profileModal} onClose={() => setProfileModal(null)} players={playerNameMap} />}
     </div>
   )
 }
 
-function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak, onNameClick, displayBalance }: {
+function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak, displayBalance }: {
   rank: number; profile: Profile; isMe: boolean; featured?: boolean
-  weeklyWins: number; streak: number; onNameClick: (p: Profile) => void; displayBalance: number
+  weeklyWins: number; streak: number; displayBalance: number
 }) {
   const profit = displayBalance - STARTING_BALANCE
   const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'
@@ -693,9 +542,9 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
 
   return (
     <div className="flex-1 flex flex-col items-center">
-      <button onClick={() => onNameClick(profile)} className={`rounded-full flex items-center justify-center font-bold mb-2 ${featured ? 'w-14 h-14 text-xl' : 'w-12 h-12 text-lg'} ${isMe ? 'bg-red-700 text-white ring-2 ring-red-300' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
+      <Link href={`/spieler/${profile.id}`} className={`rounded-full flex items-center justify-center font-bold mb-2 ${featured ? 'w-14 h-14 text-xl' : 'w-12 h-12 text-lg'} ${isMe ? 'bg-red-700 text-white ring-2 ring-red-300' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
         {(profile.display_name || profile.username || '?')[0].toUpperCase()}
-      </button>
+      </Link>
       <div className="text-center mb-1">
         <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate max-w-20">{profile.display_name || profile.username}</div>
         <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(displayBalance)} €</div>

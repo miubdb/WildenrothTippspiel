@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
@@ -279,24 +280,45 @@ export default async function TabellePage() {
               </div>
 
               {/* Team */}
-              <div className="flex items-center gap-1.5 min-w-0">
-                <TeamLogo name={s.teamName} size="xs" className="flex-shrink-0" />
-                <div className="min-w-0">
-                  <div className={`text-sm font-semibold leading-tight truncate ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>
-                    {s.teamName}
-                    {isWildenroth && <span className="ml-1 text-xs text-red-400">⚽</span>}
+              {isWildenroth ? (
+                <Link href="/team/wildenroth" className="flex items-center gap-1.5 min-w-0 group">
+                  <TeamLogo name={s.teamName} size="xs" className="flex-shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold leading-tight truncate text-red-700 group-hover:underline">
+                      {s.teamName}
+                      <span className="ml-1 text-xs text-red-400">⚽</span>
+                      <span className="ml-1 text-xs text-red-400">›</span>
+                    </div>
+                    <div className="flex gap-0.5 mt-0.5">
+                      {s.form.map((r, i) => (
+                        <span key={i} className={`w-3.5 h-3.5 rounded-sm text-white text-[8px] font-bold flex items-center justify-center ${
+                          r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-yellow-400' : 'bg-red-400'
+                        }`}>
+                          {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                  <div className="flex gap-0.5 mt-0.5">
-                    {s.form.map((r, i) => (
-                      <span key={i} className={`w-3.5 h-3.5 rounded-sm text-white text-[8px] font-bold flex items-center justify-center ${
-                        r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-yellow-400' : 'bg-red-400'
-                      }`}>
-                        {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
-                      </span>
-                    ))}
+                </Link>
+              ) : (
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <TeamLogo name={s.teamName} size="xs" className="flex-shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold leading-tight truncate text-gray-900">
+                      {s.teamName}
+                    </div>
+                    <div className="flex gap-0.5 mt-0.5">
+                      {s.form.map((r, i) => (
+                        <span key={i} className={`w-3.5 h-3.5 rounded-sm text-white text-[8px] font-bold flex items-center justify-center ${
+                          r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-yellow-400' : 'bg-red-400'
+                        }`}>
+                          {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               <div className="w-7 text-center text-xs text-gray-500">{s.played}</div>
               <div className="w-10 text-center text-xs text-gray-600">{s.gf}:{s.ga}</div>
