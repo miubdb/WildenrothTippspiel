@@ -5,6 +5,7 @@ import { isSeasonStarted } from '@/lib/season'
 
 const MAX_STAKE = 250
 const CURRENT_SEASON = '26/27'
+const TEST_MATCHDAY = 999
 
 interface PlaceBetSelection {
   matchId: number
@@ -332,6 +333,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Profil nicht gefunden.' }, { status: 400 })
   }
 
+  // Use test season label for test matchday so bets are excluded from real leaderboard P&L
+  const isTestMatchday = matches.some(m => m.matchday === TEST_MATCHDAY)
+  const betSeason = isTestMatchday ? 'TEST' : CURRENT_SEASON
+
   // Calculate total cost
   let totalCost = 0
   if (mode === 'combo') {
@@ -359,7 +364,7 @@ export async function POST(request: NextRequest) {
         total_odds: Math.round(totalOdds * 100) / 100,
         status: 'pending',
         payout: null,
-        season: CURRENT_SEASON,
+        season: betSeason,
       })
       .select('id')
       .single()

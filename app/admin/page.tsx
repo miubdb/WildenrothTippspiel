@@ -575,6 +575,9 @@ export default function AdminPage() {
             {/* Push — kompakt */}
             <AdminPushTab />
 
+            {/* Test-Spieltag */}
+            <TestMatchdayPanel />
+
           </div>
         )}
       </div>
@@ -1962,5 +1965,153 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
         </div>
       )}
     </div>
+  )
+}
+
+// ── Test-Spieltag Panel ────────────────────────────────────────────────────
+
+interface TestMatch {
+  id: number
+  match_date: string
+  status: string
+  home_team: { name: string } | null
+  away_team: { name: string } | null
+}
+
+function TestMatchdayPanel() {
+  const [exists, setExists] = useState(false)
+  const [matches, setMatches] = useState<TestMatch[]>([])
+  const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+
+  async function loadStatus() {
+    setLoading(true)
+    const res = await fetch('/api/admin/test-matchday')
+    if (res.ok) {
+      const data = await res.json()
+      setExists(data.exists)
+      setMatches(data.matches ?? [])
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { loadStatus() }, [])
+
+  async function seed() {
+    if (!confirm('Test-Spieltag 999 anlegen? Kickoff-Zeiten ab jetzt +5 Min bis +270 Min.')) return
+    setActionLoading(true)
+    setResult(null)
+    const res = await fetch('/api/admin/test-matchday', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'seed' }),
+    })
+    const data = await res.json()
+    setResult(res.ok ? `✓ ${data.created} Test-Spiele angelegt (Spieltag 999)` : `✗ ${data.error}`)
+    await loadStatus()
+    setActionLoading(false)
+  }
+
+  async function teardown() {
+    if (!confirm('Test-Spieltag 999 vollständig entfernen? Alle Test-Wetten, Logs und dein Guthaben werden zurückgesetzt.')) return
+    setActionLoading(true)
+    setResult(null)
+    const res = await fetch('/api/admin/test-matchday', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'teardown' }),
+    })
+    const data = await res.json()
+    if (res.ok) {
+      const parts = [`✓ Teardown abgeschlossen`]
+      if (data.matchesDeleted > 0) parts.push(`${data.matchesDeleted} Spiele`)
+      if (data.betsDeleted > 0) parts.push(`${data.betsDeleted} Wetten`)
+      if (data.combosDeleted > 0) parts.push(`${data.combosDeleted} Kombis`)
+      if (data.balanceRestored != null) parts.push(`Guthaben auf ${data.balanceRestored.toFixed(2)} € zurückgesetzt`)
+      setResult(parts.join(' · '))
+    } else {
+      setResult(`✗ ${data.error}`)
+    }
+    await loadStatus()
+    setActionLoading(false)
+  }
+
+  const now = new Date()
+
+  return (
+    <details className="group" open={open} onToggle={e => setOpen((e.target as HTMLDetailsElement).open)}>
+      <summary className="cursor-pointer list-none flex items-center justify-between bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 select-none">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">🧪</span>
+          <span className="font-bold text-amber-900 text-sm">Test-Spieltag (Pre-Season)</span>
+          {!loading && (
+            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${exists ? 'bg-amber-200 text-amber-800' : 'bg-gray-100 text-gray-500'}`}>
+              {exists ? 'aktiv' : 'nicht angelegt'}
+            </span>
+          )}
+        </div>
+        <svg className={`w-4 h-4 text-amber-600 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </summary>
+
+      <div className="mt-2 bg-amber-50 border border-amber-200 rounded-2xl px-5 py-4 space-y-4">
+        <div className="text-xs text-amber-800 bg-amber-100 rounded-xl p-3 space-y-1">
+          <div className="font-semibold">Isolation-Garantien:</div>
+          <ul className="space-y-0.5 ml-2">
+            <li>· Spieltag 999 — kein Konflikt mit echten Spieltagen</li>
+            <li>· Wetten erhalten <code className="bg-amber-200 px-1 rounded">season=TEST</code> → erscheinen nicht in Ranglisten-P&amp;L</li>
+            <li>· Cron überspringt Spieltag ≥ 900 → keine Massen-Pushes</li>
+            <li>· Settle-Route überspringt Inaktivitäts-Strafe &amp; Recap-Push für Spieltag 999</li>
+            <li>· Teardown stellt dein Guthaben auf den Wert vor dem Test zurück</li>
+          </ul>
+        </div>
+
+        {result && (
+          <div className={`text-xs px-3 py-2 rounded-lg font-medium ${result.startsWith('✓') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-700'}`}>
+            {result}
+          </div>
+        )}
+
+        {!exists ? (
+          <button
+            onClick={seed}
+            disabled={actionLoading}
+            className="w-full py-3 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-colors"
+          >
+            {actionLoading ? 'Anlegen…' : '🧪 Test-Spieltag anlegen (Spieltag 999)'}
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              {matches.map(m => {
+                const kickoff = new Date(m.match_date)
+                const minsTill = Math.round((kickoff.getTime() - now.getTime()) / 60_000)
+                const kickoffStr = kickoff.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+                return (
+                  <div key={m.id} className="flex items-center justify-between bg-white rounded-xl px-3 py-2 text-xs border border-amber-100">
+                    <span className="font-semibold text-gray-800">
+                      {m.home_team?.name ?? '?'} – {m.away_team?.name ?? '?'}
+                    </span>
+                    <span className={`ml-2 flex-shrink-0 ${m.status === 'finished' ? 'text-green-600' : m.status === 'postponed' ? 'text-orange-500' : minsTill <= 0 ? 'text-red-500' : 'text-gray-500'}`}>
+                      {m.status === 'finished' ? '✓ abgerechnet' : m.status === 'postponed' ? '⏸ verschoben' : minsTill <= 0 ? `${kickoffStr} (läuft)` : `${kickoffStr} (in ${minsTill} Min)`}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            <button
+              onClick={teardown}
+              disabled={actionLoading}
+              className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold rounded-xl text-sm transition-colors"
+            >
+              {actionLoading ? 'Entferne…' : '🗑 Test-Spieltag vollständig entfernen'}
+            </button>
+          </div>
+        )}
+      </div>
+    </details>
   )
 }

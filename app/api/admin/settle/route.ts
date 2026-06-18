@@ -286,6 +286,12 @@ export async function POST(request: NextRequest) {
 
     if (allFinished) {
       const admin = createAdminClient()
+
+      // Test matchday 999: skip recap push and inactivity penalty — no mass notifications during testing
+      if (matchday >= 900) {
+        return NextResponse.json({ success: true, settled: settledBetIds.length, combosChecked: combosToCheck.size, testMode: true })
+      }
+
       const { error: dedupError } = await admin
         .from('push_reminders')
         .insert({ type: 'recap', matchday })

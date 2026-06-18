@@ -52,6 +52,9 @@ export async function GET(request: NextRequest) {
     }
 
     for (const [matchday, { firstDate, allDates }] of matchdayMap.entries()) {
+      // Skip test matchday (999) — no real-user pushes during test runs
+      if (matchday >= 900) continue
+
       const opensAt = bettingOpenTime(firstDate)
       const minutesSinceOpens = (now.getTime() - opensAt.getTime()) / 60000
 
