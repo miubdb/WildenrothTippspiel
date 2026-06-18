@@ -25,10 +25,10 @@ interface AdminUser {
   is_wildenroth: boolean
 }
 
-type Tab = 'results' | 'bets' | 'quoten' | 'saison' | 'push'
+type Tab = 'spieltag' | 'quoten' | 'verwaltung'
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<Tab>('results')
+  const [tab, setTab] = useState<Tab>('spieltag')
   const [matches, setMatches] = useState<MatchRow[]>([])
   const [scores, setScores] = useState<Record<number, { home: string; away: string }>>({})
   const [loading, setLoading] = useState(false)
@@ -291,28 +291,22 @@ export default function AdminPage() {
         )}
 
         {/* Tab Bar */}
-        <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm overflow-x-auto">
-          {(['results', 'bets', 'quoten', 'saison', 'push'] as Tab[]).map((t) => (
+        <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm">
+          {(['spieltag', 'quoten', 'verwaltung'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
-                tab === t
-                  ? 'bg-red-700 text-white shadow'
-                  : 'text-gray-500 hover:text-gray-700'
+                tab === t ? 'bg-red-700 text-white shadow' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {t === 'results' ? 'Ergebnisse'
-                : t === 'bets' ? 'Tipps'
-                : t === 'quoten' ? 'Quoten & Torschützen'
-                : t === 'saison' ? 'Saison'
-                : 'Push'}
+              {t === 'spieltag' ? 'Spieltag' : t === 'quoten' ? 'Quoten' : 'Verwaltung'}
             </button>
           ))}
         </div>
 
-        {/* Results Tab */}
-        {tab === 'results' && (
+        {/* Spieltag Tab */}
+        {tab === 'spieltag' && (
           <div className="space-y-4">
             {/* Status overview */}
             {(() => {
@@ -426,11 +420,11 @@ export default function AdminPage() {
             {loading && (
               <div className="text-center py-8 text-gray-400">Lade Spiele...</div>
             )}
+
+            {/* Tipps — accordion */}
+            <TippsAccordion matches={matches} />
           </div>
         )}
-
-        {/* Bets Tab */}
-        {tab === 'bets' && <AdminBetsTab matches={matches} />}
 
         {/* Quoten & Torschützen Tab */}
         {tab === 'quoten' && (
@@ -484,59 +478,15 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Saison Tab */}
-        {tab === 'saison' && (
+        {/* Verwaltung Tab */}
+        {tab === 'verwaltung' && (
           <div className="space-y-4">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="font-bold text-gray-900 mb-1">Neue Saison starten</h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Setzt alle Guthaben auf <strong>1.000 €</strong> zurück. Bisherige Wetten bleiben
-                als Saison 25/26 erhalten und sind im Spielerprofil unter &quot;Letzte Saison&quot; einsehbar.
-              </p>
-              <button
-                onClick={resetSeasonBalances}
-                disabled={seasonResetLoading}
-                className="w-full py-3 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white font-bold rounded-xl transition-colors text-sm"
-              >
-                {seasonResetLoading ? 'Wird zurückgesetzt…' : 'Alle Guthaben auf 1.000 € zurücksetzen'}
-              </button>
-            </div>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-              <div className="text-sm font-semibold text-amber-800 mb-1">Saisonwechsel Saison 26/27</div>
-              <p className="text-xs text-amber-700">
-                Nach dem Reset werden alle neuen Wetten automatisch der Saison <strong>26/27</strong> zugeordnet.
-                Die Statistiken auf den Spielerprofilen zeigen die aktuelle Saison — die letzte Saison
-                ist dort im Detail-Bereich einklappbar sichtbar.
-              </p>
-            </div>
-
-            {/* Saison manuell starten */}
+            {/* Spieler */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="font-bold text-gray-900 mb-1">Saison manuell starten</h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Ist die Saison gestartet, können sich neu registrierte Spieler nicht mehr automatisch beteiligen.
-                Auch ohne Flag gilt die Saison als gestartet, sobald das erste Spiel des 1. Spieltags angepfiffen wurde.
-              </p>
-              <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-                <div className="text-sm font-semibold text-gray-900">
-                  Status: {seasonStarted ? <span className="text-green-600">Gestartet</span> : <span className="text-gray-500">Nicht gestartet</span>}
-                </div>
-                <button
-                  onClick={() => toggleSeasonStarted(!seasonStarted)}
-                  disabled={seasonToggleLoading}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${seasonStarted ? 'bg-gray-500 hover:bg-gray-600' : 'bg-red-700 hover:bg-red-800'}`}
-                >
-                  {seasonStarted ? 'Flag entfernen' : 'Saison starten'}
-                </button>
-              </div>
-            </div>
-
-            {/* Spieler-Berechtigung */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="font-bold text-gray-900 mb-1">Spieler-Berechtigung</h3>
-              <p className="text-sm text-gray-500 mb-4">
-                Berechtigung für die aktuelle Saison verwalten. Für Nachzügler kann ein Startguthaben gesetzt werden.
+              <h3 className="font-bold text-gray-900 mb-1">Spieler</h3>
+              <p className="text-sm text-gray-500 mb-3">
+                Saison-Berechtigung und Wildenroth-Flag verwalten.
               </p>
               <div className="space-y-2">
                 {users.map((u) => (
@@ -545,13 +495,15 @@ export default function AdminPage() {
                       <div className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1 flex-wrap">
                         {u.display_name || u.username}
                         {u.is_admin && <span className="text-[10px] text-red-600 font-bold">ADMIN</span>}
-                        {u.is_wildenroth && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽ Wildenroth</span>}
+                        {u.is_wildenroth && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽</span>}
                       </div>
-                      <div className="text-[11px] text-gray-400">{u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € · {u.eligible_for_current_season ? 'berechtigt' : 'nicht berechtigt'}</div>
+                      <div className="text-[11px] text-gray-400">
+                        {u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} € · {u.eligible_for_current_season ? <span className="text-green-600">berechtigt</span> : <span className="text-amber-600">nicht berechtigt</span>}
+                      </div>
                     </div>
                     <button
                       onClick={() => toggleUserWildenroth(u.id, !u.is_wildenroth)}
-                      className={`px-2 py-1.5 rounded-lg text-xs font-bold border ${u.is_wildenroth ? 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200' : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-100'}`}
+                      className={`px-2 py-1.5 rounded-lg text-xs font-bold border ${u.is_wildenroth ? 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-100'}`}
                       title="Wildenroth-Spieler/Trainer"
                     >
                       ⚽
@@ -578,14 +530,76 @@ export default function AdminPage() {
                 {users.length === 0 && <div className="text-sm text-gray-400 text-center py-4">Keine Spieler geladen.</div>}
               </div>
             </div>
+
+            {/* Saison */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="font-bold text-gray-900 mb-3">Saison</h3>
+              {/* Start-Flag */}
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 mb-3">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">Saisonstart</div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {seasonStarted ? <span className="text-green-600 font-medium">Gestartet</span> : <span className="text-gray-400">Nicht gestartet</span>}
+                    {' '}· neue Nutzer brauchen manuelle Freischaltung
+                  </div>
+                </div>
+                <button
+                  onClick={() => toggleSeasonStarted(!seasonStarted)}
+                  disabled={seasonToggleLoading}
+                  className={`px-4 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${seasonStarted ? 'bg-gray-500 hover:bg-gray-600' : 'bg-red-700 hover:bg-red-800'}`}
+                >
+                  {seasonStarted ? 'Flag entfernen' : 'Saison starten'}
+                </button>
+              </div>
+              {/* Reset — danger zone */}
+              <details className="group">
+                <summary className="cursor-pointer text-xs font-semibold text-gray-400 hover:text-red-600 select-none list-none flex items-center gap-1">
+                  <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/></svg>
+                  Neue Saison (Guthaben reset)
+                </summary>
+                <div className="mt-3 border border-red-200 rounded-xl p-4 bg-red-50">
+                  <p className="text-xs text-red-700 mb-3">
+                    Setzt <strong>alle Guthaben auf 1.000 €</strong> zurück. Bisherige Wetten bleiben als Saison 25/26 erhalten.
+                  </p>
+                  <button
+                    onClick={resetSeasonBalances}
+                    disabled={seasonResetLoading}
+                    className="w-full py-2 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white font-bold rounded-lg transition-colors text-sm"
+                  >
+                    {seasonResetLoading ? 'Wird zurückgesetzt…' : 'Alle Guthaben auf 1.000 € zurücksetzen'}
+                  </button>
+                </div>
+              </details>
+            </div>
+
+            {/* Push — kompakt */}
+            <AdminPushTab />
+
           </div>
         )}
-
-        {/* Push Tab */}
-        {tab === 'push' && (
-          <AdminPushTab />
-        )}
       </div>
+    </div>
+  )
+}
+
+function TippsAccordion({ matches }: { matches: MatchRow[] }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="font-bold text-gray-900 text-sm">Tipps anzeigen</span>
+        <svg className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 border-t border-gray-50">
+          <AdminBetsTab matches={matches} />
+        </div>
+      )}
     </div>
   )
 }
@@ -633,32 +647,37 @@ function AdminPushTab() {
     }
   }
 
-  if (loading) return <div className="text-center py-8 text-gray-400">Lade Push-Daten…</div>
+  if (loading) return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <h3 className="font-bold text-gray-900 mb-3">Push-Benachrichtigungen</h3>
+      <div className="text-center py-4 text-gray-400 text-sm">Lade…</div>
+    </div>
+  )
 
-  if (!stats) return <div className="text-red-600 text-sm">Fehler beim Laden der Push-Daten</div>
+  if (!stats) return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <h3 className="font-bold text-gray-900 mb-1">Push-Benachrichtigungen</h3>
+      <div className="text-red-600 text-sm">Fehler beim Laden</div>
+    </div>
+  )
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
-          <div className="text-2xl font-black text-blue-600">{stats.usersWithPushEnabled}</div>
-          <div className="text-[10px] text-blue-700 font-semibold leading-tight">
-            Nutzer Push aktiv
-          </div>
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <h3 className="font-bold text-gray-900 mb-3">Push-Benachrichtigungen</h3>
+      <div className="grid grid-cols-3 gap-2 mb-3">
+        <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-center">
+          <div className="text-xl font-black text-blue-600">{stats.usersWithPushEnabled}</div>
+          <div className="text-[10px] text-blue-700 font-semibold leading-tight">Push aktiv</div>
         </div>
-        <div className="bg-green-50 border border-green-200 rounded-xl px-3 py-2">
-          <div className="text-2xl font-black text-green-600">{stats.activeSubscriptions}</div>
-          <div className="text-[10px] text-green-700 font-semibold leading-tight">
-            Aktive Subscriptions
-          </div>
+        <div className="bg-green-50 border border-green-100 rounded-xl px-3 py-2 text-center">
+          <div className="text-xl font-black text-green-600">{stats.activeSubscriptions}</div>
+          <div className="text-[10px] text-green-700 font-semibold leading-tight">Subscriptions</div>
         </div>
-        <div className="bg-purple-50 border border-purple-200 rounded-xl px-3 py-2 col-span-2">
-          <div className="text-2xl font-black text-purple-600">
-            {typeof stats.enablementRate === 'string' ? stats.enablementRate : stats.enablementRate.toFixed(1)}%
+        <div className="bg-purple-50 border border-purple-100 rounded-xl px-3 py-2 text-center">
+          <div className="text-xl font-black text-purple-600">
+            {typeof stats.enablementRate === 'string' ? stats.enablementRate : stats.enablementRate.toFixed(0)}%
           </div>
-          <div className="text-[10px] text-purple-700 font-semibold leading-tight">
-            Aktivierungsquote ({stats.totalEligibleUsers} berechtigt)
-          </div>
+          <div className="text-[10px] text-purple-700 font-semibold leading-tight">Aktiviert</div>
         </div>
       </div>
 
@@ -667,30 +686,25 @@ function AdminPushTab() {
         disabled={testLoading}
         className="w-full py-2 px-3 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors"
       >
-        {testLoading ? '🧪 Test wird gesendet…' : '🧪 Test-Push an mich'}
+        {testLoading ? '🧪 Wird gesendet…' : '🧪 Test-Push an mich'}
       </button>
 
       {message && (
-        <div className="px-4 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg">{message}</div>
+        <div className="mt-2 px-3 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg">{message}</div>
       )}
 
       {stats.recentErrors && stats.recentErrors.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-          <div className="text-xs font-semibold text-red-700 mb-2">⚠️ Letzte Fehler</div>
+        <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-3">
+          <div className="text-xs font-semibold text-red-700 mb-1">⚠️ Letzte Fehler</div>
           <div className="space-y-1 text-[11px] text-red-600">
-            {stats.recentErrors.slice(0, 5).map((err, i) => (
-              <div key={i} className="line-clamp-2">
+            {stats.recentErrors.slice(0, 3).map((err, i) => (
+              <div key={i} className="line-clamp-1">
                 <strong>{err.title}:</strong> {err.error_message}
               </div>
             ))}
           </div>
         </div>
       )}
-
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
-        <strong>ℹ️ Info:</strong> Die Cron-Job wird alle 15 Minuten ausgeführt und sendet zeitgesteuerte Benachrichtigungen
-        wie "Spieltag offen" und "Noch Wettscheine frei".
-      </div>
     </div>
   )
 }
