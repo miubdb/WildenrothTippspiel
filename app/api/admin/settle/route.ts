@@ -269,7 +269,7 @@ export async function POST(request: NextRequest) {
     }
 
     pushNotifications.push(
-      sendPushToUser(userId, title, body, `/profil`, 'settlement', dedupeKey)
+      sendPushToUser(userId, title, body, `/ergebnis/${matchId}`, 'settlement', dedupeKey)
     )
   }
 
