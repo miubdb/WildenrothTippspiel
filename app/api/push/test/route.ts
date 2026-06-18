@@ -32,13 +32,6 @@ export async function POST(request: NextRequest) {
     .eq('user_id', userId)
     .single()
 
-  if (!prefs?.push_enabled) {
-    return NextResponse.json(
-      { error: 'Push-Benachrichtigungen sind deaktiviert.' },
-      { status: 400 }
-    )
-  }
-
   // Check if user has subscriptions
   const { data: subs } = await admin
     .from('push_subscriptions')
@@ -52,6 +45,11 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
+
+  // Auto-enable push if subscriptions exist (test implies intent to receive)
+  await admin
+    .from('notification_preferences')
+    .upsert({ user_id: userId, push_enabled: true })
 
   // Send test push
   await sendPushToUser(

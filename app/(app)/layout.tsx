@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { BetSlipProvider } from '@/context/BetSlipContext'
 import { BottomNav } from '@/components/BottomNav'
+import { PushSync } from '@/components/PushSync'
 
 export default async function AppLayout({
   children,
@@ -60,6 +61,7 @@ export default async function AppLayout({
           {children}
         </main>
 
+        <PushSync />
         <BottomNav isAdmin={profile?.is_admin ?? false} />
       </div>
     </BetSlipProvider>
