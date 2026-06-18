@@ -26,7 +26,7 @@ type ComboData = {
 interface MyBetsProps {
   singles: Leg[]
   combos: ComboData[]
-  matchMap: Record<number, { home: string; away: string }>
+  matchMap: Record<number, { home: string; away: string; kickoff?: string }>
   isDeadlinePassed: boolean
   playerNameMap?: Record<number, string>
 }
@@ -107,7 +107,16 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
     }
   }
 
-  const wetten: WetteData[] = [
+  const now = new Date()
+
+  function isBetLocked(leg: Leg): boolean {
+    const kickoff = matchMap[leg.match_id]?.kickoff
+    return kickoff ? new Date(kickoff) <= now : isDeadlinePassed
+  }
+
+  type WetteEntry = WetteData & { locked: boolean }
+
+  const wetten: WetteEntry[] = [
     ...singles.map(leg => ({
       id: `bet-${leg.id}`,
       type: 'single' as const,
@@ -117,6 +126,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
       status: leg.status as WetteStatus,
       betId: leg.id,
       legs: [legToWetteLeg(leg, matchMap, playerNameMap)],
+      locked: isBetLocked(leg),
     })),
     ...combos.map(combo => {
       const dbSt = combo.status as WetteStatus
@@ -125,6 +135,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
         : combo.legs.some(l => l.status === 'lost') ? 'lost'
         : combo.legs.every(l => l.status === 'won') ? 'won'
         : 'pending'
+      const anyLegLocked = combo.legs.some(l => isBetLocked(l))
       return {
         id: `combo-${combo.id}`,
         type: 'combo' as const,
@@ -134,16 +145,19 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
         status: effectiveSt,
         comboId: combo.id,
         legs: combo.legs.map(l => legToWetteLeg(l, matchMap, playerNameMap)),
+        locked: anyLegLocked,
       }
     }),
   ]
+
+  const anyStillOpen = wetten.some(w => !w.locked && w.status === 'pending')
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-100">
         <h2 className="font-bold text-gray-900">Meine Wetten</h2>
-        {!isDeadlinePassed && (
-          <p className="text-xs text-gray-400 mt-0.5">Stornierung bis zum ersten Anpfiff möglich</p>
+        {anyStillOpen && (
+          <p className="text-xs text-gray-400 mt-0.5">Stornierung bis Anpfiff des jeweiligen Spiels möglich</p>
         )}
       </div>
 
@@ -161,7 +175,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
             wette={wette}
             onCancel={cancelBet}
             cancellingId={cancellingId}
-            isDeadlinePassed={isDeadlinePassed}
+            isDeadlinePassed={wette.locked}
           />
         ))}
       </div>

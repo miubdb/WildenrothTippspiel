@@ -101,6 +101,7 @@ export function WetteCard({
 
   const leg0 = wette.legs[0]
   const typeLine =
+    wette.isRisky && wette.type === 'combo' ? `🎲 Risky · ${wette.legs.length} Tipps` :
     wette.isRisky ? '🎲 Risky' :
     wette.type === 'combo' ? `🔗 Kombiwette · ${wette.legs.length} Tipps` :
     'Einzelwette'

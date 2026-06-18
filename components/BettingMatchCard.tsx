@@ -212,6 +212,14 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         </div>
       )}
 
+      {/* Lock indicator when match has started but isn't finished (no score yet visible) */}
+      {isLive && (
+        <div className="px-4 pb-2.5 flex items-center gap-1.5 text-xs text-orange-600 dark:text-orange-400 font-medium">
+          <span>🔒</span>
+          <span>Tippschluss – Spiel läuft</span>
+        </div>
+      )}
+
       {/* Wildenroth conflict-of-interest toast */}
       {wildenrothBlockMsg && (
         <div className="border-t border-red-100 bg-red-50 px-4 py-3 flex items-start gap-2">
