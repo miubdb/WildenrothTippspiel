@@ -3,6 +3,11 @@
   "buildCommand": "next build",
   "outputDirectory": ".next",
   "regions": ["fra1"],
+  "git": {
+    "deploymentEnabled": {
+      "integration": false
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/notifications",

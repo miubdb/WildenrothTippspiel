@@ -14,7 +14,20 @@ export function PushSubscribeButton() {
     }
     navigator.serviceWorker.register('/sw.js').then(async (reg) => {
       const existing = await reg.pushManager.getSubscription()
-      setState(existing ? 'subscribed' : 'unsubscribed')
+      if (existing) {
+        // Ensure DB reflects the active subscription
+        const supabaseClient = createClient()
+        const { data: { user } } = await supabaseClient.auth.getUser()
+        if (user) {
+          await supabaseClient.from('notification_preferences').upsert({
+            user_id: user.id,
+            push_enabled: true,
+          })
+        }
+        setState('subscribed')
+      } else {
+        setState('unsubscribed')
+      }
     }).catch(() => setState('unsupported'))
   }, [])
 
