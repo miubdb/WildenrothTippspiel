@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PushSubscribeButton } from '@/components/PushSubscribeButton'
-import { PushSettings } from '@/components/PushSettings'
 import { ProfileEditForm } from '@/components/ProfileEditForm'
 import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -402,7 +401,6 @@ export default async function ProfilPage() {
 
       {/* Push Notifications */}
       <PushSubscribeButton />
-      <PushSettings />
 
       {/* Bet History */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
