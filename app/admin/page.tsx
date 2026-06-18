@@ -705,6 +705,10 @@ function AdminPushTab() {
           </div>
         </div>
       )}
+
+      <div className="mt-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-[11px] text-gray-500">
+        <strong>Scheduler:</strong> GitHub Actions läuft alle 30 Min (:07 und :37) — Haupt-Scheduler. Vercel Cron (täglich 08:00 UTC) ist nur Fallback.
+      </div>
     </div>
   )
 }

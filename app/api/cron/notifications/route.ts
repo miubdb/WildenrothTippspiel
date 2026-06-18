@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
         if (!existing) {
           await sendPushToAll(
             `🏟️ Spieltag ${matchday} – Wetten offen!`,
-            `Du kannst jetzt deine Tipps für Spieltag ${matchday} abgeben. Tippschluss ist jeweils vor dem Anpfiff.`,
+            `Du kannst jetzt deine Tipps abgeben. Jedes Spiel schließt einzeln bei seinem Anpfiff.`,
             `/tipps?matchday=${matchday}`,
             'matchday_open',
             dedupeKey
@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
               await sendPushToUser(
                 user.id,
                 '👀 Du hast noch Tipps frei',
-                `Spieltag ${matchday} – noch ${3 - totalBets} Wettschein(e) verfügbar. Danach nur noch auf spätere Spiele möglich.`,
+                `Spieltag ${matchday} – du hast noch ${3 - totalBets} Wettschein(e) frei. Jedes Spiel schließt bei seinem Anpfiff.`,
                 `/tipps?matchday=${matchday}`,
                 'bet_reminder',
                 dedupeKey

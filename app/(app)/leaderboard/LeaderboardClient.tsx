@@ -277,7 +277,7 @@ export function LeaderboardClient({
           {!isDeadlinePassed && matchdayNumber && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <div className="font-semibold mb-0.5">Stand vor Spieltag {matchdayNumber}</div>
-              <div className="text-blue-600 dark:text-blue-400">Offene Einsätze bleiben bis zur Veröffentlichung verborgen. Dein persönliches Guthaben kann davon abweichen.</div>
+              <div className="text-blue-600 dark:text-blue-400">Tipps anderer Spieler werden erst nach Anpfiff des ersten Spiels sichtbar. Dein eigenes Guthaben kann davon abweichen.</div>
             </div>
           )}
 
@@ -344,7 +344,7 @@ export function LeaderboardClient({
                   {isOpen && (
                     <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-700 pt-2">
                       {!isDeadlinePassed && !isMe ? (
-                        <p className="text-xs text-gray-400 dark:text-gray-500 italic">Tipps werden nach Annahmeschluss sichtbar</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500 italic">Tipps werden nach Anpfiff des ersten Spiels sichtbar</p>
                       ) : (
                         <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
                       )}
@@ -381,7 +381,7 @@ export function LeaderboardClient({
           {!isDeadlinePassed && matchdayNumber && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <div className="font-semibold mb-0.5">Rangliste: Stand vor Spieltag {matchdayNumber}</div>
-              <div className="text-blue-600 dark:text-blue-400">Offene Einsätze bleiben bis zur Veröffentlichung verborgen. Dein persönliches Guthaben kann davon abweichen.</div>
+              <div className="text-blue-600 dark:text-blue-400">Tipps anderer Spieler werden erst nach Anpfiff des ersten Spiels sichtbar. Dein eigenes Guthaben kann davon abweichen.</div>
             </div>
           )}
 
@@ -454,7 +454,7 @@ export function LeaderboardClient({
 
           <div className="text-sm text-gray-500 dark:text-gray-400 font-medium px-1">
             Alle Tipps — {matchdayNumber}. Spieltag
-            {!isDeadlinePassed && <span className="ml-2 text-xs text-yellow-600">· sichtbar nach Annahmeschluss</span>}
+            {!isDeadlinePassed && <span className="ml-2 text-xs text-yellow-600">· sichtbar ab erstem Anpfiff</span>}
           </div>
 
           {profiles.map(profile => {
@@ -529,7 +529,7 @@ export function LeaderboardClient({
           })}
 
           {!isDeadlinePassed && (
-            <p className="text-center text-xs text-gray-400 dark:text-gray-500 py-4">Die Tipps der anderen werden nach Annahmeschluss sichtbar.</p>
+            <p className="text-center text-xs text-gray-400 dark:text-gray-500 py-4">Die Tipps der anderen werden nach Anpfiff des ersten Spiels sichtbar.</p>
           )}
         </div>
       )}

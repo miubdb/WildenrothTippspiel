@@ -69,7 +69,7 @@ export default async function WillkommenPage() {
             { icon: '🎯', title: 'Max. 2 Tipps pro Spieltag', text: 'Pro Spieltag darfst du 2 normale Wetten und 1 Risiko-Wette abgeben.' },
             { icon: '🔗', title: 'Kombiwetten möglich', text: 'Mehrere Spiele lassen sich zu einer Kombiwette verknüpfen.' },
             { icon: '📊', title: 'Rangliste', text: 'Wer am Ende der Saison das höchste Guthaben hat, gewinnt.' },
-            { icon: '⏰', title: 'Annahmeschluss', text: 'Tipps müssen vor Anpfiff des ersten Spiels abgegeben sein.' },
+            { icon: '⏰', title: 'Wettfenster', text: 'Ab Montag 12:00 Uhr tippbar. Jedes Spiel schließt automatisch bei seinem eigenen Anpfiff — andere Spiele bleiben offen.' },
           ].map(({ icon, title, text }) => (
             <div key={title} className="flex items-start gap-3 px-5 py-3">
               <span className="text-xl flex-shrink-0">{icon}</span>

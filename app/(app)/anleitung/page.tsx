@@ -83,6 +83,9 @@ export default function AnleitungPage() {
 
       {/* Wetten platzieren & stornieren */}
       <HelpAccordion title="Wetten platzieren & stornieren" emoji="⏰">
+        <div className="mb-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-800 dark:text-blue-300">
+          Das Wettfenster öffnet <strong>montags um 12:00 Uhr</strong>. Jedes Spiel schließt einzeln bei seinem Anpfiff — andere Spiele des Spieltags bleiben weiterhin tippbar.
+        </div>
         <div className="space-y-1.5 text-sm">
           <Row label="Öffnet:" value="Montag 12:00 Uhr der Spielwoche" />
           <Row label="Schluss:" value={<><strong>Einzelwetten:</strong> bis zum Anpfiff des jeweiligen Spiels</>} />
@@ -222,6 +225,22 @@ export default function AnleitungPage() {
           <div className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1">
             🚫 Gesperrt: Wildenroth-Niederlage, Unentschieden, alle Doppelte-Chance-Picks gegen Wildenroth,
             genaue Ergebnisse mit Unentschieden oder Wildenroth-Niederlage
+          </div>
+        </div>
+      </HelpAccordion>
+
+      {/* Saisonstart & Einstieg */}
+      <HelpAccordion title="Saisonstart & Einstieg" emoji="📅">
+        <p>
+          Die reguläre Teilnahme an der Saisonwertung ist nur vor Saisonstart möglich.
+          Nach dem ersten Spieltag ist kein automatischer Einstieg mehr möglich.
+        </p>
+        <div className="mt-2 space-y-1.5 text-xs">
+          <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 text-gray-600 dark:text-gray-300">
+            In begründeten Ausnahmefällen kann ein Admin Nutzer nachträglich freischalten und das Startguthaben manuell festlegen.
+          </div>
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2 text-amber-800 dark:text-amber-300">
+            Wer sich nach Saisonstart registriert, sieht eine Meldung und muss auf die Freischaltung durch den Admin warten.
           </div>
         </div>
       </HelpAccordion>
