@@ -36,7 +36,7 @@ export default async function WillkommenPage() {
             <div>
               <h2 className="font-bold text-gray-900">Freischaltung ausstehend</h2>
               <p className="text-sm text-gray-600 mt-1">
-                Du hast dich nach Saisonstart registriert. Jani schaltet dich in Kürze frei — danach kannst du lostipppen.
+                Du hast dich nach Saisonstart registriert. Melde dich kurz per WhatsApp bei Jani — er schaltet dich dann frei.
               </p>
             </div>
           </div>
@@ -66,7 +66,7 @@ export default async function WillkommenPage() {
         <div className="divide-y divide-gray-50 dark:divide-gray-700">
           {[
             { icon: '💰', title: 'Startkapital: 1.000 €', text: 'Du bekommst virtuell 1.000 € zum Tippen.' },
-            { icon: '🎯', title: 'Max. 2 Tipps pro Spieltag', text: 'Pro Spieltag darfst du 2 normale Wetten und 1 Risiko-Wette abgeben.' },
+            { icon: '🎯', title: 'Max. 2 normale + 1 Risiko-Wette', text: 'Pro Spieltag darfst du 2 normale Wetten und 1 Risiko-Wette abgeben.' },
             { icon: '🔗', title: 'Kombiwetten möglich', text: 'Mehrere Spiele lassen sich zu einer Kombiwette verknüpfen.' },
             { icon: '📊', title: 'Rangliste', text: 'Wer am Ende der Saison das höchste Guthaben hat, gewinnt.' },
             { icon: '⏰', title: 'Wettfenster', text: 'Ab Montag 12:00 Uhr tippbar. Jedes Spiel schließt automatisch bei seinem eigenen Anpfiff — andere Spiele bleiben offen.' },

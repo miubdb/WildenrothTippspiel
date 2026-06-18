@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -28,8 +29,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'matchId erforderlich.' }, { status: 400 })
   }
 
+  const adminSupa = createAdminClient()
+
   if (action === 'postpone') {
-    const { error } = await supabase
+    const { error } = await adminSupa
       .from('matches')
       .update({ status: 'postponed' })
       .eq('id', matchId)
@@ -46,7 +49,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ungültiges Datum.' }, { status: 400 })
     }
 
-    const { error } = await supabase
+    const { error } = await adminSupa
       .from('matches')
       .update({ status: 'scheduled', match_date: parsedDate.toISOString() })
       .eq('id', matchId)

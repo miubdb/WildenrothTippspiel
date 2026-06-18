@@ -5,11 +5,20 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
+function generateUsername(displayName: string): string {
+  const base = displayName
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 20) || 'user'
+  const suffix = Math.random().toString(36).slice(2, 6)
+  return `${base}_${suffix}`
+}
+
 export default function RegisterPage() {
   const router = useRouter()
   const [form, setForm] = useState({
-    inviteCode: '',
-    username: '',
     displayName: '',
     email: '',
     password: '',
@@ -27,6 +36,10 @@ export default function RegisterPage() {
     e.preventDefault()
     setError(null)
 
+    if (form.displayName.trim().length < 2) {
+      setError('Bitte gib deinen Namen ein (mindestens 2 Zeichen).')
+      return
+    }
     if (form.password !== form.passwordConfirm) {
       setError('Passwörter stimmen nicht überein.')
       return
@@ -35,50 +48,11 @@ export default function RegisterPage() {
       setError('Das Passwort muss mindestens 6 Zeichen lang sein.')
       return
     }
-    if (form.username.length < 3) {
-      setError('Der Benutzername muss mindestens 3 Zeichen lang sein.')
-      return
-    }
 
     setLoading(true)
 
     const supabase = createClient()
-
-    // Validate invite code
-    const { data: inviteData, error: inviteError } = await supabase
-      .from('invite_codes')
-      .select('id, max_uses, used_count, is_active')
-      .eq('code', form.inviteCode.trim().toUpperCase())
-      .single()
-
-    if (inviteError || !inviteData) {
-      setError('Ungültiger Einladungscode.')
-      setLoading(false)
-      return
-    }
-    if (!inviteData.is_active) {
-      setError('Dieser Einladungscode ist nicht mehr aktiv.')
-      setLoading(false)
-      return
-    }
-    if (inviteData.max_uses !== null && inviteData.used_count >= inviteData.max_uses) {
-      setError('Dieser Einladungscode wurde bereits zu oft verwendet.')
-      setLoading(false)
-      return
-    }
-
-    // Check username uniqueness
-    const { data: existingUser } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('username', form.username.trim())
-      .single()
-
-    if (existingUser) {
-      setError('Dieser Benutzername ist bereits vergeben.')
-      setLoading(false)
-      return
-    }
+    const username = generateUsername(form.displayName)
 
     // Register user
     const { error: signUpError } = await supabase.auth.signUp({
@@ -86,8 +60,8 @@ export default function RegisterPage() {
       password: form.password,
       options: {
         data: {
-          username: form.username.trim(),
-          display_name: form.displayName.trim() || form.username.trim(),
+          username,
+          display_name: form.displayName.trim(),
         },
       },
     })
@@ -97,12 +71,6 @@ export default function RegisterPage() {
       setLoading(false)
       return
     }
-
-    // Increment invite code usage
-    await supabase
-      .from('invite_codes')
-      .update({ used_count: inviteData.used_count + 1 })
-      .eq('id', inviteData.id)
 
     // Saisonstart-Regel + Wildenroth-Flag setzen
     try {
@@ -128,49 +96,18 @@ export default function RegisterPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="inviteCode" className="block text-sm font-medium text-gray-700 mb-1">
-            Einladungscode
-          </label>
-          <input
-            id="inviteCode"
-            name="inviteCode"
-            type="text"
-            required
-            value={form.inviteCode}
-            onChange={handleChange}
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-gray-900 placeholder-gray-400 uppercase tracking-widest transition"
-            placeholder="WILDENROTH2025"
-          />
-        </div>
-
-        <div>
-          <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
-            Benutzername
-          </label>
-          <input
-            id="username"
-            name="username"
-            type="text"
-            required
-            value={form.username}
-            onChange={handleChange}
-            className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-gray-900 placeholder-gray-400 transition"
-            placeholder="deinname"
-          />
-        </div>
-
-        <div>
           <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 mb-1">
-            Anzeigename <span className="text-gray-400 font-normal">(optional)</span>
+            Name
           </label>
           <input
             id="displayName"
             name="displayName"
             type="text"
+            required
             value={form.displayName}
             onChange={handleChange}
             className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-gray-900 placeholder-gray-400 transition"
-            placeholder="Dein vollständiger Name"
+            placeholder="Dein Name"
           />
         </div>
 

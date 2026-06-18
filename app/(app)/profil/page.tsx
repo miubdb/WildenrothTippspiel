@@ -4,7 +4,6 @@ import { PushSubscribeButton } from '@/components/PushSubscribeButton'
 import { ProfileEditForm } from '@/components/ProfileEditForm'
 import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { crestPath } from '@/lib/teams'
 
 export const revalidate = 60
 
@@ -96,8 +95,8 @@ export default async function ProfilPage({
     })(),
   }))
 
-  // Split by season: current = '26/27' (or unknown), prev = '25/26'
-  const bets = allBets.filter(b => !b.season || b.season === CURRENT_SEASON)
+  // Split by season: current = '26/27' (or unknown) + TEST, prev = '25/26'
+  const bets = allBets.filter(b => !b.season || b.season === CURRENT_SEASON || b.season === 'TEST')
   const prevBets = allBets.filter(b => b.season === PREV_SEASON)
 
   // Fetch combo_bets metadata — current season
@@ -301,11 +300,7 @@ export default async function ProfilPage({
         )}
         <div className="flex items-center gap-3 mt-3 text-xs text-red-200">
           {profile.favorite_team && (
-            <span className="flex items-center gap-1.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={crestPath(profile.favorite_team)} alt="" className="w-4 h-4 object-contain" />
-              {profile.favorite_team}
-            </span>
+            <span>Lieblingsverein: {profile.favorite_team}</span>
           )}
           <span>
             Mitglied seit {new Date(profile.created_at).toLocaleDateString('de-DE', { month: 'long', year: 'numeric' })}

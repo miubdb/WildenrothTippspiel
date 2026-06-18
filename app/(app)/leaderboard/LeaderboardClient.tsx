@@ -31,7 +31,7 @@ function selLabel(marketType: string, selection: string, players?: Record<number
   return SEL_LABEL[marketType]?.[selection] ?? selection
 }
 
-export type Profile = { id: string; username: string; display_name: string | null; balance: number; avatar_url?: string | null }
+export type Profile = { id: string; username: string; display_name: string | null; balance: number; season_start_balance?: number | null; avatar_url?: string | null }
 export type BetRow = {
   id: number
   user_id: string
@@ -294,19 +294,17 @@ export function LeaderboardClient({
 
           {top3.length >= 3 && (
             <div className="flex items-end justify-center gap-3 px-2">
-              <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} displayBalance={!isDeadlinePassed ? top3[1].balance + (pendingStakesPerUser[top3[1].id] ?? 0) : top3[1].balance} />
-              <PodiumCard rank={1} profile={top3[0]} isMe={top3[0].id === currentUserId} weeklyWins={weeklyWinCounts[top3[0].id] ?? 0} streak={streaks[top3[0].id] ?? 0} featured displayBalance={!isDeadlinePassed ? top3[0].balance + (pendingStakesPerUser[top3[0].id] ?? 0) : top3[0].balance} />
-              <PodiumCard rank={3} profile={top3[2]} isMe={top3[2].id === currentUserId} weeklyWins={weeklyWinCounts[top3[2].id] ?? 0} streak={streaks[top3[2].id] ?? 0} displayBalance={!isDeadlinePassed ? top3[2].balance + (pendingStakesPerUser[top3[2].id] ?? 0) : top3[2].balance} />
+              <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} displayBalance={top3[1].balance + (pendingStakesPerUser[top3[1].id] ?? 0)} />
+              <PodiumCard rank={1} profile={top3[0]} isMe={top3[0].id === currentUserId} weeklyWins={weeklyWinCounts[top3[0].id] ?? 0} streak={streaks[top3[0].id] ?? 0} featured displayBalance={top3[0].balance + (pendingStakesPerUser[top3[0].id] ?? 0)} />
+              <PodiumCard rank={3} profile={top3[2]} isMe={top3[2].id === currentUserId} weeklyWins={weeklyWinCounts[top3[2].id] ?? 0} streak={streaks[top3[2].id] ?? 0} displayBalance={top3[2].balance + (pendingStakesPerUser[top3[2].id] ?? 0)} />
             </div>
           )}
 
           <div className="space-y-2">
             {profiles.map((profile, idx) => {
               const rank = idx + 1
-              const displayBalance = !isDeadlinePassed
-                ? profile.balance + (pendingStakesPerUser[profile.id] ?? 0)
-                : profile.balance
-              const profit = displayBalance - STARTING_BALANCE
+              const displayBalance = profile.balance + (pendingStakesPerUser[profile.id] ?? 0)
+              const profit = displayBalance - (profile.season_start_balance ?? STARTING_BALANCE)
               const isMe = profile.id === currentUserId
               const isOpen = expanded.has(profile.id)
               const userBets = matchdayBets.filter(b => b.user_id === profile.id)
@@ -556,7 +554,7 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
   rank: number; profile: Profile; isMe: boolean; featured?: boolean
   weeklyWins: number; streak: number; displayBalance: number
 }) {
-  const profit = displayBalance - STARTING_BALANCE
+  const profit = displayBalance - (profile.season_start_balance ?? STARTING_BALANCE)
   const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'
   const heights = { 1: 'h-32', 2: 'h-24', 3: 'h-20' } as const
   const colors = { 1: 'bg-yellow-100 border-2 border-yellow-300', 2: 'bg-gray-100 border-2 border-gray-300', 3: 'bg-orange-50 border-2 border-orange-200' } as const

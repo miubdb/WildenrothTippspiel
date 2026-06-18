@@ -24,7 +24,7 @@ export default async function LeaderboardPage({
     { data: allBetsRaw },
     { data: allCombosRaw },
   ] = await Promise.all([
-    supabase.from('profiles').select('id, username, display_name, balance, eligible_for_current_season, is_admin, avatar_url').or('eligible_for_current_season.eq.true,is_admin.eq.true').order('balance', { ascending: false }),
+    supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url').or('eligible_for_current_season.eq.true,is_admin.eq.true').order('balance', { ascending: false }),
     supabase.auth.getUser(),
     supabase.from('matches').select('id, matchday, match_date, status').order('match_date', { ascending: true }),
     supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season'),
@@ -106,17 +106,15 @@ export default async function LeaderboardPage({
   const defaultTabIsSpielTag = hasMatchdayStarted && !isMatchdayComplete
   const matchdayMatchIds = new Set(matchdayMatches.map(m => m.id))
 
-  // Pre-matchday balance: add back pending stakes so leaderboard shows "Stand vor Spieltag N"
-  // before tipps are revealed. This prevents other users inferring stake amounts from reduced balances.
+  // Always compute ALL pending stakes across all matches so balance+pending = true ranking value.
+  // This prevents reducing balances from leaking bet sizes before reveal.
   const pendingStakesPerUser: Record<string, number> = {}
   const betCountsPerUser: Record<string, number> = {}
-  if (!isDeadlinePassed && matchdayMatchIds.size > 0) {
+  {
     const adminSupa = createAdminClient()
-    const matchIdArr = [...matchdayMatchIds]
     const { data: pendingBetRows } = await adminSupa
       .from('bets')
-      .select('id, user_id, stake, combo_id')
-      .in('match_id', matchIdArr)
+      .select('id, user_id, stake, combo_id, match_id')
       .eq('status', 'pending')
     const seenComboIds = new Set<number>()
     for (const b of pendingBetRows ?? []) {
@@ -139,11 +137,11 @@ export default async function LeaderboardPage({
     }
   }
 
-  // Sort profiles by pre-matchday balance when before reveal
+  // Always sort by balance + pending stakes (true ranking value)
   const sortedProfiles = [...(profiles ?? [])].sort((a, b) => {
     const balA = a.balance + (pendingStakesPerUser[a.id] ?? 0)
     const balB = b.balance + (pendingStakesPerUser[b.id] ?? 0)
-    return isDeadlinePassed ? b.balance - a.balance : balB - balA
+    return balB - balA
   })
 
   // Bets for selected matchday

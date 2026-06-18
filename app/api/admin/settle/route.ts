@@ -211,55 +211,65 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Apply balance updates + push notifications
-  const pushNotifications: Promise<unknown>[] = []
-
-  for (const [userId, amount] of Object.entries(userBalanceUpdates)) {
-    if (amount <= 0) continue
-    const { data: currentProfile } = await supabase
-      .from('profiles')
-      .select('balance')
-      .eq('id', userId)
-      .single()
-
-    if (!currentProfile) continue
-
-    await supabase
-      .from('profiles')
-      .update({ balance: currentProfile.balance + amount })
-      .eq('id', userId)
-
-    const winDedupeKey = `settlement-win-${userId}-${matchId}`
-    pushNotifications.push(
-      sendPushToUser(
-        userId,
-        '🎉 Wette gewonnen!',
-        `+${amount.toFixed(2)} € wurden deinem Konto gutgeschrieben.`,
-        `/profil?highlight=${winDedupeKey}`,
-        'settlement_win',
-        winDedupeKey
-      )
-    )
+  // Collect per-user win/loss summary for bundled push
+  const userWonCount: Record<string, number> = {}
+  const userLostCount: Record<string, number> = {}
+  for (const bet of pendingBets) {
+    if (bet.combo_id !== null) continue // combos handled separately below
+    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore)
+    if (result === 'won') userWonCount[bet.user_id] = (userWonCount[bet.user_id] ?? 0) + 1
+    else userLostCount[bet.user_id] = (userLostCount[bet.user_id] ?? 0) + 1
+  }
+  // Include settled combos
+  for (const comboId of combosToCheck) {
+    const { data: cb } = await supabase.from('combo_bets').select('user_id, status').eq('id', comboId).single()
+    if (!cb || cb.status === 'pending') continue
+    if (cb.status === 'won') userWonCount[cb.user_id] = (userWonCount[cb.user_id] ?? 0) + 1
+    else userLostCount[cb.user_id] = (userLostCount[cb.user_id] ?? 0) + 1
   }
 
-  // Notify losers (users with settled bets that lost and no balance gain)
-  const loserIds = new Set(
-    pendingBets
-      .filter(b => b.combo_id === null)
-      .map(b => b.user_id)
-      .filter(uid => !userBalanceUpdates[uid])
-  )
-  for (const uid of loserIds) {
-    const lossDedupeKey = `settlement-loss-${uid}-${matchId}`
+  // Apply balance updates + send one bundled push per user
+  const allAffectedUsers = new Set([...Object.keys(userBalanceUpdates), ...Object.keys(userWonCount), ...Object.keys(userLostCount)])
+  const pushNotifications: Promise<unknown>[] = []
+
+  for (const userId of allAffectedUsers) {
+    const amount = userBalanceUpdates[userId] ?? 0
+    if (amount > 0) {
+      const { data: currentProfile } = await supabase
+        .from('profiles')
+        .select('balance')
+        .eq('id', userId)
+        .single()
+
+      if (currentProfile) {
+        await supabase
+          .from('profiles')
+          .update({ balance: currentProfile.balance + amount })
+          .eq('id', userId)
+      }
+    }
+
+    const won = userWonCount[userId] ?? 0
+    const lost = userLostCount[userId] ?? 0
+    const dedupeKey = `settlement-${userId}-${matchId}`
+
+    let title: string
+    let body: string
+    if (won > 0 && lost === 0) {
+      title = won === 1 ? '🎉 Wette gewonnen!' : `🎉 ${won} Wetten gewonnen!`
+      body = `+${amount.toFixed(2)} € wurden deinem Konto gutgeschrieben.`
+    } else if (won === 0 && lost > 0) {
+      title = lost === 1 ? '😬 Wette verloren' : `😬 ${lost} Wetten verloren`
+      body = 'Viel Glück beim nächsten Spieltag!'
+    } else if (won > 0 && lost > 0) {
+      title = `📊 ${won + lost} Wetten ausgewertet`
+      body = `${won} gewonnen, ${lost} verloren · Saldo: ${amount >= 0 ? '+' : ''}${amount.toFixed(2)} €`
+    } else {
+      continue
+    }
+
     pushNotifications.push(
-      sendPushToUser(
-        uid,
-        '😬 Wette verloren',
-        'Deine Wette wurde leider nicht gewonnen. Viel Glück beim nächsten Spieltag!',
-        `/profil?highlight=${lossDedupeKey}`,
-        'settlement_loss',
-        lossDedupeKey
-      )
+      sendPushToUser(userId, title, body, `/profil`, 'settlement', dedupeKey)
     )
   }
 
