@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
 type Bet = {
@@ -34,6 +34,7 @@ type Props = {
   items: HistoryItem[]
   matchdayDeadlinesPassed: Record<number, boolean>
   playerNameMap?: Record<number, string>
+  highlightDedupeKey?: string
 }
 
 const MARKET_LABELS: Record<string, string> = {
@@ -135,13 +136,27 @@ function SingleBetCard({
   onCancel,
   isCancelling,
   players,
+  highlighted,
+  highlightType,
+  cardRef,
 }: {
   bet: Bet
   players?: Record<number, string>
   cancellable: boolean
   onCancel: () => void
   isCancelling: boolean
+  highlighted?: boolean
+  highlightType?: 'won' | 'lost'
+  cardRef?: React.RefObject<HTMLDivElement | null>
 }) {
+  const [faded, setFaded] = useState(false)
+
+  useEffect(() => {
+    if (!highlighted) return
+    const timer = setTimeout(() => setFaded(true), 3000)
+    return () => clearTimeout(timer)
+  }, [highlighted])
+
   const score = scoreStr(bet)
   const potentialPayout = (bet.stake ?? 0) * (bet.odds_value ?? 1)
 
@@ -150,8 +165,18 @@ function SingleBetCard({
   const bgColor = bet.status === 'won' ? 'bg-green-50 dark:bg-green-900/20' :
     bet.status === 'lost' ? 'bg-red-50/40 dark:bg-red-900/10' : 'bg-white dark:bg-gray-800'
 
+  const highlightRing = highlighted && !faded
+    ? highlightType === 'won'
+      ? 'ring-2 ring-green-400 shadow-green-100 shadow-md'
+      : 'ring-2 ring-red-400 shadow-red-100 shadow-md'
+    : ''
+
   return (
-    <div className={`flex items-center gap-3 px-4 py-3 border-l-4 ${borderColor} ${bgColor}`}>
+    <div
+      ref={cardRef}
+      style={{ transition: 'box-shadow 0.8s ease, outline 0.8s ease', opacity: highlighted && faded ? 1 : undefined }}
+      className={`flex items-center gap-3 px-4 py-3 border-l-4 ${borderColor} ${bgColor} ${highlightRing}`}
+    >
       <StatusIcon status={bet.status} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
@@ -207,6 +232,9 @@ function ComboBetCard({
   onCancel,
   isCancelling,
   players,
+  highlighted,
+  highlightType,
+  cardRef,
 }: {
   legs: Bet[]
   cb: ComboData | undefined
@@ -214,7 +242,18 @@ function ComboBetCard({
   onCancel: () => void
   isCancelling: boolean
   players?: Record<number, string>
+  highlighted?: boolean
+  highlightType?: 'won' | 'lost'
+  cardRef?: React.RefObject<HTMLDivElement | null>
 }) {
+  const [faded, setFaded] = useState(false)
+
+  useEffect(() => {
+    if (!highlighted) return
+    const timer = setTimeout(() => setFaded(true), 3000)
+    return () => clearTimeout(timer)
+  }, [highlighted])
+
   const dbSt = cb?.status ?? 'pending'
   const status = (dbSt === 'won' || dbSt === 'lost') ? dbSt
     : legs.some(l => l.status === 'lost') ? 'lost'
@@ -229,8 +268,18 @@ function ComboBetCard({
   const bgColor = status === 'won' ? 'bg-green-50 dark:bg-green-900/20' :
     status === 'lost' ? 'bg-red-50/40 dark:bg-red-900/10' : 'bg-white dark:bg-gray-800'
 
+  const highlightRing = highlighted && !faded
+    ? highlightType === 'won'
+      ? 'ring-2 ring-green-400 shadow-green-100 shadow-md'
+      : 'ring-2 ring-red-400 shadow-red-100 shadow-md'
+    : ''
+
   return (
-    <div className={`px-4 py-3 border-l-4 ${borderColor} ${bgColor}`}>
+    <div
+      ref={cardRef}
+      style={{ transition: 'box-shadow 0.8s ease, outline 0.8s ease' }}
+      className={`px-4 py-3 border-l-4 ${borderColor} ${bgColor} ${highlightRing}`}
+    >
       {/* Combo Header */}
       <div className="flex items-center gap-3 mb-2">
         <StatusIcon status={status} />
@@ -293,10 +342,29 @@ function ComboBetCard({
   )
 }
 
-export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNameMap }: Props) {
+export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNameMap, highlightDedupeKey }: Props) {
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [cancelError, setCancelError] = useState<string | null>(null)
   const router = useRouter()
+
+  // Parse the dedupeKey to determine the highlighted match id and type
+  // Format: "settlement-win-<userId>-<matchId>" or "settlement-loss-<userId>-<matchId>"
+  const highlightMatchId = highlightDedupeKey
+    ? parseInt(highlightDedupeKey.split('-').at(-1) ?? '', 10)
+    : null
+  const highlightType: 'won' | 'lost' | null = highlightDedupeKey?.includes('-win-')
+    ? 'won'
+    : highlightDedupeKey?.includes('-loss-')
+    ? 'lost'
+    : null
+
+  const highlightRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (highlightRef.current) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [highlightDedupeKey])
 
   async function cancelBet(betId?: string, comboId?: string) {
     const key = betId ? `bet-${betId}` : `combo-${comboId}`
@@ -347,6 +415,8 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
       {items.map((item) => {
         const cancellable = !cancellingId && canCancel(item)
         if (item.kind === 'single') {
+          const matchId = item.bet.match?.id
+          const isHighlighted = highlightMatchId !== null && !isNaN(highlightMatchId) && matchId === highlightMatchId
           return (
             <SingleBetCard
               key={item.bet.id}
@@ -355,9 +425,14 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
               onCancel={() => cancelBet(item.bet.id)}
               isCancelling={cancellingId === `bet-${item.bet.id}`}
               players={playerNameMap}
+              highlighted={isHighlighted}
+              highlightType={highlightType ?? undefined}
+              cardRef={isHighlighted ? highlightRef : undefined}
             />
           )
         }
+        const comboMatchIds = item.legs.map(l => l.match?.id)
+        const isHighlighted = highlightMatchId !== null && !isNaN(highlightMatchId) && comboMatchIds.includes(highlightMatchId)
         return (
           <ComboBetCard
             key={item.comboId}
@@ -367,6 +442,9 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
             onCancel={() => cancelBet(undefined, item.comboId)}
             isCancelling={cancellingId === `combo-${item.comboId}`}
             players={playerNameMap}
+            highlighted={isHighlighted}
+            highlightType={highlightType ?? undefined}
+            cardRef={isHighlighted ? highlightRef : undefined}
           />
         )
       })}

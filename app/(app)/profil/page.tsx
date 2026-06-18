@@ -49,7 +49,12 @@ function selLabel(marketType: string, selection: string): string {
   return SELECTION_LABELS[selection] ?? selection
 }
 
-export default async function ProfilPage() {
+export default async function ProfilPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ highlight?: string }>
+}) {
+  const { highlight } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -415,7 +420,7 @@ export default async function ProfilPage() {
             <div className="text-sm">Noch keine Wetten platziert</div>
           </div>
         ) : (
-          <BetHistoryWithCancel items={historyItems as never} matchdayDeadlinesPassed={matchdayDeadlinesPassed} playerNameMap={playerNameMap} />
+          <BetHistoryWithCancel items={historyItems as never} matchdayDeadlinesPassed={matchdayDeadlinesPassed} playerNameMap={playerNameMap} highlightDedupeKey={highlight} />
         )}
       </div>
 

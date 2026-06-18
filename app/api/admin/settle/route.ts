@@ -229,14 +229,15 @@ export async function POST(request: NextRequest) {
       .update({ balance: currentProfile.balance + amount })
       .eq('id', userId)
 
+    const winDedupeKey = `settlement-win-${userId}-${matchId}`
     pushNotifications.push(
       sendPushToUser(
         userId,
         '🎉 Wette gewonnen!',
         `+${amount.toFixed(2)} € wurden deinem Konto gutgeschrieben.`,
-        '/profil',
+        `/profil?highlight=${winDedupeKey}`,
         'settlement_win',
-        `settlement-win-${userId}-${matchId}`
+        winDedupeKey
       )
     )
   }
@@ -249,14 +250,15 @@ export async function POST(request: NextRequest) {
       .filter(uid => !userBalanceUpdates[uid])
   )
   for (const uid of loserIds) {
+    const lossDedupeKey = `settlement-loss-${uid}-${matchId}`
     pushNotifications.push(
       sendPushToUser(
         uid,
         '😬 Wette verloren',
         'Deine Wette wurde leider nicht gewonnen. Viel Glück beim nächsten Spieltag!',
-        '/tipps',
+        `/profil?highlight=${lossDedupeKey}`,
         'settlement_loss',
-        `settlement-loss-${uid}-${matchId}`
+        lossDedupeKey
       )
     )
   }
@@ -293,7 +295,7 @@ export async function POST(request: NextRequest) {
         await sendPushToAll(
           '📊 Spieltags-Recap verfügbar',
           `Der ${matchday}. Spieltag ist abgeschlossen – schau dir die Highlights an!`,
-          `/tipps?matchday=${matchday}`,
+          `/recap/${matchday}`,
           'matchday_recap',
           `recap-${matchday}`
         )
