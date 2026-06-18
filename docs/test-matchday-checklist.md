@@ -13,10 +13,12 @@ ohne echte Saison-26/27-Daten zu beschädigen.
 | Wett-Season | `season = 'TEST'` — erscheint nicht in Ranglisten-P&L |
 | Cron-Guard | Matchday ≥ 900 wird übersprungen → keine Massen-Pushes |
 | Settle-Guard | Inaktivitäts-Strafe + Recap-Push für Matchday ≥ 900 deaktiviert |
-| Balance-Snapshot | Guthaben des Test-Users wird vor Seed gespeichert, bei Teardown wiederhergestellt |
+| Balance-Snapshot | **Alle** User-Guthaben werden beim Seed als JSON gesnapshottet; Teardown stellt alle wieder her |
+| Idempotenter Teardown | Mehrfaches Ausführen ist sicher; liefert immer einen sauberen Zustand |
 
-**Wichtig:** Der Test ist für den Admin-User gedacht. Andere Nutzer sollen
-während des Tests keine Wetten auf Spieltag 999 platzieren.
+**Hinweis:** Mehrere Tester gleichzeitig möglich — alle Guthaben werden beim Seed erfasst und beim Teardown
+exakt wiederhergestellt. Echte Wetten (season='26/27'), die zwischen Seed und Teardown platziert werden,
+würden durch das Balance-Restore überschrieben. Pre-Season ist daher der ideale Zeitpunkt für den Test.
 
 ---
 
@@ -29,10 +31,17 @@ während des Tests keine Wetten auf Spieltag 999 platzieren.
 | `combo_bets` | Test-Kombis — werden beim Teardown gelöscht |
 | `notification_log` | Einträge mit Dedupe-Key `betting-open-999`, `bet-reminder-999-*`, `settlement-*-<matchId>` — werden beim Teardown gelöscht |
 | `push_reminders` | Einträge für `matchday = 999` — werden beim Teardown gelöscht |
-| `app_settings` | Temporärer Balance-Snapshot `test_balance_snapshot_<userId>` — wird beim Teardown gelöscht |
-| `profiles.balance` | Ändert sich während Test (Einsätze / Auszahlungen) — wird beim Teardown wiederhergestellt |
+| `app_settings` | Temporärer Balance-Snapshot `test_balance_snapshot` (JSON aller User) — wird beim Teardown gelöscht |
+| `profiles.balance` | Ändert sich während Test (Einsätze / Auszahlungen) — wird beim Teardown **aller** User wiederhergestellt |
+| `reactions` | Reaktionen auf Test-Wetten/Kombis — werden beim Teardown gelöscht |
+| `bet_comments` | Kommentare auf Test-Wetten/Kombis — werden beim Teardown gelöscht |
+| `odds` | Quoten für Test-Matches — werden beim Teardown gelöscht (via `match_id` + `matchday = 999`) |
+| `match_goalscorer_odds` | Torschützen-Quoten für Test-Matches — werden beim Teardown gelöscht |
+| `match_goalscorers` | Eingetragene Torschützen-Ergebnisse — werden beim Teardown gelöscht |
+| `match_lineups` | Aufstellungen für Test-Matches — werden beim Teardown gelöscht |
+| `match_odds_overrides` | Manuelle Quoten-Overrides — werden beim Teardown gelöscht |
 
-**Nicht verändert:** `app_settings.season_started`, echte 26/27-Wetten, andere Nutzer-Guthaben.
+**Nicht verändert:** `app_settings.season_started`, echte 26/27-Wetten.
 
 ---
 

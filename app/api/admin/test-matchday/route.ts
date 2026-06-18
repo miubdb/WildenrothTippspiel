@@ -3,32 +3,38 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const TEST_MATCHDAY = 999
-const BALANCE_SNAPSHOT_PREFIX = 'test_balance_snapshot_'
+// Single key stores a JSON map { userId: balance } for ALL users — restored on teardown
+const BALANCE_SNAPSHOT_KEY = 'test_balance_snapshot'
 
-// 6 test matches: [homeTeamId, awayTeamId, offsetMinutes, label]
-// Team IDs from DB: 14=SpVgg Wildenroth, 8=SC Schöngeising, 1=SV Germering,
+// 6 test matches
+// Team IDs: 14=SpVgg Wildenroth, 8=SC Schöngeising, 1=SV Germering,
 //   2=TSV Hechendorf, 3=TSV Alling, 4=1.SC Gröbenzell, 6=Gautinger SC,
-//   7=SpFr Breitbrunn, 5=SC Fürstenfeldbruck, 10=VfL Egenburg, 11=FC Landsberied, 9=TSV Geiselbullach II
+//   7=SpFr Breitbrunn, 5=SC Fürstenfeldbruck, 10=VfL Egenburg,
+//   11=FC Landsberied, 9=TSV Geiselbullach II
 const TEST_MATCHES = [
-  { home: 14, away: 8,  offsetMin: 5,   label: 'Wildenroth-Heimspiel (Torschützen-Test, Anpfiff in 5 Min)' },
-  { home: 1,  away: 2,  offsetMin: 30,  label: 'Normales Spiel (1X2/O-U, Anpfiff in 30 Min)' },
-  { home: 3,  away: 4,  offsetMin: 90,  label: 'Späteres Spiel für Sichtbarkeits-Test (Anpfiff in 90 Min)' },
-  { home: 6,  away: 7,  offsetMin: 150, label: 'Kombi-/Risky-Testspiel (Anpfiff in 150 Min)' },
-  { home: 5,  away: 10, offsetMin: 210, label: 'Spiel zum Verschieben (Postpone-Test, Anpfiff in 210 Min)' },
-  { home: 11, away: 9,  offsetMin: 270, label: 'Abschluss-Spiel (letzter Anpfiff, Anpfiff in 270 Min)' },
+  { home: 14, away: 8,  offsetMin: 5   }, // Wildenroth-Heimspiel (Torschützen-Test)
+  { home: 1,  away: 2,  offsetMin: 30  }, // Normales Spiel (1X2 / O-U / BTTS)
+  { home: 3,  away: 4,  offsetMin: 90  }, // Späteres Spiel (Sichtbarkeit je Anpfiff)
+  { home: 6,  away: 7,  offsetMin: 150 }, // Kombi- / Risky-Testspiel
+  { home: 5,  away: 10, offsetMin: 210 }, // Postpone-Test
+  { home: 11, away: 9,  offsetMin: 270 }, // Abschluss-Spiel
 ] as const
 
-async function isAdmin(req: Request): Promise<{ ok: boolean; userId?: string; balance?: number }> {
+// ── Auth helper ─────────────────────────────────────────────────────────────
+
+async function requireAdmin(): Promise<{ ok: true; userId: string } | { ok: false }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { ok: false }
-  const { data: profile } = await supabase.from('profiles').select('is_admin, balance').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
   if (!profile?.is_admin) return { ok: false }
-  return { ok: true, userId: user.id, balance: profile.balance as number }
+  return { ok: true, userId: user.id }
 }
 
+// ── GET: status ──────────────────────────────────────────────────────────────
+
 export async function GET() {
-  const auth = await isAdmin(new Request('http://x'))
+  const auth = await requireAdmin()
   if (!auth.ok) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const admin = createAdminClient()
@@ -44,17 +50,23 @@ export async function GET() {
     away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
   }))
 
-  return NextResponse.json({ exists: mapped.length > 0, matches: mapped })
+  const { data: snapshotRow } = await admin
+    .from('app_settings').select('value').eq('key', BALANCE_SNAPSHOT_KEY).single()
+  const snapshotExists = !!snapshotRow
+
+  return NextResponse.json({ exists: mapped.length > 0, matches: mapped, snapshotExists })
 }
 
+// ── POST: seed / teardown ────────────────────────────────────────────────────
+
 export async function POST(req: Request) {
-  const auth = await isAdmin(req)
+  const auth = await requireAdmin()
   if (!auth.ok) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const admin = createAdminClient()
   const body = await req.json()
 
-  // ── Seed ──────────────────────────────────────────────────────────────────
+  // ── Seed ────────────────────────────────────────────────────────────────────
   if (body.action === 'seed') {
     const { data: existing } = await admin
       .from('matches').select('id').eq('matchday', TEST_MATCHDAY).limit(1).single()
@@ -62,10 +74,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Test-Spieltag existiert bereits. Erst teardown ausführen.' }, { status: 400 })
     }
 
-    // Save balance snapshot so teardown can restore it
+    // Snapshot ALL users' balances so teardown can restore everyone
+    const { data: allProfiles } = await admin.from('profiles').select('id, balance')
+    const snapshot: Record<string, number> = {}
+    for (const p of allProfiles ?? []) snapshot[p.id] = p.balance as number
+
     await admin.from('app_settings').upsert({
-      key: `${BALANCE_SNAPSHOT_PREFIX}${auth.userId}`,
-      value: String(auth.balance),
+      key: BALANCE_SNAPSHOT_KEY,
+      value: JSON.stringify(snapshot),
       updated_at: new Date().toISOString(),
     })
 
@@ -86,68 +102,108 @@ export async function POST(req: Request) {
       ok: true,
       matchday: TEST_MATCHDAY,
       created: created?.length ?? 0,
-      note: 'Bets placed on matchday 999 use season=TEST and are excluded from leaderboard P&L.',
+      snapshotted: Object.keys(snapshot).length,
+      note: 'Bets on matchday 999 use season=TEST, excluded from real leaderboard P&L. Teardown restores all user balances.',
     })
   }
 
-  // ── Teardown ──────────────────────────────────────────────────────────────
+  // ── Teardown ─────────────────────────────────────────────────────────────────
+  // Idempotent: safe to run multiple times; always leaves a clean state.
   if (body.action === 'teardown') {
-    const { data: testMatches } = await admin
+
+    // ── 1. Collect test match IDs ────────────────────────────────────────────
+    const { data: testMatchRows } = await admin
       .from('matches').select('id').eq('matchday', TEST_MATCHDAY)
-    const testMatchIds = (testMatches ?? []).map(m => m.id)
+    const testMatchIds = (testMatchRows ?? []).map(m => m.id as number)
 
-    let betsDeleted = 0
-    let combosDeleted = 0
+    // ── 2. Collect all test bet IDs and combo IDs ────────────────────────────
+    //    Primary source: bets linked to test match IDs
+    //    Fallback: any bets with season='TEST' (catch orphans)
+    const betsByMatchId = testMatchIds.length > 0
+      ? (await admin.from('bets').select('id, combo_id').in('match_id', testMatchIds)).data ?? []
+      : []
+    const betsBySeasonTest = (await admin.from('bets').select('id, combo_id').eq('season', 'TEST')).data ?? []
 
+    const allTestBets = [...betsByMatchId, ...betsBySeasonTest]
+    const testBetIds = [...new Set(allTestBets.map(b => b.id as number))]
+    const testComboIds = [...new Set(
+      allTestBets
+        .filter(b => b.combo_id != null)
+        .map(b => b.combo_id as number)
+    )]
+
+    // Also catch combo_bets with season='TEST' directly (belt-and-suspenders)
+    const combosBySeasonTest = (await admin.from('combo_bets').select('id').eq('season', 'TEST')).data ?? []
+    const finalComboIds = [...new Set([...testComboIds, ...combosBySeasonTest.map(c => c.id as number)])]
+
+    // ── 3. Reactions & comments on test bets/combos ──────────────────────────
+    if (testBetIds.length > 0) {
+      await admin.from('reactions').delete().eq('target_type', 'bet').in('target_id', testBetIds)
+      await admin.from('bet_comments').delete().eq('target_type', 'bet').in('target_id', testBetIds)
+    }
+    if (finalComboIds.length > 0) {
+      await admin.from('reactions').delete().eq('target_type', 'combo').in('target_id', finalComboIds)
+      await admin.from('bet_comments').delete().eq('target_type', 'combo').in('target_id', finalComboIds)
+    }
+
+    // ── 4. Delete combo_bets and bets ────────────────────────────────────────
+    if (finalComboIds.length > 0) {
+      await admin.from('combo_bets').delete().in('id', finalComboIds)
+    }
+    if (testBetIds.length > 0) {
+      await admin.from('bets').delete().in('id', testBetIds)
+    }
+
+    // ── 5. Match-related tables (all keyed by match_id) ──────────────────────
     if (testMatchIds.length > 0) {
-      // Collect combo IDs before deleting bets
-      const { data: testBets } = await admin
-        .from('bets').select('id, combo_id').in('match_id', testMatchIds)
-      const testBetIds = (testBets ?? []).map(b => b.id)
-      const comboIds = [...new Set((testBets ?? []).filter(b => b.combo_id != null).map(b => b.combo_id as number))]
+      await admin.from('odds').delete().in('match_id', testMatchIds)
+      await admin.from('match_goalscorer_odds').delete().in('match_id', testMatchIds)
+      await admin.from('match_goalscorers').delete().in('match_id', testMatchIds)
+      await admin.from('match_lineups').delete().in('match_id', testMatchIds)
+      await admin.from('match_odds_overrides').delete().in('match_id', testMatchIds)
+    }
+    // Belt-and-suspenders: also delete odds by matchday (odds table has matchday column)
+    await admin.from('odds').delete().eq('matchday', TEST_MATCHDAY)
 
-      if (comboIds.length > 0) {
-        await admin.from('combo_bets').delete().in('id', comboIds)
-        combosDeleted = comboIds.length
-      }
-      if (testBetIds.length > 0) {
-        await admin.from('bets').delete().in('id', testBetIds)
-        betsDeleted = testBetIds.length
-      }
+    // ── 6. Delete test matches ───────────────────────────────────────────────
+    await admin.from('matches').delete().eq('matchday', TEST_MATCHDAY)
 
-      await admin.from('matches').delete().eq('matchday', TEST_MATCHDAY)
+    // ── 7. Notification tables ───────────────────────────────────────────────
+    await admin.from('notification_log').delete().eq('dedupe_key', `betting-open-${TEST_MATCHDAY}`)
+    await admin.from('notification_log').delete().like('dedupe_key', `bet-reminder-${TEST_MATCHDAY}-%`)
+    // Settlement notifications keyed by matchId
+    for (const matchId of testMatchIds) {
+      await admin.from('notification_log').delete().like('dedupe_key', `settlement-%-${matchId}`)
+    }
+    await admin.from('push_reminders').delete().eq('matchday', TEST_MATCHDAY)
 
-      // Clean up notification_log entries for test matchday
-      await admin.from('notification_log').delete().eq('dedupe_key', `betting-open-${TEST_MATCHDAY}`)
-      await admin.from('notification_log').delete().like('dedupe_key', `bet-reminder-${TEST_MATCHDAY}-%`)
-      // Settlement notifications
-      for (const matchId of testMatchIds) {
-        await admin.from('notification_log').delete().like('dedupe_key', `%-${matchId}`)
-      }
+    // ── 8. Restore ALL user balances from snapshot ───────────────────────────
+    let usersRestored = 0
+    const { data: snapshotRow } = await admin
+      .from('app_settings').select('value').eq('key', BALANCE_SNAPSHOT_KEY).single()
 
-      // Clean up push_reminders
-      await admin.from('push_reminders').delete().eq('matchday', TEST_MATCHDAY)
+    if (snapshotRow) {
+      let snapshot: Record<string, number> = {}
+      try { snapshot = JSON.parse(snapshotRow.value) } catch { /* malformed, skip */ }
+
+      const restoreOps = Object.entries(snapshot).map(([userId, balance]) =>
+        admin.from('profiles').update({ balance }).eq('id', userId)
+      )
+      await Promise.allSettled(restoreOps)
+      usersRestored = Object.keys(snapshot).length
+
+      await admin.from('app_settings').delete().eq('key', BALANCE_SNAPSHOT_KEY)
     }
 
-    // Restore admin balance from snapshot
-    let balanceRestored: number | null = null
-    const { data: snapshot } = await admin
-      .from('app_settings').select('value').eq('key', `${BALANCE_SNAPSHOT_PREFIX}${auth.userId}`).single()
-    if (snapshot) {
-      const restored = parseFloat(snapshot.value)
-      if (!isNaN(restored)) {
-        await admin.from('profiles').update({ balance: restored }).eq('id', auth.userId)
-        balanceRestored = restored
-      }
-      await admin.from('app_settings').delete().eq('key', `${BALANCE_SNAPSHOT_PREFIX}${auth.userId}`)
-    }
+    // Clean up legacy per-user snapshot keys from older versions
+    await admin.from('app_settings').delete().like('key', 'test_balance_snapshot_%')
 
     return NextResponse.json({
       ok: true,
       matchesDeleted: testMatchIds.length,
-      betsDeleted,
-      combosDeleted,
-      balanceRestored,
+      betsDeleted: testBetIds.length,
+      combosDeleted: finalComboIds.length,
+      usersRestored,
     })
   }
 

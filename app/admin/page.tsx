@@ -2009,13 +2009,13 @@ function TestMatchdayPanel() {
       body: JSON.stringify({ action: 'seed' }),
     })
     const data = await res.json()
-    setResult(res.ok ? `✓ ${data.created} Test-Spiele angelegt (Spieltag 999)` : `✗ ${data.error}`)
+    setResult(res.ok ? `✓ ${data.created} Test-Spiele angelegt · ${data.snapshotted} User-Guthaben gesnapshottet` : `✗ ${data.error}`)
     await loadStatus()
     setActionLoading(false)
   }
 
   async function teardown() {
-    if (!confirm('Test-Spieltag 999 vollständig entfernen? Alle Test-Wetten, Logs und dein Guthaben werden zurückgesetzt.')) return
+    if (!confirm('Test-Spieltag 999 vollständig entfernen? Alle Testdaten werden gelöscht und alle User-Guthaben auf den Snapshot-Stand zurückgesetzt.')) return
     setActionLoading(true)
     setResult(null)
     const res = await fetch('/api/admin/test-matchday', {
@@ -2029,7 +2029,7 @@ function TestMatchdayPanel() {
       if (data.matchesDeleted > 0) parts.push(`${data.matchesDeleted} Spiele`)
       if (data.betsDeleted > 0) parts.push(`${data.betsDeleted} Wetten`)
       if (data.combosDeleted > 0) parts.push(`${data.combosDeleted} Kombis`)
-      if (data.balanceRestored != null) parts.push(`Guthaben auf ${data.balanceRestored.toFixed(2)} € zurückgesetzt`)
+      if (data.usersRestored > 0) parts.push(`Guthaben von ${data.usersRestored} Usern wiederhergestellt`)
       setResult(parts.join(' · '))
     } else {
       setResult(`✗ ${data.error}`)
@@ -2065,7 +2065,7 @@ function TestMatchdayPanel() {
             <li>· Wetten erhalten <code className="bg-amber-200 px-1 rounded">season=TEST</code> → erscheinen nicht in Ranglisten-P&amp;L</li>
             <li>· Cron überspringt Spieltag ≥ 900 → keine Massen-Pushes</li>
             <li>· Settle-Route überspringt Inaktivitäts-Strafe &amp; Recap-Push für Spieltag 999</li>
-            <li>· Teardown stellt dein Guthaben auf den Wert vor dem Test zurück</li>
+            <li>· Seed snapshottert <strong>alle</strong> User-Guthaben → Teardown stellt alle wieder her</li>
           </ul>
         </div>
 
