@@ -20,7 +20,7 @@ export default async function AppLayout({
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('display_name, username, balance')
+    .select('display_name, username, balance, is_admin')
     .eq('id', user.id)
     .single()
 
@@ -60,7 +60,7 @@ export default async function AppLayout({
           {children}
         </main>
 
-        <BottomNav />
+        <BottomNav isAdmin={profile?.is_admin ?? false} />
       </div>
     </BetSlipProvider>
   )
