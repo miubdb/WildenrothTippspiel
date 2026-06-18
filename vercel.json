@@ -5,7 +5,7 @@
   "regions": ["fra1"],
   "git": {
     "deploymentEnabled": {
-      "integration": false
+      "integration": true
     }
   },
   "crons": [
