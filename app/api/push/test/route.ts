@@ -49,6 +49,19 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Verify admin client can insert into notification_log (service role key check)
+  const { error: logTestError } = await admin
+    .from('notification_log')
+    .insert({ user_id: userId, category: 'test', title: 'diag', body: 'diag', status: 'skipped', error_message: 'admin-client-test' })
+  if (logTestError) {
+    return NextResponse.json(
+      { error: `SUPABASE_SERVICE_ROLE_KEY ungültig — notification_log Insert fehlgeschlagen: ${logTestError.message}` },
+      { status: 500 }
+    )
+  }
+  // Clean up test entry
+  await admin.from('notification_log').delete().eq('user_id', userId).eq('category', 'test').eq('error_message', 'admin-client-test')
+
   // Verify admin client works (service role key validity check)
   const { error: adminError } = await admin
     .from('notification_preferences')
