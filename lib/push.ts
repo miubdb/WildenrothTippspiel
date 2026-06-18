@@ -77,7 +77,14 @@ export async function sendPushToUser(
     return { status: 'skipped', reason }
   }
 
-  initVapid()
+  try {
+    initVapid()
+  } catch (err) {
+    const reason = `VAPID init failed: ${err instanceof Error ? err.message : String(err)}`
+    await logNotification(userId, category, title, body, dedupeKey ?? null, 'failed', reason)
+    return { status: 'failed', reason }
+  }
+
   const { data: subs, error: subsErr } = await supabase
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')
