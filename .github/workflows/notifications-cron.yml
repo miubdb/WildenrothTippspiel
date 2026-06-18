@@ -63,17 +63,5 @@ jobs:
             exit 1
           fi
 
-          echo "✅ Cron erfolgreich — gesendete Pushes:"
-          echo "$HTTP_BODY" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    sent = data.get('sent', [])
-    if sent:
-        for s in sent: print(f'  • {s}')
-    else:
-        print('  (keine Pushes fällig)')
-    print(f'Timestamp: {data.get(\"timestamp\", \"?\")}')
-except Exception as e:
-    print(f'Response konnte nicht geparst werden: {e}')
-" || echo "(JSON-Parsing fehlgeschlagen)"
+          echo "✅ Cron erfolgreich"
+          echo "📝 Response: $HTTP_BODY"
