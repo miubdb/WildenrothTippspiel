@@ -43,7 +43,10 @@ export async function sendPushToUser(
   category = 'manual',
   dedupeKey?: string
 ) {
+  console.log(`[push] sendPushToUser start: userId=${userId} category=${category} dedupeKey=${dedupeKey}`)
+
   if (!process.env.VAPID_SUBJECT || !process.env.VAPID_PRIVATE_KEY) {
+    console.log('[push] skipped: VAPID keys missing')
     await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', 'VAPID keys missing')
     return
   }
@@ -51,38 +54,44 @@ export async function sendPushToUser(
   const supabase = createAdminClient()
 
   if (dedupeKey) {
-    const { data: existing } = await supabase
+    const { data: existing, error: dedupeErr } = await supabase
       .from('notification_log')
       .select('id')
       .eq('dedupe_key', dedupeKey)
       .eq('status', 'sent')
       .limit(1)
       .single()
+    if (dedupeErr) console.log(`[push] dedupe query error: ${dedupeErr.message}`)
 
     if (existing) {
+      console.log('[push] skipped: already sent (dedupe)')
       await logNotification(userId, category, title, body, dedupeKey, 'skipped', 'Already sent')
       return
     }
   }
 
-  const { data: prefData } = await supabase
+  const { data: prefData, error: prefErr } = await supabase
     .from('notification_preferences')
     .select('push_enabled')
     .eq('user_id', userId)
     .single()
+  console.log(`[push] prefData=${JSON.stringify(prefData)} prefErr=${prefErr?.message}`)
 
   if (!prefData?.push_enabled) {
+    console.log('[push] skipped: push disabled or no pref row')
     await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', 'User disabled push')
     return
   }
 
   initVapid()
-  const { data: subs } = await supabase
+  const { data: subs, error: subsErr } = await supabase
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')
     .eq('user_id', userId)
+  console.log(`[push] subs count=${subs?.length} subsErr=${subsErr?.message}`)
 
   if (!subs || subs.length === 0) {
+    console.log('[push] skipped: no subscriptions')
     await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', 'No subscriptions')
     return
   }
