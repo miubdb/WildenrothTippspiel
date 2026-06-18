@@ -93,12 +93,15 @@ export default async function TippsPage({
   const priorCtx = buildPriorContext(priorMatches, teamNames)
 
   const SEASON_START_TIPPS = '2026-08-01'
-  const seasonMatches = allMatches.filter((m) => m.match_date >= SEASON_START_TIPPS)
-  const isPreSeason = seasonMatches.length === 0
+  // Matchday 999 is the test matchday — always include it regardless of date
+  const seasonMatches = allMatches.filter((m) => m.matchday === 999 || m.match_date >= SEASON_START_TIPPS)
+  const isPreSeason = seasonMatches.filter((m) => m.matchday !== 999).length === 0
 
   // Pre-season: show 1-28 placeholder; in-season: derive from actual matches
+  // Always include test matchday 999 when it exists
+  const hasTestMatchday = seasonMatches.some(m => m.matchday === 999)
   const allMatchdays = isPreSeason
-    ? Array.from({ length: 28 }, (_, i) => i + 1)
+    ? [...(hasTestMatchday ? [999] : []), ...Array.from({ length: 28 }, (_, i) => i + 1)]
     : [...new Set(seasonMatches.map((m) => m.matchday))].sort((a, b) => a - b)
 
   const firstScheduled = seasonMatches
@@ -117,7 +120,7 @@ export default async function TippsPage({
   })
   const lastCompletedMd = completedMatchdays.length > 0 ? Math.max(...completedMatchdays) : null
   const defaultMatchday = isPreSeason
-    ? 1
+    ? (hasTestMatchday ? 999 : 1)
     : isBeforeMondayNoon && lastCompletedMd != null
       ? lastCompletedMd
       : (firstScheduled ?? Math.max(...allMatchdays))
@@ -846,7 +849,7 @@ export default async function TippsPage({
       )}
 
       {/* Match Cards */}
-      {isPreSeason ? (
+      {isPreSeason && matchdayMatches.length === 0 ? (
         <div className="text-center py-16 text-gray-400 dark:text-gray-500">
           <div className="text-4xl mb-3">📅</div>
           <div className="font-medium text-gray-600 dark:text-gray-300">Spielplan wird noch veröffentlicht</div>

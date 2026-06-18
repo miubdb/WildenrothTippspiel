@@ -46,9 +46,10 @@ export default async function LeaderboardPage({
 
   const allMatchesRaw2 = allMatchesRaw ?? []
   // Only current-season matches drive the leaderboard matchday list
-  const seasonMatches = allMatchesRaw2.filter(m => m.match_date >= SEASON_START)
-  // Fall back to 1-28 placeholder when no season matches exist yet
-  const allMatchdays = seasonMatches.length > 0
+  // Matchday 999 is the test matchday — include regardless of date
+  const seasonMatches = allMatchesRaw2.filter(m => m.matchday === 999 || m.match_date >= SEASON_START)
+  // Fall back to 1-28 placeholder when no real season matches exist yet (ignore test matchday)
+  const allMatchdays = seasonMatches.filter(m => m.matchday !== 999).length > 0
     ? [...new Set(seasonMatches.map(m => m.matchday))].sort((a, b) => a - b)
     : Array.from({ length: 28 }, (_, i) => i + 1)
   const allMatches = allMatchesRaw2
