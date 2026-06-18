@@ -31,7 +31,7 @@ function selLabel(marketType: string, selection: string, players?: Record<number
   return SEL_LABEL[marketType]?.[selection] ?? selection
 }
 
-export type Profile = { id: string; username: string; display_name: string | null; balance: number }
+export type Profile = { id: string; username: string; display_name: string | null; balance: number; avatar_url?: string | null }
 export type BetRow = {
   id: number
   user_id: string
@@ -58,6 +58,22 @@ export type MatchdayStats = Record<string, number | null>
 
 function fmtAmt(n: number) {
   return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function Avatar({ profile, size, isMe, className = '' }: { profile: Profile; size: 'sm' | 'md' | 'lg'; isMe: boolean; className?: string }) {
+  const dim = size === 'lg' ? 'w-14 h-14 text-xl' : size === 'md' ? 'w-9 h-9 text-sm' : 'w-7 h-7 text-xs'
+  const initial = (profile.display_name || profile.username || '?')[0].toUpperCase()
+  if (profile.avatar_url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={profile.avatar_url} alt={initial} className={`${dim} rounded-full object-cover flex-shrink-0 ${className}`} />
+    )
+  }
+  return (
+    <div className={`${dim} rounded-full flex items-center justify-center font-bold flex-shrink-0 ${isMe ? 'bg-red-700 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'} ${className}`}>
+      {initial}
+    </div>
+  )
 }
 
 type ReactionData = { target_type: string; target_id: number; emoji: string; user_id: string }
@@ -295,11 +311,8 @@ export function LeaderboardClient({
                       {rank <= 3 ? <span className="text-lg">{rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'}</span> : <span className="text-sm font-bold text-gray-400">{rank}</span>}
                     </div>
                     {/* Avatar — links to public profile */}
-                    <Link
-                      href={`/spieler/${profile.id}`}
-                      className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 font-bold text-sm ${isMe ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
-                      {(profile.display_name || profile.username || '?')[0].toUpperCase()}
+                    <Link href={`/spieler/${profile.id}`} className="flex-shrink-0">
+                      <Avatar profile={profile} size="md" isMe={isMe} className={isMe ? 'ring-2 ring-red-300' : 'hover:opacity-80'} />
                     </Link>
                     {/* Name + badges */}
                     <div className="flex-1 min-w-0">
@@ -407,9 +420,7 @@ export function LeaderboardClient({
                       <span className="w-6 text-center text-xs font-bold text-gray-400 flex-shrink-0">
                         {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
                       </span>
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${isMe ? 'bg-red-700 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
-                        {(p.display_name || p.username || '?')[0].toUpperCase()}
-                      </div>
+                      <Avatar profile={p} size="sm" isMe={isMe} />
                       <div className="flex-1 min-w-0 text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
                         {p.display_name || p.username}
                         {isMe && <span className="ml-1.5 text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">Du</span>}
@@ -459,9 +470,7 @@ export function LeaderboardClient({
               return (
                 <div key={profile.id} className="rounded-xl border bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700 overflow-hidden">
                   <div className="flex items-center gap-2 px-4 py-2.5">
-                    <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-                      {(profile.display_name || profile.username || '?')[0].toUpperCase()}
-                    </div>
+                    <Avatar profile={profile} size="sm" isMe={false} />
                     <div className="font-semibold text-sm text-gray-900 dark:text-gray-100">
                       {profile.display_name || profile.username}
                     </div>
@@ -476,9 +485,7 @@ export function LeaderboardClient({
             return (
               <div key={profile.id} className={`rounded-xl border overflow-hidden ${isMe ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700'}`}>
                 <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${isMe ? 'bg-red-700 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'}`}>
-                    {(profile.display_name || profile.username || '?')[0].toUpperCase()}
-                  </div>
+                  <Avatar profile={profile} size="sm" isMe={isMe} />
                   <div className="font-semibold text-sm text-gray-900 dark:text-gray-100 flex items-center gap-1">
                     {profile.display_name || profile.username}
                     {isMe && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Du</span>}
@@ -542,8 +549,8 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
 
   return (
     <div className="flex-1 flex flex-col items-center">
-      <Link href={`/spieler/${profile.id}`} className={`rounded-full flex items-center justify-center font-bold mb-2 ${featured ? 'w-14 h-14 text-xl' : 'w-12 h-12 text-lg'} ${isMe ? 'bg-red-700 text-white ring-2 ring-red-300' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>
-        {(profile.display_name || profile.username || '?')[0].toUpperCase()}
+      <Link href={`/spieler/${profile.id}`} className="mb-2 flex-shrink-0">
+        <Avatar profile={profile} size="lg" isMe={isMe} className={`${featured ? 'w-14 h-14' : 'w-12 h-12'} ${isMe ? 'ring-2 ring-red-300' : 'hover:opacity-80'}`} />
       </Link>
       <div className="text-center mb-1">
         <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate max-w-20">{profile.display_name || profile.username}</div>
