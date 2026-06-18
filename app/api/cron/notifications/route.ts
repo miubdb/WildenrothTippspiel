@@ -99,28 +99,44 @@ export async function GET(request: NextRequest) {
         // Get user bet counts for this matchday
         const { data: betLegs } = await admin
           .from('bets')
-          .select('user_id, combo_id')
+          .select('user_id, combo_id, is_risky')
           .in('match_id', matchdayMatchIds)
           .eq('season', '26/27')
 
-        const userSingles = new Map<string, number>()
-        const userCombos = new Map<string, Set<number>>()
+        // Track normal singles/combos (max 2 slots) and risky singles/combos (max 1 slot)
+        const userNormalSingles = new Map<string, number>()
+        const userNormalCombos = new Map<string, Set<number>>()
+        const userRiskySingles = new Map<string, number>()
+        const userRiskyCombos = new Map<string, Set<number>>()
 
         for (const leg of betLegs ?? []) {
+          const isRisky = leg.is_risky === true
           if (leg.combo_id === null) {
-            userSingles.set(leg.user_id, (userSingles.get(leg.user_id) ?? 0) + 1)
+            if (isRisky) {
+              userRiskySingles.set(leg.user_id, (userRiskySingles.get(leg.user_id) ?? 0) + 1)
+            } else {
+              userNormalSingles.set(leg.user_id, (userNormalSingles.get(leg.user_id) ?? 0) + 1)
+            }
           } else {
-            if (!userCombos.has(leg.user_id)) userCombos.set(leg.user_id, new Set())
-            userCombos.get(leg.user_id)!.add(leg.combo_id)
+            const comboId = leg.combo_id
+            if (isRisky) {
+              if (!userRiskyCombos.has(leg.user_id)) userRiskyCombos.set(leg.user_id, new Set())
+              userRiskyCombos.get(leg.user_id)!.add(comboId)
+            } else {
+              if (!userNormalCombos.has(leg.user_id)) userNormalCombos.set(leg.user_id, new Set())
+              userNormalCombos.get(leg.user_id)!.add(comboId)
+            }
           }
         }
 
         for (const user of eligibleUsers) {
-          const singles = userSingles.get(user.id) ?? 0
-          const combos = userCombos.get(user.id)?.size ?? 0
-          const totalBets = singles + combos
+          const normalSlips = (userNormalSingles.get(user.id) ?? 0) + (userNormalCombos.get(user.id)?.size ?? 0)
+          const riskySlips = (userRiskySingles.get(user.id) ?? 0) + (userRiskyCombos.get(user.id)?.size ?? 0)
 
-          if (totalBets < 3) {
+          const normalFree = normalSlips < 2
+          const riskyFree = riskySlips < 1
+
+          if (normalFree || riskyFree) {
             const dedupeKey = `bet-reminder-${matchday}-${user.id}`
             const { data: existing } = await admin
               .from('notification_log')
@@ -131,10 +147,18 @@ export async function GET(request: NextRequest) {
               .single()
 
             if (!existing) {
+              let body: string
+              if (normalFree && riskyFree) {
+                body = `Spieltag ${matchday} – du hast noch ${2 - normalSlips} normalen Wettschein(e) und deinen Risky-Slot frei. Jedes Spiel schließt bei seinem Anpfiff.`
+              } else if (normalFree) {
+                body = `Spieltag ${matchday} – du hast noch ${2 - normalSlips} normalen Wettschein(e) frei. Jedes Spiel schließt bei seinem Anpfiff.`
+              } else {
+                body = `Spieltag ${matchday} – dein Risky-Slot ist noch frei (Quote ≥ 20,00). Jedes Spiel schließt bei seinem Anpfiff.`
+              }
               await sendPushToUser(
                 user.id,
                 '👀 Du hast noch Tipps frei',
-                `Spieltag ${matchday} – du hast noch ${3 - totalBets} Wettschein(e) frei. Jedes Spiel schließt bei seinem Anpfiff.`,
+                body,
                 `/tipps?matchday=${matchday}`,
                 'bet_reminder',
                 dedupeKey

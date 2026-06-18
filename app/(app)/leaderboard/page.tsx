@@ -156,7 +156,7 @@ export default async function LeaderboardPage({
       .from('bets')
       .select(
         `id, user_id, market_type, selection, stake, odds_value, status, payout, combo_id,
-         match:matches(id, home_score, away_score, status,
+         match:matches(id, match_date, home_score, away_score, status,
            home_team:teams!matches_home_team_id_fkey(name, short_name),
            away_team:teams!matches_away_team_id_fkey(name, short_name)
          )`

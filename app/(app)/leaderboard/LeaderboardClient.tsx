@@ -44,6 +44,7 @@ export type BetRow = {
   combo_id: number | null
   match: {
     id: number
+    match_date: string
     home_score: number | null
     away_score: number | null
     status: string
@@ -74,6 +75,16 @@ function Avatar({ profile, size, isMe, className = '' }: { profile: Profile; siz
       {initial}
     </div>
   )
+}
+
+// Visibility: single bets after own game kickoff; combos once any leg has kicked off; cancelled = hidden
+function isBetVisible(bet: BetRow, allMatchdayBets: BetRow[], now: Date): boolean {
+  if (bet.status === 'cancelled') return false
+  if (!bet.combo_id) {
+    return !!bet.match && new Date(bet.match.match_date) <= now
+  }
+  const legs = allMatchdayBets.filter(b => b.combo_id === bet.combo_id)
+  return legs.some(l => l.match && new Date(l.match.match_date) <= now)
 }
 
 type ReactionData = { target_type: string; target_id: number; emoji: string; user_id: string }
@@ -277,7 +288,7 @@ export function LeaderboardClient({
           {!isDeadlinePassed && matchdayNumber && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <div className="font-semibold mb-0.5">Stand vor Spieltag {matchdayNumber}</div>
-              <div className="text-blue-600 dark:text-blue-400">Tipps anderer Spieler werden erst nach Anpfiff des ersten Spiels sichtbar. Dein eigenes Guthaben kann davon abweichen.</div>
+              <div className="text-blue-600 dark:text-blue-400">Einzelwetten werden je Spiel nach dessen Anpfiff sichtbar. Kombiwetten sobald mindestens ein Leg angepfiffen wurde. Dein eigenes Guthaben kann davon abweichen.</div>
             </div>
           )}
 
@@ -299,6 +310,8 @@ export function LeaderboardClient({
               const isMe = profile.id === currentUserId
               const isOpen = expanded.has(profile.id)
               const userBets = matchdayBets.filter(b => b.user_id === profile.id)
+              const now = new Date()
+              const visibleBets = isMe ? userBets : userBets.filter(b => isBetVisible(b, matchdayBets, now))
               const streak = streaks[profile.id] ?? 0
               const wWins = weeklyWinCounts[profile.id] ?? 0
               const currentMdPnl = mdStats[profile.id]
@@ -343,10 +356,10 @@ export function LeaderboardClient({
 
                   {isOpen && (
                     <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-700 pt-2">
-                      {!isDeadlinePassed && !isMe ? (
-                        <p className="text-xs text-gray-400 dark:text-gray-500 italic">Tipps werden nach Anpfiff des ersten Spiels sichtbar</p>
+                      {visibleBets.length === 0 && !isMe ? (
+                        <p className="text-xs text-gray-400 dark:text-gray-500 italic">Tipps werden nach Anpfiff der jeweiligen Spiele sichtbar</p>
                       ) : (
-                        <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
+                        <UserBets bets={visibleBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
                       )}
                     </div>
                   )}
@@ -381,7 +394,7 @@ export function LeaderboardClient({
           {!isDeadlinePassed && matchdayNumber && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <div className="font-semibold mb-0.5">Rangliste: Stand vor Spieltag {matchdayNumber}</div>
-              <div className="text-blue-600 dark:text-blue-400">Tipps anderer Spieler werden erst nach Anpfiff des ersten Spiels sichtbar. Dein eigenes Guthaben kann davon abweichen.</div>
+              <div className="text-blue-600 dark:text-blue-400">Einzelwetten werden je Spiel nach dessen Anpfiff sichtbar. Kombiwetten sobald mindestens ein Leg angepfiffen wurde. Dein eigenes Guthaben kann davon abweichen.</div>
             </div>
           )}
 
@@ -454,17 +467,19 @@ export function LeaderboardClient({
 
           <div className="text-sm text-gray-500 dark:text-gray-400 font-medium px-1">
             Alle Tipps — {matchdayNumber}. Spieltag
-            {!isDeadlinePassed && <span className="ml-2 text-xs text-yellow-600">· sichtbar ab erstem Anpfiff</span>}
+            {!isDeadlinePassed && <span className="ml-2 text-xs text-yellow-600">· sichtbar je nach Anpfiff</span>}
           </div>
 
           {profiles.map(profile => {
             const isMe = profile.id === currentUserId
             const userBets = matchdayBets.filter(b => b.user_id === profile.id)
+            const now = new Date()
+            const visibleBets = isMe ? userBets : userBets.filter(b => isBetVisible(b, matchdayBets, now))
             const pnl = mdStats[profile.id]
             const displayBalancePre = profile.balance + (pendingStakesPerUser[profile.id] ?? 0)
 
-            // Before reveal: show other users with count only (no bet details)
-            if (!isDeadlinePassed && !isMe) {
+            // Before any visible bets: show count placeholder for other users
+            if (!isMe && visibleBets.length === 0) {
               const count = betCountsPerUser[profile.id] ?? 0
               if (count === 0) return null
               return (
@@ -505,7 +520,6 @@ export function LeaderboardClient({
                       if (!b.combo_id) { slipCount++ }
                       else if (!seenCombos.has(b.combo_id)) { seenCombos.add(b.combo_id); slipCount++ }
                     }
-                    // Before reveal, for own bets show count from betCountsPerUser (accurate)
                     const displayCount = !isDeadlinePassed && isMe
                       ? (betCountsPerUser[profile.id] ?? slipCount)
                       : slipCount
@@ -522,14 +536,14 @@ export function LeaderboardClient({
                   })()}
                 </div>
                 <div className="px-4 py-2">
-                  <UserBets bets={userBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
+                  <UserBets bets={visibleBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
                 </div>
               </div>
             )
           })}
 
           {!isDeadlinePassed && (
-            <p className="text-center text-xs text-gray-400 dark:text-gray-500 py-4">Die Tipps der anderen werden nach Anpfiff des ersten Spiels sichtbar.</p>
+            <p className="text-center text-xs text-gray-400 dark:text-gray-500 py-4">Einzelwetten werden je Spiel nach dessen Anpfiff sichtbar. Kombiwetten sobald mindestens ein enthaltenes Spiel angepfiffen wurde.</p>
           )}
         </div>
       )}
