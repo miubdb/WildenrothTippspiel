@@ -212,7 +212,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Apply balance updates + push notifications
-  const pushNotifications: Promise<void>[] = []
+  const pushNotifications: Promise<unknown>[] = []
 
   for (const [userId, amount] of Object.entries(userBalanceUpdates)) {
     if (amount <= 0) continue

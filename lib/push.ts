@@ -42,31 +42,26 @@ export async function sendPushToUser(
   url = '/tipps',
   category = 'manual',
   dedupeKey?: string
-) {
-  console.log(`[push] sendPushToUser start: userId=${userId} category=${category} dedupeKey=${dedupeKey}`)
-
+): Promise<{ status: 'sent' | 'skipped' | 'failed'; reason?: string; sentCount?: number; failedCount?: number }> {
   if (!process.env.VAPID_SUBJECT || !process.env.VAPID_PRIVATE_KEY) {
-    console.log('[push] skipped: VAPID keys missing')
     await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', 'VAPID keys missing')
-    return
+    return { status: 'skipped', reason: 'VAPID keys missing' }
   }
 
   const supabase = createAdminClient()
 
   if (dedupeKey) {
-    const { data: existing, error: dedupeErr } = await supabase
+    const { data: existing } = await supabase
       .from('notification_log')
       .select('id')
       .eq('dedupe_key', dedupeKey)
       .eq('status', 'sent')
       .limit(1)
       .single()
-    if (dedupeErr) console.log(`[push] dedupe query error: ${dedupeErr.message}`)
 
     if (existing) {
-      console.log('[push] skipped: already sent (dedupe)')
       await logNotification(userId, category, title, body, dedupeKey, 'skipped', 'Already sent')
-      return
+      return { status: 'skipped', reason: 'Already sent (dedupe)' }
     }
   }
 
@@ -75,12 +70,11 @@ export async function sendPushToUser(
     .select('push_enabled')
     .eq('user_id', userId)
     .single()
-  console.log(`[push] prefData=${JSON.stringify(prefData)} prefErr=${prefErr?.message}`)
 
   if (!prefData?.push_enabled) {
-    console.log('[push] skipped: push disabled or no pref row')
-    await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', 'User disabled push')
-    return
+    const reason = prefErr ? `DB error: ${prefErr.message}` : 'User disabled push'
+    await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', reason)
+    return { status: 'skipped', reason }
   }
 
   initVapid()
@@ -88,16 +82,16 @@ export async function sendPushToUser(
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')
     .eq('user_id', userId)
-  console.log(`[push] subs count=${subs?.length} subsErr=${subsErr?.message}`)
 
   if (!subs || subs.length === 0) {
-    console.log('[push] skipped: no subscriptions')
-    await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', 'No subscriptions')
-    return
+    const reason = subsErr ? `DB error: ${subsErr.message}` : 'No subscriptions'
+    await logNotification(userId, category, title, body, dedupeKey ?? null, 'skipped', reason)
+    return { status: 'skipped', reason }
   }
 
   const payload = JSON.stringify({ title, body, url })
   const failed: string[] = []
+  const failReasons: string[] = []
   let sentCount = 0
 
   await Promise.allSettled(
@@ -110,6 +104,7 @@ export async function sendPushToUser(
         sentCount++
       } catch (err) {
         failed.push(sub.endpoint)
+        failReasons.push(err instanceof Error ? err.message : String(err))
         console.error(`Push failed for ${sub.endpoint}:`, err)
       }
     })
@@ -125,7 +120,9 @@ export async function sendPushToUser(
 
   if (sentCount > 0) {
     await logNotification(userId, category, title, body, dedupeKey ?? null, 'sent')
+    return { status: 'sent', sentCount, failedCount: failed.length }
   } else {
+    const reason = `All ${failed.length} subscriptions failed: ${failReasons.join(' | ')}`
     await logNotification(
       userId,
       category,
@@ -133,8 +130,9 @@ export async function sendPushToUser(
       body,
       dedupeKey ?? null,
       'failed',
-      `All ${failed.length} subscriptions failed`
+      reason
     )
+    return { status: 'failed' as const, reason, failedCount: failed.length }
   }
 }
 

@@ -73,9 +73,9 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Send test push and capture result via log
+  // Send test push — result now returned directly
   const dedupeKey = `test-push-${userId}-${Date.now()}`
-  await sendPushToUser(
+  const pushResult = await sendPushToUser(
     userId,
     '🧪 Test-Benachrichtigung',
     'Wenn du das siehst, funktioniert Push zuverlässig!',
@@ -84,22 +84,9 @@ export async function POST(request: NextRequest) {
     dedupeKey
   )
 
-  // Check what happened
-  const { data: logEntry } = await admin
-    .from('notification_log')
-    .select('status, error_message')
-    .eq('dedupe_key', dedupeKey)
-    .single()
-
-  if (logEntry?.status === 'skipped') {
+  if (!pushResult || pushResult.status !== 'sent') {
     return NextResponse.json(
-      { error: `Push übersprungen: ${logEntry.error_message}` },
-      { status: 500 }
-    )
-  }
-  if (logEntry?.status === 'failed') {
-    return NextResponse.json(
-      { error: `Push fehlgeschlagen: ${logEntry.error_message}` },
+      { error: `Push ${pushResult?.status ?? 'failed'}: ${pushResult?.reason ?? 'Unbekannter Fehler'}` },
       { status: 500 }
     )
   }
@@ -109,8 +96,8 @@ export async function POST(request: NextRequest) {
     message: 'Test-Push gesendet',
     info: {
       targetUserId: userId,
-      subscriptionsCount: subs.length,
-      logStatus: logEntry?.status ?? 'kein Logeintrag',
+      sentCount: pushResult.sentCount,
+      failedCount: pushResult.failedCount,
       timestamp: new Date().toISOString(),
     },
   })

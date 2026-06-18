@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
             }
           }
 
-          const pushPromises: Promise<void>[] = []
+          const pushPromises: Promise<unknown>[] = []
           for (const profile of allProfiles) {
             const singles = userSingles.get(profile.id) ?? 0
             const combos = userCombos.get(profile.id)?.size ?? 0

@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
     perUser.set(r.userId, (perUser.get(r.userId) ?? 0) + r.amount)
   }
 
-  const pushJobs: Promise<void>[] = []
+  const pushJobs: Promise<unknown>[] = []
   for (const [userId, refundAmount] of perUser) {
     const { data: p } = await admin.from('profiles').select('balance').eq('id', userId).single()
     if (!p) continue
