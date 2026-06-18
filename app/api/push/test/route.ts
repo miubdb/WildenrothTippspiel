@@ -49,20 +49,47 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Auto-enable push if subscriptions exist (test implies intent to receive)
-  await admin
+  // Verify admin client works (service role key validity check)
+  const { error: adminError } = await admin
     .from('notification_preferences')
     .upsert({ user_id: userId, push_enabled: true })
+  if (adminError) {
+    return NextResponse.json(
+      { error: `Admin-Client Fehler (SUPABASE_SERVICE_ROLE_KEY ungültig?): ${adminError.message}` },
+      { status: 500 }
+    )
+  }
 
-  // Send test push
+  // Send test push and capture result via log
+  const dedupeKey = `test-push-${userId}-${Date.now()}`
   await sendPushToUser(
     userId,
     '🧪 Test-Benachrichtigung',
     'Wenn du das siehst, funktioniert Push zuverlässig!',
     '/profil',
     'test_push',
-    `test-push-${userId}-${Date.now()}`
+    dedupeKey
   )
+
+  // Check what happened
+  const { data: logEntry } = await admin
+    .from('notification_log')
+    .select('status, error_message')
+    .eq('dedupe_key', dedupeKey)
+    .single()
+
+  if (logEntry?.status === 'skipped') {
+    return NextResponse.json(
+      { error: `Push übersprungen: ${logEntry.error_message}` },
+      { status: 500 }
+    )
+  }
+  if (logEntry?.status === 'failed') {
+    return NextResponse.json(
+      { error: `Push fehlgeschlagen: ${logEntry.error_message}` },
+      { status: 500 }
+    )
+  }
 
   return NextResponse.json({
     success: true,
@@ -70,6 +97,7 @@ export async function POST(request: NextRequest) {
     info: {
       targetUserId: userId,
       subscriptionsCount: subs.length,
+      logStatus: logEntry?.status ?? 'kein Logeintrag',
       timestamp: new Date().toISOString(),
     },
   })
