@@ -26,7 +26,9 @@ export default async function RecapPage({
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Fetch matches for this matchday
+  // Fetch matches for this matchday (current season only — matchday numbers
+  // repeat across seasons, so filter by season start date like the rest of the app)
+  const SEASON_START = '2026-08-01'
   const { data: matchRows } = await supabase
     .from('matches')
     .select(
@@ -35,6 +37,7 @@ export default async function RecapPage({
        away_team:teams!matches_away_team_id_fkey(name)`
     )
     .eq('matchday', matchday)
+    .gte('match_date', SEASON_START)
     .order('match_date', { ascending: true })
 
   if (!matchRows || matchRows.length === 0) notFound()
@@ -275,61 +278,6 @@ export default async function RecapPage({
                 </div>
               )
             })}
-          </div>
-        </div>
-      )}
-
-      {/* Alle Spieler table */}
-      {leaderboard.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
-            <h2 className="font-bold text-gray-900 dark:text-gray-100">Alle Spieler</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100 dark:border-gray-700">
-                  <th className="px-4 py-2 text-left text-xs font-semibold text-gray-500 dark:text-gray-400">Spieler</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 dark:text-gray-400">Eingesetzt</th>
-                  <th className="px-3 py-2 text-right text-xs font-semibold text-gray-500 dark:text-gray-400">Ausgezahlt</th>
-                  <th className="px-4 py-2 text-right text-xs font-semibold text-gray-500 dark:text-gray-400">Ergebnis</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50 dark:divide-gray-700">
-                {leaderboard.map((entry) => {
-                  const isMe = entry.userId === user.id
-                  return (
-                    <tr
-                      key={entry.userId}
-                      className={isMe ? 'bg-red-50 dark:bg-red-900/10' : ''}
-                    >
-                      <td className="px-4 py-2.5 font-medium text-gray-900 dark:text-gray-100 truncate max-w-[120px]">
-                        {entry.name}
-                        {isMe && (
-                          <span className="ml-1.5 text-[10px] bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-1 py-0.5 rounded font-bold">
-                            Du
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-right text-gray-500 dark:text-gray-400">
-                        {fmtAmt(entry.staked)} €
-                      </td>
-                      <td className="px-3 py-2.5 text-right text-green-600">
-                        {fmtAmt(entry.payout)} €
-                      </td>
-                      <td
-                        className={`px-4 py-2.5 text-right font-bold ${
-                          entry.profit >= 0 ? 'text-green-600' : 'text-red-600'
-                        }`}
-                      >
-                        {entry.profit >= 0 ? '+' : ''}
-                        {fmtAmt(entry.profit)} €
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
           </div>
         </div>
       )}
