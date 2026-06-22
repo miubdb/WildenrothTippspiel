@@ -11,6 +11,7 @@ import { calculateOdds, buildPriorContext } from '@/lib/odds'
 import { isSeasonStarted } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
+import { crestPath } from '@/lib/teams'
 
 export const revalidate = 60
 
@@ -945,9 +946,13 @@ export default async function TippsPage({
                   return (
                     <div key={match.id} className="px-4 py-3">
                       <div className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-gray-100 mb-1">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={crestPath(match.home_team?.name ?? '')} alt="" className="w-5 h-5 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                         <span className="truncate">{match.home_team?.name ?? '?'}</span>
                         <span className="text-gray-400 dark:text-gray-500 text-xs">vs</span>
                         <span className="truncate">{match.away_team?.name ?? '?'}</span>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={crestPath(match.away_team?.name ?? '')} alt="" className="w-5 h-5 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                       </div>
                       <p className="text-xs text-gray-400 dark:text-gray-500">
                         🔒 {count} Wettschein{count !== 1 ? 'e' : ''} · sichtbar ab Anpfiff
@@ -970,9 +975,13 @@ export default async function TippsPage({
                   <div key={match.id} className="px-4 py-3 space-y-2">
                     {/* Match header */}
                     <div className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-gray-100">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={crestPath(match.home_team?.name ?? '')} alt="" className="w-5 h-5 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                       <span className="truncate">{match.home_team?.name ?? '?'}</span>
                       <span className="text-gray-400 dark:text-gray-500 text-xs">vs</span>
                       <span className="truncate">{match.away_team?.name ?? '?'}</span>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={crestPath(match.away_team?.name ?? '')} alt="" className="w-5 h-5 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
                       {match.status === 'finished' && match.home_score != null && (
                         <span className="ml-auto text-xs font-black text-red-700 dark:text-red-400">{match.home_score}:{match.away_score}</span>
                       )}

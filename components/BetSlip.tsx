@@ -351,7 +351,7 @@ export function BetSlip() {
                                 : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
                             }`}
                           >
-                            {amt}€
+                            {amt} WR
                           </button>
                         ))}
                         <input

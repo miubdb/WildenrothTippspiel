@@ -16,6 +16,7 @@ export const LEAGUE_TEAMS = [
   'SV Igling',
   'FC Issing',
   'VfL Denklingen',
+  'TSV Oberalting-Seefeld',
 ] as const
 
 /**

@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
   if (mode === 'combo') {
     if (comboStake > MAX_STAKE) {
       return NextResponse.json(
-        { error: `Maximaler Einsatz pro Wette: ${MAX_STAKE}€.` },
+        { error: `Maximaler Einsatz pro Wette: ${MAX_STAKE} WR.` },
         { status: 400 }
       )
     }
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
       const stake = s.stake || 10
       if (stake > MAX_STAKE) {
         return NextResponse.json(
-          { error: `Maximaler Einsatz pro Wette: ${MAX_STAKE}€.` },
+          { error: `Maximaler Einsatz pro Wette: ${MAX_STAKE} WR.` },
           { status: 400 }
         )
       }
@@ -347,7 +347,7 @@ export async function POST(request: NextRequest) {
 
   if (profile.balance < totalCost) {
     return NextResponse.json(
-      { error: `Nicht genug Guthaben. Verfügbar: ${profile.balance.toFixed(2)}€, Benötigt: ${totalCost.toFixed(2)}€` },
+      { error: `Nicht genug Guthaben. Verfügbar: ${profile.balance.toFixed(2)} WR, Benötigt: ${totalCost.toFixed(2)} WR` },
       { status: 400 }
     )
   }

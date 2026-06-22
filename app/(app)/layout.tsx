@@ -46,11 +46,7 @@ export default async function AppLayout({
             <div className="text-right">
               <span className="text-red-200 text-xs block">Guthaben</span>
               <span className="font-bold text-sm">
-                {balance.toLocaleString('de-DE', {
-                  style: 'currency',
-                  currency: 'EUR',
-                  minimumFractionDigits: 2,
-                })}
+                {balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR
               </span>
             </div>
           </div>
