@@ -787,22 +787,12 @@ export default async function TippsPage({
   return (
     <div className="px-4 py-4 space-y-4">
       {!seasonStarted && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-10 text-center space-y-3">
-          <div className="text-4xl">📅</div>
-          <div className="font-black text-gray-900 text-lg">Spielplan 26/27</div>
-          <div className="text-gray-500 text-sm leading-relaxed">
-            Der Spielplan der neuen Saison wird hier angezeigt,<br />
-            sobald er vom BFV veröffentlicht wurde.
-          </div>
-          <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-sm text-amber-800 mt-2">
-            <span>☀️</span>
-            <span><strong>Sommerpause</strong> — wir kommen bald wieder!</span>
-          </div>
+        <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-sm text-amber-800">
+          <span>☀️</span>
+          <span><strong>Sommerpause</strong> — wir kommen bald wieder!</span>
         </div>
       )}
 
-      {seasonStarted && (
-      <>
       {/* Matchday Header */}
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4 shadow-sm">
         <div className="flex items-center justify-between">
@@ -883,11 +873,14 @@ export default async function TippsPage({
       )}
 
       {/* Match Cards */}
-      {isPreSeason && matchdayMatches.length === 0 ? (
-        <div className="text-center py-16 text-gray-400 dark:text-gray-500">
-          <div className="text-4xl mb-3">📅</div>
-          <div className="font-medium text-gray-600 dark:text-gray-300">Spielplan wird noch veröffentlicht</div>
-          <div className="text-sm mt-1">Die Saison 26/27 startet im August 2026</div>
+      {!seasonStarted ? (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-6 py-10 text-center space-y-3">
+          <div className="text-4xl">📅</div>
+          <div className="font-black text-gray-900 dark:text-gray-100 text-lg">Spielplan 26/27</div>
+          <div className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed">
+            Der Spielplan der neuen Saison wird hier angezeigt,<br />
+            sobald er vom BFV veröffentlicht wurde.
+          </div>
         </div>
       ) : matchdayMatches.length === 0 ? (
         <div className="text-center py-16 text-gray-400 dark:text-gray-500">
@@ -1093,8 +1086,6 @@ export default async function TippsPage({
       )}
 
       <BetSlip />
-      </>
-      )}
     </div>
   )
 }

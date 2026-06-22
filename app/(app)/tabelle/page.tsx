@@ -199,10 +199,10 @@ export default async function TabellePage() {
 
   const computedStandings = computeStandings(matches)
 
-  // Pre-season: no matches yet → show all 16 teams with 0 stats sorted alphabetically
+  // Pre-season: no matches yet → show all 16 teams alphabetically
   const standings: Standing[] = computedStandings.length > 0
     ? computedStandings
-    : [...OUR_TEAMS].sort().map((name, idx) => ({
+    : [...OUR_TEAMS].sort((a, b) => a.localeCompare(b, 'de')).map((name, idx) => ({
         teamId: -(idx + 1),
         teamName: name,
         played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0, ppg: 0, form: [],
