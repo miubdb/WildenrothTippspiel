@@ -65,7 +65,7 @@ export default async function WillkommenPage() {
         </div>
         <div className="divide-y divide-gray-50 dark:divide-gray-700">
           {[
-            { icon: '💰', title: 'Startkapital: 1.000 Rothaler', text: 'Du bekommst virtuell 1.000 RT (Rothaler) zum Tippen — die offizielle Währung des Wildenroth Tippspiels.' },
+            { icon: '💰', title: 'Startkapital: 1.000 Wildenrothis', text: 'Du bekommst virtuell 1.000 Wildenrothis (WR) zum Tippen — die offizielle Währung des Wildenroth Tippspiels.' },
             { icon: '🎯', title: 'Pro Spieltag 3 Wetten', text: 'Davon 2 normale Wetten und 1 Risiko-Wette (mind. Gesamtquote 20). Einzelwetten oder Kombiwette — du entscheidest.' },
             { icon: '🔗', title: 'Kombiwetten möglich', text: 'Mehrere Spiele lassen sich zu einer Kombiwette verknüpfen. Pro Spiel gilt nur ein Tipp.' },
             { icon: '📊', title: 'Rangliste', text: 'Wer am Ende der Saison das höchste Guthaben hat, gewinnt.' },

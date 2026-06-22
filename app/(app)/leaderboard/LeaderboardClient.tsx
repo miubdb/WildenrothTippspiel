@@ -89,7 +89,7 @@ function isBetVisible(bet: BetRow, allMatchdayBets: BetRow[], now: Date): boolea
 
 type ReactionData = { target_type: string; target_id: number; emoji: string; user_id: string }
 
-function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserId, currentUserName, isAdmin, isOwnBets, isDeadlinePassed, onCancel, cancellingId: cancelId, players }: {
+function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserId, currentUserName, isAdmin, isOwnBets, isDeadlinePassed, onCancel, cancellingId: cancelId, players, hiddenCount: hiddenCountProp }: {
   bets: BetRow[]; combos: Record<string, ComboMeta>; noDataLabel: string
   reactions: ReactionData[]; comments: CommentData[]; currentUserId: string | null
   currentUserName: string; isAdmin?: boolean
@@ -97,8 +97,12 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
   onCancel?: (betId?: number, comboId?: number) => void
   cancellingId?: string | null
   players?: Record<number, string>
+  hiddenCount?: number
 }) {
-  if (bets.length === 0) return <p className="text-xs text-gray-400 italic py-1">{noDataLabel}</p>
+  if (bets.length === 0 && !hiddenCountProp) return <p className="text-xs text-gray-400 italic py-1">{noDataLabel}</p>
+
+  const now = new Date()
+  const hiddenCount = hiddenCountProp ?? 0
 
   // Build normalized WetteData[]
   const wetten: WetteData[] = []
@@ -163,9 +167,27 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
     }
   }
 
+  const visibleWetten = wetten.filter(w => {
+    if (w.type === 'single') {
+      const b = bets.find(x => !x.combo_id && x.id === w.betId)
+      return b?.match ? new Date(b.match.match_date) <= now : false
+    }
+    // combo
+    const legs = bets.filter(x => x.combo_id === w.comboId)
+    return legs.some(l => l.match && new Date(l.match.match_date) <= now)
+  })
+
   return (
     <div className="space-y-2">
-      {wetten.map(wette => {
+      {hiddenCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl border border-amber-200 dark:border-amber-800">
+          <span className="text-amber-500 text-sm">🔒</span>
+          <span className="text-xs text-amber-700 dark:text-amber-400">
+            {hiddenCount === 1 ? 'Wette platziert' : `${hiddenCount} Wetten platziert`} – sichtbar ab Anpfiff
+          </span>
+        </div>
+      )}
+      {visibleWetten.map(wette => {
         const targetType = wette.type === 'single' ? 'bet' as const : 'combo' as const
         const targetId = wette.type === 'single' ? (wette.betId ?? 0) : (wette.comboId ?? 0)
         const social: WetteSocial | undefined = currentUserId ? {
@@ -262,7 +284,7 @@ export function LeaderboardClient({
       <div className="bg-gradient-to-br from-red-700 to-red-900 text-white rounded-2xl px-5 py-5 shadow-sm">
         <div className="text-red-200 text-xs font-medium uppercase tracking-wide mb-1">Saison 2026/27</div>
         <h1 className="text-2xl font-black">Rangliste</h1>
-        <p className="text-red-200 text-sm mt-1">{profiles.length} Teilnehmer · Startkapital 1.000 RT</p>
+        <p className="text-red-200 text-sm mt-1">{profiles.length} Teilnehmer · Startkapital 1.000 WR</p>
         <p className="text-red-300 text-xs mt-0.5 opacity-80">Guthaben inkl. ausstehender Einsätze</p>
       </div>
 
@@ -311,6 +333,24 @@ export function LeaderboardClient({
               const userBets = matchdayBets.filter(b => b.user_id === profile.id)
               const now = new Date()
               const visibleBets = isMe ? userBets : userBets.filter(b => isBetVisible(b, matchdayBets, now))
+              const hiddenBetCount = isMe ? 0 : (() => {
+                const seenCombos = new Set<number>()
+                let count = 0
+                for (const b of userBets) {
+                  if (b.status === 'cancelled') continue
+                  if (!b.combo_id) {
+                    if (!b.match || new Date(b.match.match_date) > now) count++
+                  } else {
+                    if (seenCombos.has(b.combo_id)) continue
+                    const legs = userBets.filter(x => x.combo_id === b.combo_id)
+                    if (!legs.some(l => l.match && new Date(l.match.match_date) <= now)) {
+                      count++
+                      seenCombos.add(b.combo_id)
+                    }
+                  }
+                }
+                return count
+              })()
               const streak = streaks[profile.id] ?? 0
               const wWins = weeklyWinCounts[profile.id] ?? 0
               const currentMdPnl = mdStats[profile.id]
@@ -340,9 +380,9 @@ export function LeaderboardClient({
                     </div>
                     {/* Balance */}
                     <div className="text-right flex-shrink-0 mr-1">
-                      <div className="font-black text-gray-900 dark:text-gray-100 text-base tabular-nums">{fmtAmt(displayBalance)} RT</div>
+                      <div className="font-black text-gray-900 dark:text-gray-100 text-base tabular-nums">{fmtAmt(displayBalance)} WR</div>
                       <div className={`text-xs font-bold tabular-nums ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                        {profit >= 0 ? '+' : ''}{fmtAmt(profit)} RT
+                        {profit >= 0 ? '+' : ''}{fmtAmt(profit)} WR
                       </div>
                     </div>
                     {/* Expand chevron */}
@@ -355,11 +395,7 @@ export function LeaderboardClient({
 
                   {isOpen && (
                     <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-700 pt-2">
-                      {visibleBets.length === 0 && !isMe ? (
-                        <p className="text-xs text-gray-400 dark:text-gray-500 italic">Tipps werden nach Anpfiff der jeweiligen Spiele sichtbar</p>
-                      ) : (
-                        <UserBets bets={visibleBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
-                      )}
+                      <UserBets bets={visibleBets} hiddenCount={hiddenBetCount} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
                     </div>
                   )}
                 </div>
@@ -438,7 +474,7 @@ export function LeaderboardClient({
                         {isMe && <span className="ml-1.5 text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">Du</span>}
                       </div>
                       <div className={`text-sm font-black tabular-nums flex-shrink-0 ${pnl > 0 ? 'text-green-600' : pnl < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                        {pnl >= 0 ? '+' : ''}{fmtAmt(pnl)} RT
+                        {pnl >= 0 ? '+' : ''}{fmtAmt(pnl)} WR
                       </div>
                     </div>
                   )
@@ -458,7 +494,7 @@ export function LeaderboardClient({
                 <div>
                   <div className="text-xs text-yellow-700 font-semibold uppercase tracking-wide">Spieltagsbester</div>
                   <div className="font-bold text-gray-900 text-sm">{winner.display_name || winner.username}</div>
-                  <div className="text-xs text-green-600 font-semibold">+{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RT</div>
+                  <div className="text-xs text-green-600 font-semibold">+{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR</div>
                 </div>
               </div>
             )
@@ -509,7 +545,7 @@ export function LeaderboardClient({
                   </div>
                   {pnl !== null && pnl !== undefined && isDeadlinePassed && (
                     <div className={`ml-auto text-xs font-bold ${pnl > 0 ? 'text-green-600' : pnl < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                      {pnl > 0 ? '+' : ''}{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RT
+                      {pnl > 0 ? '+' : ''}{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR
                     </div>
                   )}
                   {(pnl === null || !isDeadlinePassed) && (() => {
@@ -526,7 +562,7 @@ export function LeaderboardClient({
                       <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
                         {!isDeadlinePassed && isMe && (
                           <span className="mr-1 text-gray-500 dark:text-gray-400 font-medium">
-                            Stand vor ST {matchdayNumber}: {fmtAmt(displayBalancePre)} RT
+                            Stand vor ST {matchdayNumber}: {fmtAmt(displayBalancePre)} WR
                           </span>
                         )}
                         {displayCount} Wettschein{displayCount !== 1 ? 'e' : ''}
@@ -567,8 +603,8 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
       </Link>
       <div className="text-center mb-1">
         <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate max-w-20">{profile.display_name || profile.username}</div>
-        <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(displayBalance)} RT</div>
-        <div className={`text-xs font-semibold tabular-nums leading-tight ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} RT</div>
+        <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(displayBalance)} WR</div>
+        <div className={`text-xs font-semibold tabular-nums leading-tight ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} WR</div>
         <div className="flex items-center justify-center gap-1 mt-0.5">
           {streak >= 2 && <span className="text-xs">🔥{streak}</span>}
           {weeklyWins >= 1 && <span className="text-xs">🏅{weeklyWins}×</span>}

@@ -259,13 +259,13 @@ export async function POST(request: NextRequest) {
     let body: string
     if (won > 0 && lost === 0) {
       title = won === 1 ? '🎉 Wette gewonnen!' : `🎉 ${won} Wetten gewonnen!`
-      body = `+${amount.toFixed(2)} RT wurden deinem Konto gutgeschrieben.`
+      body = `+${amount.toFixed(2)} WR wurden deinem Konto gutgeschrieben.`
     } else if (won === 0 && lost > 0) {
       title = lost === 1 ? '😬 Wette verloren' : `😬 ${lost} Wetten verloren`
       body = 'Viel Glück beim nächsten Spieltag!'
     } else if (won > 0 && lost > 0) {
       title = `📊 ${won + lost} Wetten ausgewertet`
-      body = `${won} gewonnen, ${lost} verloren · Saldo: ${amount >= 0 ? '+' : ''}${amount.toFixed(2)} RT`
+      body = `${won} gewonnen, ${lost} verloren · Saldo: ${amount >= 0 ? '+' : ''}${amount.toFixed(2)} WR`
     } else {
       continue
     }
