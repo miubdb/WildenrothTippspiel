@@ -11,11 +11,12 @@ export async function isSeasonStarted(supabase: SupabaseClient): Promise<boolean
     .single()
   if (setting?.value === 'true') return true
 
-  // Fallback: first match of matchday 1 in matches table
+  // Fallback: first match of matchday 1 in the current (26/27) season
   const { data: firstMatch } = await supabase
     .from('matches')
     .select('match_date')
     .eq('matchday', 1)
+    .gte('match_date', '2026-08-01')
     .order('match_date', { ascending: true })
     .limit(1)
     .single()

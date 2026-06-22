@@ -1,9 +1,10 @@
 // League teams + crest slug helper, shared across profile views.
 
+// 26/27 season teams — IDs in DB: SC Schöngeising=8, SpVgg Wildenroth=14, rest 15–28
 export const LEAGUE_TEAMS = [
-  'TSV Geiselbullach',
-  'SpVgg Wildenroth',
   'SC Schöngeising',
+  'SpVgg Wildenroth',
+  'TSV Geiselbullach',
   'TSV Altenstadt',
   'TSV Peiting',
   'FC Wildsteig/Rottenbuch',

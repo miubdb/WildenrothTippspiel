@@ -72,6 +72,7 @@ export default async function TippsPage({
        home_team:teams!matches_home_team_id_fkey(id, name, short_name),
        away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
     )
+    .gte('match_date', '2026-08-01')
     .order('match_date', { ascending: true })
 
   const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
