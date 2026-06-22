@@ -262,7 +262,8 @@ export function LeaderboardClient({
       <div className="bg-gradient-to-br from-red-700 to-red-900 text-white rounded-2xl px-5 py-5 shadow-sm">
         <div className="text-red-200 text-xs font-medium uppercase tracking-wide mb-1">Saison 2026/27</div>
         <h1 className="text-2xl font-black">Rangliste</h1>
-        <p className="text-red-200 text-sm mt-1">{profiles.length} Teilnehmer · Startkapital 1.000 €</p>
+        <p className="text-red-200 text-sm mt-1">{profiles.length} Teilnehmer · Startkapital 1.000 RT</p>
+        <p className="text-red-300 text-xs mt-0.5 opacity-80">Guthaben inkl. ausstehender Einsätze</p>
       </div>
 
       {/* Tabs */}
@@ -339,9 +340,9 @@ export function LeaderboardClient({
                     </div>
                     {/* Balance */}
                     <div className="text-right flex-shrink-0 mr-1">
-                      <div className="font-black text-gray-900 dark:text-gray-100 text-base tabular-nums">{fmtAmt(displayBalance)} €</div>
+                      <div className="font-black text-gray-900 dark:text-gray-100 text-base tabular-nums">{fmtAmt(displayBalance)} RT</div>
                       <div className={`text-xs font-bold tabular-nums ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                        {profit >= 0 ? '+' : ''}{fmtAmt(profit)} €
+                        {profit >= 0 ? '+' : ''}{fmtAmt(profit)} RT
                       </div>
                     </div>
                     {/* Expand chevron */}
@@ -437,7 +438,7 @@ export function LeaderboardClient({
                         {isMe && <span className="ml-1.5 text-xs bg-red-100 text-red-700 px-1 py-0.5 rounded">Du</span>}
                       </div>
                       <div className={`text-sm font-black tabular-nums flex-shrink-0 ${pnl > 0 ? 'text-green-600' : pnl < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                        {pnl >= 0 ? '+' : ''}{fmtAmt(pnl)} €
+                        {pnl >= 0 ? '+' : ''}{fmtAmt(pnl)} RT
                       </div>
                     </div>
                   )
@@ -457,7 +458,7 @@ export function LeaderboardClient({
                 <div>
                   <div className="text-xs text-yellow-700 font-semibold uppercase tracking-wide">Spieltagsbester</div>
                   <div className="font-bold text-gray-900 text-sm">{winner.display_name || winner.username}</div>
-                  <div className="text-xs text-green-600 font-semibold">+{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
+                  <div className="text-xs text-green-600 font-semibold">+{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RT</div>
                 </div>
               </div>
             )
@@ -508,7 +509,7 @@ export function LeaderboardClient({
                   </div>
                   {pnl !== null && pnl !== undefined && isDeadlinePassed && (
                     <div className={`ml-auto text-xs font-bold ${pnl > 0 ? 'text-green-600' : pnl < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                      {pnl > 0 ? '+' : ''}{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                      {pnl > 0 ? '+' : ''}{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RT
                     </div>
                   )}
                   {(pnl === null || !isDeadlinePassed) && (() => {
@@ -525,7 +526,7 @@ export function LeaderboardClient({
                       <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
                         {!isDeadlinePassed && isMe && (
                           <span className="mr-1 text-gray-500 dark:text-gray-400 font-medium">
-                            Stand vor ST {matchdayNumber}: {fmtAmt(displayBalancePre)} €
+                            Stand vor ST {matchdayNumber}: {fmtAmt(displayBalancePre)} RT
                           </span>
                         )}
                         {displayCount} Wettschein{displayCount !== 1 ? 'e' : ''}
@@ -566,8 +567,8 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
       </Link>
       <div className="text-center mb-1">
         <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate max-w-20">{profile.display_name || profile.username}</div>
-        <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(displayBalance)} €</div>
-        <div className={`text-xs font-semibold tabular-nums leading-tight ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €</div>
+        <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(displayBalance)} RT</div>
+        <div className={`text-xs font-semibold tabular-nums leading-tight ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} RT</div>
         <div className="flex items-center justify-center gap-1 mt-0.5">
           {streak >= 2 && <span className="text-xs">🔥{streak}</span>}
           {weeklyWins >= 1 && <span className="text-xs">🏅{weeklyWins}×</span>}

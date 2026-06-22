@@ -170,12 +170,12 @@ export default async function RecapPage({
             <div className="px-3 py-3 text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Eingesetzt</div>
               <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">
-                {fmtAmt(myStats.staked)} €
+                {fmtAmt(myStats.staked)} RT
               </div>
             </div>
             <div className="px-3 py-3 text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ausgezahlt</div>
-              <div className="font-bold text-green-600 text-sm">{fmtAmt(myStats.payout)} €</div>
+              <div className="font-bold text-green-600 text-sm">{fmtAmt(myStats.payout)} RT</div>
             </div>
             <div className="px-3 py-3 text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ergebnis</div>
@@ -185,7 +185,7 @@ export default async function RecapPage({
                 }`}
               >
                 {myProfit !== null && myProfit >= 0 ? '+' : ''}
-                {fmtAmt(myProfit ?? 0)} €
+                {fmtAmt(myProfit ?? 0)} RT
               </div>
             </div>
           </div>
@@ -264,7 +264,7 @@ export default async function RecapPage({
                       )}
                     </div>
                     <div className="text-xs text-gray-400 dark:text-gray-500">
-                      Eingesetzt: {fmtAmt(entry.staked)} € · Ausgezahlt: {fmtAmt(entry.payout)} €
+                      Eingesetzt: {fmtAmt(entry.staked)} RT · Ausgezahlt: {fmtAmt(entry.payout)} RT
                     </div>
                   </div>
                   <div
@@ -273,7 +273,7 @@ export default async function RecapPage({
                     }`}
                   >
                     {entry.profit >= 0 ? '+' : ''}
-                    {fmtAmt(entry.profit)} €
+                    {fmtAmt(entry.profit)} RT
                   </div>
                 </div>
               )

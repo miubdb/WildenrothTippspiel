@@ -177,7 +177,7 @@ export default async function ErgebnisPage({
         <div className={`rounded-2xl px-5 py-4 text-center shadow-sm border ${netAmount > 0 ? 'bg-green-50 border-green-200' : netAmount < 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
           <div className="text-xs text-gray-500 mb-1">Ergebnis dieses Spiels</div>
           <div className={`text-2xl font-black ${netAmount > 0 ? 'text-green-600' : netAmount < 0 ? 'text-red-600' : 'text-gray-600'}`}>
-            {netAmount >= 0 ? '+' : ''}{fmt(netAmount)} €
+            {netAmount >= 0 ? '+' : ''}{fmt(netAmount)} RT
           </div>
         </div>
       )}
@@ -214,20 +214,20 @@ export default async function ErgebnisPage({
                         {selLabel(bet.market_type, bet.selection, players)}
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        @{bet.odds_value.toFixed(2).replace('.', ',')} · Einsatz: {fmt(bet.stake ?? 0)} €
+                        @{bet.odds_value.toFixed(2).replace('.', ',')} · Einsatz: {fmt(bet.stake ?? 0)} RT
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">
                       {won && (
                         <>
                           <div className="text-[10px] font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 rounded-full">Gewonnen</div>
-                          <div className="font-black text-green-600 mt-1">+{fmt((bet.payout ?? 0) - (bet.stake ?? 0))} €</div>
+                          <div className="font-black text-green-600 mt-1">+{fmt((bet.payout ?? 0) - (bet.stake ?? 0))} RT</div>
                         </>
                       )}
                       {lost && (
                         <>
                           <div className="text-[10px] font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded-full">Verloren</div>
-                          <div className="font-black text-red-500 mt-1">–{fmt(bet.stake ?? 0)} €</div>
+                          <div className="font-black text-red-500 mt-1">–{fmt(bet.stake ?? 0)} RT</div>
                         </>
                       )}
                       {pending && (
@@ -257,19 +257,19 @@ export default async function ErgebnisPage({
                   <span className="text-[10px] font-bold bg-blue-600 text-white rounded px-1.5 py-0.5">KOMBI</span>
                   <span className="text-[10px] text-gray-500 dark:text-gray-400">{legs.length} Tipps · @{cb.total_odds.toFixed(2).replace('.', ',')}</span>
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Einsatz: {fmt(cb.stake)} €</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Einsatz: {fmt(cb.stake)} RT</div>
               </div>
               <div className="text-right flex-shrink-0">
                 {won && (
                   <>
                     <div className="text-[10px] font-semibold text-green-600 bg-green-100 dark:bg-green-900/30 px-1.5 py-0.5 rounded-full">Gewonnen</div>
-                    <div className="font-black text-green-600 mt-1">+{fmt((cb.payout ?? 0) - cb.stake)} €</div>
+                    <div className="font-black text-green-600 mt-1">+{fmt((cb.payout ?? 0) - cb.stake)} RT</div>
                   </>
                 )}
                 {lost && (
                   <>
                     <div className="text-[10px] font-semibold text-red-600 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded-full">Verloren</div>
-                    <div className="font-black text-red-500 mt-1">–{fmt(cb.stake)} €</div>
+                    <div className="font-black text-red-500 mt-1">–{fmt(cb.stake)} RT</div>
                   </>
                 )}
                 {pending && (

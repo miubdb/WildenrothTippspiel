@@ -82,6 +82,8 @@ export interface BetSlipItem {
   selection: string   // e.g. "home", "draw", "away", "yes", "no", "1:0"
   selectionLabel: string // e.g. "Heimsieg", "Unentschieden"
   oddsValue: number
+  homeTeam?: string
+  awayTeam?: string
 }
 
 /** A result row from `prior_season_matches` — used as historical prior for xG when a team has little current-season data. */

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { WetteCard, type WetteData, type WetteStatus } from '@/components/WetteCard'
 
 type Bet = {
   id: string
@@ -37,20 +38,6 @@ type Props = {
   highlightDedupeKey?: string
 }
 
-const MARKET_LABELS: Record<string, string> = {
-  '1x2': '1X2',
-  double_chance: 'Doppelte Chance',
-  over_under: 'Ü/U 2,5',
-  over_under_3_5: 'Ü/U 3,5',
-  over_under_5_5: 'Ü/U 5,5',
-  over_under_7_5: 'Ü/U 7,5',
-  btts: 'Beide treffen',
-  exact_score: 'Genaues Ergebnis',
-  handicap: 'Handicap',
-  goalscorer: 'Torschütze',
-  goalscorer_2plus: 'Mindestens 2 Tore',
-}
-
 const SELECTION_LABELS: Record<string, string> = {
   home: 'Heimsieg',
   draw: 'Unentschieden',
@@ -84,262 +71,68 @@ function selLabel(marketType: string, sel: string, players?: Record<number, stri
   return SELECTION_LABELS[sel] ?? sel
 }
 
-function fmtOdds(n: number): string {
-  return n.toFixed(2).replace('.', ',')
-}
-
-function fmtAmt(n: number): string {
-  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function matchLabel(bet: Bet) {
+function betMatchName(bet: Bet): string {
   const m = bet.match
   if (!m) return 'Unbekanntes Spiel'
-  const h = m.home_team?.name ?? '?'
-  const a = m.away_team?.name ?? '?'
-  return `${h} – ${a}`
+  return `${m.home_team?.name ?? '?'} – ${m.away_team?.name ?? '?'}`
 }
 
-function scoreStr(bet: Bet) {
+function betScore(bet: Bet): string | null {
   const m = bet.match
   if (!m || m.home_score === null) return null
   return `${m.home_score}:${m.away_score}`
 }
 
-function StatusIcon({ status }: { status: string }) {
-  if (status === 'won') return (
-    <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
-      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-      </svg>
-    </div>
-  )
-  if (status === 'lost') return (
-    <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center flex-shrink-0">
-      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-      </svg>
-    </div>
-  )
-  return (
-    <div className="w-8 h-8 rounded-full bg-yellow-400 flex items-center justify-center flex-shrink-0">
-      <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    </div>
-  )
-}
+function toWetteData(item: HistoryItem, players?: Record<number, string>): WetteData {
+  if (item.kind === 'single') {
+    const b = item.bet
+    return {
+      id: `bet-${b.id}`,
+      type: 'single',
+      totalOdds: b.odds_value ?? 1,
+      stake: b.stake ?? 0,
+      payout: b.payout,
+      status: b.status as WetteStatus,
+      betId: parseInt(b.id),
+      legs: [{
+        id: parseInt(b.id),
+        matchName: betMatchName(b),
+        market: b.market_type,
+        selection: selLabel(b.market_type, b.selection, players),
+        odds: b.odds_value ?? 1,
+        status: b.status as WetteStatus,
+        score: betScore(b),
+      }],
+    }
+  }
 
-function SingleBetCard({
-  bet,
-  cancellable,
-  onCancel,
-  isCancelling,
-  players,
-  highlighted,
-  highlightType,
-  cardRef,
-}: {
-  bet: Bet
-  players?: Record<number, string>
-  cancellable: boolean
-  onCancel: () => void
-  isCancelling: boolean
-  highlighted?: boolean
-  highlightType?: 'won' | 'lost'
-  cardRef?: React.RefObject<HTMLDivElement | null>
-}) {
-  const [faded, setFaded] = useState(false)
-
-  useEffect(() => {
-    if (!highlighted) return
-    const timer = setTimeout(() => setFaded(true), 3000)
-    return () => clearTimeout(timer)
-  }, [highlighted])
-
-  const score = scoreStr(bet)
-  const potentialPayout = (bet.stake ?? 0) * (bet.odds_value ?? 1)
-
-  const borderColor = bet.status === 'won' ? 'border-l-green-500' :
-    bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-  const bgColor = bet.status === 'won' ? 'bg-green-50 dark:bg-green-900/20' :
-    bet.status === 'lost' ? 'bg-red-50/40 dark:bg-red-900/10' : 'bg-white dark:bg-gray-800'
-
-  const highlightRing = highlighted && !faded
-    ? highlightType === 'won'
-      ? 'ring-2 ring-green-400 shadow-green-100 shadow-md'
-      : 'ring-2 ring-red-400 shadow-red-100 shadow-md'
-    : ''
-
-  return (
-    <div
-      ref={cardRef}
-      style={{ transition: 'box-shadow 0.8s ease, outline 0.8s ease', opacity: highlighted && faded ? 1 : undefined }}
-      className={`flex items-center gap-3 px-4 py-3 border-l-4 ${borderColor} ${bgColor} ${highlightRing}`}
-    >
-      <StatusIcon status={bet.status} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          {bet.match?.matchday && (
-            <span className="text-[10px] bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">
-              ST {bet.match.matchday}
-            </span>
-          )}
-          <div className="text-xs text-gray-400 dark:text-gray-500 truncate">{matchLabel(bet)}</div>
-        </div>
-        <div className="flex items-center gap-1.5 mt-0.5">
-          <span className="text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded font-medium">
-            {MARKET_LABELS[bet.market_type] ?? bet.market_type}
-          </span>
-          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-            {selLabel(bet.market_type, bet.selection, players)}
-          </span>
-        </div>
-        {score && (
-          <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Ergebnis: <span className="font-semibold text-gray-600 dark:text-gray-300">{score}</span></div>
-        )}
-      </div>
-      <div className="text-right flex-shrink-0 space-y-0.5">
-        <div className="text-sm font-black text-red-700">@{bet.odds_value !== null ? fmtOdds(bet.odds_value) : '–'}</div>
-        <div className="text-xs text-gray-400">{bet.stake !== null ? fmtAmt(bet.stake) : '–'}€</div>
-        {bet.status === 'won' && bet.payout !== null && (
-          <div className="text-xs font-bold text-green-600">+{fmtAmt(bet.payout)}€</div>
-        )}
-        {bet.status === 'pending' && (
-          <div className="text-xs text-gray-400">→ {fmtAmt(potentialPayout)}€</div>
-        )}
-        {bet.status === 'lost' && (
-          <div className="text-xs text-red-400 line-through">{bet.stake !== null ? fmtAmt(bet.stake) : '–'}€</div>
-        )}
-        {cancellable && bet.status === 'pending' && (
-          <button
-            onClick={onCancel}
-            disabled={isCancelling}
-            className="text-[10px] px-2 py-0.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium"
-          >
-            {isCancelling ? '…' : 'Stornieren'}
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function ComboBetCard({
-  legs,
-  cb,
-  cancellable,
-  onCancel,
-  isCancelling,
-  players,
-  highlighted,
-  highlightType,
-  cardRef,
-}: {
-  legs: Bet[]
-  cb: ComboData | undefined
-  cancellable: boolean
-  onCancel: () => void
-  isCancelling: boolean
-  players?: Record<number, string>
-  highlighted?: boolean
-  highlightType?: 'won' | 'lost'
-  cardRef?: React.RefObject<HTMLDivElement | null>
-}) {
-  const [faded, setFaded] = useState(false)
-
-  useEffect(() => {
-    if (!highlighted) return
-    const timer = setTimeout(() => setFaded(true), 3000)
-    return () => clearTimeout(timer)
-  }, [highlighted])
-
+  const { legs, cb } = item
   const dbSt = cb?.status ?? 'pending'
-  const status = (dbSt === 'won' || dbSt === 'lost') ? dbSt
+  const status: WetteStatus =
+    (dbSt === 'won' || dbSt === 'lost') ? dbSt as WetteStatus
     : legs.some(l => l.status === 'lost') ? 'lost'
     : legs.every(l => l.status === 'won') ? 'won'
     : 'pending'
-  const stake = cb?.stake ?? 0
   const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * (l.odds_value ?? 1), 1)
-  const potentialPayout = stake * totalOdds
 
-  const borderColor = status === 'won' ? 'border-l-green-500' :
-    status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-  const bgColor = status === 'won' ? 'bg-green-50 dark:bg-green-900/20' :
-    status === 'lost' ? 'bg-red-50/40 dark:bg-red-900/10' : 'bg-white dark:bg-gray-800'
-
-  const highlightRing = highlighted && !faded
-    ? highlightType === 'won'
-      ? 'ring-2 ring-green-400 shadow-green-100 shadow-md'
-      : 'ring-2 ring-red-400 shadow-red-100 shadow-md'
-    : ''
-
-  return (
-    <div
-      ref={cardRef}
-      style={{ transition: 'box-shadow 0.8s ease, outline 0.8s ease' }}
-      className={`px-4 py-3 border-l-4 ${borderColor} ${bgColor} ${highlightRing}`}
-    >
-      {/* Combo Header */}
-      <div className="flex items-center gap-3 mb-2">
-        <StatusIcon status={status} />
-        <div className="flex-1">
-          <div className="text-sm font-bold text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
-            <span className="text-blue-600">🔗</span>
-            Kombiwette · {legs.length} Tipps
-            {legs[0]?.match?.matchday && (
-              <span className="text-[10px] bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300 px-1.5 py-0.5 rounded font-semibold">
-                ST {legs[0].match.matchday}
-              </span>
-            )}
-          </div>
-          <div className="text-xs text-gray-400 dark:text-gray-500">
-            Quote {fmtOdds(totalOdds)} · Einsatz {fmtAmt(stake)}€
-          </div>
-        </div>
-        <div className="text-right flex-shrink-0 space-y-0.5">
-          {status === 'won' && cb?.payout !== null && cb?.payout !== undefined && (
-            <div className="text-sm font-black text-green-600">+{fmtAmt(cb.payout)}€</div>
-          )}
-          {status === 'pending' && (
-            <div className="text-xs text-gray-500 dark:text-gray-400">→ {fmtAmt(potentialPayout)}€</div>
-          )}
-          {status === 'lost' && (
-            <div className="text-xs text-red-400 line-through">{fmtAmt(stake)}€</div>
-          )}
-          {cancellable && status === 'pending' && (
-            <button
-              onClick={onCancel}
-              disabled={isCancelling}
-              className="text-[10px] px-2 py-0.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium"
-            >
-              {isCancelling ? '…' : 'Stornieren'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Legs */}
-      <div className="pl-11 space-y-1.5">
-        {legs.map((leg) => {
-          const score = scoreStr(leg)
-          const legStatus = leg.status
-          return (
-            <div key={leg.id} className="flex items-center gap-2 text-xs">
-              <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                legStatus === 'won' ? 'bg-green-500' :
-                legStatus === 'lost' ? 'bg-red-400' : 'bg-yellow-400'
-              }`} />
-              <span className="text-gray-500 dark:text-gray-400 truncate flex-1">{matchLabel(leg)}</span>
-              <span className="font-medium text-gray-800 dark:text-gray-200">{selLabel(leg.market_type, leg.selection, players)}</span>
-              {score && <span className="text-gray-400 dark:text-gray-500">({score})</span>}
-              <span className="text-red-700 font-bold">@{leg.odds_value !== null ? fmtOdds(leg.odds_value) : '–'}</span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
+  return {
+    id: `combo-${item.comboId}`,
+    type: 'combo',
+    totalOdds,
+    stake: cb?.stake ?? 0,
+    payout: cb?.payout,
+    status,
+    comboId: parseInt(item.comboId),
+    legs: legs.map(leg => ({
+      id: parseInt(leg.id),
+      matchName: betMatchName(leg),
+      market: leg.market_type,
+      selection: selLabel(leg.market_type, leg.selection, players),
+      odds: leg.odds_value ?? 1,
+      status: leg.status as WetteStatus,
+      score: betScore(leg),
+    })),
+  }
 }
 
 export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNameMap, highlightDedupeKey }: Props) {
@@ -347,15 +140,8 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
   const [cancelError, setCancelError] = useState<string | null>(null)
   const router = useRouter()
 
-  // Parse the dedupeKey to determine the highlighted match id and type
-  // Format: "settlement-win-<userId>-<matchId>" or "settlement-loss-<userId>-<matchId>"
   const highlightMatchId = highlightDedupeKey
     ? parseInt(highlightDedupeKey.split('-').at(-1) ?? '', 10)
-    : null
-  const highlightType: 'won' | 'lost' | null = highlightDedupeKey?.includes('-win-')
-    ? 'won'
-    : highlightDedupeKey?.includes('-loss-')
-    ? 'lost'
     : null
 
   const highlightRef = useRef<HTMLDivElement | null>(null)
@@ -366,7 +152,7 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
     }
   }, [highlightDedupeKey])
 
-  async function cancelBet(betId?: string, comboId?: string) {
+  async function cancelBet(betId?: number, comboId?: number) {
     const key = betId ? `bet-${betId}` : `combo-${comboId}`
     setCancellingId(key)
     setCancelError(null)
@@ -374,7 +160,7 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
       const res = await fetch('/api/bets/cancel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(betId ? { betId: parseInt(betId) } : { comboId: parseInt(comboId!) }),
+        body: JSON.stringify(betId ? { betId } : { comboId }),
       })
       const data = await res.json()
       if (!res.ok) setCancelError(data.error ?? 'Stornierung fehlgeschlagen.')
@@ -391,11 +177,9 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
     if (item.kind === 'single') {
       const m = item.bet.match
       if (!m) return false
-      // Postponed = no actual kickoff yet; cancellable until kickoff of rescheduled game
       if (m.status === 'postponed') return true
       return new Date(m.match_date) > now
     }
-    // Combo: locked as soon as any non-postponed leg's match has started
     for (const leg of item.legs) {
       const m = leg.match
       if (!m) continue
@@ -404,48 +188,34 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
     return item.legs.length > 0
   }
 
+  function getHighlightRef(item: HistoryItem): React.RefObject<HTMLDivElement | null> | undefined {
+    if (highlightMatchId === null || isNaN(highlightMatchId)) return undefined
+    if (item.kind === 'single' && item.bet.match?.id === highlightMatchId) return highlightRef
+    if (item.kind === 'combo' && item.legs.some(l => l.match?.id === highlightMatchId)) return highlightRef
+    return undefined
+  }
+
   return (
-    <div className="divide-y divide-gray-50 dark:divide-gray-700">
+    <div className="space-y-2 px-4 py-2">
       {cancelError && (
-        <div className="px-4 py-2 bg-red-50 text-red-700 text-xs border-b border-red-100 flex items-center gap-2">
+        <div className="bg-red-50 text-red-700 text-xs px-3 py-2 rounded-xl border border-red-100 flex items-center gap-2">
           <span className="flex-1">{cancelError}</span>
           <button onClick={() => setCancelError(null)}>✕</button>
         </div>
       )}
       {items.map((item) => {
+        const wette = toWetteData(item, playerNameMap)
         const cancellable = !cancellingId && canCancel(item)
-        if (item.kind === 'single') {
-          const matchId = item.bet.match?.id
-          const isHighlighted = highlightMatchId !== null && !isNaN(highlightMatchId) && matchId === highlightMatchId
-          return (
-            <SingleBetCard
-              key={item.bet.id}
-              bet={item.bet}
-              cancellable={cancellable}
-              onCancel={() => cancelBet(item.bet.id)}
-              isCancelling={cancellingId === `bet-${item.bet.id}`}
-              players={playerNameMap}
-              highlighted={isHighlighted}
-              highlightType={highlightType ?? undefined}
-              cardRef={isHighlighted ? highlightRef : undefined}
-            />
-          )
-        }
-        const comboMatchIds = item.legs.map(l => l.match?.id)
-        const isHighlighted = highlightMatchId !== null && !isNaN(highlightMatchId) && comboMatchIds.includes(highlightMatchId)
+        const ref = getHighlightRef(item)
         return (
-          <ComboBetCard
-            key={item.comboId}
-            legs={item.legs}
-            cb={item.cb}
-            cancellable={cancellable}
-            onCancel={() => cancelBet(undefined, item.comboId)}
-            isCancelling={cancellingId === `combo-${item.comboId}`}
-            players={playerNameMap}
-            highlighted={isHighlighted}
-            highlightType={highlightType ?? undefined}
-            cardRef={isHighlighted ? highlightRef : undefined}
-          />
+          <div key={wette.id} ref={ref}>
+            <WetteCard
+              wette={wette}
+              onCancel={cancellable ? cancelBet : undefined}
+              cancellingId={cancellingId}
+              isDeadlinePassed={!cancellable}
+            />
+          </div>
         )
       })}
     </div>

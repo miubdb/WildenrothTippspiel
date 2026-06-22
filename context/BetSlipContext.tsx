@@ -54,29 +54,14 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
 
   const addSelection = useCallback((item: BetSlipItem) => {
     setSelections((prev) => {
-      if (isGoalscorerMarket(item.marketType)) {
-        // Goalscorer: each (match, market, player) is independent.
-        // Tapping the same player+market toggles it off.
-        const existing = prev.findIndex(
-          (s) => s.matchId === item.matchId && s.marketType === item.marketType && s.selection === item.selection
-        )
-        if (existing >= 0) return prev.filter((_, i) => i !== existing)
-        return [...prev, item]
-      }
-      // Non-goalscorer: one selection per match, cross-market.
-      // Same selection → toggle off; any other selection from same match → replace.
-      const existingIdx = prev.findIndex(
-        (s) => s.matchId === item.matchId && !isGoalscorerMarket(s.marketType)
+      // One selection per match across all market types.
+      // Toggle off if exact same selection; otherwise replace all from same match.
+      const wasSelected = prev.some(
+        (s) => s.matchId === item.matchId && s.marketType === item.marketType && s.selection === item.selection
       )
-      if (existingIdx >= 0) {
-        if (prev[existingIdx].marketType === item.marketType && prev[existingIdx].selection === item.selection) {
-          return prev.filter((_, i) => i !== existingIdx)
-        }
-        const next = [...prev]
-        next[existingIdx] = item
-        return next
-      }
-      return [...prev, item]
+      const withoutThisMatch = prev.filter((s) => s.matchId !== item.matchId)
+      if (wasSelected) return withoutThisMatch
+      return [...withoutThisMatch, item]
     })
   }, [])
 

@@ -6,6 +6,7 @@ import type { OddsData } from '@/types'
 import { useBetSlip } from '@/context/BetSlipContext'
 import { getExactScoreOdds, getForm, getTeamRecord } from '@/lib/odds'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
+import { crestPath } from '@/lib/teams'
 
 type GoalscorerRow = {
   player_id: number
@@ -50,8 +51,11 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     hour: '2-digit', minute: '2-digit',
   })
 
-  const isScheduled = match.status === 'scheduled'
-  const isLive = match.status === 'live'
+  const now = new Date()
+  const kickoffPassed = matchDate <= now
+  // Treat as locked if kickoff has passed, regardless of DB status (handles manual-status lag)
+  const isScheduled = match.status === 'scheduled' && !kickoffPassed
+  const isLive = match.status === 'live' || (match.status === 'scheduled' && kickoffPassed)
   const isFinished = match.status === 'finished'
 
   const matchInvolvesWildenroth = wildenrothTeamId != null &&
@@ -78,13 +82,11 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       setTimeout(() => setWildenrothBlockMsg(false), 8000)
       return
     }
-    // Detect cross-market replacement before calling context (which will mutate selections).
-    const existingForMatch = selections.find(
-      s => s.matchId === match.id && s.marketType !== 'goalscorer' && s.marketType !== 'goalscorer_2plus'
-    )
+    // Detect if any existing selection for this match will be replaced
+    const existingForMatch = selections.find(s => s.matchId === match.id)
     const willReplace = existingForMatch != null &&
       !(existingForMatch.marketType === marketType && existingForMatch.selection === selection)
-    addSelection({ matchId: match.id, matchLabel, marketType: marketType as never, marketLabel, selection, selectionLabel, oddsValue })
+    addSelection({ matchId: match.id, matchLabel, marketType: marketType as never, marketLabel, selection, selectionLabel, oddsValue, homeTeam: homeName, awayTeam: awayName })
     if (willReplace) {
       setReplacedMsg(true)
       setTimeout(() => setReplacedMsg(false), 3000)
@@ -147,8 +149,14 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       <div className="px-4 pt-3 pb-2">
         <div className="flex items-center">
           <div className="flex-1 text-left">
-            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">{homeName}</div>
-            <FormBadges form={homeForm} />
+            <div className="flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={crestPath(homeName)} alt="" className="w-8 h-8 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <div>
+                <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">{homeName}</div>
+                <FormBadges form={homeForm} />
+              </div>
+            </div>
           </div>
 
           {match.status === 'finished' ? (
@@ -160,9 +168,15 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
           )}
 
           <div className="flex-1 text-right">
-            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">{awayName}</div>
-            <div className="flex justify-end">
-              <FormBadges form={awayForm} />
+            <div className="flex items-center gap-2 justify-end">
+              <div>
+                <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">{awayName}</div>
+                <div className="flex justify-end">
+                  <FormBadges form={awayForm} />
+                </div>
+              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={crestPath(awayName)} alt="" className="w-8 h-8 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
             </div>
           </div>
         </div>

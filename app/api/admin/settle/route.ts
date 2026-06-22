@@ -231,18 +231,20 @@ export async function POST(request: NextRequest) {
   // Apply balance updates + send one bundled push per user
   const allAffectedUsers = new Set([...Object.keys(userBalanceUpdates), ...Object.keys(userWonCount), ...Object.keys(userLostCount)])
   const pushNotifications: Promise<unknown>[] = []
+  // Use adminSupa so RLS doesn't silently block updating other users' balances
+  const adminSupaSettle = createAdminClient()
 
   for (const userId of allAffectedUsers) {
     const amount = userBalanceUpdates[userId] ?? 0
     if (amount > 0) {
-      const { data: currentProfile } = await supabase
+      const { data: currentProfile } = await adminSupaSettle
         .from('profiles')
         .select('balance')
         .eq('id', userId)
         .single()
 
       if (currentProfile) {
-        await supabase
+        await adminSupaSettle
           .from('profiles')
           .update({ balance: currentProfile.balance + amount })
           .eq('id', userId)
@@ -257,13 +259,13 @@ export async function POST(request: NextRequest) {
     let body: string
     if (won > 0 && lost === 0) {
       title = won === 1 ? '🎉 Wette gewonnen!' : `🎉 ${won} Wetten gewonnen!`
-      body = `+${amount.toFixed(2)} € wurden deinem Konto gutgeschrieben.`
+      body = `+${amount.toFixed(2)} RT wurden deinem Konto gutgeschrieben.`
     } else if (won === 0 && lost > 0) {
       title = lost === 1 ? '😬 Wette verloren' : `😬 ${lost} Wetten verloren`
       body = 'Viel Glück beim nächsten Spieltag!'
     } else if (won > 0 && lost > 0) {
       title = `📊 ${won + lost} Wetten ausgewertet`
-      body = `${won} gewonnen, ${lost} verloren · Saldo: ${amount >= 0 ? '+' : ''}${amount.toFixed(2)} €`
+      body = `${won} gewonnen, ${lost} verloren · Saldo: ${amount >= 0 ? '+' : ''}${amount.toFixed(2)} RT`
     } else {
       continue
     }

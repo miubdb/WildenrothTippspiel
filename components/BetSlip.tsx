@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useBetSlip, bsKey } from '@/context/BetSlipContext'
 import type { MarketType } from '@/types'
+import { crestPath } from '@/lib/teams'
 
 function TrashIcon({ className }: { className?: string }) {
   return (
@@ -165,12 +166,8 @@ export function BetSlip() {
         return
       }
 
-      const newBalStr = data.newBalance?.toLocaleString('de-DE', {
-        style: 'currency',
-        currency: 'EUR',
-        minimumFractionDigits: 2,
-      })
-      setSuccess(`Wette platziert! Neues Guthaben: ${newBalStr}`)
+      const newBalStr = data.newBalance?.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      setSuccess(`Wette platziert! Neues Guthaben: ${newBalStr} RT`)
       clearSlip()
       setOpen(false)
       router.refresh()
@@ -304,7 +301,17 @@ export function BetSlip() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs text-gray-500 truncate">{s.matchLabel}</div>
+                      <div className="flex items-center gap-1 text-xs text-gray-500">
+                        {s.homeTeam && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={crestPath(s.homeTeam)} alt="" className="w-4 h-4 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                        )}
+                        {s.awayTeam && (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={crestPath(s.awayTeam)} alt="" className="w-4 h-4 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                        )}
+                        <span className="truncate">{s.matchLabel}</span>
+                      </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">
                           {s.marketLabel}
@@ -360,7 +367,7 @@ export function BetSlip() {
                       <span className="text-xs text-gray-500 ml-auto">
                         Gewinn:{' '}
                         <span className="text-green-600 font-semibold">
-                          {(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                          {(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RT
                         </span>
                       </span>
                     </div>
@@ -409,7 +416,7 @@ export function BetSlip() {
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-gray-600">Möglicher Gewinn</span>
                     <span className="font-bold text-green-600 text-lg">
-                      {potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                      {potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RT
                     </span>
                   </div>
                 </>
@@ -419,11 +426,11 @@ export function BetSlip() {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <div className="text-xs text-gray-500">Gesamteinsatz</div>
-                    <div className="font-semibold text-gray-900">{totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
+                    <div className="font-semibold text-gray-900">{totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RT</div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-gray-500">Möglicher Gewinn</div>
-                    <div className="font-bold text-green-600">{potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</div>
+                    <div className="font-bold text-green-600">{potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} RT</div>
                   </div>
                 </div>
               )}
@@ -462,8 +469,8 @@ export function BetSlip() {
                     Wette platzieren
                     <span className="ml-1 text-red-200 text-sm font-normal">
                       ({mode === 'combo'
-                        ? `${comboStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`
-                        : `${totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`})
+                        ? `${comboStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} RT`
+                        : `${totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} RT`})
                     </span>
                   </>
                 )}
