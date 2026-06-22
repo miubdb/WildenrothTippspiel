@@ -786,13 +786,23 @@ export default async function TippsPage({
 
   return (
     <div className="px-4 py-4 space-y-4">
-      {/* ↓↓↓ SOMMERPAUSE-BANNER — zum Entfernen diese 5 Zeilen löschen ↓↓↓ */}
-      <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-sm text-amber-800">
-        <span className="text-base">☀️</span>
-        <span><strong>Sommerpause</strong> — Kreisliga loading, wir kommen wieder!</span>
-      </div>
-      {/* ↑↑↑ SOMMERPAUSE-BANNER Ende ↑↑↑ */}
+      {!seasonStarted && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-6 py-10 text-center space-y-3">
+          <div className="text-4xl">📅</div>
+          <div className="font-black text-gray-900 text-lg">Spielplan 26/27</div>
+          <div className="text-gray-500 text-sm leading-relaxed">
+            Der Spielplan der neuen Saison wird hier angezeigt,<br />
+            sobald er vom BFV veröffentlicht wurde.
+          </div>
+          <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-sm text-amber-800 mt-2">
+            <span>☀️</span>
+            <span><strong>Sommerpause</strong> — wir kommen bald wieder!</span>
+          </div>
+        </div>
+      )}
 
+      {seasonStarted && (
+      <>
       {/* Matchday Header */}
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4 shadow-sm">
         <div className="flex items-center justify-between">
@@ -1083,6 +1093,8 @@ export default async function TippsPage({
       )}
 
       <BetSlip />
+      </>
+      )}
     </div>
   )
 }

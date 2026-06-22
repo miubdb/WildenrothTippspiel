@@ -142,12 +142,14 @@ async function getPriorStandings(supabase: Awaited<ReturnType<typeof import('@/l
   const stats = new Map<TeamKey, { team: string; leagueName: string; leagueLevel: string; leagueNumber: string; pts: number; gf: number; ga: number; games: number }>()
 
   for (const r of rows) {
-    const hn = `${r.home_team}::${r.league_number}`
-    const an = `${r.away_team}::${r.league_number}`
-    if (!stats.has(hn)) stats.set(hn, { team: r.home_team, leagueName: r.league_name, leagueLevel: r.league_level, leagueNumber: r.league_number, pts: 0, gf: 0, ga: 0, games: 0 })
-    if (!stats.has(an)) stats.set(an, { team: r.away_team, leagueName: r.league_name, leagueLevel: r.league_level, leagueNumber: r.league_number, pts: 0, gf: 0, ga: 0, games: 0 })
+    const homeTeam = PRIOR_NAME_MAP[r.home_team] ?? r.home_team
+    const awayTeam = PRIOR_NAME_MAP[r.away_team] ?? r.away_team
+    const hn = `${homeTeam}::${r.league_number}`
+    const an = `${awayTeam}::${r.league_number}`
+    if (!stats.has(hn)) stats.set(hn, { team: homeTeam, leagueName: r.league_name, leagueLevel: r.league_level, leagueNumber: r.league_number, pts: 0, gf: 0, ga: 0, games: 0 })
+    if (!stats.has(an)) stats.set(an, { team: awayTeam, leagueName: r.league_name, leagueLevel: r.league_level, leagueNumber: r.league_number, pts: 0, gf: 0, ga: 0, games: 0 })
     const h = stats.get(hn)!; const a = stats.get(an)!
-    const hs = r.home_score; const as_ = r.away_score
+    const hs = r.home_score ?? 0; const as_ = r.away_score ?? 0
     h.gf += hs; h.ga += as_; h.games++
     a.gf += as_; a.ga += hs; a.games++
     if (hs > as_) { h.pts += 3 } else if (hs === as_) { h.pts++; a.pts++ } else { a.pts += 3 }
@@ -171,7 +173,10 @@ async function getPriorStandings(supabase: Awaited<ReturnType<typeof import('@/l
   return result
 }
 
-const OUR_TEAMS = new Set(['TSV Geiselbullach','SpVgg Wildenroth','SC Schöngeising','TSV Altenstadt','TSV Peiting','FC Wildsteig/Rottenbuch','SC Unterpfaffenhofen','SV Fuchstal','TSV 1882 Landsberg II','FC Aich','SC Oberweikertshofen II','TSV Türkenfeld','SV Igling','FC Issing','VfL Denklingen'])
+const OUR_TEAMS = new Set(['TSV Geiselbullach','SpVgg Wildenroth','SC Schöngeising','TSV Altenstadt','TSV Peiting','FC Wildsteig/Rottenbuch','SC Unterpfaffenhofen','SV Fuchstal','TSV 1882 Landsberg II','FC Aich','SC Oberweikertshofen II','TSV Türkenfeld','SV Igling','FC Issing','VfL Denklingen','TSV Oberalting-Seefeld'])
+
+// Prior-season name mappings (old name → current name)
+const PRIOR_NAME_MAP: Record<string, string> = { 'TSV Oberalting': 'TSV Oberalting-Seefeld' }
 
 export default async function TabellePage() {
   const supabase = await createClient()
@@ -183,20 +188,18 @@ export default async function TabellePage() {
        home_team:teams!matches_home_team_id_fkey(id, name, short_name),
        away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
     )
+    .gte('match_date', '2026-08-01')
     .order('match_date', { ascending: true })
 
-  const allRaw: Match[] = (rawMatches ?? []).map((m) => ({
+  const matches: Match[] = (rawMatches ?? []).map((m) => ({
     ...m,
     home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
     away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
   }))
 
-  // Only current season matches for standings and form
-  const matches = allRaw.filter((m) => m.match_date >= '2026-08-01')
-
   const computedStandings = computeStandings(matches)
 
-  // Pre-season: no matches yet → show all 15 teams with 0 stats sorted alphabetically
+  // Pre-season: no matches yet → show all 16 teams with 0 stats sorted alphabetically
   const standings: Standing[] = computedStandings.length > 0
     ? computedStandings
     : [...OUR_TEAMS].sort().map((name, idx) => ({
@@ -259,8 +262,8 @@ export default async function TabellePage() {
           const isWildenroth = s.teamName.includes('Wildenroth')
           const isPromotion = pos === 1
           const isPromotionPlayoff = pos === 2
-          const isDirect = total >= 15 && pos >= total - 1
-          const isPlayoff = total >= 15 && pos >= total - 3 && pos <= total - 2
+          const isDirect = total >= 16 && pos >= total - 1
+          const isPlayoff = total >= 16 && pos >= total - 3 && pos <= total - 2
           return (
             <div
               key={s.teamId}
@@ -341,11 +344,11 @@ export default async function TabellePage() {
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded-full bg-orange-200" />
-            <span>Abstiegsrelegation (Platz 12–13)</span>
+            <span>Abstiegsrelegation (Platz 13–14)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded-full bg-red-500" />
-            <span>Direktabstieg (Platz 14–15)</span>
+            <span>Direktabstieg (Platz 15–16)</span>
           </div>
         </div>
       </div>
