@@ -7,8 +7,12 @@ export default function AuthLayout({
     <div className="min-h-screen bg-gradient-to-b from-red-700 to-red-900 flex flex-col items-center justify-center px-4 py-12">
       {/* Logo / Branding */}
       <div className="mb-8 text-center">
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white shadow-xl mb-4">
-          <span className="text-3xl font-black text-red-700">SpVgg</span>
+        <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-white shadow-xl mb-4 overflow-hidden">
+          <img
+            src="/crests/spvgg-wildenroth.png"
+            alt="SpVgg Wildenroth"
+            className="w-20 h-20 object-contain"
+          />
         </div>
         <h1 className="text-3xl font-black text-white tracking-tight">
           Wildenroth
