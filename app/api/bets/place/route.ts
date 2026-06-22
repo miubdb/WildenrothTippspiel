@@ -385,7 +385,7 @@ export async function POST(request: NextRequest) {
       payout: null,
       combo_id: comboBet.id,
       is_risky: isRisky ?? false,
-      season: CURRENT_SEASON,
+      season: betSeason,
     }))
 
     const { error: betsError } = await supabase.from('bets').insert(betRows)
