@@ -14,11 +14,11 @@ export default function AnleitungPage() {
       {/* Das Wichtigste — offen */}
       <HelpAccordion title="Das Ziel" emoji="🏆" defaultOpen>
         <p>
-          Du startest mit <strong>1.000 Wildenrothis</strong> und versuchst, durch clevere Tipps
+          Du startest mit <strong>1.000 Wildis</strong> und versuchst, durch clevere Tipps
           möglichst viel daraus zu machen. Wer am Ende der Saison das höchste Guthaben hat, gewinnt.
         </p>
         <div className="mt-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg px-3 py-2 text-sm text-green-800 dark:text-green-300">
-          💰 Jeden <strong>Montag um 12:00 Uhr</strong> gibt es automatisch <strong>10 Wildenrothis</strong> — auch nach einer Pechsträhne geht es weiter.
+          💰 Jeden <strong>Montag um 12:00 Uhr</strong> gibt es automatisch <strong>10 Wildis</strong> — auch nach einer Pechsträhne geht es weiter.
         </div>
       </HelpAccordion>
 
