@@ -35,6 +35,7 @@ const LEAGUE_STRENGTH: Record<PriorMatch['league_level'], number> = {
   kreisliga:   1.00,
   b_klasse:    0.85,
   kreisklasse: 0.90,
+  b_klasse:   0.85,
 }
 
 // ---------- Math helpers ----------

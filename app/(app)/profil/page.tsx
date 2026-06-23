@@ -66,6 +66,12 @@ export default async function ProfilPage({
     .single()
   if (!profile) redirect('/login')
 
+  const { data: userAwards } = await supabase
+    .from('user_awards')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('matchday', { ascending: false })
+
   const CURRENT_SEASON = '26/27'
   const PREV_SEASON = '25/26'
 
@@ -408,6 +414,23 @@ export default async function ProfilPage({
             )}
           </div>
         </div>
+      )}
+
+      {/* Pokalschrank */}
+      {userAwards && userAwards.length > 0 && (
+        <section className="mt-6">
+          <h2 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 px-1">Pokalschrank</h2>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {userAwards.map((award) => (
+              <div key={`${award.award_type}-${award.matchday}`} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm p-3 flex flex-col gap-1">
+                <div className="text-2xl">{award.award_icon}</div>
+                <div className="text-xs font-bold text-gray-900 dark:text-gray-100 leading-tight">{award.award_title}</div>
+                <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-snug">{award.award_description}</div>
+                <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-auto">Spieltag {award.matchday}</div>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Balance Chart */}

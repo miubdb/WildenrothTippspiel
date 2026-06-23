@@ -1,17 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 
-export type AwardType =
-  | 'mvp'
-  | 'best_odds'
-  | 'risky_hit'
-  | 'best_combo'
-  | 'unlucky_bastard'
-  | 'biggest_loss'
-  | 'safest_tip'
-  | 'wildenroth_optimist'
-  | 'craziest_bet'
-  | 'safest_banker'
-  | 'glaskugel'
+export type AwardType = 'mvp' | 'best_odds' | 'risky_hit' | 'best_combo' | 'unlucky_bastard' | 'biggest_loss' | 'safest_tip' | 'wildenroth_optimist' | 'craziest_bet' | 'safest_banker' | 'glaskugel'
 
 export const AWARD_META: Record<AwardType, { title: string; icon: string; description: string }> = {
   mvp:                 { icon: '🏆', title: 'Spieltags-König',      description: 'Bester Saldo des Spieltags' },
@@ -27,34 +16,19 @@ export const AWARD_META: Record<AwardType, { title: string; icon: string; descri
   glaskugel:           { icon: '🔮', title: 'Glaskugel',             description: 'Exaktes Ergebnis richtig getippt' },
 }
 
-export interface AwardInput {
-  user_id: string
-  award_type: AwardType
-  value?: number
-  value_text?: string
-}
+export interface AwardInput { user_id: string; award_type: AwardType; value?: number; value_text?: string }
 
-export async function persistAwards(
-  supabase: SupabaseClient,
-  season: string,
-  matchday: number,
-  awards: AwardInput[]
-) {
-  if (awards.length === 0 || matchday === 999) return
-
+export async function persistAwards(supabase: SupabaseClient, season: string, matchday: number, awards: AwardInput[]) {
+  if (awards.length === 0) return
+  if (matchday === 999) return
   const rows = awards.map(a => ({
-    user_id:           a.user_id,
-    season,
-    matchday,
-    award_type:        a.award_type,
-    award_title:       AWARD_META[a.award_type].title,
+    user_id: a.user_id, season, matchday,
+    award_type: a.award_type,
+    award_title: AWARD_META[a.award_type].title,
     award_description: AWARD_META[a.award_type].description,
-    award_icon:        AWARD_META[a.award_type].icon,
-    value:             a.value ?? null,
-    value_text:        a.value_text ?? null,
+    award_icon: AWARD_META[a.award_type].icon,
+    value: a.value ?? null,
+    value_text: a.value_text ?? null,
   }))
-
-  await supabase
-    .from('user_awards')
-    .upsert(rows, { onConflict: 'user_id,season,matchday,award_type' })
+  await supabase.from('user_awards').upsert(rows, { onConflict: 'user_id,season,matchday,award_type' })
 }

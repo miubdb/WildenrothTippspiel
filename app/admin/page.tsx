@@ -13,6 +13,7 @@ interface MatchRow {
   away_score: number | null
   home_team: { name: string; short_name: string } | null
   away_team: { name: string; short_name: string } | null
+  match_category: string | null
 }
 
 interface AdminUser {
@@ -108,7 +109,7 @@ export default function AdminPage() {
     const { data } = await supabase
       .from('matches')
       .select(
-        `id, match_number, matchday, match_date, status, home_score, away_score,
+        `id, match_number, matchday, match_date, status, home_score, away_score, match_category,
          home_team:teams!matches_home_team_id_fkey(name, short_name),
          away_team:teams!matches_away_team_id_fkey(name, short_name)`
       )
@@ -197,6 +198,15 @@ export default function AdminPage() {
     } else {
       setMessage(`Fehler: ${data.error}`)
     }
+  }
+
+  async function handleCategoryChange(matchId: number, category: string) {
+    const supabaseClient = createClient()
+    await supabaseClient
+      .from('matches')
+      .update({ match_category: category || null })
+      .eq('id', matchId)
+    setMatches(prev => prev.map(m => m.id === matchId ? { ...m, match_category: category || null } : m))
   }
 
   async function recalculateOdds() {
@@ -348,6 +358,7 @@ export default function AdminPage() {
                       onPostpone={() => postponeMatch(match.id)}
                       loading={settleLoading === match.id}
                       pendingBets={pendingBetsByMatch[match.id]}
+                      onCategoryChange={handleCategoryChange}
                     />
                   ))}
                 </div>
@@ -375,6 +386,7 @@ export default function AdminPage() {
                       loading={settleLoading === match.id}
                       isUpcoming
                       pendingBets={pendingBetsByMatch[match.id]}
+                      onCategoryChange={handleCategoryChange}
                     />
                   ))}
                 </div>
@@ -1303,6 +1315,7 @@ function MatchSettleCard({
   loading,
   isUpcoming,
   pendingBets,
+  onCategoryChange,
 }: {
   match: MatchRow
   score: { home: string; away: string }
@@ -1312,6 +1325,7 @@ function MatchSettleCard({
   loading: boolean
   isUpcoming?: boolean
   pendingBets?: number
+  onCategoryChange?: (matchId: number, category: string) => void
 }) {
   const matchDate = new Date(match.match_date)
   const dateStr = matchDate.toLocaleDateString('de-DE', {
