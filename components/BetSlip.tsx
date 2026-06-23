@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useBetSlip, bsKey } from '@/context/BetSlipContext'
+import { WildiIcon } from '@/components/WildiIcon'
 import type { MarketType } from '@/types'
 import { crestPath } from '@/lib/teams'
 
@@ -351,7 +352,7 @@ export function BetSlip() {
                                 : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
                             }`}
                           >
-                            {amt} Wildis
+                            {amt} <WildiIcon size={13} />
                           </button>
                         ))}
                         <input
@@ -415,8 +416,8 @@ export function BetSlip() {
                   </div>
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-gray-600">Möglicher Gewinn</span>
-                    <span className="font-bold text-green-600 text-lg">
-                      {potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis
+                    <span className="font-bold text-green-600 text-lg flex items-center gap-1">
+                      {potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis <WildiIcon size={18} />
                     </span>
                   </div>
                 </>
@@ -426,11 +427,11 @@ export function BetSlip() {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <div className="text-xs text-gray-500">Gesamteinsatz</div>
-                    <div className="font-semibold text-gray-900">{totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</div>
+                    <div className="font-semibold text-gray-900 flex items-center gap-1">{totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis <WildiIcon size={14} /></div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-gray-500">Möglicher Gewinn</div>
-                    <div className="font-bold text-green-600">{potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</div>
+                    <div className="font-bold text-green-600 flex items-center gap-1 justify-end">{potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis <WildiIcon size={14} /></div>
                   </div>
                 </div>
               )}

@@ -4,6 +4,7 @@ import { PushSubscribeButton } from '@/components/PushSubscribeButton'
 import { ProfileEditForm } from '@/components/ProfileEditForm'
 import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { WildiIcon } from '@/components/WildiIcon'
 
 export const revalidate = 60
 
@@ -325,8 +326,8 @@ export default async function ProfilPage({
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Guthaben <span className="text-[10px]">26/27</span></div>
-          <div className="text-xl font-black text-gray-900 dark:text-gray-100">
-            {profile.balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
+          <div className="text-xl font-black text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+            {profile.balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis <WildiIcon size={20} />
           </div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">

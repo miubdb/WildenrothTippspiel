@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { ShareCard, type ShareCardData } from './ShareCard'
+import { WildiIcon } from '@/components/WildiIcon'
 
 export type RecapLegDetail = {
   matchName: string
@@ -62,7 +63,7 @@ function HighlightCard({
   emoji, title, name, value, detail, sub,
   accentBg, accentBorder, accentText, onShare,
 }: {
-  emoji: string; title: string; name: string; value: string; detail?: string; sub?: string
+  emoji: string; title: string; name: string; value: React.ReactNode; detail?: string; sub?: string
   accentBg: string; accentBorder: string; accentText: string; onShare?: () => void
 }) {
   return (
@@ -71,7 +72,7 @@ function HighlightCard({
       <div className="text-xl mb-1.5">{emoji}</div>
       <div className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wide">{title}</div>
       <div className="font-bold text-gray-900 dark:text-gray-100 text-sm mt-0.5 truncate">{name}</div>
-      <div className={`font-black text-xl mt-1 ${accentText}`}>{value}</div>
+      <div className={`font-black text-xl mt-1 flex items-center gap-1 ${accentText}`}>{value}</div>
       {detail && <div className="text-xs text-gray-600 dark:text-gray-300 font-medium mt-1 leading-snug">{detail}</div>}
       {sub && <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{sub}</div>}
     </div>
@@ -211,7 +212,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               emoji="🏆"
               title="Spieltags-König"
               name={mvp.name}
-              value={`+${fmtAmt(mvp.profit)} Wildis`}
+              value={<>+{fmtAmt(mvp.profit)} Wildis <WildiIcon size={20} /></>}
               detail={tpl('mvp', mvp.name)}
               onShare={() => setShare({ type: 'mvp', data: { matchday, name: mvp.name, value: `+${fmtAmt(mvp.profit)} Wildis`, subtitle: tpl('mvp', mvp.name) } })}
               accentBg="bg-green-50"
@@ -276,7 +277,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               emoji="💸"
               title="Größter Verlust"
               name={biggestLoss.name}
-              value={`-${fmtAmt(biggestLoss.loss)} Wildis`}
+              value={<>-{fmtAmt(biggestLoss.loss)} Wildis <WildiIcon size={20} /></>}
               detail={tpl('pechvogel', biggestLoss.name)}
               onShare={() => setShare({ type: 'pechvogel', data: { matchday, name: biggestLoss.name, value: `-${fmtAmt(biggestLoss.loss)} Wildis`, subtitle: tpl('pechvogel', biggestLoss.name) } })}
               accentBg="bg-red-50"

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { BetSlipProvider } from '@/context/BetSlipContext'
 import { BottomNav } from '@/components/BottomNav'
 import { PushSync } from '@/components/PushSync'
+import { WildiIcon } from '@/components/WildiIcon'
 
 export default async function AppLayout({
   children,
@@ -45,8 +46,8 @@ export default async function AppLayout({
             </div>
             <div className="text-right">
               <span className="text-red-200 text-xs block">Guthaben</span>
-              <span className="font-bold text-sm">
-                {balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis
+              <span className="font-bold text-sm flex items-center gap-1">
+                {balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis <WildiIcon size={18} />
               </span>
             </div>
           </div>
