@@ -186,12 +186,12 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             </div>
           </div>
         </div>
-        {(match.match_category === 'wildenroth_ii' || match.match_category === 'b_klasse') && (
+        {(match.match_category === 'wildenroth_ii' || match.match_category === 'bklasse_topspiel') && (
           <div className="flex gap-1.5 mt-1">
             {match.match_category === 'wildenroth_ii' && (
               <span className="text-[10px] font-bold bg-red-100 text-red-700 rounded px-1.5 py-0.5">WILDENROTH II</span>
             )}
-            {match.match_category === 'b_klasse' && (
+            {match.match_category === 'bklasse_topspiel' && (
               <span className="text-[10px] font-bold bg-blue-100 text-blue-700 rounded px-1.5 py-0.5">B-KLASSE</span>
             )}
           </div>

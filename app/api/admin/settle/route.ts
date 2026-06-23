@@ -394,35 +394,6 @@ export async function POST(request: NextRequest) {
       }
 
     }
-
-      // Compute + persist awards for this matchday
-      if (matchday !== 999) {
-        try {
-          const { persistAwards } = await import('@/lib/awards')
-          const { data: settledBets } = await admin
-            .from('bets')
-            .select('user_id, stake, odds_value, payout, status, is_risky, combo_id')
-            .in('match_id', mdMatchIds)
-            .in('status', ['won', 'lost'])
-          if (settledBets && settledBets.length > 0) {
-            const awardInputs: import('@/lib/awards').AwardInput[] = []
-            const netByUser: Record<string, number> = {}
-            for (const b of settledBets.filter((b: { combo_id: string | null }) => !b.combo_id)) {
-              const gain = b.status === 'won' ? (Number(b.payout) ?? 0) - Number(b.stake) : -Number(b.stake)
-              netByUser[b.user_id] = (netByUser[b.user_id] ?? 0) + gain
-            }
-            const mvpEntry = Object.entries(netByUser).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1])[0]
-            if (mvpEntry) awardInputs.push({ user_id: mvpEntry[0], award_type: 'mvp', value: mvpEntry[1] })
-            const riskyWon = settledBets
-              .filter((b: { combo_id: string | null; status: string; is_risky: boolean }) => !b.combo_id && b.status === 'won' && b.is_risky)
-              .sort((a: { odds_value: number }, b: { odds_value: number }) => Number(b.odds_value) - Number(a.odds_value))[0]
-            if (riskyWon) awardInputs.push({ user_id: riskyWon.user_id, award_type: 'risky_hit', value: Number(riskyWon.odds_value) })
-            await persistAwards(admin, '26/27', matchday, awardInputs)
-          }
-        } catch (e) { console.error('Award persistence failed:', e) }
-      }
-
-    }
   }
 
   return NextResponse.json({
