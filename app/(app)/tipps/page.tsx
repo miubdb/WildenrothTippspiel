@@ -68,7 +68,7 @@ export default async function TippsPage({
   const { data: allMatchesRaw } = await supabase
     .from('matches')
     .select(
-      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status,
+      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category,
        home_team:teams!matches_home_team_id_fkey(id, name, short_name),
        away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
     )
@@ -889,19 +889,49 @@ export default async function TippsPage({
         </div>
       ) : (
         <div className="space-y-3">
-          {matchdayMatches.map((match) => (
-            <BettingMatchCard
-              key={match.id}
-              match={match}
-              odds={match.status === 'scheduled' && isBettingOpen ? (oddsMap[match.id] ?? null) : null}
-              allMatches={seasonMatches}
-              historyMatches={allMatches}
-              positions={positions}
-              isWildenrothPlayer={isWildenrothPlayer}
-              wildenrothTeamId={wildenrothTeamId}
-              goalscorers={goalscorerOffersByMatch[match.id] ?? null}
-            />
-          ))}
+          {(() => {
+            const kreisliga = matchdayMatches.filter(m => !m.match_category || m.match_category === 'kreisliga')
+            const bklasse = matchdayMatches.filter(m => m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel')
+            return (
+              <>
+                {kreisliga.map((match) => (
+                  <BettingMatchCard
+                    key={match.id}
+                    match={match}
+                    odds={match.status === 'scheduled' && isBettingOpen ? (oddsMap[match.id] ?? null) : null}
+                    allMatches={seasonMatches}
+                    historyMatches={allMatches}
+                    positions={positions}
+                    isWildenrothPlayer={isWildenrothPlayer}
+                    wildenrothTeamId={wildenrothTeamId}
+                    goalscorers={goalscorerOffersByMatch[match.id] ?? null}
+                  />
+                ))}
+                {bklasse.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-2 pt-1">
+                      <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                      <span className="text-xs text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wide">B-Klasse Spezial</span>
+                      <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
+                    </div>
+                    {bklasse.map((match) => (
+                      <BettingMatchCard
+                        key={match.id}
+                        match={match}
+                        odds={match.status === 'scheduled' && isBettingOpen ? (oddsMap[match.id] ?? null) : null}
+                        allMatches={seasonMatches}
+                        historyMatches={allMatches}
+                        positions={positions}
+                        isWildenrothPlayer={isWildenrothPlayer}
+                        wildenrothTeamId={wildenrothTeamId}
+                        goalscorers={goalscorerOffersByMatch[match.id] ?? null}
+                      />
+                    ))}
+                  </>
+                )}
+              </>
+            )
+          })()}
         </div>
       )}
 
@@ -1009,9 +1039,9 @@ export default async function TippsPage({
                             </div>
                             <div className="text-right text-xs flex-shrink-0">
                               <div className="font-bold text-red-700 dark:text-red-400">@{bet.odds_value.toFixed(2).replace('.', ',')}</div>
-                              {stake > 0 && bet.status === 'pending' && <div className="text-gray-400 dark:text-gray-500">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR</span></div>}
-                              {bet.status === 'won' && <div className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR</div>}
-                              {bet.status === 'lost' && stake > 0 && <div className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR</div>}
+                              {stake > 0 && bet.status === 'pending' && <div className="text-gray-400 dark:text-gray-500">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</span></div>}
+                              {bet.status === 'won' && <div className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</div>}
+                              {bet.status === 'lost' && stake > 0 && <div className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</div>}
                             </div>
                           </div>
                         </div>
@@ -1043,9 +1073,9 @@ export default async function TippsPage({
                             <span className="text-[10px] font-bold bg-blue-600 text-white rounded px-1.5 py-0.5">KOMBI</span>
                             <span className="text-xs text-gray-500 dark:text-gray-400 ml-0.5 truncate">{nameOf(owner)} · {legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
                             <div className="ml-auto text-right text-xs flex-shrink-0">
-                              {stake > 0 && comboStatus === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR</span></span>}
-                              {comboStatus === 'won' && cb?.payout != null && <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR</span>}
-                              {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR</span>}
+                              {stake > 0 && comboStatus === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</span></span>}
+                              {comboStatus === 'won' && cb?.payout != null && <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</span>}
+                              {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</span>}
                             </div>
                           </div>
                           <div className="px-3 py-1.5 space-y-1">

@@ -112,7 +112,7 @@ export async function POST(request: NextRequest) {
     const { data: p } = await admin.from('profiles').select('balance').eq('id', userId).single()
     if (!p) continue
     await admin.from('profiles').update({ balance: Number(p.balance) + amount }).eq('id', userId)
-    jobs.push(sendPushToUser(userId, '🎉 Wette gewonnen!', `+${amount.toFixed(2)} WR wurden deinem Konto gutgeschrieben.`, '/profil'))
+    jobs.push(sendPushToUser(userId, '🎉 Wette gewonnen!', `+${amount.toFixed(2)} Wildis wurden deinem Konto gutgeschrieben.`, '/profil'))
   }
   for (const uid of loserIds) {
     if (userPayouts.has(uid)) continue

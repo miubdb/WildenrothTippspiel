@@ -24,6 +24,7 @@ export interface Match {
   status: MatchStatus
   home_team?: Team
   away_team?: Team
+  match_category?: 'kreisliga' | 'wildenroth_ii' | 'bklasse_topspiel'
 }
 
 export interface Odds {
@@ -91,7 +92,7 @@ export interface PriorMatch {
   id: number
   season: string
   league_name: string
-  league_level: 'kreisklasse' | 'kreisliga' | 'bezirksliga'
+  league_level: 'kreisklasse' | 'kreisliga' | 'bezirksliga' | 'b_klasse'
   league_number: string | null
   home_team: string
   away_team: string

@@ -213,14 +213,14 @@ export default function AdminPage() {
   }
 
   async function resetSeasonBalances() {
-    if (!confirm('Alle Guthaben auf 1.000 WR zurücksetzen? Das kann nicht rückgängig gemacht werden.')) return
+    if (!confirm('Alle Guthaben auf 1.000 Wildis zurücksetzen? Das kann nicht rückgängig gemacht werden.')) return
     setSeasonResetLoading(true)
     setMessage(null)
     const res = await fetch('/api/admin/season-reset', { method: 'POST' })
     const data = await res.json()
     setSeasonResetLoading(false)
     if (res.ok) {
-      setMessage('Alle Guthaben wurden auf 1.000 WR zurückgesetzt.')
+      setMessage('Alle Guthaben wurden auf 1.000 Wildis zurückgesetzt.')
     } else {
       setMessage(`Fehler: ${data.error}`)
     }
@@ -498,7 +498,7 @@ export default function AdminPage() {
                         {u.is_wildenroth && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽</span>}
                       </div>
                       <div className="text-[11px] text-gray-400">
-                        {u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} WR · {u.eligible_for_current_season ? <span className="text-green-600">berechtigt</span> : <span className="text-amber-600">nicht berechtigt</span>}
+                        {u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} Wildis · {u.eligible_for_current_season ? <span className="text-green-600">berechtigt</span> : <span className="text-amber-600">nicht berechtigt</span>}
                       </div>
                     </div>
                     <button
@@ -559,14 +559,14 @@ export default function AdminPage() {
                 </summary>
                 <div className="mt-3 border border-red-200 rounded-xl p-4 bg-red-50">
                   <p className="text-xs text-red-700 mb-3">
-                    Setzt <strong>alle Guthaben auf 1.000 WR</strong> zurück. Bisherige Wetten bleiben als Saison 25/26 erhalten.
+                    Setzt <strong>alle Guthaben auf 1.000 Wildis</strong> zurück. Bisherige Wetten bleiben als Saison 25/26 erhalten.
                   </p>
                   <button
                     onClick={resetSeasonBalances}
                     disabled={seasonResetLoading}
                     className="w-full py-2 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white font-bold rounded-lg transition-colors text-sm"
                   >
-                    {seasonResetLoading ? 'Wird zurückgesetzt…' : 'Alle Guthaben auf 1.000 WR zurücksetzen'}
+                    {seasonResetLoading ? 'Wird zurückgesetzt…' : 'Alle Guthaben auf 1.000 Wildis zurücksetzen'}
                   </button>
                 </div>
               </details>
@@ -1247,7 +1247,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                         </span>
                         <span className="text-xs text-gray-500">
                           {legs.length} Tipps · @{comboOdds.toFixed(2).replace('.', ',')}
-                          {comboMap[Number(bet.combo_id)]?.stake != null && ` · ${comboMap[Number(bet.combo_id)].stake} WR`}
+                          {comboMap[Number(bet.combo_id)]?.stake != null && ` · ${comboMap[Number(bet.combo_id)].stake} Wildis`}
                         </span>
                         <StatusChip status={effectiveComboStatus} />
                       </div>
@@ -1270,7 +1270,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                     <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
                     {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
                     <span className="text-red-600 font-bold ml-auto">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
-                    <span className="text-gray-400">{bet.stake != null ? `${bet.stake} WR` : ''}</span>
+                    <span className="text-gray-400">{bet.stake != null ? `${bet.stake} Wildis` : ''}</span>
                     <StatusChip status={bet.status} />
                   </div>
                 )

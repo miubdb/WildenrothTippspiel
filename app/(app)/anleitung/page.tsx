@@ -91,8 +91,8 @@ export default function AnleitungPage() {
           <Row label="Schluss:" value={<><strong>Einzelwetten:</strong> bis zum Anpfiff des jeweiligen Spiels</>} />
           <Row label="" value={<><strong>Kombiwetten:</strong> nur wenn alle enthaltenen Spiele noch nicht begonnen haben</>} />
           <Row label="Wettscheine:" value={<>Maximal <strong>3 Wettscheine</strong> pro Spieltag (2 normale + 1 Risky)</>} />
-          <Row label="Einsatz:" value={<>Maximal <strong>250 WR pro Wettschein</strong></>} />
-          <Row label="Inaktiv:" labelColor="text-orange-600" value={<>Wer in einem Spieltag <strong>keine einzige Wette</strong> platziert, zahlt automatisch <strong>100 WR Strafe</strong> — wird nach Spieltagsabrechnung abgezogen</>} />
+          <Row label="Einsatz:" value={<>Maximal <strong>250 Wildis pro Wettschein</strong></>} />
+          <Row label="Inaktiv:" labelColor="text-orange-600" value={<>Wer in einem Spieltag <strong>keine einzige Wette</strong> platziert, zahlt automatisch <strong>100 Wildis Strafe</strong> — wird nach Spieltagsabrechnung abgezogen</>} />
           <Row label="Storno:" labelColor="text-blue-700 dark:text-blue-400" value="Einzelwette: bis zum Anpfiff des Spiels. Kombiwette: bis der erste enthaltene Anpfiff beginnt. Der Einsatz wird sofort zurückgebucht." />
         </div>
       </HelpAccordion>
@@ -121,8 +121,8 @@ export default function AnleitungPage() {
         <div className="mt-2 bg-gray-50 dark:bg-gray-700/40 rounded-xl px-4 py-3 text-sm">
           <div className="text-gray-600 dark:text-gray-300">Sieg Heimteam <span className="font-bold text-red-700 dark:text-red-400">@1,45</span> × Über 3,5 <span className="font-bold text-red-700 dark:text-red-400">@1,80</span></div>
           <div className="flex items-center justify-between mt-1 pt-1 border-t border-gray-200 dark:border-gray-600">
-            <span className="text-gray-500 dark:text-gray-400">20 WR Einsatz →</span>
-            <span className="font-bold text-green-600">52,20 WR Auszahlung</span>
+            <span className="text-gray-500 dark:text-gray-400">20 Wildis Einsatz →</span>
+            <span className="font-bold text-green-600">52,20 Wildis Auszahlung</span>
           </div>
         </div>
         <div className="mt-2 space-y-1">
@@ -138,7 +138,7 @@ export default function AnleitungPage() {
       {/* Quoten */}
       <HelpAccordion title="Quoten" emoji="📈">
         <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Gewinn = Einsatz × Quote</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Beispiel: 20 WR × 2,50 = <strong>50 WR Auszahlung</strong></p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Beispiel: 20 Wildis × 2,50 = <strong>50 Wildis Auszahlung</strong></p>
         <div className="mt-2 space-y-1.5">
           <QuoteExample odds={1.20} explanation="Klarer Favorit" />
           <QuoteExample odds={2.50} explanation="Ausgeglichenes Duell" />

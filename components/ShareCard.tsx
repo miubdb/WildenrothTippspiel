@@ -67,7 +67,7 @@ export function ShareCard({
                   i === 0 ? 'bg-yellow-400 text-yellow-900' : i === 1 ? 'bg-gray-300 text-gray-700' : i === 2 ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-500'
                 }`}>{i + 1}</div>
                 <div className="flex-1 font-bold text-gray-900 truncate">{r.name}</div>
-                <div className="font-black text-red-700">{fmtAmt(r.balance)} €</div>
+                <div className="font-black text-red-700">{fmtAmt(r.balance)} Wildis</div>
               </div>
             ))}
           </div>

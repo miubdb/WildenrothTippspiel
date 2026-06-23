@@ -101,7 +101,7 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
           </div>
           <div className="text-right flex-shrink-0">
             <div className="text-[10px] text-gray-400 uppercase tracking-wide">Einsatz</div>
-            <div className="font-bold text-gray-800 dark:text-gray-200 text-sm">{fmtAmt(ub.stake)} €</div>
+            <div className="font-bold text-gray-800 dark:text-gray-200 text-sm">{fmtAmt(ub.stake)} Wildis</div>
           </div>
         </div>
 
@@ -137,11 +137,11 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
           <span className="text-2xl">😭</span>
           <div className="flex-1">
             <div className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">Wäre geworden</div>
-            <div className="font-black text-green-600 dark:text-green-400 text-lg">+{fmtAmt(wouldHaveGained)} €</div>
+            <div className="font-black text-green-600 dark:text-green-400 text-lg">+{fmtAmt(wouldHaveGained)} Wildis</div>
           </div>
           <div className="text-right text-xs text-gray-400 dark:text-gray-500">
             <div>Auszahlung</div>
-            <div className="font-semibold">{fmtAmt(ub.wouldHavePayout)} €</div>
+            <div className="font-semibold">{fmtAmt(ub.wouldHavePayout)} Wildis</div>
           </div>
         </div>
       </div>
@@ -211,9 +211,9 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               emoji="🏆"
               title="Spieltags-König"
               name={mvp.name}
-              value={`+${fmtAmt(mvp.profit)} €`}
+              value={`+${fmtAmt(mvp.profit)} Wildis`}
               detail={tpl('mvp', mvp.name)}
-              onShare={() => setShare({ type: 'mvp', data: { matchday, name: mvp.name, value: `+${fmtAmt(mvp.profit)} €`, subtitle: tpl('mvp', mvp.name) } })}
+              onShare={() => setShare({ type: 'mvp', data: { matchday, name: mvp.name, value: `+${fmtAmt(mvp.profit)} Wildis`, subtitle: tpl('mvp', mvp.name) } })}
               accentBg="bg-green-50"
               accentBorder="border-green-200"
               accentText="text-green-600"
@@ -225,7 +225,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Mutigster Treffer"
               name={bestOdds.name}
               value={`@${fmtOdds(bestOdds.odds)}`}
-              detail={`Einsatz ${fmtAmt(bestOdds.stake)} € → +${fmtAmt(bestOdds.payout - bestOdds.stake)} €${bestOdds.isCombo ? ` · ${bestOdds.legs ?? ''}er-Kombi` : ' · Einzelwette'}`}
+              detail={`Einsatz ${fmtAmt(bestOdds.stake)} Wildis → +${fmtAmt(bestOdds.payout - bestOdds.stake)} Wildis${bestOdds.isCombo ? ` · ${bestOdds.legs ?? ''}er-Kombi` : ' · Einzelwette'}`}
               accentBg="bg-purple-50"
               accentBorder="border-purple-200"
               accentText="text-purple-700"
@@ -246,7 +246,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Beste Kombi"
               name={bestCombo.name}
               value={`@${fmtOdds(bestCombo.odds)}`}
-              detail={`${bestCombo.legs} Tipps · Einsatz ${fmtAmt(bestCombo.stake)} € → +${fmtAmt(bestCombo.payout - bestCombo.stake)} €`}
+              detail={`${bestCombo.legs} Tipps · Einsatz ${fmtAmt(bestCombo.stake)} Wildis → +${fmtAmt(bestCombo.payout - bestCombo.stake)} Wildis`}
               accentBg="bg-blue-50"
               accentBorder="border-blue-200"
               accentText="text-blue-700"
@@ -258,7 +258,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Risky-Hit"
               name={riskyHit.name}
               value={`@${fmtOdds(riskyHit.odds)}`}
-              detail={`Einsatz ${fmtAmt(riskyHit.stake)} € → +${fmtAmt(riskyHit.payout - riskyHit.stake)} €${riskyHit.isCombo ? ' · Kombi' : ''}`}
+              detail={`Einsatz ${fmtAmt(riskyHit.stake)} Wildis → +${fmtAmt(riskyHit.payout - riskyHit.stake)} Wildis${riskyHit.isCombo ? ' · Kombi' : ''}`}
               onShare={() => setShare({ type: 'risky', data: { matchday, name: riskyHit.name, value: `@${fmtOdds(riskyHit.odds)}`, subtitle: tpl('riskyHit', riskyHit.name, riskyHit.odds) } })}
               accentBg="bg-amber-50"
               accentBorder="border-amber-200"
@@ -276,9 +276,9 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               emoji="💸"
               title="Größter Verlust"
               name={biggestLoss.name}
-              value={`-${fmtAmt(biggestLoss.loss)} €`}
+              value={`-${fmtAmt(biggestLoss.loss)} Wildis`}
               detail={tpl('pechvogel', biggestLoss.name)}
-              onShare={() => setShare({ type: 'pechvogel', data: { matchday, name: biggestLoss.name, value: `-${fmtAmt(biggestLoss.loss)} €`, subtitle: tpl('pechvogel', biggestLoss.name) } })}
+              onShare={() => setShare({ type: 'pechvogel', data: { matchday, name: biggestLoss.name, value: `-${fmtAmt(biggestLoss.loss)} Wildis`, subtitle: tpl('pechvogel', biggestLoss.name) } })}
               accentBg="bg-red-50"
               accentBorder="border-red-200"
               accentText="text-red-600"
@@ -290,7 +290,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Sicherster Treffer"
               name={safestTip.name}
               value={`@${fmtOdds(safestTip.odds)}`}
-              detail={`Einsatz ${fmtAmt(safestTip.stake)} € → +${fmtAmt(safestTip.payout - safestTip.stake)} €`}
+              detail={`Einsatz ${fmtAmt(safestTip.stake)} Wildis → +${fmtAmt(safestTip.payout - safestTip.stake)} Wildis`}
               accentBg="bg-teal-50"
               accentBorder="border-teal-200"
               accentText="text-teal-700"
@@ -307,7 +307,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               emoji="❤️"
               title="Wildenroth-Optimist"
               name={wildenrothOptimist.name}
-              value={`${fmtAmt(wildenrothOptimist.stake)} €`}
+              value={`${fmtAmt(wildenrothOptimist.stake)} Wildis`}
               detail={tpl('wildenrothOptimist', wildenrothOptimist.name)}
               sub={`Quote @${fmtOdds(wildenrothOptimist.odds)} auf den Sieg`}
               accentBg="bg-rose-50"
@@ -322,7 +322,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={craziestBet.name}
               value={`@${fmtOdds(craziestBet.odds)}`}
               detail={tpl('craziestBet', craziestBet.name, craziestBet.odds)}
-              sub={`Einsatz ${fmtAmt(craziestBet.stake)} € · ${craziestBet.isCombo ? 'Kombi' : 'Einzel'} · ${craziestBet.won ? 'getroffen ✅' : 'daneben ❌'}`}
+              sub={`Einsatz ${fmtAmt(craziestBet.stake)} Wildis · ${craziestBet.isCombo ? 'Kombi' : 'Einzel'} · ${craziestBet.won ? 'getroffen ✅' : 'daneben ❌'}`}
               accentBg="bg-fuchsia-50"
               accentBorder="border-fuchsia-200"
               accentText="text-fuchsia-700"
@@ -339,7 +339,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
           name={safestBanker.name}
           value={`@${fmtOdds(safestBanker.odds)}`}
           detail={tpl('safestBanker', safestBanker.name)}
-          sub={`Einsatz ${fmtAmt(safestBanker.stake)} € → +${fmtAmt(safestBanker.payout - safestBanker.stake)} €${safestBanker.isCombo ? ' · Kombi' : ''}`}
+          sub={`Einsatz ${fmtAmt(safestBanker.stake)} Wildis → +${fmtAmt(safestBanker.payout - safestBanker.stake)} Wildis${safestBanker.isCombo ? ' · Kombi' : ''}`}
           accentBg="bg-emerald-50"
           accentBorder="border-emerald-200"
           accentText="text-emerald-700"

@@ -33,6 +33,7 @@ const PRIOR_WEIGHT = 0.5
 const LEAGUE_STRENGTH: Record<PriorMatch['league_level'], number> = {
   bezirksliga: 1.10,
   kreisliga:   1.00,
+  b_klasse:    0.85,
   kreisklasse: 0.90,
 }
 

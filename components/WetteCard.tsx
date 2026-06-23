@@ -128,17 +128,17 @@ export function WetteCard({
             )}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="text-sm font-black text-red-700">@{fmtOdds(wette.totalOdds)}</span>
-              <span className="text-[10px] text-gray-500 dark:text-gray-400">{fmt(wette.stake)} WR</span>
+              <span className="text-[10px] text-gray-500 dark:text-gray-400">{fmt(wette.stake)} Wildis</span>
               {wette.status === 'pending' && (
                 <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                  {'→ mög. '}<span className="font-semibold text-gray-700 dark:text-gray-300">{fmt(wette.stake * wette.totalOdds)} WR</span>
+                  {'→ mög. '}<span className="font-semibold text-gray-700 dark:text-gray-300">{fmt(wette.stake * wette.totalOdds)} Wildis</span>
                 </span>
               )}
               {wette.status === 'won' && wette.payout != null && (
-                <span className="text-[10px] font-bold text-green-600">+{fmt(wette.payout)} WR</span>
+                <span className="text-[10px] font-bold text-green-600">+{fmt(wette.payout)} Wildis</span>
               )}
               {wette.status === 'lost' && (
-                <span className="text-[10px] text-red-400 line-through">{fmt(wette.stake)} WR</span>
+                <span className="text-[10px] text-red-400 line-through">{fmt(wette.stake)} Wildis</span>
               )}
             </div>
           </div>

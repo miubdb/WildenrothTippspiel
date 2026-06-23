@@ -167,7 +167,7 @@ export function BetSlip() {
       }
 
       const newBalStr = data.newBalance?.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      setSuccess(`Wette platziert! Neues Guthaben: ${newBalStr} WR`)
+      setSuccess(`Wette platziert! Neues Guthaben: ${newBalStr} Wildis`)
       clearSlip()
       setOpen(false)
       router.refresh()
@@ -351,7 +351,7 @@ export function BetSlip() {
                                 : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
                             }`}
                           >
-                            {amt} WR
+                            {amt} Wildis
                           </button>
                         ))}
                         <input
@@ -367,7 +367,7 @@ export function BetSlip() {
                       <span className="text-xs text-gray-500 ml-auto">
                         Gewinn:{' '}
                         <span className="text-green-600 font-semibold">
-                          {(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR
+                          {(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis
                         </span>
                       </span>
                     </div>
@@ -399,7 +399,7 @@ export function BetSlip() {
                               : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
                           }`}
                         >
-                          {amt}€
+                          {amt} Wildis
                         </button>
                       ))}
                       <input
@@ -416,7 +416,7 @@ export function BetSlip() {
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-gray-600">Möglicher Gewinn</span>
                     <span className="font-bold text-green-600 text-lg">
-                      {potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR
+                      {potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis
                     </span>
                   </div>
                 </>
@@ -426,11 +426,11 @@ export function BetSlip() {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <div className="text-xs text-gray-500">Gesamteinsatz</div>
-                    <div className="font-semibold text-gray-900">{totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR</div>
+                    <div className="font-semibold text-gray-900">{totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-gray-500">Möglicher Gewinn</div>
-                    <div className="font-bold text-green-600">{potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR</div>
+                    <div className="font-bold text-green-600">{potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</div>
                   </div>
                 </div>
               )}
@@ -469,8 +469,8 @@ export function BetSlip() {
                     Wette platzieren
                     <span className="ml-1 text-red-200 text-sm font-normal">
                       ({mode === 'combo'
-                        ? `${comboStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} WR`
-                        : `${totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} WR`})
+                        ? `${comboStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} Wildis`
+                        : `${totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} Wildis`})
                     </span>
                   </>
                 )}

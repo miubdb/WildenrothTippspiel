@@ -259,13 +259,13 @@ export async function POST(request: NextRequest) {
     let body: string
     if (won > 0 && lost === 0) {
       title = won === 1 ? '🎉 Wette gewonnen!' : `🎉 ${won} Wetten gewonnen!`
-      body = `+${amount.toFixed(2)} WR wurden deinem Konto gutgeschrieben.`
+      body = `+${amount.toFixed(2)} Wildis wurden deinem Konto gutgeschrieben.`
     } else if (won === 0 && lost > 0) {
       title = lost === 1 ? '😬 Wette verloren' : `😬 ${lost} Wetten verloren`
       body = 'Viel Glück beim nächsten Spieltag!'
     } else if (won > 0 && lost > 0) {
       title = `📊 ${won + lost} Wetten ausgewertet`
-      body = `${won} gewonnen, ${lost} verloren · Saldo: ${amount >= 0 ? '+' : ''}${amount.toFixed(2)} WR`
+      body = `${won} gewonnen, ${lost} verloren · Saldo: ${amount >= 0 ? '+' : ''}${amount.toFixed(2)} Wildis`
     } else {
       continue
     }
@@ -299,10 +299,46 @@ export async function POST(request: NextRequest) {
     if (allFinished) {
       const admin = createAdminClient()
 
-      // Test matchday 999: skip recap push and inactivity penalty — no mass notifications during testing
+      // Test matchday 999: skip recap push, awards and inactivity penalty
       if (matchday >= 900) {
         return NextResponse.json({ success: true, settled: settledBetIds.length, combosChecked: combosToCheck.size, testMode: true })
       }
+
+      // Persist awards after settlement
+      try {
+        const { persistAwards } = await import('@/lib/awards')
+        const { data: mdMatchRows } = await admin.from('matches').select('id').eq('matchday', matchday)
+        const mIds = (mdMatchRows ?? []).map((m: { id: number }) => m.id)
+        if (mIds.length > 0) {
+          const { data: settledBets } = await admin
+            .from('bets')
+            .select('user_id, stake, odds_value, payout, status, is_risky, combo_id, market_type')
+            .in('match_id', mIds)
+            .in('status', ['won', 'lost'])
+          if (settledBets && settledBets.length > 0) {
+            const awardInputs: import('@/lib/awards').AwardInput[] = []
+            // MVP: highest net gain (singles only)
+            const netByUser: Record<string, number> = {}
+            for (const b of settledBets.filter((b: { combo_id: unknown }) => !b.combo_id)) {
+              const gain = b.status === 'won' ? (b.payout ?? 0) - b.stake : -b.stake
+              netByUser[b.user_id] = (netByUser[b.user_id] ?? 0) + gain
+            }
+            const mvpEntry = Object.entries(netByUser).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1])[0]
+            if (mvpEntry) awardInputs.push({ user_id: mvpEntry[0], award_type: 'mvp', value: Number(mvpEntry[1]), value_text: `+${Number(mvpEntry[1]).toFixed(2)} Wildis` })
+            // Risky-Hit: best won single with odds > 20
+            const riskyWon = settledBets
+              .filter((b: { combo_id: unknown; status: string; odds_value: number }) => !b.combo_id && b.status === 'won' && b.odds_value > 20)
+              .sort((a: { odds_value: number }, b: { odds_value: number }) => b.odds_value - a.odds_value)[0]
+            if (riskyWon) awardInputs.push({ user_id: riskyWon.user_id, award_type: 'risky_hit', value: riskyWon.odds_value, value_text: `@${riskyWon.odds_value.toFixed(2)}` })
+            // Glaskugel: exact score correctly tipped
+            const exactWon = settledBets.filter((b: { market_type: string; status: string }) => b.market_type === 'exact_score' && b.status === 'won')
+            for (const b of exactWon) {
+              awardInputs.push({ user_id: b.user_id, award_type: 'glaskugel', value_text: 'Ergebnis getroffen' })
+            }
+            await persistAwards(admin, '26/27', matchday, awardInputs)
+          }
+        }
+      } catch (e) { console.error('Award persistence failed:', e) }
 
       const { error: dedupError } = await admin
         .from('push_reminders')
@@ -319,7 +355,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      // Apply 100 € inactivity penalty per user who placed no bets this matchday.
+      // Apply 100 Wildis inactivity penalty per user who placed no bets this matchday.
       // Dedup via push_reminders so this only runs once even if multiple matches settle simultaneously.
       const { error: penaltyDedupError } = await admin
         .from('push_reminders')

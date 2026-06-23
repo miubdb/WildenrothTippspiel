@@ -69,6 +69,13 @@ export default async function ProfilPage({
   const CURRENT_SEASON = '26/27'
   const PREV_SEASON = '25/26'
 
+  const { data: awardsRaw } = await supabase
+    .from('user_awards')
+    .select('award_type, award_title, award_icon, award_description, matchday, season, value, value_text')
+    .eq('user_id', user.id)
+    .order('matchday', { ascending: false })
+  const awards = awardsRaw ?? []
+
   const { data: betsRaw } = await supabase
     .from('bets')
     .select(
@@ -313,13 +320,13 @@ export default async function ProfilPage({
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Guthaben <span className="text-[10px]">26/27</span></div>
           <div className="text-xl font-black text-gray-900 dark:text-gray-100">
-            {profile.balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' WR'}
+            {profile.balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
           </div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Gewinn/Verlust <span className="text-[10px]">26/27</span></div>
           <div className={`text-xl font-black ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-            {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' WR'}
+            {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
           </div>
         </div>
       </div>
@@ -338,11 +345,11 @@ export default async function ProfilPage({
         <div className="grid grid-cols-2 divide-x divide-gray-100 dark:divide-gray-700 border-t border-gray-100 dark:border-gray-700">
           <div className="px-4 py-3 text-center">
             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Eingesetzt</div>
-            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{totalStaked.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' WR'}</div>
+            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{totalStaked.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}</div>
           </div>
           <div className="px-4 py-3 text-center">
             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ausgezahlt</div>
-            <div className="font-bold text-green-600 text-sm">{totalPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' WR'}</div>
+            <div className="font-bold text-green-600 text-sm">{totalPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}</div>
           </div>
         </div>
       </div>
@@ -367,7 +374,7 @@ export default async function ProfilPage({
               <StatTile
                 emoji="🏅"
                 label="Bester Gewinn"
-                value={`+${bestWinProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} WR`}
+                value={`+${bestWinProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis`}
                 sub={bestComboProfit != null && bestComboProfit >= (bestSingleProfit ?? 0) ? 'Kombiwette' : 'Einzelwette'}
                 color="text-green-600"
               />
@@ -412,7 +419,7 @@ export default async function ProfilPage({
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Stand nach abgeschlossenen Spieltagen</p>
             </div>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${profit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-              {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} WR
+              {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Wildis
             </span>
           </div>
           <div className="px-4 py-3">
@@ -420,6 +427,38 @@ export default async function ProfilPage({
           </div>
         </div>
       )}
+
+      {/* Pokalschrank */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700 flex items-center gap-2">
+          <span className="text-lg">🏆</span>
+          <div>
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Pokalschrank</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{awards.length} Award{awards.length !== 1 ? 's' : ''} gesammelt</p>
+          </div>
+        </div>
+        {awards.length === 0 ? (
+          <div className="px-4 py-8 text-center">
+            <div className="text-3xl mb-2">🎯</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Noch keine Awards — kämpf um deinen ersten!</div>
+          </div>
+        ) : (
+          <div className="p-3 grid grid-cols-2 gap-2">
+            {awards.map((a, i) => (
+              <div key={i} className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2.5 flex items-center gap-2.5">
+                <span className="text-2xl flex-shrink-0">{a.award_icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight">{a.award_title}</div>
+                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                    ST {a.matchday} · {a.season}
+                    {a.value_text && <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">{a.value_text}</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Theme Toggle */}
       <ThemeToggle />
@@ -469,13 +508,13 @@ export default async function ProfilPage({
             <div className="bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
               <div className="text-xs text-gray-400 mb-1">Ergebnis 25/26</div>
               <div className={`font-black text-sm ${prevProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {prevProfit >= 0 ? '+' : ''}{prevProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' WR'}
+                {prevProfit >= 0 ? '+' : ''}{prevProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
               </div>
             </div>
             <div className="col-span-2 bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
               <div className="text-xs text-gray-400 mb-1">Eingesetzt / Ausgezahlt</div>
               <div className="font-bold text-sm text-gray-800 dark:text-gray-100">
-                {prevStaked.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' WR'} / {prevPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' WR'}
+                {prevStaked.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'} / {prevPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
               </div>
             </div>
           </div>
@@ -555,9 +594,9 @@ function BalanceSparkline({ points }: { points: number[] }) {
         <circle cx={xs[xs.length - 1].toFixed(1)} cy={ys[ys.length - 1].toFixed(1)} r="3" fill={color} />
       </svg>
       <div className="flex justify-between text-xs text-gray-400 mt-1 px-1">
-        <span>Start: 1.000 WR</span>
+        <span>Start: 1.000 Wildis</span>
         <span className={isUp ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
-          Aktuell: {points[points.length - 1].toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} WR
+          Aktuell: {points[points.length - 1].toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Wildis
         </span>
       </div>
     </div>

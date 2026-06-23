@@ -170,12 +170,12 @@ export default async function RecapPage({
             <div className="px-3 py-3 text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Eingesetzt</div>
               <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">
-                {fmtAmt(myStats.staked)} WR
+                {fmtAmt(myStats.staked)} Wildis
               </div>
             </div>
             <div className="px-3 py-3 text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ausgezahlt</div>
-              <div className="font-bold text-green-600 text-sm">{fmtAmt(myStats.payout)} WR</div>
+              <div className="font-bold text-green-600 text-sm">{fmtAmt(myStats.payout)} Wildis</div>
             </div>
             <div className="px-3 py-3 text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ergebnis</div>
@@ -185,7 +185,7 @@ export default async function RecapPage({
                 }`}
               >
                 {myProfit !== null && myProfit >= 0 ? '+' : ''}
-                {fmtAmt(myProfit ?? 0)} WR
+                {fmtAmt(myProfit ?? 0)} Wildis
               </div>
             </div>
           </div>
@@ -264,7 +264,7 @@ export default async function RecapPage({
                       )}
                     </div>
                     <div className="text-xs text-gray-400 dark:text-gray-500">
-                      Eingesetzt: {fmtAmt(entry.staked)} WR · Ausgezahlt: {fmtAmt(entry.payout)} WR
+                      Eingesetzt: {fmtAmt(entry.staked)} Wildis · Ausgezahlt: {fmtAmt(entry.payout)} Wildis
                     </div>
                   </div>
                   <div
@@ -273,7 +273,7 @@ export default async function RecapPage({
                     }`}
                   >
                     {entry.profit >= 0 ? '+' : ''}
-                    {fmtAmt(entry.profit)} WR
+                    {fmtAmt(entry.profit)} Wildis
                   </div>
                 </div>
               )
