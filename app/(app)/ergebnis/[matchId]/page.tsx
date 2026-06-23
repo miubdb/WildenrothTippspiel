@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import { fmtWildi } from '@/components/WildiIcon'
 
 export const revalidate = 60
 
@@ -31,9 +32,7 @@ function selLabel(marketType: string, selection: string, players: Record<number,
   return SEL_LABEL[marketType]?.[selection] ?? selection
 }
 
-function fmt(n: number) {
-  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+function fmt(n: number) { return fmtWildi(n) }
 
 export default async function ErgebnisPage({
   params,

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { WildiIcon } from '@/components/WildiIcon'
+import { WildiIcon, fmtWildi } from '@/components/WildiIcon'
 import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { WetteCard, type WetteData, type WetteStatus, type WetteSocial } from '@/components/WetteCard'
 import type { CommentData } from '@/components/CommentSection'
@@ -58,9 +58,7 @@ export type MatchdayStats = Record<string, number | null>
 
 // ── Shared helpers ─────────────────────────────────────────────────────
 
-function fmtAmt(n: number) {
-  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+function fmtAmt(n: number) { return fmtWildi(n) }
 
 function Avatar({ profile, size, isMe, className = '' }: { profile: Profile; size: 'sm' | 'md' | 'lg'; isMe: boolean; className?: string }) {
   const dim = size === 'lg' ? 'w-14 h-14 text-xl' : size === 'md' ? 'w-9 h-9 text-sm' : 'w-7 h-7 text-xs'
@@ -495,7 +493,7 @@ export function LeaderboardClient({
                 <div>
                   <div className="text-xs text-yellow-700 font-semibold uppercase tracking-wide">Spieltagsbester</div>
                   <div className="font-bold text-gray-900 text-sm">{winner.display_name || winner.username}</div>
-                  <div className="text-xs text-green-600 font-semibold">+{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis</div>
+                  <div className="text-xs text-green-600 font-semibold">+{fmtWildi(pnl)} Wildis</div>
                 </div>
               </div>
             )
@@ -546,7 +544,7 @@ export function LeaderboardClient({
                   </div>
                   {pnl !== null && pnl !== undefined && isDeadlinePassed && (
                     <div className={`ml-auto text-xs font-bold ${pnl > 0 ? 'text-green-600' : pnl < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                      {pnl > 0 ? '+' : ''}{pnl.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis
+                      {pnl > 0 ? '+' : ''}{fmtWildi(pnl)} Wildis
                     </div>
                   )}
                   {(pnl === null || !isDeadlinePassed) && (() => {
@@ -605,7 +603,7 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
       <div className="text-center mb-1">
         <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate max-w-20">{profile.display_name || profile.username}</div>
         <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(displayBalance)} Wildis</div>
-        <div className={`text-xs font-semibold tabular-nums leading-tight ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Wildis</div>
+        <div className={`text-xs font-semibold tabular-nums leading-tight ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{profit >= 0 ? '+' : ''}{fmtWildi(profit)} Wildis</div>
         <div className="flex items-center justify-center gap-1 mt-0.5">
           {streak >= 2 && <span className="text-xs">🔥{streak}</span>}
           {weeklyWins >= 1 && <span className="text-xs">🏅{weeklyWins}×</span>}

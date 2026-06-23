@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react'
 import { ShareCard, type ShareCardData } from './ShareCard'
-import { WildiIcon } from '@/components/WildiIcon'
+import { WildiIcon, fmtWildi } from '@/components/WildiIcon'
 
 export type RecapLegDetail = {
   matchName: string
@@ -52,9 +52,7 @@ function tpl(category: keyof typeof TEMPLATES, name: string, odds?: number): str
     .replace('{odds}', odds != null ? fmtOdds(odds) : '')
 }
 
-function fmtAmt(n: number) {
-  return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
+function fmtAmt(n: number) { return fmtWildi(n) }
 function fmtOdds(n: number) {
   return n.toFixed(2).replace('.', ',')
 }

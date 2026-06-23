@@ -4,7 +4,7 @@ import { PushSubscribeButton } from '@/components/PushSubscribeButton'
 import { ProfileEditForm } from '@/components/ProfileEditForm'
 import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
 import { ThemeToggle } from '@/components/ThemeToggle'
-import { WildiIcon } from '@/components/WildiIcon'
+import { WildiIcon, fmtWildi } from '@/components/WildiIcon'
 
 export const revalidate = 60
 
@@ -327,13 +327,13 @@ export default async function ProfilPage({
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Guthaben <span className="text-[10px]">26/27</span></div>
           <div className="text-xl font-black text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
-            {profile.balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis <WildiIcon size={20} />
+            {fmtWildi(profile.balance)} Wildis <WildiIcon size={20} />
           </div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Gewinn/Verlust <span className="text-[10px]">26/27</span></div>
           <div className={`text-xl font-black ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-            {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
+            {profit >= 0 ? '+' : ''}{fmtWildi(profit) + ' Wildis'}
           </div>
         </div>
       </div>
@@ -352,11 +352,11 @@ export default async function ProfilPage({
         <div className="grid grid-cols-2 divide-x divide-gray-100 dark:divide-gray-700 border-t border-gray-100 dark:border-gray-700">
           <div className="px-4 py-3 text-center">
             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Eingesetzt</div>
-            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{totalStaked.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}</div>
+            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{fmtWildi(totalStaked) + ' Wildis'}</div>
           </div>
           <div className="px-4 py-3 text-center">
             <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ausgezahlt</div>
-            <div className="font-bold text-green-600 text-sm">{totalPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}</div>
+            <div className="font-bold text-green-600 text-sm">{fmtWildi(totalPayout) + ' Wildis'}</div>
           </div>
         </div>
       </div>
@@ -381,7 +381,7 @@ export default async function ProfilPage({
               <StatTile
                 emoji="🏅"
                 label="Bester Gewinn"
-                value={`+${bestWinProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis`}
+                value={`+${fmtWildi(bestWinProfit)} Wildis`}
                 sub={bestComboProfit != null && bestComboProfit >= (bestSingleProfit ?? 0) ? 'Kombiwette' : 'Einzelwette'}
                 color="text-green-600"
               />
@@ -443,7 +443,7 @@ export default async function ProfilPage({
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Stand nach abgeschlossenen Spieltagen</p>
             </div>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${profit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-              {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Wildis
+              {profit >= 0 ? '+' : ''}{fmtWildi(profit)} Wildis
             </span>
           </div>
           <div className="px-4 py-3">
@@ -532,13 +532,13 @@ export default async function ProfilPage({
             <div className="bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
               <div className="text-xs text-gray-400 mb-1">Ergebnis 25/26</div>
               <div className={`font-black text-sm ${prevProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {prevProfit >= 0 ? '+' : ''}{prevProfit.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
+                {prevProfit >= 0 ? '+' : ''}{fmtWildi(prevProfit) + ' Wildis'}
               </div>
             </div>
             <div className="col-span-2 bg-white dark:bg-gray-700 rounded-xl p-3 text-center">
               <div className="text-xs text-gray-400 mb-1">Eingesetzt / Ausgezahlt</div>
               <div className="font-bold text-sm text-gray-800 dark:text-gray-100">
-                {prevStaked.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'} / {prevPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
+                {fmtWildi(prevStaked) + ' Wildis'} / {fmtWildi(prevPayout) + ' Wildis'}
               </div>
             </div>
           </div>
@@ -620,7 +620,7 @@ function BalanceSparkline({ points }: { points: number[] }) {
       <div className="flex justify-between text-xs text-gray-400 mt-1 px-1">
         <span>Start: 1.000 Wildis</span>
         <span className={isUp ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
-          Aktuell: {points[points.length - 1].toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Wildis
+          Aktuell: {fmtWildi(points[points.length - 1])} Wildis
         </span>
       </div>
     </div>

@@ -12,7 +12,20 @@ export function WildiIcon({ size = 16 }: { size?: number }) {
   )
 }
 
-/** Format an amount with label and optional singular/plural */
+/** "1 Wildi" / "Wildis" label */
 export function wildiLabel(amount: number): string {
   return Math.abs(amount) === 1 ? 'Wildi' : 'Wildis'
+}
+
+/**
+ * Format a Wildi amount for display.
+ * - Whole numbers → no decimals (1.000 not 1.000,00)
+ * - Otherwise → up to 2 decimal places, trailing zeros stripped (67,34 not 67,340)
+ */
+export function fmtWildi(n: number): string {
+  if (Number.isInteger(n)) {
+    return n.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+  }
+  // strip trailing zeros: maximumFractionDigits: 2 + minimumFractionDigits: 0
+  return n.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 }

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useBetSlip, bsKey } from '@/context/BetSlipContext'
-import { WildiIcon } from '@/components/WildiIcon'
+import { WildiIcon, fmtWildi } from '@/components/WildiIcon'
 import type { MarketType } from '@/types'
 import { crestPath } from '@/lib/teams'
 
@@ -368,7 +368,7 @@ export function BetSlip() {
                       <span className="text-xs text-gray-500 ml-auto">
                         Gewinn:{' '}
                         <span className="text-green-600 font-semibold">
-                          {(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis
+                          {fmtWildi(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue)} Wildis
                         </span>
                       </span>
                     </div>
@@ -417,7 +417,7 @@ export function BetSlip() {
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-gray-600">Möglicher Gewinn</span>
                     <span className="font-bold text-green-600 text-lg flex items-center gap-1">
-                      {potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis <WildiIcon size={18} />
+                      {fmtWildi(potentialPayout)} Wildis <WildiIcon size={18} />
                     </span>
                   </div>
                 </>
@@ -427,11 +427,11 @@ export function BetSlip() {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <div className="text-xs text-gray-500">Gesamteinsatz</div>
-                    <div className="font-semibold text-gray-900 flex items-center gap-1">{totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis <WildiIcon size={14} /></div>
+                    <div className="font-semibold text-gray-900 flex items-center gap-1">{fmtWildi(totalSingleStake)} Wildis <WildiIcon size={14} /></div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-gray-500">Möglicher Gewinn</div>
-                    <div className="font-bold text-green-600 flex items-center gap-1 justify-end">{potentialPayout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis <WildiIcon size={14} /></div>
+                    <div className="font-bold text-green-600 flex items-center gap-1 justify-end">{fmtWildi(potentialPayout)} Wildis <WildiIcon size={14} /></div>
                   </div>
                 </div>
               )}
@@ -470,8 +470,8 @@ export function BetSlip() {
                     Wette platzieren
                     <span className="ml-1 text-red-200 text-sm font-normal">
                       ({mode === 'combo'
-                        ? `${comboStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} Wildis`
-                        : `${totalSingleStake.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} Wildis`})
+                        ? `${fmtWildi(comboStake)} Wildis`
+                        : `${fmtWildi(totalSingleStake)} Wildis`})
                     </span>
                   </>
                 )}
