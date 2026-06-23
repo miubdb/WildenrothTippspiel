@@ -72,7 +72,7 @@ export default async function TippsPage({
        home_team:teams!matches_home_team_id_fkey(id, name, short_name),
        away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
     )
-    .gte('match_date', '2026-08-01')
+    .gte('match_date', '2026-06-01')
     .order('match_date', { ascending: true })
 
   const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
@@ -94,7 +94,7 @@ export default async function TippsPage({
   }
   const priorCtx = buildPriorContext(priorMatches, teamNames)
 
-  const SEASON_START_TIPPS = '2026-08-01'
+  const SEASON_START_TIPPS = '2026-06-01'
   // Matchday 999 is the test matchday — always include it regardless of date
   const seasonMatches = allMatches.filter((m) => m.matchday === 999 || m.match_date >= SEASON_START_TIPPS)
   const isPreSeason = seasonMatches.filter((m) => m.matchday !== 999).length === 0
@@ -139,7 +139,7 @@ export default async function TippsPage({
 
   // Betting window: opens Monday 12:00 of match week
   const bettingOpens = deadline ? bettingOpenTime(deadline) : null
-  const isBettingOpen = !bettingOpens || new Date() >= bettingOpens
+  const isBettingOpen = !bettingOpens || new Date() >= bettingOpens || isPreSeason
 
   const SEASON_START = '2026-08-01'
   // seasonMatches already declared above as filtered by SEASON_START_TIPPS (same value)
