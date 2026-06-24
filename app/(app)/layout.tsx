@@ -47,7 +47,7 @@ export default async function AppLayout({
             <div className="text-right">
               <span className="text-red-200 text-xs block">Guthaben</span>
               <span className="font-bold text-sm flex items-center gap-1">
-                {fmtWildi(balance)} Wildis <WildiIcon size={18} />
+                {fmtWildi(balance)} Wildis <WildiIcon size={24} />
               </span>
             </div>
           </div>
