@@ -1,5 +1,6 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { AWARD_META, type AwardType } from '@/lib/awards'
 
 export const revalidate = 300
 
@@ -131,6 +132,20 @@ export default async function RecapPage({
     userPnl.set(cb.user_id, cur)
   }
 
+  // Pokale des Spieltags from user_awards
+  const SEASON = '26/27'
+  const { data: awardRows } = await supabase
+    .from('user_awards')
+    .select('user_id, award_type, award_title, award_icon, value, value_text')
+    .eq('season', SEASON)
+    .eq('matchday', matchday)
+
+  // Sort by display order
+  const AWARD_ORDER: AwardType[] = ['spieltagskoenig', 'eier_aus_stahl', 'unlucky_bastard', 'ergebnis_orakel', 'griff_ins_klo', 'betonmischer', 'on_fire']
+  const awards = (awardRows ?? [])
+    .filter(a => a.award_type in AWARD_META)
+    .sort((a, b) => AWARD_ORDER.indexOf(a.award_type as AwardType) - AWARD_ORDER.indexOf(b.award_type as AwardType))
+
   // Sort by profit descending
   const leaderboard = [...userPnl.entries()]
     .map(([userId, { staked, payout }]) => ({
@@ -225,6 +240,36 @@ export default async function RecapPage({
           ))}
         </div>
       </div>
+
+      {/* Pokale des Spieltags */}
+      {awards.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Pokale des Spieltags</h2>
+          </div>
+          <div className="divide-y divide-gray-50 dark:divide-gray-700">
+            {awards.map((a) => {
+              const meta = AWARD_META[a.award_type as AwardType]
+              const name = displayName(a.user_id)
+              return (
+                <div key={a.award_type} className="flex items-center gap-3 px-4 py-3">
+                  <div className="text-2xl flex-shrink-0">{a.award_icon ?? meta.icon}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide font-semibold">{a.award_title ?? meta.title}</div>
+                    <div className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{name}</div>
+                    {a.value_text && <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{a.value_text}</div>}
+                  </div>
+                  {a.value != null && (
+                    <div className="text-sm font-black text-gray-700 dark:text-gray-300 flex-shrink-0">
+                      {a.value_text ? null : a.value.toLocaleString('de-DE', { maximumFractionDigits: 2 })}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Rangliste */}
       {leaderboard.length > 0 && (
