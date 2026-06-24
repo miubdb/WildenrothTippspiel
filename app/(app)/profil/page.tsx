@@ -67,12 +67,6 @@ export default async function ProfilPage({
     .single()
   if (!profile) redirect('/login')
 
-  const { data: userAwards } = await supabase
-    .from('user_awards')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('matchday', { ascending: false })
-
   const CURRENT_SEASON = '26/27'
   const PREV_SEASON = '25/26'
 
@@ -417,23 +411,6 @@ export default async function ProfilPage({
         </div>
       )}
 
-      {/* Pokalschrank */}
-      {userAwards && userAwards.length > 0 && (
-        <section className="mt-6">
-          <h2 className="text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 px-1">Pokalschrank</h2>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {userAwards.map((award) => (
-              <div key={`${award.award_type}-${award.matchday}`} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm p-3 flex flex-col gap-1">
-                <div className="text-2xl">{award.award_icon}</div>
-                <div className="text-xs font-bold text-gray-900 dark:text-gray-100 leading-tight">{award.award_title}</div>
-                <div className="text-[10px] text-gray-500 dark:text-gray-400 leading-snug">{award.award_description}</div>
-                <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-auto">Spieltag {award.matchday}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
       {/* Balance Chart */}
       {balancePoints.length >= 2 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
@@ -453,36 +430,69 @@ export default async function ProfilPage({
       )}
 
       {/* Pokalschrank */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700 flex items-center gap-2">
-          <span className="text-lg">🏆</span>
-          <div>
-            <h2 className="font-bold text-gray-900 dark:text-gray-100">Pokalschrank</h2>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{awards.length} Award{awards.length !== 1 ? 's' : ''} gesammelt</p>
-          </div>
-        </div>
-        {awards.length === 0 ? (
-          <div className="px-4 py-8 text-center">
-            <div className="text-3xl mb-2">🎯</div>
-            <div className="text-sm text-gray-500 dark:text-gray-400">Noch keine Awards — kämpf um deinen ersten!</div>
-          </div>
-        ) : (
-          <div className="p-3 grid grid-cols-2 gap-2">
-            {awards.map((a, i) => (
-              <div key={i} className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2.5 flex items-center gap-2.5">
-                <span className="text-2xl flex-shrink-0">{a.award_icon}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight">{a.award_title}</div>
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                    ST {a.matchday} · {a.season}
-                    {a.value_text && <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">{a.value_text}</span>}
-                  </div>
-                </div>
+      {(() => {
+        // Group awards by award_type
+        const groupMap = new Map<string, { icon: string; title: string; description: string; count: number; latestMatchday: number; latestSeason: string; latestValueText: string | null }>()
+        for (const a of awards) {
+          const existing = groupMap.get(a.award_type)
+          if (!existing) {
+            groupMap.set(a.award_type, {
+              icon: a.award_icon,
+              title: a.award_title,
+              description: a.award_description,
+              count: 1,
+              latestMatchday: a.matchday,
+              latestSeason: a.season,
+              latestValueText: a.value_text ?? null,
+            })
+          } else {
+            existing.count++
+          }
+        }
+        const grouped = Array.from(groupMap.entries()).map(([award_type, v]) => ({ award_type, ...v }))
+        const totalCount = awards.length
+        const uniqueTypes = grouped.length
+        return (
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700 flex items-center gap-2">
+              <span className="text-lg">🏆</span>
+              <div>
+                <h2 className="font-bold text-gray-900 dark:text-gray-100">Pokalschrank</h2>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                  {fmtWildi(totalCount)} Auszeichnung{totalCount !== 1 ? 'en' : ''} · {fmtWildi(uniqueTypes)} verschiedene
+                </p>
               </div>
-            ))}
+            </div>
+            {grouped.length === 0 ? (
+              <div className="px-4 py-8 text-center">
+                <div className="text-3xl mb-2">🎯</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Noch keine Awards — kämpf um deinen ersten!</div>
+              </div>
+            ) : (
+              <div className="p-3 grid grid-cols-2 gap-2">
+                {grouped.map((a) => (
+                  <div key={a.award_type} className="relative bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2.5 flex items-center gap-2.5">
+                    {a.count > 1 && (
+                      <span className="absolute top-1.5 right-1.5 bg-red-600 text-white text-[10px] font-bold leading-none rounded-full px-1.5 py-0.5">
+                        {a.count}×
+                      </span>
+                    )}
+                    <span className="text-2xl flex-shrink-0">{a.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight">{a.title}</div>
+                      <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{a.description}</div>
+                      <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                        ST {a.latestMatchday} · {a.latestSeason}
+                        {a.latestValueText && <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">{a.latestValueText}</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        )
+      })()}
 
       {/* Theme Toggle */}
       <ThemeToggle />

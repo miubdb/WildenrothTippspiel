@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { crestPath } from '@/lib/teams'
+import { fmtWildi } from '@/components/WildiIcon'
 
 export const revalidate = 60
 
@@ -61,6 +62,35 @@ export default async function SpielerPage({
     comboStatuses.filter(c => c.status === 'won').length
   const lostBets = singleBets.filter(b => b.status === 'lost').length +
     comboStatuses.filter(c => c.status === 'lost').length
+
+  const { data: awardsRaw } = await supabase
+    .from('user_awards')
+    .select('award_type, award_title, award_icon, award_description, matchday, season, value_text')
+    .eq('user_id', id)
+    .order('matchday', { ascending: false })
+  const awards = awardsRaw ?? []
+
+  // Group awards by award_type
+  const awardGroupMap = new Map<string, { icon: string; title: string; description: string; count: number; latestMatchday: number; latestSeason: string; latestValueText: string | null }>()
+  for (const a of awards) {
+    const existing = awardGroupMap.get(a.award_type)
+    if (!existing) {
+      awardGroupMap.set(a.award_type, {
+        icon: a.award_icon,
+        title: a.award_title,
+        description: a.award_description,
+        count: 1,
+        latestMatchday: a.matchday,
+        latestSeason: a.season,
+        latestValueText: a.value_text ?? null,
+      })
+    } else {
+      existing.count++
+    }
+  }
+  const groupedAwards = Array.from(awardGroupMap.entries()).map(([award_type, v]) => ({ award_type, ...v }))
+  const awardTotalCount = awards.length
+  const awardUniqueTypes = groupedAwards.length
 
   const profit = profile.balance - (profile.season_start_balance ?? STARTING_BALANCE)
   const initial = (profile.display_name || profile.username || '?')[0].toUpperCase()
@@ -135,6 +165,43 @@ export default async function SpielerPage({
           <StatCell label="Gewonnen" value={wonBets} color="text-green-600" />
           <StatCell label="Verloren" value={lostBets} color="text-red-600" />
         </div>
+      </div>
+
+      {/* Pokalschrank */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700 flex items-center gap-2">
+          <span className="text-lg">🏆</span>
+          <div>
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Pokalschrank</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+              {fmtWildi(awardTotalCount)} Auszeichnung{awardTotalCount !== 1 ? 'en' : ''} · {fmtWildi(awardUniqueTypes)} verschiedene
+            </p>
+          </div>
+        </div>
+        {groupedAwards.length === 0 ? (
+          <div className="px-4 py-4 text-center text-xs text-gray-400 dark:text-gray-500">Noch keine Auszeichnungen</div>
+        ) : (
+          <div className="p-3 grid grid-cols-2 gap-2">
+            {groupedAwards.map((a) => (
+              <div key={a.award_type} className="relative bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2.5 flex items-center gap-2.5">
+                {a.count > 1 && (
+                  <span className="absolute top-1.5 right-1.5 bg-red-600 text-white text-[10px] font-bold leading-none rounded-full px-1.5 py-0.5">
+                    {a.count}×
+                  </span>
+                )}
+                <span className="text-2xl flex-shrink-0">{a.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight">{a.title}</div>
+                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{a.description}</div>
+                  <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                    ST {a.latestMatchday} · {a.latestSeason}
+                    {a.latestValueText && <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">{a.latestValueText}</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
