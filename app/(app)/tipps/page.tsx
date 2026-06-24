@@ -554,7 +554,7 @@ export default async function TippsPage({
         .in('id', recapUserIds)
       const pMap = Object.fromEntries((recapProfiles ?? []).map(p => [p.id, p.display_name || p.username || 'Unbekannt']))
 
-      // MVP: user with highest net gain (payout - stake) across singles + combos this matchday
+      // 1. Spieltagskönig — best net saldo (singles + combos)
       const netGain: Record<string, number> = {}
       for (const b of singleBets) {
         const g = b.status === 'won' ? (b.payout ?? 0) - b.stake : -b.stake
@@ -565,16 +565,27 @@ export default async function TippsPage({
         netGain[c.user_id] = (netGain[c.user_id] ?? 0) + g
       }
       const mvpEntry = Object.entries(netGain).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1])[0]
-      const mvp = mvpEntry ? { name: pMap[mvpEntry[0]] ?? 'Unbekannt', profit: mvpEntry[1] } : null
+      const spieltagskoenig: RecapData['spieltagskoenig'] = mvpEntry
+        ? { name: pMap[mvpEntry[0]] ?? 'Unbekannt', profit: mvpEntry[1] } : null
 
-      // Best winning odds: highest single odds or combo total_odds (won)
-      const wonSingles = singleBets.filter(b => b.status === 'won').sort((a, b) => b.odds_value - a.odds_value)
-      const wonCombos = recapCombos.filter(c => c.status === 'won').sort((a, b) => b.total_odds - a.total_odds)
-      const topSingle = wonSingles[0] ?? null
-      const topCombo = wonCombos[0] ?? null
-      let bestOdds: RecapData['bestOdds'] = null
+      // 2. Eier aus Stahl — highest won odds (singles OR combos)
+      const wonSingles = singleBets.filter(b => b.status === 'won')
+      const wonCombos = recapCombos.filter(c => c.status === 'won')
+      const topWonSingle = [...wonSingles].sort((a, b) => b.odds_value - a.odds_value)[0] ?? null
+      const topWonCombo  = [...wonCombos].sort((a, b) => b.total_odds - a.total_odds)[0] ?? null
+      let eierAusStahl: RecapData['eierAusStahl'] = null
+      {
+        const sO = topWonSingle?.odds_value ?? 0
+        const cO = topWonCombo?.total_odds ?? 0
+        if (sO >= cO && topWonSingle) {
+          eierAusStahl = { name: pMap[topWonSingle.user_id] ?? 'Unbekannt', odds: sO, stake: topWonSingle.stake, payout: topWonSingle.payout ?? 0, isCombo: false }
+        } else if (topWonCombo) {
+          const legsByComboEi = allComboLegs.reduce<Record<number, unknown[]>>((acc, l) => { (acc[l.combo_id] ??= []).push(l); return acc }, {})
+          eierAusStahl = { name: pMap[topWonCombo.user_id] ?? 'Unbekannt', odds: cO, stake: topWonCombo.stake, payout: topWonCombo.payout, isCombo: true, legs: (legsByComboEi[topWonCombo.id] ?? []).length }
+        }
+      }
 
-      // Unlucky Bastard: lost combo with exactly 1 lost leg (all legs settled)
+      // 3. Unlucky Bastard — lost combo with exactly 1 lost leg
       const legsByCombo = allComboLegs.reduce<Record<number, { status: string }[]>>((acc, l) => {
         if (!acc[l.combo_id]) acc[l.combo_id] = []
         acc[l.combo_id].push({ status: l.status })
@@ -587,10 +598,9 @@ export default async function TippsPage({
           return { c, legs, lostCount: legs.filter(l => l.status === 'lost').length }
         })
         .filter(x => x.lostCount === 1 && x.legs.length >= 2 && x.legs.every(l => l.status !== 'pending'))
-        .sort((a, b) => b.c.total_odds - a.c.total_odds)
+        .sort((a, b) => (b.c.stake * b.c.total_odds) - (a.c.stake * a.c.total_odds))
       const unlucky = unluckyResults[0] ?? null
 
-      // Fetch leg details for the unlucky bastard combo
       const RECAP_MKT_LBL: Record<string, string> = {
         '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
         over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
@@ -631,7 +641,6 @@ export default async function TippsPage({
           }
         })
       }
-
       const unluckyBastard: RecapData['unluckyBastard'] = unlucky ? {
         name: pMap[unlucky.c.user_id] ?? 'Unbekannt',
         odds: unlucky.c.total_odds,
@@ -641,123 +650,56 @@ export default async function TippsPage({
         legDetails: unluckyLegDetails,
       } : null
 
-      // Biggest Loss: single bet or combo with highest absolute loss
+      // 4. Ergebnis-Orakel — won exact_score bet, highest stake wins tie
+      const exactWon = singleBets
+        .filter(b => b.market_type === 'exact_score' && b.status === 'won')
+        .sort((a, b) => b.stake - a.stake)
+      const ergebnisOrakel: RecapData['ergebnisOrakel'] = exactWon[0]
+        ? { name: pMap[exactWon[0].user_id] ?? 'Unbekannt', score: exactWon[0].selection, stake: exactWon[0].stake }
+        : null
+
+      // 5. Griff ins Klo — highest lost stake
       const lostSingles = singleBets.filter(b => b.status === 'lost').sort((a, b) => b.stake - a.stake)
       const lostCombos = recapCombos.filter(c => c.status === 'lost').sort((a, b) => b.stake - a.stake)
-      let biggestLoss: RecapData['biggestLoss'] = null
-      if (lostSingles[0] || lostCombos[0]) {
+      let griffInsKlo: RecapData['griffInsKlo'] = null
+      {
         const sSt = lostSingles[0]?.stake ?? 0
         const cSt = lostCombos[0]?.stake ?? 0
         if (sSt >= cSt && lostSingles[0]) {
-          biggestLoss = { name: pMap[lostSingles[0].user_id] ?? 'Unbekannt', loss: sSt, isCombo: false }
+          griffInsKlo = { name: pMap[lostSingles[0].user_id] ?? 'Unbekannt', loss: sSt, isCombo: false }
         } else if (lostCombos[0]) {
-          biggestLoss = { name: pMap[lostCombos[0].user_id] ?? 'Unbekannt', loss: cSt, isCombo: true }
+          griffInsKlo = { name: pMap[lostCombos[0].user_id] ?? 'Unbekannt', loss: cSt, isCombo: true }
         }
       }
 
-      // Safest Tip: won single/combo with lowest odds >= 1.20
-      const safeSingles = wonSingles.filter(b => b.odds_value >= 1.20).sort((a, b) => a.odds_value - b.odds_value)
-      const safeCombos = wonCombos.filter(c => c.total_odds >= 1.20).sort((a, b) => a.total_odds - b.total_odds)
-      let safestTip: RecapData['safestTip'] = null
-      if (safeSingles[0] || safeCombos[0]) {
-        const sOdds = safeSingles[0]?.odds_value ?? Infinity
-        const cOdds = safeCombos[0]?.total_odds ?? Infinity
-        if (sOdds <= cOdds && safeSingles[0]) {
-          safestTip = { name: pMap[safeSingles[0].user_id] ?? 'Unbekannt', odds: safeSingles[0].odds_value, stake: safeSingles[0].stake, payout: safeSingles[0].payout ?? 0 }
-        } else if (safeCombos[0]) {
-          safestTip = { name: pMap[safeCombos[0].user_id] ?? 'Unbekannt', odds: safeCombos[0].total_odds, stake: safeCombos[0].stake, payout: safeCombos[0].payout }
-        }
+      // 6. Betonmischer — lowest odds among won bets, tiebreak: higher stake
+      const allWonForBeton = [
+        ...wonSingles.map(b => ({ user_id: b.user_id, odds: b.odds_value, stake: b.stake, payout: b.payout ?? 0, isCombo: false })),
+        ...wonCombos.map(c => ({ user_id: c.user_id, odds: c.total_odds, stake: c.stake, payout: c.payout, isCombo: true })),
+      ].sort((a, b) => a.odds - b.odds || b.stake - a.stake)
+      const betonmischer: RecapData['betonmischer'] = allWonForBeton[0]
+        ? { name: pMap[allWonForBeton[0].user_id] ?? 'Unbekannt', odds: allWonForBeton[0].odds, stake: allWonForBeton[0].stake, payout: allWonForBeton[0].payout, isCombo: allWonForBeton[0].isCombo }
+        : null
+
+      // 7. On Fire — most won slips (≥2), tiebreak: saldo
+      const wonSlips: Record<string, { count: number; pnl: number }> = {}
+      for (const b of wonSingles) {
+        const e = wonSlips[b.user_id] ?? { count: 0, pnl: 0 }
+        wonSlips[b.user_id] = { count: e.count + 1, pnl: e.pnl + ((b.payout ?? 0) - b.stake) }
       }
-
-      // Beste Kombi: won combo with highest total_odds
-      const bestComboEntry = wonCombos[0] ?? null
-      const bestCombo: RecapData['bestCombo'] = bestComboEntry ? {
-        name: pMap[bestComboEntry.user_id] ?? 'Unbekannt',
-        odds: bestComboEntry.total_odds,
-        stake: bestComboEntry.stake,
-        payout: bestComboEntry.payout,
-        legs: (legsByCombo[bestComboEntry.id] ?? []).length,
-      } : null
-
-      // Risky-Hit: won bet (single or combo) that has is_risky=true
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const wonRiskySingles = singleBets.filter(b => b.status === 'won' && (b as any).is_risky)
-        .sort((a, b) => b.odds_value - a.odds_value)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const wonRiskyCombos = recapCombos.filter(c => {
-        const comboLegsForC = recapBets.filter(b => b.combo_id === c.id)
-        return c.status === 'won' && comboLegsForC.some(l => (l as any).is_risky)
-      }).sort((a, b) => b.total_odds - a.total_odds)
-      let riskyHit: RecapData['riskyHit'] = null
-      if (wonRiskySingles[0] || wonRiskyCombos[0]) {
-        const rSingle = wonRiskySingles[0]
-        const rCombo = wonRiskyCombos[0]
-        const rSOdds = rSingle?.odds_value ?? 0
-        const rCOdds = rCombo?.total_odds ?? 0
-        if (rSOdds >= rCOdds && rSingle) {
-          riskyHit = { name: pMap[rSingle.user_id] ?? 'Unbekannt', odds: rSingle.odds_value, stake: rSingle.stake, payout: rSingle.payout ?? 0, isCombo: false }
-        } else if (rCombo) {
-          riskyHit = { name: pMap[rCombo.user_id] ?? 'Unbekannt', odds: rCombo.total_odds, stake: rCombo.stake, payout: rCombo.payout, isCombo: true }
-        }
+      for (const c of wonCombos) {
+        const e = wonSlips[c.user_id] ?? { count: 0, pnl: 0 }
+        wonSlips[c.user_id] = { count: e.count + 1, pnl: e.pnl + (c.payout - c.stake) }
       }
+      const fireEntry = Object.entries(wonSlips)
+        .filter(([, { count }]) => count >= 2)
+        .sort((a, b) => b[1].count - a[1].count || b[1].pnl - a[1].pnl)[0]
+      const onFire: RecapData['onFire'] = fireEntry
+        ? { name: pMap[fireEntry[0]] ?? 'Unbekannt', count: fireEntry[1].count, pnl: fireEntry[1].pnl }
+        : null
 
-      // Best winning odds — add stake
-      if (topSingle || topCombo) {
-        const sOdds2 = topSingle?.odds_value ?? 0
-        const cOdds2 = topCombo?.total_odds ?? 0
-        if (sOdds2 >= cOdds2 && topSingle) {
-          bestOdds = { name: pMap[topSingle.user_id] ?? 'Unbekannt', odds: topSingle.odds_value, stake: topSingle.stake, payout: topSingle.payout ?? 0, isCombo: false }
-        } else if (topCombo) {
-          bestOdds = { name: pMap[topCombo.user_id] ?? 'Unbekannt', odds: topCombo.total_odds, stake: topCombo.stake, payout: topCombo.payout, isCombo: true, legs: (legsByCombo[topCombo.id] ?? []).length }
-        }
-      }
-
-      // Wildenroth-Optimist: highest stake single bet on a Wildenroth win
-      let wildenrothOptimist: RecapData['wildenrothOptimist'] = null
-      if (wildenrothTeamId != null) {
-        const wOpt = singleBets
-          .filter(b => {
-            const m = matchMap.get((b as { match_id?: number }).match_id ?? -1)
-            if (!m) return false
-            const wIsHome = m.home_team_id === wildenrothTeamId
-            const wIsAway = m.away_team_id === wildenrothTeamId
-            if (!wIsHome && !wIsAway) return false
-            return b.market_type === '1x2' && ((wIsHome && b.selection === 'home') || (wIsAway && b.selection === 'away'))
-          })
-          .sort((a, b) => (b.stake ?? 0) - (a.stake ?? 0))[0]
-        if (wOpt) wildenrothOptimist = { name: pMap[wOpt.user_id] ?? 'Unbekannt', stake: wOpt.stake ?? 0, odds: wOpt.odds_value }
-      }
-
-      // Craziest Bet: non-cancelled bet/combo with highest odds (win or loss); tie → higher stake
-      const craziestSingle = [...singleBets].sort((a, b) => (b.odds_value - a.odds_value) || ((b.stake ?? 0) - (a.stake ?? 0)))[0] ?? null
-      const craziestCombo = [...recapCombos].sort((a, b) => (b.total_odds - a.total_odds) || (b.stake - a.stake))[0] ?? null
-      let craziestBet: RecapData['craziestBet'] = null
-      if (craziestSingle || craziestCombo) {
-        const sO = craziestSingle?.odds_value ?? 0
-        const cO = craziestCombo?.total_odds ?? 0
-        if (sO >= cO && craziestSingle) {
-          craziestBet = { name: pMap[craziestSingle.user_id] ?? 'Unbekannt', odds: craziestSingle.odds_value, stake: craziestSingle.stake ?? 0, isCombo: false, won: craziestSingle.status === 'won' }
-        } else if (craziestCombo) {
-          craziestBet = { name: pMap[craziestCombo.user_id] ?? 'Unbekannt', odds: craziestCombo.total_odds, stake: craziestCombo.stake, isCombo: true, won: craziestCombo.status === 'won' }
-        }
-      }
-
-      // Safest Banker: won bet/combo with the LOWEST odds
-      const lowSingle = wonSingles.length > 0 ? [...wonSingles].sort((a, b) => a.odds_value - b.odds_value)[0] : null
-      const lowCombo = wonCombos.length > 0 ? [...wonCombos].sort((a, b) => a.total_odds - b.total_odds)[0] : null
-      let safestBanker: RecapData['safestBanker'] = null
-      if (lowSingle || lowCombo) {
-        const sO = lowSingle?.odds_value ?? Infinity
-        const cO = lowCombo?.total_odds ?? Infinity
-        if (sO <= cO && lowSingle) {
-          safestBanker = { name: pMap[lowSingle.user_id] ?? 'Unbekannt', odds: lowSingle.odds_value, stake: lowSingle.stake ?? 0, payout: lowSingle.payout ?? 0, isCombo: false }
-        } else if (lowCombo) {
-          safestBanker = { name: pMap[lowCombo.user_id] ?? 'Unbekannt', odds: lowCombo.total_odds, stake: lowCombo.stake, payout: lowCombo.payout, isCombo: true }
-        }
-      }
-
-      if (mvp || bestOdds || unluckyBastard || biggestLoss || safestTip || bestCombo || riskyHit || wildenrothOptimist || craziestBet || safestBanker) {
-        recapData = { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip, bestCombo, riskyHit, wildenrothOptimist, craziestBet, safestBanker }
+      if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire) {
+        recapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire }
       }
     }
   }

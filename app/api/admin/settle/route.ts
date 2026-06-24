@@ -310,31 +310,134 @@ export async function POST(request: NextRequest) {
         const { data: mdMatchRows } = await admin.from('matches').select('id').eq('matchday', matchday)
         const mIds = (mdMatchRows ?? []).map((m: { id: number }) => m.id)
         if (mIds.length > 0) {
-          const { data: settledBets } = await admin
+          // Fetch all settled single bets for this matchday (no cancelled = not in won/lost)
+          const { data: rawBets } = await admin
             .from('bets')
-            .select('user_id, stake, odds_value, payout, status, is_risky, combo_id, market_type')
+            .select('user_id, match_id, stake, odds_value, payout, status, is_risky, combo_id, market_type, selection')
             .in('match_id', mIds)
             .in('status', ['won', 'lost'])
-          if (settledBets && settledBets.length > 0) {
-            const awardInputs: import('@/lib/awards').AwardInput[] = []
-            // MVP: highest net gain (singles only)
-            const netByUser: Record<string, number> = {}
-            for (const b of settledBets.filter((b: { combo_id: unknown }) => !b.combo_id)) {
-              const gain = b.status === 'won' ? (b.payout ?? 0) - b.stake : -b.stake
-              netByUser[b.user_id] = (netByUser[b.user_id] ?? 0) + gain
+          const allBets = rawBets ?? []
+          const singleBets = allBets.filter((b: { combo_id: unknown }) => !b.combo_id)
+          const legBets = allBets.filter((b: { combo_id: unknown }) => b.combo_id)
+          const comboIds = [...new Set(legBets.map((b: { combo_id: unknown }) => Number(b.combo_id)))]
+
+          // Fetch all combo_bets (won + lost) for these combos
+          type CB = { id: number; user_id: string; stake: number; total_odds: number; payout: number; status: string }
+          let comboBets: CB[] = []
+          // Also fetch ALL legs of these combos (may include legs outside this matchday)
+          let allLegs: { combo_id: number; status: string }[] = []
+          if (comboIds.length > 0) {
+            const { data: cbData } = await admin
+              .from('combo_bets')
+              .select('id, user_id, stake, total_odds, payout, status')
+              .in('id', comboIds)
+              .in('status', ['won', 'lost'])
+            comboBets = (cbData ?? []) as CB[]
+            const { data: legData } = await admin
+              .from('bets')
+              .select('combo_id, status')
+              .in('combo_id', comboIds)
+            allLegs = (legData ?? []).map((l: { combo_id: unknown; status: string }) => ({ combo_id: Number(l.combo_id), status: l.status }))
+          }
+
+          const wonSingles = singleBets.filter((b: { status: string }) => b.status === 'won')
+          const wonCombos  = comboBets.filter(c => c.status === 'won')
+          const lostSingles = singleBets.filter((b: { status: string }) => b.status === 'lost')
+          const lostCombos  = comboBets.filter(c => c.status === 'lost')
+
+          const awardInputs: import('@/lib/awards').AwardInput[] = []
+
+          // 1. Spieltagskönig — best net saldo (singles + combos)
+          const pnlByUser: Record<string, number> = {}
+          for (const b of singleBets) {
+            const g = b.status === 'won' ? (b.payout ?? 0) - b.stake : -b.stake
+            pnlByUser[b.user_id] = (pnlByUser[b.user_id] ?? 0) + g
+          }
+          for (const c of comboBets) {
+            const g = c.status === 'won' ? c.payout - c.stake : -c.stake
+            pnlByUser[c.user_id] = (pnlByUser[c.user_id] ?? 0) + g
+          }
+          const topPnl = Object.entries(pnlByUser).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1])[0]
+          if (topPnl) awardInputs.push({ user_id: topPnl[0], award_type: 'spieltagskoenig', value: topPnl[1], value_text: `+${topPnl[1].toFixed(2)} Wildis` })
+
+          // 2. Eier aus Stahl — highest won odds (singles OR combos)
+          const bestWonSingle = [...wonSingles].sort((a: { odds_value: number }, b: { odds_value: number }) => b.odds_value - a.odds_value)[0]
+          const bestWonCombo  = [...wonCombos].sort((a, b) => b.total_odds - a.total_odds)[0]
+          const eiSOdds = bestWonSingle?.odds_value ?? 0
+          const eiCOdds = bestWonCombo?.total_odds ?? 0
+          if (eiSOdds > 0 || eiCOdds > 0) {
+            if (eiSOdds >= eiCOdds && bestWonSingle) {
+              awardInputs.push({ user_id: bestWonSingle.user_id, award_type: 'eier_aus_stahl', value: eiSOdds, value_text: `@${eiSOdds.toFixed(2).replace('.', ',')}` })
+            } else if (bestWonCombo) {
+              awardInputs.push({ user_id: bestWonCombo.user_id, award_type: 'eier_aus_stahl', value: eiCOdds, value_text: `@${eiCOdds.toFixed(2).replace('.', ',')}` })
             }
-            const mvpEntry = Object.entries(netByUser).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1])[0]
-            if (mvpEntry) awardInputs.push({ user_id: mvpEntry[0], award_type: 'mvp', value: Number(mvpEntry[1]), value_text: `+${Number(mvpEntry[1]).toFixed(2)} Wildis` })
-            // Risky-Hit: best won single with odds > 20
-            const riskyWon = settledBets
-              .filter((b: { combo_id: unknown; status: string; odds_value: number }) => !b.combo_id && b.status === 'won' && b.odds_value > 20)
-              .sort((a: { odds_value: number }, b: { odds_value: number }) => b.odds_value - a.odds_value)[0]
-            if (riskyWon) awardInputs.push({ user_id: riskyWon.user_id, award_type: 'risky_hit', value: riskyWon.odds_value, value_text: `@${riskyWon.odds_value.toFixed(2)}` })
-            // Glaskugel: exact score correctly tipped
-            const exactWon = settledBets.filter((b: { market_type: string; status: string }) => b.market_type === 'exact_score' && b.status === 'won')
-            for (const b of exactWon) {
-              awardInputs.push({ user_id: b.user_id, award_type: 'glaskugel', value_text: 'Ergebnis getroffen' })
+          }
+
+          // 3. Unlucky Bastard — lost combo with exactly 1 lost leg, highest potential payout
+          const legsByCombo: Record<number, { status: string }[]> = {}
+          for (const l of allLegs) {
+            if (!legsByCombo[l.combo_id]) legsByCombo[l.combo_id] = []
+            legsByCombo[l.combo_id].push({ status: l.status })
+          }
+          const unlucky = lostCombos
+            .map(c => ({ c, legs: legsByCombo[c.id] ?? [], lostCount: (legsByCombo[c.id] ?? []).filter(l => l.status === 'lost').length }))
+            .filter(x => x.lostCount === 1 && x.legs.length >= 2 && x.legs.every(l => l.status !== 'pending'))
+            .sort((a, b) => (b.c.stake * b.c.total_odds) - (a.c.stake * a.c.total_odds))[0]
+          if (unlucky) {
+            const potential = unlucky.c.stake * unlucky.c.total_odds
+            awardInputs.push({ user_id: unlucky.c.user_id, award_type: 'unlucky_bastard', value: potential, value_text: `${Math.round(potential)} Wildis möglich` })
+          }
+
+          // 4. Ergebnis-Orakel — won exact_score bets; highest stake wins if multiple
+          const exactWon = singleBets
+            .filter((b: { market_type: string; status: string }) => b.market_type === 'exact_score' && b.status === 'won')
+            .sort((a: { stake: number }, b: { stake: number }) => b.stake - a.stake)
+          if (exactWon[0]) {
+            awardInputs.push({ user_id: exactWon[0].user_id, award_type: 'ergebnis_orakel', value: exactWon[0].stake, value_text: exactWon[0].selection })
+          }
+
+          // 5. Griff ins Klo — highest lost stake (single or combo)
+          const lostSTop = lostSingles.sort((a: { stake: number }, b: { stake: number }) => b.stake - a.stake)[0]
+          const lostCTop = lostCombos.sort((a, b) => b.stake - a.stake)[0]
+          const klSOdds = lostSTop?.stake ?? 0
+          const klCOdds = lostCTop?.stake ?? 0
+          if (klSOdds > 0 || klCOdds > 0) {
+            if (klSOdds >= klCOdds && lostSTop) {
+              awardInputs.push({ user_id: lostSTop.user_id, award_type: 'griff_ins_klo', value: klSOdds, value_text: `${klSOdds} Wildis versenkt` })
+            } else if (lostCTop) {
+              awardInputs.push({ user_id: lostCTop.user_id, award_type: 'griff_ins_klo', value: klCOdds, value_text: `${klCOdds} Wildis versenkt` })
             }
+          }
+
+          // 6. Betonmischer — lowest odds among won bets (tiebreak: higher stake)
+          const allWon = [
+            ...wonSingles.map((b: { user_id: string; odds_value: number; stake: number; payout: number }) => ({ user_id: b.user_id, odds: b.odds_value, stake: b.stake })),
+            ...wonCombos.map(c => ({ user_id: c.user_id, odds: c.total_odds, stake: c.stake })),
+          ]
+          if (allWon.length > 0) {
+            allWon.sort((a, b) => a.odds - b.odds || b.stake - a.stake)
+            const beton = allWon[0]
+            awardInputs.push({ user_id: beton.user_id, award_type: 'betonmischer', value: beton.odds, value_text: `@${beton.odds.toFixed(2).replace('.', ',')}` })
+          }
+
+          // 7. On Fire — most won bet slips (singles + combos each = 1), min 2, tiebreak: saldo
+          const wonSlips: Record<string, { count: number; pnl: number }> = {}
+          for (const b of wonSingles) {
+            const e = wonSlips[b.user_id] ?? { count: 0, pnl: 0 }
+            wonSlips[b.user_id] = { count: e.count + 1, pnl: e.pnl + ((b.payout ?? 0) - b.stake) }
+          }
+          for (const c of wonCombos) {
+            const e = wonSlips[c.user_id] ?? { count: 0, pnl: 0 }
+            wonSlips[c.user_id] = { count: e.count + 1, pnl: e.pnl + (c.payout - c.stake) }
+          }
+          const fireEntry = Object.entries(wonSlips)
+            .filter(([, { count }]) => count >= 2)
+            .sort((a, b) => b[1].count - a[1].count || b[1].pnl - a[1].pnl)[0]
+          if (fireEntry) {
+            awardInputs.push({ user_id: fireEntry[0], award_type: 'on_fire', value: fireEntry[1].count, value_text: `${fireEntry[1].count} Wettscheine gewonnen` })
+          }
+
+          if (awardInputs.length > 0) {
             await persistAwards(admin, '26/27', matchday, awardInputs)
           }
         }

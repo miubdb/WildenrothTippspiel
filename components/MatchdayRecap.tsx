@@ -13,48 +13,30 @@ export type RecapLegDetail = {
 }
 
 export type RecapData = {
-  mvp: { name: string; profit: number } | null
-  bestOdds: { name: string; odds: number; stake: number; payout: number; isCombo: boolean; legs?: number } | null
+  spieltagskoenig: { name: string; profit: number } | null
+  eierAusStahl: { name: string; odds: number; stake: number; payout: number; isCombo: boolean; legs?: number } | null
   unluckyBastard: {
     name: string; odds: number; stake: number; legs: number; wouldHavePayout: number
     legDetails: RecapLegDetail[]
   } | null
-  biggestLoss: { name: string; loss: number; isCombo: boolean } | null
-  safestTip: { name: string; odds: number; stake: number; payout: number } | null
-  bestCombo: { name: string; odds: number; stake: number; payout: number; legs: number } | null
-  riskyHit: { name: string; odds: number; stake: number; payout: number; isCombo: boolean } | null
-  wildenrothOptimist?: { name: string; stake: number; odds: number } | null
-  craziestBet?: { name: string; odds: number; stake: number; isCombo: boolean; won: boolean } | null
-  safestBanker?: { name: string; odds: number; stake: number; payout: number; isCombo: boolean } | null
+  ergebnisOrakel: { name: string; score: string; stake: number } | null
+  griffInsKlo: { name: string; loss: number; isCombo: boolean } | null
+  betonmischer: { name: string; odds: number; stake: number; payout: number; isCombo: boolean } | null
+  onFire: { name: string; count: number; pnl: number } | null
 }
 
-// Simple template texts per category — deterministic pick by name hash so the
-// same person always gets the same style, but variety across people.
+function fmtAmt(n: number) { return fmtWildi(n) }
+function fmtOdds(n: number) { return n.toFixed(2).replace('.', ',') }
+
 function nameHash(name: string): number {
   let h = 0
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
   return h
 }
-function pickTemplate(templates: string[], name: string): string {
-  return templates[nameHash(name) % templates.length]
-}
-const TEMPLATES = {
-  mvp: ['{name} räumt heute richtig ab.', '{name} lacht sich ins Fäustchen.'],
-  pechvogel: ['{name} hatte heute kein Glück.', 'Heute ist nicht {name}s Tag.'],
-  riskyHit: ['{name} hat Nerven aus Stahl — Quote {odds} gecasht.'],
-  craziestBet: ['{name} ist mit Quote {odds} ins Risiko gegangen.'],
-  wildenrothOptimist: ['{name} glaubt an die Truppe.'],
-  safestBanker: ['{name} spielt auf Sicherheit — und behält Recht.'],
-}
-function tpl(category: keyof typeof TEMPLATES, name: string, odds?: number): string {
-  return pickTemplate(TEMPLATES[category], name)
+function pickTpl(tpls: string[], name: string, odds?: number): string {
+  return tpls[nameHash(name) % tpls.length]
     .replace('{name}', name)
     .replace('{odds}', odds != null ? fmtOdds(odds) : '')
-}
-
-function fmtAmt(n: number) { return fmtWildi(n) }
-function fmtOdds(n: number) {
-  return n.toFixed(2).replace('.', ',')
 }
 
 function HighlightCard({
@@ -82,15 +64,13 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-orange-200 dark:border-orange-900/50 overflow-hidden">
       <div className="px-4 py-3 bg-orange-50 dark:bg-orange-900/20 border-b border-orange-100 dark:border-orange-900/30 flex items-center gap-2.5">
-        <span className="text-2xl">😬</span>
+        <span className="text-2xl">😭</span>
         <div>
           <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">Unlucky Bastard</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Nur 1 Tipp daneben – beinahe der Hit des Spieltags</div>
         </div>
       </div>
-
       <div className="px-4 py-3 space-y-3">
-        {/* Header: name + combo info */}
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="font-bold text-gray-900 dark:text-gray-100">{ub.name}</div>
@@ -103,8 +83,6 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
             <div className="font-bold text-gray-800 dark:text-gray-200 text-sm">{fmtAmt(ub.stake)} Wildis</div>
           </div>
         </div>
-
-        {/* Leg breakdown */}
         {ub.legDetails.length > 0 && (
           <div className="space-y-1.5">
             {ub.legDetails.map((leg, i) => (
@@ -130,8 +108,6 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
             ))}
           </div>
         )}
-
-        {/* Would-have payout */}
         <div className="bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-900/30 rounded-xl px-3 py-2.5 flex items-center gap-3">
           <span className="text-2xl">😭</span>
           <div className="flex-1">
@@ -186,45 +162,44 @@ function ShareModal({ share, onClose }: { share: NonNullable<ShareState>; onClos
 
 export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: number }) {
   const [share, setShare] = useState<ShareState>(null)
-  const { mvp, bestOdds, unluckyBastard, biggestLoss, safestTip, bestCombo, riskyHit } = data
-  const wildenrothOptimist = data.wildenrothOptimist ?? null
-  const craziestBet = data.craziestBet ?? null
-  const safestBanker = data.safestBanker ?? null
-  if (!mvp && !bestOdds && !unluckyBastard && !biggestLoss && !safestTip && !bestCombo && !riskyHit
-    && !wildenrothOptimist && !craziestBet && !safestBanker) return null
+  const { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire } = data
+
+  const hasAny = spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire
+  if (!hasAny) return null
 
   return (
     <div className="space-y-3">
       {/* Header */}
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4 shadow-sm">
         <div className="text-red-200 text-xs font-medium uppercase tracking-wide">{matchday}. Spieltag</div>
-        <div className="text-2xl font-black mt-0.5">Spieltags-Recap</div>
-        <div className="text-red-200 text-sm mt-1">Die Highlights des Spieltags</div>
+        <div className="text-2xl font-black mt-0.5">Pokale des Spieltags</div>
+        <div className="text-red-200 text-sm mt-1">Die Helden (und Pechvögel) der Woche</div>
       </div>
 
-      {/* Spieltags-König + Mutigster Treffer */}
-      {(mvp || bestOdds) && (
-        <div className={`grid gap-3 ${mvp && bestOdds ? 'grid-cols-2' : 'grid-cols-1'}`}>
-          {mvp && (
+      {/* Row 1: Spieltagskönig + Eier aus Stahl */}
+      {(spieltagskoenig || eierAusStahl) && (
+        <div className={`grid gap-3 ${spieltagskoenig && eierAusStahl ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {spieltagskoenig && (
             <HighlightCard
               emoji="🏆"
-              title="Spieltags-König"
-              name={mvp.name}
-              value={<>+{fmtAmt(mvp.profit)} Wildis <WildiIcon size={20} /></>}
-              detail={tpl('mvp', mvp.name)}
-              onShare={() => setShare({ type: 'mvp', data: { matchday, name: mvp.name, value: `+${fmtAmt(mvp.profit)} Wildis`, subtitle: tpl('mvp', mvp.name) } })}
-              accentBg="bg-green-50"
-              accentBorder="border-green-200"
-              accentText="text-green-600"
+              title="Spieltagskönig"
+              name={spieltagskoenig.name}
+              value={<>+{fmtAmt(spieltagskoenig.profit)} <WildiIcon size={20} /></>}
+              detail={pickTpl(['{name} räumt heute richtig ab.', '{name} lacht sich ins Fäustchen.'], spieltagskoenig.name)}
+              onShare={() => setShare({ type: 'mvp', data: { matchday, name: spieltagskoenig.name, value: `+${fmtAmt(spieltagskoenig.profit)} Wildis`, subtitle: `${spieltagskoenig.name} ist Spieltagskönig` } })}
+              accentBg="bg-yellow-50"
+              accentBorder="border-yellow-200"
+              accentText="text-yellow-600"
             />
           )}
-          {bestOdds && (
+          {eierAusStahl && (
             <HighlightCard
-              emoji="🎯"
-              title="Mutigster Treffer"
-              name={bestOdds.name}
-              value={`@${fmtOdds(bestOdds.odds)}`}
-              detail={`Einsatz ${fmtAmt(bestOdds.stake)} Wildis → +${fmtAmt(bestOdds.payout - bestOdds.stake)} Wildis${bestOdds.isCombo ? ` · ${bestOdds.legs ?? ''}er-Kombi` : ' · Einzelwette'}`}
+              emoji="🥚"
+              title="Eier aus Stahl"
+              name={eierAusStahl.name}
+              value={`@${fmtOdds(eierAusStahl.odds)}`}
+              detail={`Einsatz ${fmtAmt(eierAusStahl.stake)} Wildis → +${fmtAmt(eierAusStahl.payout - eierAusStahl.stake)} Wildis${eierAusStahl.isCombo && eierAusStahl.legs ? ` · ${eierAusStahl.legs}er-Kombi` : ''}`}
+              onShare={() => setShare({ type: 'risky', data: { matchday, name: eierAusStahl.name, value: `@${fmtOdds(eierAusStahl.odds)}`, subtitle: `${eierAusStahl.name} hatte Eier aus Stahl` } })}
               accentBg="bg-purple-50"
               accentBorder="border-purple-200"
               accentText="text-purple-700"
@@ -236,113 +211,65 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
       {/* Unlucky Bastard */}
       {unluckyBastard && <UnluckyBastardCard ub={unluckyBastard} />}
 
-      {/* Beste Kombi + Risky-Hit */}
-      {(bestCombo || riskyHit) && (
-        <div className={`grid gap-3 ${bestCombo && riskyHit ? 'grid-cols-2' : 'grid-cols-1'}`}>
-          {bestCombo && (
+      {/* Row 2: On Fire + Ergebnis-Orakel */}
+      {(onFire || ergebnisOrakel) && (
+        <div className={`grid gap-3 ${onFire && ergebnisOrakel ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {onFire && (
             <HighlightCard
-              emoji="🔗"
-              title="Beste Kombi"
-              name={bestCombo.name}
-              value={`@${fmtOdds(bestCombo.odds)}`}
-              detail={`${bestCombo.legs} Tipps · Einsatz ${fmtAmt(bestCombo.stake)} Wildis → +${fmtAmt(bestCombo.payout - bestCombo.stake)} Wildis`}
-              accentBg="bg-blue-50"
-              accentBorder="border-blue-200"
-              accentText="text-blue-700"
+              emoji="🔥"
+              title="On Fire"
+              name={onFire.name}
+              value={`${onFire.count}x gewonnen`}
+              detail={`Spieltagssaldo: ${onFire.pnl >= 0 ? '+' : ''}${fmtAmt(onFire.pnl)} Wildis`}
+              accentBg="bg-orange-50"
+              accentBorder="border-orange-200"
+              accentText="text-orange-600"
             />
           )}
-          {riskyHit && (
+          {ergebnisOrakel && (
             <HighlightCard
-              emoji="🎲"
-              title="Risky-Hit"
-              name={riskyHit.name}
-              value={`@${fmtOdds(riskyHit.odds)}`}
-              detail={`Einsatz ${fmtAmt(riskyHit.stake)} Wildis → +${fmtAmt(riskyHit.payout - riskyHit.stake)} Wildis${riskyHit.isCombo ? ' · Kombi' : ''}`}
-              onShare={() => setShare({ type: 'risky', data: { matchday, name: riskyHit.name, value: `@${fmtOdds(riskyHit.odds)}`, subtitle: tpl('riskyHit', riskyHit.name, riskyHit.odds) } })}
-              accentBg="bg-amber-50"
-              accentBorder="border-amber-200"
-              accentText="text-amber-700"
+              emoji="🔮"
+              title="Ergebnis-Orakel"
+              name={ergebnisOrakel.name}
+              value={ergebnisOrakel.score}
+              detail={`Einsatz ${fmtAmt(ergebnisOrakel.stake)} Wildis · Exaktes Ergebnis`}
+              accentBg="bg-indigo-50"
+              accentBorder="border-indigo-200"
+              accentText="text-indigo-700"
             />
           )}
         </div>
       )}
 
-      {/* Größter Verlust + Sicherster Treffer */}
-      {(biggestLoss || safestTip) && (
-        <div className={`grid gap-3 ${biggestLoss && safestTip ? 'grid-cols-2' : 'grid-cols-1'}`}>
-          {biggestLoss && (
+      {/* Row 3: Griff ins Klo + Betonmischer */}
+      {(griffInsKlo || betonmischer) && (
+        <div className={`grid gap-3 ${griffInsKlo && betonmischer ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          {griffInsKlo && (
             <HighlightCard
-              emoji="💸"
-              title="Größter Verlust"
-              name={biggestLoss.name}
-              value={<>-{fmtAmt(biggestLoss.loss)} Wildis <WildiIcon size={20} /></>}
-              detail={tpl('pechvogel', biggestLoss.name)}
-              onShare={() => setShare({ type: 'pechvogel', data: { matchday, name: biggestLoss.name, value: `-${fmtAmt(biggestLoss.loss)} Wildis`, subtitle: tpl('pechvogel', biggestLoss.name) } })}
+              emoji="🚽"
+              title="Griff ins Klo"
+              name={griffInsKlo.name}
+              value={<>-{fmtAmt(griffInsKlo.loss)} <WildiIcon size={20} /></>}
+              detail={pickTpl(['{name} greift daneben.', 'Heute ist nicht {name}s Tag.'], griffInsKlo.name)}
+              onShare={() => setShare({ type: 'pechvogel', data: { matchday, name: griffInsKlo.name, value: `-${fmtAmt(griffInsKlo.loss)} Wildis`, subtitle: `${griffInsKlo.name} greift ins Klo` } })}
               accentBg="bg-red-50"
               accentBorder="border-red-200"
               accentText="text-red-600"
             />
           )}
-          {safestTip && (
+          {betonmischer && (
             <HighlightCard
-              emoji="🧠"
-              title="Sicherster Treffer"
-              name={safestTip.name}
-              value={`@${fmtOdds(safestTip.odds)}`}
-              detail={`Einsatz ${fmtAmt(safestTip.stake)} Wildis → +${fmtAmt(safestTip.payout - safestTip.stake)} Wildis`}
-              accentBg="bg-teal-50"
-              accentBorder="border-teal-200"
-              accentText="text-teal-700"
+              emoji="🧱"
+              title="Betonmischer"
+              name={betonmischer.name}
+              value={`@${fmtOdds(betonmischer.odds)}`}
+              detail={`Einsatz ${fmtAmt(betonmischer.stake)} Wildis → +${fmtAmt(betonmischer.payout - betonmischer.stake)} Wildis`}
+              accentBg="bg-stone-50"
+              accentBorder="border-stone-200"
+              accentText="text-stone-600"
             />
           )}
         </div>
-      )}
-
-      {/* Wildenroth-Optimist + Craziest Bet */}
-      {(wildenrothOptimist || craziestBet) && (
-        <div className={`grid gap-3 ${wildenrothOptimist && craziestBet ? 'grid-cols-2' : 'grid-cols-1'}`}>
-          {wildenrothOptimist && (
-            <HighlightCard
-              emoji="❤️"
-              title="Wildenroth-Optimist"
-              name={wildenrothOptimist.name}
-              value={`${fmtAmt(wildenrothOptimist.stake)} Wildis`}
-              detail={tpl('wildenrothOptimist', wildenrothOptimist.name)}
-              sub={`Quote @${fmtOdds(wildenrothOptimist.odds)} auf den Sieg`}
-              accentBg="bg-rose-50"
-              accentBorder="border-rose-200"
-              accentText="text-rose-700"
-            />
-          )}
-          {craziestBet && (
-            <HighlightCard
-              emoji="🤪"
-              title="Verrückteste Wette"
-              name={craziestBet.name}
-              value={`@${fmtOdds(craziestBet.odds)}`}
-              detail={tpl('craziestBet', craziestBet.name, craziestBet.odds)}
-              sub={`Einsatz ${fmtAmt(craziestBet.stake)} Wildis · ${craziestBet.isCombo ? 'Kombi' : 'Einzel'} · ${craziestBet.won ? 'getroffen ✅' : 'daneben ❌'}`}
-              accentBg="bg-fuchsia-50"
-              accentBorder="border-fuchsia-200"
-              accentText="text-fuchsia-700"
-            />
-          )}
-        </div>
-      )}
-
-      {/* Safest Banker */}
-      {safestBanker && (
-        <HighlightCard
-          emoji="🛡️"
-          title="Safest Banker"
-          name={safestBanker.name}
-          value={`@${fmtOdds(safestBanker.odds)}`}
-          detail={tpl('safestBanker', safestBanker.name)}
-          sub={`Einsatz ${fmtAmt(safestBanker.stake)} Wildis → +${fmtAmt(safestBanker.payout - safestBanker.stake)} Wildis${safestBanker.isCombo ? ' · Kombi' : ''}`}
-          accentBg="bg-emerald-50"
-          accentBorder="border-emerald-200"
-          accentText="text-emerald-700"
-        />
       )}
 
       {share && <ShareModal share={share} onClose={() => setShare(null)} />}
