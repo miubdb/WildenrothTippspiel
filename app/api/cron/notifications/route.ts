@@ -5,10 +5,13 @@ import { sendPushToUser, sendPushToAll } from '@/lib/push'
 function bettingOpenTime(firstMatchDate: Date): Date {
   const berlinDate = firstMatchDate.toLocaleDateString('sv', { timeZone: 'Europe/Berlin' })
   const [y, m, d] = berlinDate.split('-').map(Number)
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
+  const matchDay = new Date(Date.UTC(y, m - 1, d))
+  const dow = matchDay.getUTCDay()
   const daysBack = dow === 0 ? 6 : dow - 1
-  const mondayD = d - daysBack
-  const mondayStr = `${y}-${String(m).padStart(2, '0')}-${String(mondayD).padStart(2, '0')}`
+  // Use Date arithmetic to avoid month-boundary issues (d - daysBack can be ≤ 0)
+  const monday = new Date(matchDay)
+  monday.setUTCDate(monday.getUTCDate() - daysBack)
+  const mondayStr = monday.toISOString().slice(0, 10)
   const probe = new Date(`${mondayStr}T12:00:00Z`)
   const berlinHour = parseInt(
     new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', hour12: false }).format(probe),
