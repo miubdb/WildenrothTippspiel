@@ -1418,16 +1418,20 @@ function PostponedMatchCard({
 }) {
   const [newDate, setNewDate] = useState('')
   const [newTime, setNewTime] = useState('')
+  const [newMatchday, setNewMatchday] = useState(String(match.matchday))
   const [loading, setLoading] = useState(false)
 
   async function reschedule() {
     if (!newDate || !newTime) { onMessage('Bitte Datum und Uhrzeit angeben.'); return }
+    const md = parseInt(newMatchday)
+    if (isNaN(md) || md < 1) { onMessage('Ungültiger Spieltag.'); return }
     setLoading(true)
+    // Build as local time (admin inputs local time, browser converts to UTC via toISOString)
     const isoDate = new Date(`${newDate}T${newTime}:00`).toISOString()
     const res = await fetch('/api/admin/match-status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ matchId: match.id, action: 'reschedule', newDate: isoDate }),
+      body: JSON.stringify({ matchId: match.id, action: 'reschedule', newDate: isoDate, matchday: md }),
     })
     setLoading(false)
     if (res.ok) {
@@ -1450,7 +1454,7 @@ function PostponedMatchCard({
         {match.home_team?.name ?? '?'} – {match.away_team?.name ?? '?'}
       </div>
       <p className="text-xs text-gray-500 mb-2">Neuen Termin eintragen:</p>
-      <div className="flex gap-2 mb-3">
+      <div className="flex gap-2 mb-2">
         <input
           type="date"
           value={newDate}
@@ -1463,6 +1467,19 @@ function PostponedMatchCard({
           onChange={(e) => setNewTime(e.target.value)}
           className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
         />
+      </div>
+      <div className="flex items-center gap-2 mb-3">
+        <label className="text-xs text-gray-500 flex-shrink-0">Spieltag:</label>
+        <input
+          type="number"
+          min="1"
+          value={newMatchday}
+          onChange={(e) => setNewMatchday(e.target.value)}
+          className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+        />
+        {parseInt(newMatchday) !== match.matchday && (
+          <span className="text-xs text-amber-600 font-medium">⚡ Spieltag wird geändert</span>
+        )}
       </div>
       <button
         onClick={reschedule}

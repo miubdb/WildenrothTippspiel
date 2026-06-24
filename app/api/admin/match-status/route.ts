@@ -18,12 +18,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 })
   }
 
-  let body: { matchId: number; action: 'postpone' | 'reschedule'; newDate?: string }
+  let body: { matchId: number; action: 'postpone' | 'reschedule'; newDate?: string; matchday?: number }
   try { body = await request.json() } catch {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
 
-  const { matchId, action, newDate } = body
+  const { matchId, action, newDate, matchday } = body
 
   if (typeof matchId !== 'number') {
     return NextResponse.json({ error: 'matchId erforderlich.' }, { status: 400 })
@@ -49,9 +49,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Ungültiges Datum.' }, { status: 400 })
     }
 
+    const updatePayload: Record<string, unknown> = { status: 'scheduled', match_date: parsedDate.toISOString() }
+    if (matchday != null && typeof matchday === 'number' && matchday > 0) {
+      updatePayload.matchday = matchday
+    }
+
     const { error } = await adminSupa
       .from('matches')
-      .update({ status: 'scheduled', match_date: parsedDate.toISOString() })
+      .update(updatePayload)
       .eq('id', matchId)
 
     if (error) return NextResponse.json({ error: 'Fehler beim Aktualisieren.' }, { status: 500 })
