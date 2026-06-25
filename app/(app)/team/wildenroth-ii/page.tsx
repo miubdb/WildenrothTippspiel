@@ -1,12 +1,9 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
-import type { Match } from '@/types'
-import { getForm } from '@/lib/odds'
 
 export const revalidate = 60
 
-const SEASON_START = '2026-08-01'
 const CREST = '/crests/spvgg-wildenroth.png'
 
 interface PlayerRow {
@@ -24,35 +21,6 @@ interface PlayerRow {
   is_freekick_taker: boolean | null
 }
 
-interface Standing {
-  teamId: number; teamName: string
-  played: number; w: number; d: number; l: number
-  gf: number; ga: number; gd: number; pts: number
-}
-
-function computeStandings(matches: Match[]): Standing[] {
-  const teamMap = new Map<number, string>()
-  for (const m of matches) {
-    if (m.home_team) teamMap.set(m.home_team_id, m.home_team.name)
-    if (m.away_team) teamMap.set(m.away_team_id, m.away_team.name)
-  }
-  const stats = new Map<number, Standing>()
-  for (const [id, name] of teamMap)
-    stats.set(id, { teamId: id, teamName: name, played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0 })
-  for (const m of matches) {
-    if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
-    const hs = m.home_score; const as_ = m.away_score
-    const home = stats.get(m.home_team_id)!; const away = stats.get(m.away_team_id)!
-    home.played++; away.played++
-    home.gf += hs; home.ga += as_; home.gd = home.gf - home.ga
-    away.gf += as_; away.ga += hs; away.gd = away.gf - away.ga
-    if (hs > as_) { home.w++; home.pts += 3; away.l++ }
-    else if (hs < as_) { away.w++; away.pts += 3; home.l++ }
-    else { home.d++; away.d++; home.pts++; away.pts++ }
-  }
-  return [...stats.values()].sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
-}
-
 const POSITIONS = [
   { key: 'Tor',       label: 'Tor' },
   { key: 'Abwehr',    label: 'Abwehr' },
@@ -60,7 +28,7 @@ const POSITIONS = [
   { key: 'Angriff',   label: 'Angriff' },
 ]
 
-function PlayerAvatar({ player, size = 40 }: { player: PlayerRow; size?: number }) {
+function PlayerAvatar({ player, size = 36 }: { player: PlayerRow; size?: number }) {
   const initials = player.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase()
   if (player.image_url) {
     return (
@@ -68,8 +36,6 @@ function PlayerAvatar({ player, size = 40 }: { player: PlayerRow; size?: number 
       <img
         src={player.image_url}
         alt={player.name}
-        width={size}
-        height={size}
         className="rounded-full object-cover flex-shrink-0 bg-gray-100"
         style={{ width: size, height: size }}
       />
@@ -85,38 +51,17 @@ function PlayerAvatar({ player, size = 40 }: { player: PlayerRow; size?: number 
   )
 }
 
-export default async function WildenrothTeamPage() {
+export default async function WildenrothIITeamPage() {
   const supabase = await createClient()
 
-  const [{ data: rawMatches }, { data: rawPlayers }] = await Promise.all([
-    supabase
-      .from('matches')
-      .select(`id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status,
-               home_team:teams!matches_home_team_id_fkey(id, name, short_name),
-               away_team:teams!matches_away_team_id_fkey(id, name, short_name)`)
-      .gte('match_date', SEASON_START)
-      .not('match_category', 'in', '("wildenroth_ii","b-klasse")')
-      .order('match_date', { ascending: true }),
-    supabase
-      .from('wildenroth_players')
-      .select('id, name, position, shirt_number, image_url, squad, games, goals, assists, is_goalkeeper, is_penalty_taker, is_freekick_taker')
-      .eq('active', true)
-      .in('squad', ['1', 'both'])
-      .order('name'),
-  ])
+  const { data: rawPlayers } = await supabase
+    .from('wildenroth_players')
+    .select('id, name, position, shirt_number, image_url, squad, games, goals, assists, is_goalkeeper, is_penalty_taker, is_freekick_taker')
+    .eq('active', true)
+    .in('squad', ['2', 'both'])
+    .order('name')
 
-  const matches: Match[] = (rawMatches ?? []).map((m) => ({
-    ...m,
-    home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
-    away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
-  }))
   const players: PlayerRow[] = (rawPlayers ?? []) as PlayerRow[]
-
-  const standings = computeStandings(matches)
-  const wildenrothSt = standings.find((s) => s.teamName.includes('Wildenroth') && !s.teamName.includes('II'))
-  const wildenrothPos = wildenrothSt ? standings.findIndex((s) => s.teamId === wildenrothSt.teamId) + 1 : 0
-  const hasFinished = matches.some((m) => m.status === 'finished')
-  const form = wildenrothSt ? getForm(matches, wildenrothSt.teamId, 5) : []
 
   const topScorers = [...players]
     .filter((p) => (p.goals ?? 0) > 0)
@@ -143,69 +88,28 @@ export default async function WildenrothTeamPage() {
             <Image src={CREST} alt="SpVgg Wildenroth" width={52} height={52} className="object-contain" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-red-200 text-xs font-medium uppercase tracking-wide">1. Mannschaft · Saison 26/27</div>
-            <h1 className="text-2xl font-black leading-tight">SpVgg Wildenroth</h1>
-            <div className="text-red-100 text-sm mt-1">
-              {wildenrothSt && hasFinished
-                ? `${wildenrothSt.w} Siege · ${wildenrothSt.d} Unentschieden · ${wildenrothSt.l} Niederlagen · ${wildenrothSt.gf}:${wildenrothSt.ga} Tore`
-                : 'Saison noch nicht gestartet'}
-            </div>
+            <div className="text-red-200 text-xs font-medium uppercase tracking-wide">2. Mannschaft · Saison 26/27</div>
+            <h1 className="text-2xl font-black leading-tight">SpVgg Wildenroth II</h1>
+            <div className="text-red-100 text-sm mt-1">B-Klasse 2</div>
           </div>
         </div>
       </div>
 
-      {/* Tab link to 2nd team */}
+      {/* Tab link to 1st team */}
       <Link
-        href="/team/wildenroth-ii"
+        href="/team/wildenroth"
         className="flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-2xl shadow-sm text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
       >
-        <span>Zur 2. Mannschaft (B-Klasse)</span>
+        <span>Zur 1. Mannschaft (Kreisliga)</span>
         <span className="text-gray-400">›</span>
       </Link>
 
-      {/* Standings & Form */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Tabellenplatz &amp; Form</h2>
-          <div className="text-xs text-gray-400 mt-0.5">Kreisliga Gruppe 2</div>
-        </div>
-        {wildenrothSt && hasFinished && wildenrothPos > 0 ? (
-          <>
-            <div className="grid grid-cols-4 divide-x divide-gray-100">
-              {[
-                { label: 'Platz', value: String(wildenrothPos) },
-                { label: 'Punkte', value: String(wildenrothSt.pts) },
-                { label: 'Spiele', value: String(wildenrothSt.played) },
-                { label: 'Tordiff.', value: wildenrothSt.gd >= 0 ? `+${wildenrothSt.gd}` : String(wildenrothSt.gd) },
-              ].map(({ label, value }) => (
-                <div key={label} className="px-3 py-3 text-center">
-                  <div className="text-xs text-gray-500 mb-1">{label}</div>
-                  <div className="font-black text-red-700 text-lg">{value}</div>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 px-4 py-3 border-t border-gray-100">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Form</span>
-              <div className="flex gap-1.5">
-                {form.length > 0 ? form.map((r, i) => (
-                  <span key={i} className={`w-5 h-5 rounded-full text-white text-[10px] font-bold flex items-center justify-center ${r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-gray-400' : 'bg-red-500'}`}>
-                    {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
-                  </span>
-                )) : <span className="text-sm text-gray-400">–</span>}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="px-4 py-8 text-center text-sm text-gray-400">Saison noch nicht gestartet</div>
-        )}
-      </div>
-
       {/* Top scorers */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Top-Torschützen</h2>
-        </div>
-        {topScorers.length > 0 ? (
+      {topScorers.length > 0 && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <h2 className="font-bold text-gray-900">Top-Torschützen</h2>
+          </div>
           <div className="divide-y divide-gray-50">
             {topScorers.map((p, idx) => (
               <div key={p.id} className="flex items-center gap-3 px-4 py-3">
@@ -228,15 +132,13 @@ export default async function WildenrothTeamPage() {
               </div>
             ))}
           </div>
-        ) : (
-          <div className="px-4 py-8 text-center text-sm text-gray-400">Noch keine Torschützen erfasst.</div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Squad */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Kader 1. Mannschaft</h2>
+          <h2 className="font-bold text-gray-900">Kader 2. Mannschaft</h2>
           <div className="text-xs text-gray-400 mt-0.5">{players.length} Spieler · Saison 26/27</div>
         </div>
         {grouped.length > 0 ? grouped.map((g) => (
@@ -256,12 +158,6 @@ export default async function WildenrothTeamPage() {
                       {p.name}
                       {p.squad === 'both' && (
                         <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-bold">I+II</span>
-                      )}
-                      {p.is_penalty_taker && (
-                        <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">Elfer</span>
-                      )}
-                      {p.is_freekick_taker && (
-                        <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">Freistoß</span>
                       )}
                     </div>
                   </div>

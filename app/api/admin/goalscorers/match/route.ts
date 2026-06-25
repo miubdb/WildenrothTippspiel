@@ -85,8 +85,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Players
-  const { data: playersRaw } = await supabase.from('wildenroth_players').select('*').eq('active', true)
+  // Players — only 1st-team squad for Kreisliga goalscorer markets
+  const { data: playersRaw } = await supabase.from('wildenroth_players').select('*').eq('active', true).in('squad', ['1', 'both'])
   const players = (playersRaw ?? []) as WildenrothPlayer[]
 
   // Season fixtures (same window as main odds logic)
