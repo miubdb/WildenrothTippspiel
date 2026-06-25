@@ -159,7 +159,6 @@ export async function sendPushToAll(title: string, body: string, url = '/tipps',
       .single()
 
     if (existing) {
-      console.log(`Push deduplicated: ${dedupeKey}`)
       return
     }
   }

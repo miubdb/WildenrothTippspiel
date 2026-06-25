@@ -109,7 +109,7 @@ function getTeamAwayPPG(matches: Match[], teamId: number): number {
 }
 
 /** Overall points per game (all games) */
-export function getTeamPPG(matches: Match[], teamId: number): number {
+function getTeamPPG(matches: Match[], teamId: number): number {
   const games = matches.filter(
     (m) =>
       m.status === 'finished' &&

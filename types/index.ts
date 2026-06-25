@@ -27,18 +27,6 @@ export interface Match {
   match_category?: 'kreisliga' | 'wildenroth_ii' | 'bklasse_topspiel' | 'b-klasse'
 }
 
-export interface Odds {
-  id: number
-  match_id: number
-  home_win: number
-  draw: number
-  away_win: number
-  over_2_5: number
-  under_2_5: number
-  btts_yes: number
-  btts_no: number
-  updated_at: string
-}
 
 export interface Profile {
   id: string
