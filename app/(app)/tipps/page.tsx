@@ -94,7 +94,7 @@ export default async function TippsPage({
   }
   const priorCtx = buildPriorContext(priorMatches, teamNames)
 
-  const SEASON_START_TIPPS = '2026-08-01'
+  const SEASON_START_TIPPS = '2026-06-01'
   // Matchday 999 is the test matchday — always include it regardless of date
   const seasonMatches = allMatches.filter((m) => m.matchday === 999 || m.match_date >= SEASON_START_TIPPS)
   const isPreSeason = seasonMatches.filter((m) => m.matchday !== 999).length === 0
@@ -141,7 +141,7 @@ export default async function TippsPage({
   const bettingOpens = deadline ? bettingOpenTime(deadline) : null
   const isBettingOpen = !bettingOpens || new Date() >= bettingOpens
 
-  const SEASON_START = '2026-08-01'
+  const SEASON_START = '2026-06-01'
   // seasonMatches already declared above as filtered by SEASON_START_TIPPS (same value)
 
   // Odds snapshot: freeze odds at Monday 12:00 — only use matches finished before that cutoff
