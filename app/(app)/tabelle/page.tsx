@@ -168,7 +168,7 @@ async function getPriorStandings(supabase: Awaited<ReturnType<typeof import('@/l
 const OUR_TEAMS = new Set(['TSV Geiselbullach','SpVgg Wildenroth','SC Schöngeising','TSV Altenstadt','TSV Peiting','FC Wildsteig/Rottenbuch','SC Unterpfaffenhofen','SV Fuchstal','TSV 1882 Landsberg II','FC Aich','SC Oberweikertshofen II','TSV Türkenfeld','SV Igling','FC Issing','VfL Denklingen','TSV Oberalting-Seefeld'])
 
 // B-Klasse teams (2. Mannschaft) — IDs 29–40
-const BKLASSE_TEAM_NAMES = ['SV Adelshofen II','SV Germering III','VSST Günzelhofen','TSV Herrsching II','SV Kottgeisering','FC Landsberied II','SV Mammendorf','TSV Moorenweis II','SC Schöngeising II','TV Stockdorf II','TSV Türkenfeld II','SpVgg Wildenroth II']
+const BKLASSE_TEAM_NAMES = ['SV Adelshofen II','SV Germering III','VSST Günzlhofen','TSV Herrsching II','SV Kottgeisering','FC Landsberied II','SV Mammendorf','TSV Moorenweis II','SC Schöngeising II','TV Stockdorf II','TSV Türkenfeld II','SpVgg Wildenroth II']
 const BKLASSE_TEAM_IDS = new Set([29,30,31,32,33,34,35,36,37,38,39,40])
 
 const PRIOR_NAME_MAP: Record<string, string> = { 'TSV Oberalting': 'TSV Oberalting-Seefeld' }
