@@ -365,6 +365,28 @@ export default function AdminPage() {
               </div>
             )}
 
+            {/* Postponed — shown above upcoming so it's immediately visible */}
+            {postponedMatches.length > 0 && (
+              <div>
+                <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">
+                  Verschobene Spiele ({postponedMatches.length})
+                </h2>
+                <p className="text-xs text-gray-400 mb-2">
+                  Sobald ein neuer Termin feststeht, Datum aktualisieren → Spiel wird wieder als &quot;Geplant&quot; geführt.
+                </p>
+                <div className="space-y-2">
+                  {postponedMatches.map((match) => (
+                    <PostponedMatchCard
+                      key={match.id}
+                      match={match}
+                      onRescheduled={fetchMatches}
+                      onMessage={setMessage}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Upcoming matches — also allow early settle for rescheduled games */}
             {upcomingMatches.length > 0 && (
               <div>
@@ -387,28 +409,6 @@ export default function AdminPage() {
                       isUpcoming
                       pendingBets={pendingBetsByMatch[match.id]}
                       onCategoryChange={handleCategoryChange}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Postponed */}
-            {postponedMatches.length > 0 && (
-              <div>
-                <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">
-                  Verschobene Spiele ({postponedMatches.length})
-                </h2>
-                <p className="text-xs text-gray-400 mb-2">
-                  Sobald ein neuer Termin feststeht, Datum aktualisieren → Spiel wird wieder als &quot;Geplant&quot; geführt.
-                </p>
-                <div className="space-y-2">
-                  {postponedMatches.map((match) => (
-                    <PostponedMatchCard
-                      key={match.id}
-                      match={match}
-                      onRescheduled={fetchMatches}
-                      onMessage={setMessage}
                     />
                   ))}
                 </div>
