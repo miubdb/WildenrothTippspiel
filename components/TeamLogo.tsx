@@ -1,5 +1,6 @@
 'use client'
 
+import NextImage from 'next/image'
 import { useState } from 'react'
 
 const LOGO_ALIAS: Record<string, string> = {
@@ -32,6 +33,8 @@ export function TeamLogo({
   const slug = teamSlug(name)
   const initial = name.replace(/^(SpVgg|SpFr|TSV|FC|SV|VfL|1\.\s*SC|SC)\s+/i, '').trim()[0]?.toUpperCase() ?? '?'
 
+  const sizeMap = { xs: 16, sm: 24, md: 32, lg: 40 }
+  const px = sizeMap[size]
   const dim = size === 'xs' ? 'w-4 h-4 text-[8px]'
     : size === 'sm' ? 'w-6 h-6 text-[10px]'
     : size === 'md' ? 'w-8 h-8 text-xs'
@@ -46,10 +49,11 @@ export function TeamLogo({
   }
 
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
+    <NextImage
       src={`/crests/${slug}.png`}
       alt={name}
+      width={px}
+      height={px}
       onError={() => setFailed(true)}
       className={`${dim} rounded-full object-contain flex-shrink-0 ${className}`}
     />
