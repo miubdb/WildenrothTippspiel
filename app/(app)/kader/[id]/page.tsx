@@ -146,7 +146,7 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
       <div className="px-4 space-y-4 mt-4">
 
         {/* Persönliches */}
-        {(p.birth_date || p.height || p.strong_foot || p.nationality) && (
+        {(p.birth_date || p.height || p.strong_foot) && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3">
             <div className="flex flex-wrap gap-x-5 gap-y-2">
               {p.birth_date && (
@@ -174,11 +174,6 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
                     <div className="text-sm font-bold text-gray-900">{p.strong_foot}</div>
                     <div className="text-[11px] text-gray-400">Starker Fuß</div>
                   </div>
-                </div>
-              )}
-              {p.nationality && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xl leading-none">{p.nationality}</span>
                 </div>
               )}
             </div>
@@ -222,8 +217,8 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
         {career.length > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-4 pt-3 pb-2 border-b border-gray-100">
-              <h2 className="font-bold text-gray-900 text-sm">Karriere-Bilanz</h2>
-              <p className="text-[11px] text-gray-400">Alle Stationen zusammen</p>
+              <h2 className="font-bold text-gray-900 text-sm">Wildenroth Karriere-Bilanz</h2>
+              <p className="text-[11px] text-gray-400">Pflichtspiele im Wildenroth Dress</p>
             </div>
             <div className="grid grid-cols-3 divide-x divide-gray-100">
               <CardStat label="Spiele" value={careerGames} />
