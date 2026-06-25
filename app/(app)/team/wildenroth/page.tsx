@@ -246,7 +246,7 @@ export default async function WildenrothTeamPage() {
             </div>
             <div className="divide-y divide-gray-50">
               {g.list.map((p) => (
-                <div key={p.id} className="flex items-center gap-3 px-4 py-2.5">
+                <Link key={p.id} href={`/kader/${p.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors">
                   <PlayerAvatar player={p} size={36} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1.5 flex-wrap">
@@ -277,7 +277,7 @@ export default async function WildenrothTeamPage() {
                     <div className="text-sm font-bold text-gray-900">{p.assists ?? 0}</div>
                     <div className="text-[10px] text-gray-400">Assists</div>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
