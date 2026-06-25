@@ -50,6 +50,10 @@ function CardStat({ label, value, sub }: { label: string; value: string | number
   )
 }
 
+function Card({ color, height }: { color: string; height?: number }) {
+  return <div className={`w-3.5 rounded-sm ${color}`} style={{ height: height ?? 18 }} />
+}
+
 export default async function KaderProfilPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const playerId = Number(id)
@@ -65,20 +69,17 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
   if (!p) notFound()
 
   const career: CareerRow[] = (careerRaw ?? []) as CareerRow[]
+  const visibleCareer = career.filter(c => c.games > 0)
 
   const backHref = p.squad === '2' ? '/team/wildenroth-ii' : '/team/wildenroth'
 
-  const careerTotals = career.reduce(
-    (acc, r) => ({
-      games: acc.games + r.games,
-      goals: acc.goals + r.goals,
-      assists: acc.assists + r.assists,
-      yellow: acc.yellow + r.yellow_cards,
-      yellowRed: acc.yellowRed + r.yellow_red_cards,
-      red: acc.red + r.red_cards,
-    }),
-    { games: 0, goals: 0, assists: 0, yellow: 0, yellowRed: 0, red: 0 }
-  )
+  const careerGames   = career.reduce((s, r) => s + r.games, 0)
+  const careerGoals   = career.reduce((s, r) => s + r.goals, 0)
+  const careerAssists = career.reduce((s, r) => s + r.assists, 0)
+  const careerYellow    = p.career_yellow    ?? 0
+  const careerYellowRed = p.career_yellow_red ?? 0
+  const careerRed       = p.career_red        ?? 0
+  const hasCards = careerYellow > 0 || careerYellowRed > 0 || careerRed > 0
 
   const initials = p.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
   const squadLabel = p.squad === '1' ? '1. Mannschaft' : p.squad === '2' ? '2. Mannschaft' : '1. & 2. Mannschaft'
@@ -92,7 +93,7 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
   return (
     <div className="pb-8">
       {/* Hero */}
-      <div className="relative bg-gradient-to-b from-red-800 via-red-700 to-red-600 px-5 pt-4 pb-8">
+      <div className="bg-gradient-to-b from-red-800 via-red-700 to-red-600 px-5 pt-4 pb-6">
         <Link href={backHref} className="flex items-center gap-1 text-red-200 text-sm mb-4">
           <span className="text-lg leading-none">‹</span> Zurück
         </Link>
@@ -124,6 +125,9 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
             <div className="text-red-200 text-xs font-semibold uppercase tracking-widest mb-0.5">{squadLabel}</div>
             <h1 className="text-white text-2xl font-black leading-tight">{p.name}</h1>
             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              {p.player_role && (
+                <span className="text-xs bg-yellow-400/20 text-yellow-200 border border-yellow-300/30 px-2.5 py-1 rounded-full font-bold">{p.player_role}</span>
+              )}
               {p.position && (
                 <span className="text-xs bg-white/15 text-white px-2.5 py-1 rounded-full font-semibold">{p.position}</span>
               )}
@@ -142,14 +146,41 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
       <div className="px-4 space-y-4 mt-4">
 
         {/* Persönliches */}
-        {p.birth_date && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3 flex items-center gap-3">
-            <span className="text-2xl">🎂</span>
-            <div>
-              <div className="text-sm font-bold text-gray-900">
-                {formatDate(p.birth_date)}
-              </div>
-              <div className="text-xs text-gray-400">{age(p.birth_date)} Jahre</div>
+        {(p.birth_date || p.height || p.strong_foot || p.nationality) && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3">
+            <div className="flex flex-wrap gap-x-5 gap-y-2">
+              {p.birth_date && (
+                <div className="flex items-center gap-2">
+                  <span className="text-base">🎂</span>
+                  <div>
+                    <div className="text-sm font-bold text-gray-900">{formatDate(p.birth_date)}</div>
+                    <div className="text-[11px] text-gray-400">{age(p.birth_date)} Jahre</div>
+                  </div>
+                </div>
+              )}
+              {p.height && (
+                <div className="flex items-center gap-2">
+                  <span className="text-base">📏</span>
+                  <div>
+                    <div className="text-sm font-bold text-gray-900">{p.height} cm</div>
+                    <div className="text-[11px] text-gray-400">Größe</div>
+                  </div>
+                </div>
+              )}
+              {p.strong_foot && (
+                <div className="flex items-center gap-2">
+                  <span className="text-base">⚽</span>
+                  <div>
+                    <div className="text-sm font-bold text-gray-900">{p.strong_foot}</div>
+                    <div className="text-[11px] text-gray-400">Starker Fuß</div>
+                  </div>
+                </div>
+              )}
+              {p.nationality && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xl leading-none">{p.nationality}</span>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -195,29 +226,31 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
               <p className="text-[11px] text-gray-400">Alle Stationen zusammen</p>
             </div>
             <div className="grid grid-cols-3 divide-x divide-gray-100">
-              <CardStat label="Spiele" value={careerTotals.games} />
-              <CardStat label="Tore" value={careerTotals.goals} />
-              <CardStat label="Assists" value={careerTotals.assists} />
+              <CardStat label="Spiele" value={careerGames} />
+              <CardStat label="Tore" value={careerGoals} />
+              <CardStat label="Assists" value={careerAssists} />
             </div>
-            {(careerTotals.yellow > 0 || careerTotals.yellowRed > 0 || careerTotals.red > 0) && (
-              <div className="flex items-center gap-4 px-4 py-3 border-t border-gray-100">
-                {careerTotals.yellow > 0 && (
+            {hasCards && (
+              <div className="flex items-center gap-5 px-4 py-3 border-t border-gray-100">
+                {careerYellow > 0 && (
                   <div className="flex items-center gap-1.5">
-                    <div className="w-3.5 h-4.5 rounded-sm bg-yellow-400" style={{ height: 18 }} />
-                    <span className="text-sm font-bold text-gray-700">{careerTotals.yellow}</span>
+                    <Card color="bg-yellow-400" />
+                    <span className="text-sm font-bold text-gray-700">{careerYellow}</span>
                   </div>
                 )}
-                {careerTotals.yellowRed > 0 && (
-                  <div className="flex items-center gap-0.5">
-                    <div className="w-3 rounded-sm bg-yellow-400" style={{ height: 18 }} />
-                    <div className="w-3 rounded-sm bg-red-500 -ml-1" style={{ height: 18 }} />
-                    <span className="text-sm font-bold text-gray-700 ml-1.5">{careerTotals.yellowRed}</span>
+                {careerYellowRed > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <div className="flex">
+                      <Card color="bg-yellow-400" />
+                      <Card color="bg-red-500" />
+                    </div>
+                    <span className="text-sm font-bold text-gray-700">{careerYellowRed}</span>
                   </div>
                 )}
-                {careerTotals.red > 0 && (
+                {careerRed > 0 && (
                   <div className="flex items-center gap-1.5">
-                    <div className="w-3.5 rounded-sm bg-red-500" style={{ height: 18 }} />
-                    <span className="text-sm font-bold text-gray-700">{careerTotals.red}</span>
+                    <Card color="bg-red-500" />
+                    <span className="text-sm font-bold text-gray-700">{careerRed}</span>
                   </div>
                 )}
               </div>
@@ -226,14 +259,14 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
         )}
 
         {/* Stationen */}
-        {career.length > 0 && (
+        {visibleCareer.length > 0 && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-4 pt-3 pb-2 border-b border-gray-100">
               <h2 className="font-bold text-gray-900 text-sm">Spielerstationen</h2>
-              <p className="text-[11px] text-gray-400">{career.filter(c => c.games > 0).length} Stationen</p>
+              <p className="text-[11px] text-gray-400">{visibleCareer.length} Stationen</p>
             </div>
             <div className="divide-y divide-gray-50">
-              {career.filter(c => c.games > 0).map((c, i, arr) => {
+              {visibleCareer.map((c, i, arr) => {
                 const isII = c.team_name.includes('II')
                 const isCurrent = i === 0
                 return (
