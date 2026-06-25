@@ -13,7 +13,7 @@ import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type Goalscorer
 import Link from 'next/link'
 import { crestPath } from '@/lib/teams'
 
-export const revalidate = 60
+export const revalidate = 0
 
 const SELECTION_DISPLAY: Record<string, Record<string, string>> = {
   '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
