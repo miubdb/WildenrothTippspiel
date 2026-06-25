@@ -139,7 +139,7 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
       </div>
 
       {/* Content */}
-      <div className="px-4 space-y-4 -mt-4">
+      <div className="px-4 space-y-4 mt-4">
 
         {/* Persönliches */}
         {p.birth_date && (
@@ -230,10 +230,10 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="px-4 pt-3 pb-2 border-b border-gray-100">
               <h2 className="font-bold text-gray-900 text-sm">Spielerstationen</h2>
-              <p className="text-[11px] text-gray-400">{career.length} Stationen</p>
+              <p className="text-[11px] text-gray-400">{career.filter(c => c.games > 0).length} Stationen</p>
             </div>
             <div className="divide-y divide-gray-50">
-              {career.map((c, i) => {
+              {career.filter(c => c.games > 0).map((c, i, arr) => {
                 const isII = c.team_name.includes('II')
                 const isCurrent = i === 0
                 return (
@@ -241,7 +241,7 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
                     {/* Timeline dot */}
                     <div className="flex flex-col items-center flex-shrink-0" style={{ width: 20 }}>
                       <div className={`w-2.5 h-2.5 rounded-full border-2 ${isCurrent ? 'bg-red-600 border-red-600' : 'bg-white border-gray-300'}`} />
-                      {i < career.length - 1 && <div className="w-px flex-1 bg-gray-200 mt-1" style={{ minHeight: 16 }} />}
+                      {i < arr.length - 1 && <div className="w-px flex-1 bg-gray-200 mt-1" style={{ minHeight: 16 }} />}
                     </div>
 
                     {/* Info */}
