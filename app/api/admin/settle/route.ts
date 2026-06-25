@@ -396,17 +396,13 @@ export async function POST(request: NextRequest) {
             awardInputs.push({ user_id: exactWon[0].user_id, award_type: 'ergebnis_orakel', value: exactWon[0].stake, value_text: exactWon[0].selection })
           }
 
-          // 5. Griff ins Klo — highest lost stake (single or combo)
-          const lostSTop = lostSingles.sort((a: { stake: number }, b: { stake: number }) => b.stake - a.stake)[0]
-          const lostCTop = lostCombos.sort((a, b) => b.stake - a.stake)[0]
-          const klSOdds = lostSTop?.stake ?? 0
-          const klCOdds = lostCTop?.stake ?? 0
-          if (klSOdds > 0 || klCOdds > 0) {
-            if (klSOdds >= klCOdds && lostSTop) {
-              awardInputs.push({ user_id: lostSTop.user_id, award_type: 'griff_ins_klo', value: klSOdds, value_text: `${klSOdds} Wildis versenkt` })
-            } else if (lostCTop) {
-              awardInputs.push({ user_id: lostCTop.user_id, award_type: 'griff_ins_klo', value: klCOdds, value_text: `${klCOdds} Wildis versenkt` })
-            }
+          // 5. Griff ins Klo — highest lost stake; tiebreak: higher potential payout (stake × odds)
+          const lostAll = [
+            ...lostSingles.map((b: { user_id: string; stake: number; odds_value: number }) => ({ user_id: b.user_id, stake: b.stake, potential: b.stake * b.odds_value })),
+            ...lostCombos.map(c => ({ user_id: c.user_id, stake: c.stake, potential: c.stake * c.total_odds })),
+          ].sort((a, b) => b.stake - a.stake || b.potential - a.potential)
+          if (lostAll[0]) {
+            awardInputs.push({ user_id: lostAll[0].user_id, award_type: 'griff_ins_klo', value: lostAll[0].stake, value_text: `${lostAll[0].stake} Wildis versenkt` })
           }
 
           // 6. Betonmischer — lowest odds among won bets (tiebreak: higher stake)
