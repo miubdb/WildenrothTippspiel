@@ -97,7 +97,8 @@ export default async function TippsPage({
   const SEASON_START_TIPPS = '2026-08-01'
   // Matchday 999 is the test matchday — always include it regardless of date
   const seasonMatches = allMatches.filter((m) => m.matchday === 999 || m.match_date >= SEASON_START_TIPPS)
-  const isPreSeason = seasonMatches.filter((m) => m.matchday !== 999).length === 0
+  const seasonStarted = await isSeasonStarted(supabase)
+  const isPreSeason = !seasonStarted || seasonMatches.filter((m) => m.matchday !== 999).length === 0
 
   // Pre-season: show 1-28 placeholder; in-season: derive from actual matches
   // Always include test matchday 999 when it exists
@@ -391,7 +392,6 @@ export default async function TippsPage({
   const isWildenrothPlayer = userProfile?.is_wildenroth ?? false
 
   // Saisonstart-Regel: nicht teilnahmeberechtigte Nutzer bekommen eine Hinweis-Seite
-  const seasonStarted = await isSeasonStarted(supabase)
   const isNotEligible = seasonStarted && !!user
     && !userProfile?.eligible_for_current_season && !userProfile?.is_admin
 
