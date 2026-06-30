@@ -103,14 +103,26 @@ export default async function TippsPage({
   // Pre-season: show 1-28 placeholder; in-season: derive from actual matches
   // Always include test matchday 999 when it exists
   const hasTestMatchday = seasonMatches.some(m => m.matchday === 999)
+
+  // The BFV sometimes schedules a matchday's makeup date well after later-numbered
+  // matchdays (e.g. Spieltag 2 played as a midweek catch-up after Spieltag 7).
+  // The official matchday NUMBER stays as-is everywhere (labels, tables, results),
+  // but ordering/"default"/"completed" logic must follow actual kickoff dates.
+  const matchdayMinDate = new Map<number, number>()
+  for (const m of seasonMatches) {
+    if (m.matchday === 999) continue
+    const t = new Date(m.match_date).getTime()
+    const prev = matchdayMinDate.get(m.matchday)
+    if (prev === undefined || t < prev) matchdayMinDate.set(m.matchday, t)
+  }
+
   const allMatchdays = isPreSeason
     ? [...(hasTestMatchday ? [999] : []), ...Array.from({ length: 28 }, (_, i) => i + 1)]
-    : [...new Set(seasonMatches.map((m) => m.matchday))].sort((a, b) => a - b)
+    : [...new Set(seasonMatches.map((m) => m.matchday))]
+        .sort((a, b) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0))
 
-  const firstScheduled = seasonMatches
-    .filter((m) => m.status === 'scheduled')
-    .map((m) => m.matchday)
-    .sort((a, b) => a - b)[0]
+  const firstScheduled = [...new Set(seasonMatches.filter((m) => m.status === 'scheduled').map((m) => m.matchday))]
+    .sort((a, b) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0))[0]
 
   // Before Monday 12:00 Berlin → default to last completed matchday (Sunday games just ended)
   // After Monday 12:00 Berlin → default to next upcoming matchday
@@ -121,12 +133,18 @@ export default async function TippsPage({
     const nonPostponed = mdM.filter((m) => m.status !== 'postponed')
     return nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
   })
-  const lastCompletedMd = completedMatchdays.length > 0 ? Math.max(...completedMatchdays) : null
+  const lastCompletedMd = completedMatchdays.length > 0
+    ? completedMatchdays.reduce((latest, md) =>
+        (matchdayMinDate.get(md) ?? 0) > (matchdayMinDate.get(latest) ?? 0) ? md : latest
+      )
+    : null
   const defaultMatchday = isPreSeason
     ? (hasTestMatchday ? 999 : 1)
     : isBeforeMondayNoon && lastCompletedMd != null
       ? lastCompletedMd
-      : (firstScheduled ?? Math.max(...allMatchdays))
+      : (firstScheduled ?? allMatchdays.filter(md => md !== 999).reduce((latest, md) =>
+          (matchdayMinDate.get(md) ?? 0) > (matchdayMinDate.get(latest) ?? 0) ? md : latest
+        ))
   const requestedMd = params.matchday ? parseInt(params.matchday, 10) : null
   const currentMatchday =
     requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
