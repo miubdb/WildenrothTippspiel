@@ -636,8 +636,8 @@ export function getExactScoreOdds(
 
   const results: { score: string; odds: number; total: number; homeGoals: number }[] = []
 
-  for (let h = 0; h <= 7; h++) {
-    for (let a = 0; a <= 7; a++) {
+  for (let h = 0; h <= 8; h++) {
+    for (let a = 0; a <= 8; a++) {
       const o = toOdds(poisson(homeXG, h) * poisson(awayXG, a))
       if (o <= MAX_EXACT_ODDS) {
         results.push({ score: `${h}:${a}`, odds: o, total: h + a, homeGoals: h })
