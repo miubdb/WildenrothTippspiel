@@ -153,37 +153,27 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
 
       {/* Teams Row */}
       <div className="px-4 pt-3 pb-2">
-        <div className="flex items-center">
-          <div className="flex-1 text-left">
-            <div className="flex items-center gap-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={crestPath(homeName)} alt="" className="w-8 h-8 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-              <div>
-                <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">{homeName}</div>
-                <FormBadges form={homeForm} />
-              </div>
-            </div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <div className="flex flex-col items-center text-center gap-1 min-w-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={crestPath(homeName)} alt="" className="w-8 h-8 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            <div className="font-bold text-gray-900 dark:text-gray-100 text-xs sm:text-sm leading-tight line-clamp-2 min-h-[2.4em] flex items-center">{homeName}</div>
+            <FormBadges form={homeForm} />
           </div>
 
           {match.status === 'finished' ? (
-            <div className="mx-3 bg-gray-800 text-white text-base font-black px-3 py-1 rounded-lg tabular-nums">
+            <div className="bg-gray-800 text-white text-base font-black px-3 py-1 rounded-lg tabular-nums flex-shrink-0">
               {match.home_score} : {match.away_score}
             </div>
           ) : (
-            <div className="mx-3 text-gray-300 dark:text-gray-600 font-light text-lg">vs</div>
+            <div className="text-gray-300 dark:text-gray-600 font-light text-sm flex-shrink-0 px-1">vs</div>
           )}
 
-          <div className="flex-1 text-right">
-            <div className="flex items-center gap-2 justify-end">
-              <div>
-                <div className="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight">{awayName}</div>
-                <div className="flex justify-end">
-                  <FormBadges form={awayForm} />
-                </div>
-              </div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={crestPath(awayName)} alt="" className="w-8 h-8 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-            </div>
+          <div className="flex flex-col items-center text-center gap-1 min-w-0">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={crestPath(awayName)} alt="" className="w-8 h-8 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            <div className="font-bold text-gray-900 dark:text-gray-100 text-xs sm:text-sm leading-tight line-clamp-2 min-h-[2.4em] flex items-center">{awayName}</div>
+            <FormBadges form={awayForm} />
           </div>
         </div>
         {(match.match_category === 'wildenroth_ii' || match.match_category === 'bklasse_topspiel') && (

@@ -48,6 +48,9 @@ export function TeamLogo({
     )
   }
 
+  // Crests are shield-shaped and drawn edge-to-edge in their square canvas —
+  // a circular (rounded-full) mask clips their corners (year, club name arc).
+  // A softly rounded square shows the whole badge instead.
   return (
     <NextImage
       src={`/crests/${slug}.png`}
@@ -55,7 +58,7 @@ export function TeamLogo({
       width={px}
       height={px}
       onError={() => setFailed(true)}
-      className={`${dim} rounded-full object-contain flex-shrink-0 ${className}`}
+      className={`${dim} rounded-md object-contain flex-shrink-0 ${className}`}
     />
   )
 }

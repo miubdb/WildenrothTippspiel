@@ -1,9 +1,11 @@
 import Image from 'next/image'
+import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { BetSlipProvider } from '@/context/BetSlipContext'
 import { BottomNav } from '@/components/BottomNav'
 import { PushSync } from '@/components/PushSync'
+import { ScrollToTopOnNavigate } from '@/components/ScrollToTopOnNavigate'
 import { WildiIcon, fmtWildi } from '@/components/WildiIcon'
 
 export default async function AppLayout({
@@ -52,10 +54,13 @@ export default async function AppLayout({
         </header>
 
         {/* Main Content */}
-        <main className="flex-1 overflow-y-auto pb-20 max-w-lg mx-auto w-full">
+        <main id="app-main" className="flex-1 overflow-y-auto pb-20 max-w-lg mx-auto w-full">
           {children}
         </main>
 
+        <Suspense fallback={null}>
+          <ScrollToTopOnNavigate />
+        </Suspense>
         <PushSync />
         <BottomNav isAdmin={profile?.is_admin ?? false} />
       </div>
