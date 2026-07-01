@@ -156,9 +156,11 @@ export default async function TippsPage({
   const deadline = matchdayMatches[0] ? new Date(matchdayMatches[0].match_date) : null
   const isDeadlinePassed = deadline ? deadline <= new Date() : false
 
-  // Betting window: opens Monday 12:00 of match week
+  // Betting window: opens Monday 12:00 of match week (unless early_betting_open override is set)
+  const { data: earlyOpenSetting } = await supabase.from('app_settings').select('value').eq('key', 'early_betting_open').single()
+  const earlyBettingOpen = earlyOpenSetting?.value === 'true'
   const bettingOpens = deadline ? bettingOpenTime(deadline) : null
-  const isBettingOpen = !bettingOpens || new Date() >= bettingOpens
+  const isBettingOpen = earlyBettingOpen || !bettingOpens || new Date() >= bettingOpens
 
   const SEASON_START = '2026-08-01'
   // seasonMatches already declared above as filtered by SEASON_START_TIPPS (same value)
