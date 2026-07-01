@@ -237,18 +237,9 @@ export async function POST(request: NextRequest) {
   for (const userId of allAffectedUsers) {
     const amount = userBalanceUpdates[userId] ?? 0
     if (amount > 0) {
-      const { data: currentProfile } = await adminSupaSettle
-        .from('profiles')
-        .select('balance')
-        .eq('id', userId)
-        .single()
-
-      if (currentProfile) {
-        await adminSupaSettle
-          .from('profiles')
-          .update({ balance: currentProfile.balance + amount })
-          .eq('id', userId)
-      }
+      // Atomic increment — avoids losing a payout if this races a concurrent
+      // bet placement/cancellation or another settle call for the same user.
+      await adminSupaSettle.rpc('increment_balance', { p_user_id: userId, p_amount: amount })
     }
 
     const won = userWonCount[userId] ?? 0
@@ -479,18 +470,13 @@ export async function POST(request: NextRequest) {
 
           const { data: allProfiles } = await admin
             .from('profiles')
-            .select('id, balance')
+            .select('id')
 
           const INACTIVITY_PENALTY = 100
           await Promise.allSettled(
             (allProfiles ?? [])
               .filter(p => !activeUserIds.has(p.id))
-              .map(p =>
-                admin
-                  .from('profiles')
-                  .update({ balance: Math.max(0, (p.balance as number) - INACTIVITY_PENALTY) })
-                  .eq('id', p.id)
-              )
+              .map(p => admin.rpc('apply_penalty', { p_user_id: p.id, p_amount: INACTIVITY_PENALTY }))
           )
         }
       }

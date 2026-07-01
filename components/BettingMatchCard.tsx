@@ -6,7 +6,7 @@ import type { OddsData } from '@/types'
 import { useBetSlip } from '@/context/BetSlipContext'
 import { getExactScoreOdds, getForm, getTeamRecord } from '@/lib/odds'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
-import { crestPath } from '@/lib/teams'
+import { TeamLogo } from '@/components/TeamLogo'
 
 type GoalscorerRow = {
   player_id: number
@@ -156,7 +156,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
           <div className="flex flex-col items-center text-center gap-1 min-w-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={crestPath(homeName)} alt="" className="w-8 h-8 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            <TeamLogo name={homeName} size="md" />
             <div className="font-bold text-gray-900 dark:text-gray-100 text-xs sm:text-sm leading-tight line-clamp-2 min-h-[2.4em] flex items-center">{homeName}</div>
             <FormBadges form={homeForm} />
           </div>
@@ -171,7 +171,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
 
           <div className="flex flex-col items-center text-center gap-1 min-w-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={crestPath(awayName)} alt="" className="w-8 h-8 object-contain flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+            <TeamLogo name={awayName} size="md" />
             <div className="font-bold text-gray-900 dark:text-gray-100 text-xs sm:text-sm leading-tight line-clamp-2 min-h-[2.4em] flex items-center">{awayName}</div>
             <FormBadges form={awayForm} />
           </div>
@@ -179,10 +179,10 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         {(match.match_category === 'wildenroth_ii' || match.match_category === 'bklasse_topspiel') && (
           <div className="flex gap-1.5 mt-1">
             {match.match_category === 'wildenroth_ii' && (
-              <span className="text-[10px] font-bold bg-red-100 text-red-700 rounded px-1.5 py-0.5">WILDENROTH II</span>
+              <span className="text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded px-1.5 py-0.5">WILDENROTH II</span>
             )}
             {match.match_category === 'bklasse_topspiel' && (
-              <span className="text-[10px] font-bold bg-blue-100 text-blue-700 rounded px-1.5 py-0.5">B-KLASSE</span>
+              <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded px-1.5 py-0.5">B-KLASSE</span>
             )}
           </div>
         )}

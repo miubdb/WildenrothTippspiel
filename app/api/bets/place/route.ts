@@ -59,20 +59,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Keine Auswahlen.' }, { status: 400 })
   }
 
-  // Validate stakes
+  // Validate stakes — must be a finite, whole, positive number within bounds.
+  // (Client only enforces min="1" in the UI, which a direct API call can bypass.)
+  function isValidStake(n: unknown): n is number {
+    return typeof n === 'number' && Number.isFinite(n) && Number.isInteger(n) && n >= 1 && n <= MAX_STAKE
+  }
+
   if (mode === 'combo') {
-    if (comboStake > MAX_STAKE) {
+    if (!isValidStake(comboStake)) {
       return NextResponse.json(
-        { error: `Maximaler Einsatz pro Wette: ${MAX_STAKE} Wildis.` },
+        { error: `Einsatz muss zwischen 1 und ${MAX_STAKE} Wildis liegen.` },
         { status: 400 }
       )
     }
   } else {
     for (const s of selections) {
-      const stake = s.stake || 10
-      if (stake > MAX_STAKE) {
+      if (!isValidStake(s.stake)) {
         return NextResponse.json(
-          { error: `Maximaler Einsatz pro Wette: ${MAX_STAKE} Wildis.` },
+          { error: `Einsatz muss zwischen 1 und ${MAX_STAKE} Wildis liegen.` },
           { status: 400 }
         )
       }
@@ -184,6 +188,65 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Spieler aktuell nicht wettbar.' }, { status: 400 })
       }
       if (Math.abs(expectedOdds - s.oddsValue) > 0.011) {
+        return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })
+      }
+    }
+  }
+
+  // Standard-market odds validation: the client computes/displays odds but the
+  // server must not trust them blindly — otherwise a direct API call could submit
+  // an inflated oddsValue and get paid out at a fabricated rate. Validate against
+  // the frozen `odds` row for that match (the same values the client was shown).
+  const ODDS_COLUMN: Record<string, Record<string, string>> = {
+    '1x2': { home: 'home_win', draw: 'draw', away: 'away_win' },
+    double_chance: { '1x': 'odds_1x', x2: 'odds_x2', '12': 'odds_12' },
+    over_under: { 'over_2.5': 'over_2_5', 'under_2.5': 'under_2_5' },
+    over_under_3_5: { 'over_3.5': 'over_3_5', 'under_3.5': 'under_3_5' },
+    over_under_5_5: { 'over_5.5': 'over_5_5', 'under_5.5': 'under_5_5' },
+    over_under_7_5: { 'over_7.5': 'over_7_5', 'under_7.5': 'under_7_5' },
+    btts: { yes: 'btts_yes', no: 'btts_no' },
+    handicap: {
+      home_minus_1_5: 'hdp_home_minus_1_5',
+      away_plus_1_5: 'hdp_away_plus_1_5',
+      home_minus_2_5: 'hdp_home_minus_2_5',
+      away_plus_2_5: 'hdp_away_plus_2_5',
+    },
+  }
+  const oddsCheckedSels = selections.filter(s => ODDS_COLUMN[s.marketType])
+  const exactScoreSels = selections.filter(s => s.marketType === 'exact_score')
+
+  if (oddsCheckedSels.length > 0 || exactScoreSels.length > 0) {
+    const { data: oddsRows } = await supabase
+      .from('odds')
+      .select('*')
+      .in('match_id', matchIds)
+    const oddsMap = new Map((oddsRows ?? []).map(r => [r.match_id, r]))
+
+    for (const s of oddsCheckedSels) {
+      const row = oddsMap.get(s.matchId)
+      const col = ODDS_COLUMN[s.marketType][s.selection]
+      if (!row || !col || row[col] == null) {
+        return NextResponse.json({ error: 'Quote nicht verfügbar. Bitte Seite neu laden.' }, { status: 400 })
+      }
+      if (Math.abs(Number(row[col]) - s.oddsValue) > 0.02) {
+        return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })
+      }
+    }
+
+    // Exact score odds aren't frozen in a dedicated column (computed on the fly),
+    // so apply a sanity bound instead: a specific score can never be more likely
+    // (i.e. never have lower odds) than the broad 1X2 outcome it belongs to.
+    for (const s of exactScoreSels) {
+      const row = oddsMap.get(s.matchId)
+      if (!row) {
+        return NextResponse.json({ error: 'Quote nicht verfügbar. Bitte Seite neu laden.' }, { status: 400 })
+      }
+      const [hg, ag] = s.selection.split(':').map(Number)
+      if (!Number.isFinite(hg) || !Number.isFinite(ag)) {
+        return NextResponse.json({ error: 'Ungültiger Ergebnis-Tipp.' }, { status: 400 })
+      }
+      const directionOdds = hg > ag ? Number(row.home_win) : hg < ag ? Number(row.away_win) : Number(row.draw)
+      if (s.oddsValue < directionOdds - 0.02 || s.oddsValue > 60.02) {
         return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })
       }
     }
@@ -322,17 +385,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Get user profile and balance
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('balance')
-    .eq('id', user.id)
-    .single()
-
-  if (profileError || !profile) {
-    return NextResponse.json({ error: 'Profil nicht gefunden.' }, { status: 400 })
-  }
-
   // Use test season label for test matchday so bets are excluded from real leaderboard P&L
   const isTestMatchday = matches.some(m => m.matchday === TEST_MATCHDAY)
   const betSeason = isTestMatchday ? 'TEST' : CURRENT_SEASON
@@ -342,14 +394,29 @@ export async function POST(request: NextRequest) {
   if (mode === 'combo') {
     totalCost = comboStake
   } else {
-    totalCost = selections.reduce((acc, s) => acc + (s.stake || 10), 0)
+    totalCost = selections.reduce((acc, s) => acc + s.stake, 0)
   }
 
-  if (profile.balance < totalCost) {
-    return NextResponse.json(
-      { error: `Nicht genug Guthaben. Verfügbar: ${profile.balance.toFixed(2)} Wildis, Benötigt: ${totalCost.toFixed(2)} Wildis` },
-      { status: 400 }
-    )
+  // Deduct balance FIRST via an atomic DB function (UPDATE ... WHERE balance >= amount
+  // in a single statement) — this closes a double-spend race where two concurrent
+  // requests could both read the same stale balance and both succeed. Doing this
+  // before inserting bet rows also avoids ever persisting a "free" unpaid bet if a
+  // later step fails; if bet insertion fails afterward we refund via increment_balance.
+  const { data: newBalanceAfterDeduct, error: deductError } = await supabase.rpc('deduct_balance', {
+    p_user_id: user.id,
+    p_amount: totalCost,
+  })
+
+  if (deductError) {
+    if (deductError.message?.includes('INSUFFICIENT_BALANCE')) {
+      const { data: profile } = await supabase.from('profiles').select('balance').eq('id', user.id).single()
+      return NextResponse.json(
+        { error: `Nicht genug Guthaben. Verfügbar: ${(profile?.balance ?? 0).toFixed(2)} Wildis, Benötigt: ${totalCost.toFixed(2)} Wildis` },
+        { status: 400 }
+      )
+    }
+    console.error('deduct_balance error:', deductError)
+    return NextResponse.json({ error: 'Fehler beim Verarbeiten des Einsatzes.' }, { status: 500 })
   }
 
   // Place bets
@@ -371,6 +438,7 @@ export async function POST(request: NextRequest) {
 
     if (comboError || !comboBet) {
       console.error('combo_bets insert error:', comboError)
+      await supabase.rpc('increment_balance', { p_user_id: user.id, p_amount: totalCost })
       return NextResponse.json({ error: 'Fehler beim Erstellen der Kombiwette.' }, { status: 500 })
     }
 
@@ -391,6 +459,8 @@ export async function POST(request: NextRequest) {
     const { error: betsError } = await supabase.from('bets').insert(betRows)
     if (betsError) {
       console.error('bets insert error (combo legs):', betsError)
+      await supabase.rpc('increment_balance', { p_user_id: user.id, p_amount: totalCost })
+      await supabase.from('combo_bets').delete().eq('id', comboBet.id)
       return NextResponse.json({ error: 'Fehler beim Speichern der Wetten.' }, { status: 500 })
     }
   } else {
@@ -399,33 +469,22 @@ export async function POST(request: NextRequest) {
       match_id: s.matchId,
       market_type: s.marketType,
       selection: s.selection,
-      stake: s.stake || 10,
+      stake: s.stake,
       odds_value: s.oddsValue,
       status: 'pending',
       payout: null,
       combo_id: null,
       is_risky: isRisky ?? false,
-      season: CURRENT_SEASON,
+      season: betSeason,
     }))
 
     const { error: betsError } = await supabase.from('bets').insert(betRows)
     if (betsError) {
       console.error('bets insert error (single):', betsError)
+      await supabase.rpc('increment_balance', { p_user_id: user.id, p_amount: totalCost })
       return NextResponse.json({ error: 'Fehler beim Speichern der Wetten.' }, { status: 500 })
     }
   }
 
-  // Deduct balance
-  const newBalance = profile.balance - totalCost
-  const { error: balanceError } = await supabase
-    .from('profiles')
-    .update({ balance: newBalance })
-    .eq('id', user.id)
-
-  if (balanceError) {
-    console.error('balance update error:', balanceError)
-    return NextResponse.json({ error: 'Fehler beim Aktualisieren des Guthabens.' }, { status: 500 })
-  }
-
-  return NextResponse.json({ success: true, newBalance })
+  return NextResponse.json({ success: true, newBalance: newBalanceAfterDeduct })
 }

@@ -64,11 +64,16 @@ export async function POST(request: NextRequest) {
     await supabase.from('bets').delete().eq('combo_id', comboId)
     await supabase.from('combo_bets').delete().eq('id', comboId)
 
-    // Refund stake
-    const { data: profile } = await supabase
-      .from('profiles').select('balance').eq('id', user.id).single()
-    const newBalance = (profile?.balance ?? 0) + combo.stake
-    await supabase.from('profiles').update({ balance: newBalance }).eq('id', user.id)
+    // Refund stake atomically (avoids the stale-read-then-write race a plain
+    // select+update would have if two cancellations/settlements overlap)
+    const { data: newBalance, error: refundError } = await supabase.rpc('increment_balance', {
+      p_user_id: user.id,
+      p_amount: combo.stake,
+    })
+    if (refundError) {
+      console.error('combo refund error:', refundError)
+      return NextResponse.json({ error: 'Fehler bei der Rückerstattung.' }, { status: 500 })
+    }
 
     return NextResponse.json({ success: true, newBalance })
   } else {
@@ -111,10 +116,14 @@ export async function POST(request: NextRequest) {
 
     await supabase.from('bets').delete().eq('id', bet.id)
 
-    const { data: profile } = await supabase
-      .from('profiles').select('balance').eq('id', user.id).single()
-    const newBalance = (profile?.balance ?? 0) + (bet.stake ?? 0)
-    await supabase.from('profiles').update({ balance: newBalance }).eq('id', user.id)
+    const { data: newBalance, error: refundError } = await supabase.rpc('increment_balance', {
+      p_user_id: user.id,
+      p_amount: bet.stake ?? 0,
+    })
+    if (refundError) {
+      console.error('single bet refund error:', refundError)
+      return NextResponse.json({ error: 'Fehler bei der Rückerstattung.' }, { status: 500 })
+    }
 
     return NextResponse.json({ success: true, newBalance })
   }

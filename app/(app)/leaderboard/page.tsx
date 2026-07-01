@@ -49,19 +49,31 @@ export default async function LeaderboardPage({
   // Only current-season matches drive the leaderboard matchday list
   // Matchday 999 is the test matchday — include regardless of date
   const seasonMatches = allMatchesRaw2.filter(m => m.matchday === 999 || m.match_date >= SEASON_START)
+
+  // The league sometimes plays a matchday's makeup date well after later-numbered
+  // matchdays (e.g. Spieltag 2 as a midweek catch-up after Spieltag 7). The official
+  // matchday NUMBER stays as the label, but ordering/"current"/"completed" must
+  // follow actual kickoff dates — mirrors the same fix applied in tipps/page.tsx.
+  const matchdayMinDate = new Map<number, number>()
+  for (const m of seasonMatches) {
+    if (m.matchday === 999) continue
+    const t = new Date(m.match_date).getTime()
+    const prev = matchdayMinDate.get(m.matchday)
+    if (prev === undefined || t < prev) matchdayMinDate.set(m.matchday, t)
+  }
+  const byKickoff = (a: number, b: number) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0)
+
   // Fall back to 1-28 placeholder when no real season matches exist yet (ignore test matchday)
   const allMatchdays = seasonMatches.filter(m => m.matchday !== 999).length > 0
-    ? [...new Set(seasonMatches.map(m => m.matchday))].sort((a, b) => a - b)
+    ? [...new Set(seasonMatches.map(m => m.matchday))].sort(byKickoff)
     : Array.from({ length: 28 }, (_, i) => i + 1)
   const allMatches = allMatchesRaw2
   const allBets = (allBetsRaw ?? []).filter(b => !b.season || b.season === CURRENT_SEASON)
   const allCombos = (allCombosRaw ?? []).filter(c => !c.season || c.season === CURRENT_SEASON)
 
   // Current matchday for Spieltag tab
-  const firstScheduledMd = seasonMatches
-    .filter(m => m.status === 'scheduled')
-    .map(m => m.matchday)
-    .sort((a, b) => a - b)[0]
+  const firstScheduledMd = [...new Set(seasonMatches.filter(m => m.status === 'scheduled').map(m => m.matchday))]
+    .sort(byKickoff)[0]
 
   // Before Monday 12:00 Berlin → show last completed matchday; after → show upcoming matchday
   const thisWeekMondayNoon = bettingOpenTime(new Date())
@@ -70,13 +82,15 @@ export default async function LeaderboardPage({
     const mdM = seasonMatches.filter((m) => m.matchday === md)
     return mdM.length > 0 && mdM.every((m) => m.status === 'finished')
   })
-  const lastCompletedMd = completedMatchdays.length > 0 ? Math.max(...completedMatchdays) : null
+  const lastCompletedMd = completedMatchdays.length > 0
+    ? completedMatchdays.reduce((latest, md) => byKickoff(md, latest) > 0 ? md : latest)
+    : null
   // Pre-season: no season matches → default to Spieltag 1
   const defaultMatchday = seasonMatches.length === 0
     ? 1
     : isBeforeMondayNoon && lastCompletedMd != null
       ? lastCompletedMd
-      : (firstScheduledMd ?? (allMatchdays.length > 0 ? Math.max(...allMatchdays) : null))
+      : (firstScheduledMd ?? (allMatchdays.length > 0 ? allMatchdays.reduce((latest, md) => byKickoff(md, latest) > 0 ? md : latest) : null))
 
   const requestedMd = params.spieltag ? parseInt(params.spieltag, 10) : null
   const currentMatchday = requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
