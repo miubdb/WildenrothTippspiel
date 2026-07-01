@@ -596,12 +596,12 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
   const colors = { 1: 'bg-yellow-100 border-2 border-yellow-300', 2: 'bg-gray-100 border-2 border-gray-300', 3: 'bg-orange-50 border-2 border-orange-200' } as const
 
   return (
-    <div className="flex-1 flex flex-col items-center">
+    <div className="flex-1 min-w-0 max-w-28 flex flex-col items-center">
       <Link href={`/spieler/${profile.id}`} className="mb-2 flex-shrink-0">
         <Avatar profile={profile} size="lg" isMe={isMe} className={`${featured ? 'w-14 h-14' : 'w-12 h-12'} ${isMe ? 'ring-2 ring-red-300' : 'hover:opacity-80'}`} />
       </Link>
-      <div className="text-center mb-1">
-        <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate max-w-20">{profile.display_name || profile.username}</div>
+      <div className="text-center mb-1 w-full">
+        <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">{profile.display_name || profile.username}</div>
         <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(displayBalance)} Wildis</div>
         <div className={`text-xs font-semibold tabular-nums leading-tight ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{profit >= 0 ? '+' : ''}{fmtWildi(profit)} Wildis</div>
         <div className="flex items-center justify-center gap-1 mt-0.5">

@@ -243,13 +243,13 @@ export default async function TabellePage({
     if (bklasse) {
       if (pos === 1) return 'bg-green-600 text-white'        // Direktaufstieg
       if (pos === total) return 'bg-red-500 text-white'      // Direktabstieg
-      return 'text-gray-400'
+      return 'text-gray-400 dark:text-gray-500'
     }
     if (pos === 1) return 'bg-green-600 text-white'
-    if (pos === 2) return 'bg-green-200 text-green-800'
+    if (pos === 2) return 'bg-green-200 dark:bg-green-900/40 text-green-800 dark:text-green-400'
     if (total >= 16 && pos >= total - 1) return 'bg-red-500 text-white'
-    if (total >= 16 && pos >= total - 3 && pos <= total - 2) return 'bg-orange-200 text-orange-700'
-    return 'text-gray-400'
+    if (total >= 16 && pos >= total - 3 && pos <= total - 2) return 'bg-orange-200 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400'
+    return 'text-gray-400 dark:text-gray-500'
   }
 
   return (
@@ -275,7 +275,7 @@ export default async function TabellePage({
           className={`flex-1 text-center py-2.5 rounded-xl text-sm font-semibold transition-colors ${
             !isB
               ? 'bg-red-700 text-white shadow-sm'
-              : 'bg-white text-gray-500 border border-gray-200'
+              : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
           }`}
         >
           1. Mannschaft
@@ -285,7 +285,7 @@ export default async function TabellePage({
           className={`flex-1 text-center py-2.5 rounded-xl text-sm font-semibold transition-colors ${
             isB
               ? 'bg-red-700 text-white shadow-sm'
-              : 'bg-white text-gray-500 border border-gray-200'
+              : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
           }`}
         >
           2. Mannschaft
@@ -293,17 +293,17 @@ export default async function TabellePage({
       </div>
 
       {/* Standings Table */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Tabellenstand</h2>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+          <h2 className="font-bold text-gray-900 dark:text-gray-100">Tabellenstand</h2>
         </div>
 
-        <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-2 px-3 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-100">
+        <div className="grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-2 px-3 py-2 bg-gray-50 dark:bg-gray-900 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide border-b border-gray-100 dark:border-gray-700">
           <div className="w-6 text-center">#</div>
           <div>Verein</div>
           <div className="w-7 text-center">Sp.</div>
           <div className="w-10 text-center">Tore</div>
-          <div className="w-8 text-center font-bold text-gray-700">Pkt.</div>
+          <div className="w-8 text-center font-bold text-gray-700 dark:text-gray-300">Pkt.</div>
         </div>
 
         {standings.map((s, idx) => {
@@ -314,8 +314,8 @@ export default async function TabellePage({
           return (
             <div
               key={s.teamId}
-              className={`grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-2 px-3 py-2.5 items-center border-b border-gray-50 last:border-0 ${
-                isWildenroth ? 'bg-red-50' : ''
+              className={`grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-2 px-3 py-2.5 items-center border-b border-gray-50 dark:border-gray-700/50 last:border-0 ${
+                isWildenroth ? 'bg-red-50 dark:bg-red-900/20' : ''
               }`}
             >
               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${badgeStyle}`}>
@@ -346,7 +346,7 @@ export default async function TabellePage({
                 <div className="flex items-center gap-1.5 min-w-0">
                   <TeamLogo name={s.teamName} size="xs" className="flex-shrink-0" />
                   <div className="min-w-0">
-                    <div className="text-sm font-semibold leading-tight truncate text-gray-900">
+                    <div className="text-sm font-semibold leading-tight truncate text-gray-900 dark:text-gray-100">
                       {s.teamName}
                     </div>
                     <div className="flex gap-0.5 mt-0.5">
@@ -362,30 +362,30 @@ export default async function TabellePage({
                 </div>
               )}
 
-              <div className="w-7 text-center text-xs text-gray-500">{s.played}</div>
-              <div className="w-10 text-center text-xs text-gray-600">{s.gf}:{s.ga}</div>
-              <div className={`w-8 text-center text-sm font-black ${isWildenroth ? 'text-red-700' : 'text-gray-900'}`}>{s.pts}</div>
+              <div className="w-7 text-center text-xs text-gray-500 dark:text-gray-400">{s.played}</div>
+              <div className="w-10 text-center text-xs text-gray-600 dark:text-gray-300">{s.gf}:{s.ga}</div>
+              <div className={`w-8 text-center text-sm font-black ${isWildenroth ? 'text-red-700 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'}`}>{s.pts}</div>
             </div>
           )
         })}
       </div>
 
       {/* Legend */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-4 py-3">
-        <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
+        <div className="flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400">
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded-full bg-green-600" />
             <span>Direktaufstieg (Platz 1)</span>
           </div>
           {!isB && (
             <div className="flex items-center gap-1.5">
-              <div className="w-4 h-4 rounded-full bg-green-200" />
+              <div className="w-4 h-4 rounded-full bg-green-200 dark:bg-green-900/40" />
               <span>Aufstiegsrelegation (Platz 2)</span>
             </div>
           )}
           {!isB && (
             <div className="flex items-center gap-1.5">
-              <div className="w-4 h-4 rounded-full bg-orange-200" />
+              <div className="w-4 h-4 rounded-full bg-orange-200 dark:bg-orange-900/40" />
               <span>Abstiegsrelegation (Platz 13–14)</span>
             </div>
           )}
@@ -398,21 +398,21 @@ export default async function TabellePage({
 
       {/* Team Stats */}
       {!isB && playedMatchdays === 0 && ourPriorStandings.length > 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h2 className="font-bold text-gray-900">Teamstatistiken</h2>
-            <div className="text-xs text-gray-400 mt-0.5">Abschneiden Saison 25/26 · geordnet nach Ligaebene</div>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Teamstatistiken</h2>
+            <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Abschneiden Saison 25/26 · geordnet nach Ligaebene</div>
           </div>
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-50 dark:divide-gray-700">
             {ourPriorStandings.map((s, idx) => {
               const isWildenroth = s.team.includes('Wildenroth')
-              const levelColor = s.leagueLevel === 'bezirksliga' ? 'bg-purple-100 text-purple-700' : s.leagueLevel === 'kreisliga' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+              const levelColor = s.leagueLevel === 'bezirksliga' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400' : s.leagueLevel === 'kreisliga' ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
               return (
-                <div key={s.team} className={`px-4 py-3 ${isWildenroth ? 'bg-red-50' : ''}`}>
+                <div key={s.team} className={`px-4 py-3 ${isWildenroth ? 'bg-red-50 dark:bg-red-900/20' : ''}`}>
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-bold text-gray-400 w-5">{idx + 1}.</span>
+                    <span className="text-sm font-bold text-gray-400 dark:text-gray-500 w-5">{idx + 1}.</span>
                     <TeamLogo name={s.team} size="sm" className="flex-shrink-0" />
-                    <span className={`text-sm font-semibold flex-1 min-w-0 truncate ${isWildenroth ? 'text-red-700' : 'text-gray-800'}`}>
+                    <span className={`text-sm font-semibold flex-1 min-w-0 truncate ${isWildenroth ? 'text-red-700 dark:text-red-400' : 'text-gray-800 dark:text-gray-200'}`}>
                       {s.team}{isWildenroth && <span className="ml-1 text-xs text-red-400">⚽</span>}
                     </span>
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 ${levelColor}`}>

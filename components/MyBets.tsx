@@ -153,16 +153,16 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
   const anyStillOpen = wetten.some(w => !w.locked && w.status === 'pending')
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100">
-        <h2 className="font-bold text-gray-900">Meine Wetten</h2>
+    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+        <h2 className="font-bold text-gray-900 dark:text-gray-100">Meine Wetten</h2>
         {anyStillOpen && (
-          <p className="text-xs text-gray-400 mt-0.5">Stornierung bis Anpfiff des jeweiligen Spiels möglich</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Stornierung bis Anpfiff des jeweiligen Spiels möglich</p>
         )}
       </div>
 
       {error && (
-        <div className="px-4 py-2 bg-red-50 text-red-700 text-xs border-b border-red-100 flex items-center gap-2">
+        <div className="px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-xs border-b border-red-100 dark:border-red-800 flex items-center gap-2">
           <span className="flex-1">{error}</span>
           <button onClick={() => setError(null)} className="opacity-60 hover:opacity-100">✕</button>
         </div>
