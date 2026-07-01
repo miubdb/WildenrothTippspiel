@@ -439,6 +439,9 @@ export async function POST(request: NextRequest) {
         }
       } catch (e) { console.error('Award persistence failed:', e) }
 
+      // Deactivate early betting override once any matchday is settled
+      await admin.from('app_settings').update({ value: 'false', updated_at: new Date().toISOString() }).eq('key', 'early_betting_open')
+
       const { error: dedupError } = await admin
         .from('push_reminders')
         .insert({ type: 'recap', matchday })
