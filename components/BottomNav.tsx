@@ -20,19 +20,21 @@ export function BottomNav({ isAdmin = false }: { isAdmin?: boolean }) {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 safe-bottom">
-      <div className="flex items-stretch max-w-lg mx-auto">
+      <div className="flex items-stretch max-w-lg mx-auto px-1 py-1.5 gap-1">
         {items.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(href + '/')
           return (
             <Link
               key={href}
               href={href}
-              className={`flex-1 flex flex-col items-center justify-center py-2 gap-0.5 transition-colors ${
-                active ? 'text-red-700 dark:text-red-400' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
+              className={`flex-1 flex flex-col items-center justify-center py-1.5 gap-0.5 rounded-xl transition-colors ${
+                active
+                  ? 'text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/40'
+                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
               }`}
             >
               <Icon className="w-6 h-6" active={active} />
-              <span className={`text-[10px] font-semibold`}>{label}</span>
+              <span className="text-[10px] font-semibold">{label}</span>
             </Link>
           )
         })}

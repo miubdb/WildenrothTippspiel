@@ -10,6 +10,11 @@
   --primary-dark: #aa0000;
   --primary-light: #ff1a1a;
 
+  /* Gold accent — pairs with the Wildi icon, used for highlights/progress/active states */
+  --accent: #d4a017;
+  --accent-dark: #a87c0f;
+  --accent-light: #f0c440;
+
   /* Semantic surface tokens */
   --card: #ffffff;
   --card-border: #f3f4f6;
@@ -32,6 +37,7 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-primary: var(--primary);
+  --color-accent: var(--accent);
 }
 
 * {

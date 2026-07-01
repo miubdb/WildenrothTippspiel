@@ -33,7 +33,7 @@ export default async function AppLayout({
     <BetSlipProvider>
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
         {/* Top Header */}
-        <header className="bg-red-700 text-white sticky top-0 z-40 safe-top shadow-lg">
+        <header className="bg-gradient-to-r from-red-700 to-red-800 text-white sticky top-0 z-40 safe-top shadow-lg">
           <div className="flex items-center justify-between px-4 py-3 max-w-lg mx-auto">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center overflow-hidden shadow-sm flex-shrink-0">
@@ -44,11 +44,9 @@ export default async function AppLayout({
                 <span className="text-red-200 text-xs leading-tight">Tippspiel</span>
               </div>
             </div>
-            <div className="text-right">
-              <span className="text-red-200 text-xs block">Guthaben</span>
-              <span className="font-bold text-sm flex items-center gap-1">
-                {fmtWildi(balance)} <WildiIcon size={24} />
-              </span>
+            <div className="flex items-center gap-1.5 bg-black/15 rounded-full pl-3 pr-1.5 py-1">
+              <span className="font-bold text-sm tabular-nums">{fmtWildi(balance)}</span>
+              <WildiIcon size={22} />
             </div>
           </div>
         </header>

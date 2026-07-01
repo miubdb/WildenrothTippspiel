@@ -760,7 +760,7 @@ export default async function TippsPage({
       )}
 
       {/* Matchday Header */}
-      <div className="bg-red-700 text-white rounded-2xl px-5 py-4 shadow-sm">
+      <div className="bg-gradient-to-br from-red-700 to-red-800 text-white rounded-2xl px-5 py-4 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-red-200 text-xs font-medium uppercase tracking-wide">Spieltag</div>
