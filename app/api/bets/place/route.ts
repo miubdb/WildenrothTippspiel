@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isAgainstWildenroth } from '@/lib/wildenroth'
 import { isSeasonStarted } from '@/lib/season'
+import { ODDS_COLUMN } from '@/lib/oddsMarkets'
 
 const MAX_STAKE = 250
 const CURRENT_SEASON = '26/27'
@@ -197,21 +198,6 @@ export async function POST(request: NextRequest) {
   // server must not trust them blindly — otherwise a direct API call could submit
   // an inflated oddsValue and get paid out at a fabricated rate. Validate against
   // the frozen `odds` row for that match (the same values the client was shown).
-  const ODDS_COLUMN: Record<string, Record<string, string>> = {
-    '1x2': { home: 'home_win', draw: 'draw', away: 'away_win' },
-    double_chance: { '1x': 'odds_1x', x2: 'odds_x2', '12': 'odds_12' },
-    over_under: { 'over_2.5': 'over_2_5', 'under_2.5': 'under_2_5' },
-    over_under_3_5: { 'over_3.5': 'over_3_5', 'under_3.5': 'under_3_5' },
-    over_under_5_5: { 'over_5.5': 'over_5_5', 'under_5.5': 'under_5_5' },
-    over_under_7_5: { 'over_7.5': 'over_7_5', 'under_7.5': 'under_7_5' },
-    btts: { yes: 'btts_yes', no: 'btts_no' },
-    handicap: {
-      home_minus_1_5: 'hdp_home_minus_1_5',
-      away_plus_1_5: 'hdp_away_plus_1_5',
-      home_minus_2_5: 'hdp_home_minus_2_5',
-      away_plus_2_5: 'hdp_away_plus_2_5',
-    },
-  }
   const oddsCheckedSels = selections.filter(s => ODDS_COLUMN[s.marketType])
   const exactScoreSels = selections.filter(s => s.marketType === 'exact_score')
 
