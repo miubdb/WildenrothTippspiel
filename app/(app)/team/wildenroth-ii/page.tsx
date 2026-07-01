@@ -36,14 +36,14 @@ function PlayerAvatar({ player, size = 36 }: { player: PlayerRow; size?: number 
       <img
         src={player.image_url}
         alt={player.name}
-        className="rounded-full object-cover flex-shrink-0 bg-gray-100"
+        className="rounded-full object-cover flex-shrink-0 bg-gray-100 dark:bg-gray-700"
         style={{ width: size, height: size }}
       />
     )
   }
   return (
     <div
-      className="rounded-full bg-red-100 text-red-700 font-bold flex items-center justify-center flex-shrink-0 text-xs"
+      className="rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-bold flex items-center justify-center flex-shrink-0 text-xs"
       style={{ width: size, height: size }}
     >
       {initials}
@@ -98,36 +98,36 @@ export default async function WildenrothIITeamPage() {
       {/* Tab link to 1st team */}
       <Link
         href="/team/wildenroth"
-        className="flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-2xl shadow-sm text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors"
+        className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
       >
         <span>Zur 1. Mannschaft (Kreisliga)</span>
-        <span className="text-gray-400">›</span>
+        <span className="text-gray-400 dark:text-gray-500">›</span>
       </Link>
 
       {/* Top scorers */}
       {topScorers.length > 0 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h2 className="font-bold text-gray-900">Top-Torschützen</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Top-Torschützen</h2>
           </div>
-          <div className="divide-y divide-gray-50">
+          <div className="divide-y divide-gray-50 dark:divide-gray-700">
             {topScorers.map((p, idx) => (
               <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-gray-300 text-gray-700' : idx === 2 ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200' : idx === 2 ? 'bg-amber-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>
                   {idx + 1}
                 </div>
                 <PlayerAvatar player={p} size={32} />
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-gray-900 truncate">{p.name}</div>
-                  <div className="text-xs text-gray-400">{p.position ?? '—'}</div>
+                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.name}</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500">{p.position ?? '—'}</div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <span className="text-xl font-black text-red-700">{p.goals ?? 0}</span>
-                  <span className="text-xs text-gray-400 ml-1">Tore</span>
+                  <span className="text-xl font-black text-red-700 dark:text-red-400">{p.goals ?? 0}</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">Tore</span>
                 </div>
                 <div className="text-right flex-shrink-0 w-14">
-                  <div className="text-sm font-bold text-gray-900">{p.assists ?? 0}</div>
-                  <div className="text-[10px] text-gray-400">Assists</div>
+                  <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{p.assists ?? 0}</div>
+                  <div className="text-[10px] text-gray-400 dark:text-gray-500">Assists</div>
                 </div>
               </div>
             ))}
@@ -136,49 +136,49 @@ export default async function WildenrothIITeamPage() {
       )}
 
       {/* Squad */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Kader 2. Mannschaft</h2>
-          <div className="text-xs text-gray-400 mt-0.5">{players.length} Spieler · Saison 26/27</div>
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+          <h2 className="font-bold text-gray-900 dark:text-gray-100">Kader 2. Mannschaft</h2>
+          <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{players.length} Spieler · Saison 26/27</div>
         </div>
         {grouped.length > 0 ? grouped.map((g) => (
           <div key={g.key}>
-            <div className="px-4 py-2 bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
               {g.label}
             </div>
-            <div className="divide-y divide-gray-50">
+            <div className="divide-y divide-gray-50 dark:divide-gray-700">
               {g.list.map((p) => (
-                <Link key={p.id} href={`/kader/${p.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors">
+                <Link key={p.id} href={`/kader/${p.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                   <PlayerAvatar player={p} size={36} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1.5 flex-wrap">
+                    <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate flex items-center gap-1.5 flex-wrap">
                       {p.shirt_number != null && (
-                        <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-bold w-5 text-center">{p.shirt_number}</span>
+                        <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded font-bold w-5 text-center">{p.shirt_number}</span>
                       )}
                       {p.name}
                       {p.squad === 'both' && (
-                        <span className="text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-bold">I+II</span>
+                        <span className="text-[10px] bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded font-bold">I+II</span>
                       )}
                     </div>
                   </div>
                   <div className="text-center flex-shrink-0 w-10">
-                    <div className="text-sm font-bold text-gray-900">{p.games ?? 0}</div>
-                    <div className="text-[10px] text-gray-400">Spiele</div>
+                    <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{p.games ?? 0}</div>
+                    <div className="text-[10px] text-gray-400 dark:text-gray-500">Spiele</div>
                   </div>
                   <div className="text-center flex-shrink-0 w-10">
-                    <div className="text-sm font-bold text-gray-900">{p.goals ?? 0}</div>
-                    <div className="text-[10px] text-gray-400">Tore</div>
+                    <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{p.goals ?? 0}</div>
+                    <div className="text-[10px] text-gray-400 dark:text-gray-500">Tore</div>
                   </div>
                   <div className="text-center flex-shrink-0 w-10">
-                    <div className="text-sm font-bold text-gray-900">{p.assists ?? 0}</div>
-                    <div className="text-[10px] text-gray-400">Assists</div>
+                    <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{p.assists ?? 0}</div>
+                    <div className="text-[10px] text-gray-400 dark:text-gray-500">Assists</div>
                   </div>
                 </Link>
               ))}
             </div>
           </div>
         )) : (
-          <div className="px-4 py-8 text-center text-sm text-gray-400">Keine aktiven Spieler erfasst.</div>
+          <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Keine aktiven Spieler erfasst.</div>
         )}
       </div>
     </div>
