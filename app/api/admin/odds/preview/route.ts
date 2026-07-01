@@ -11,8 +11,8 @@ function bettingOpenTime(firstMatchDate: Date): Date {
   const [y, m, d] = berlinDate.split('-').map(Number)
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
   const daysBack = dow === 0 ? 6 : dow - 1
-  const mondayD = d - daysBack
-  const mondayStr = `${y}-${String(m).padStart(2, '0')}-${String(mondayD).padStart(2, '0')}`
+  // Use Date.UTC to handle month/year boundaries correctly
+  const mondayStr = new Date(Date.UTC(y, m - 1, d - daysBack)).toISOString().slice(0, 10)
   const probe = new Date(`${mondayStr}T12:00:00Z`)
   const berlinHour = parseInt(
     new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', hour12: false }).format(probe),
