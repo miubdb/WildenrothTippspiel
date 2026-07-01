@@ -44,8 +44,8 @@ function bettingOpenTime(firstMatchDate: Date): Date {
   // Weekday in Berlin (UTC date for YYYY-MM-DD has correct weekday)
   const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay() // 0=Sun..6=Sat
   const daysBack = dow === 0 ? 6 : dow - 1
-  const mondayD = d - daysBack
-  const mondayStr = `${y}-${String(m).padStart(2, '0')}-${String(mondayD).padStart(2, '0')}`
+  // Use Date.UTC to handle month/year boundaries correctly
+  const mondayStr = new Date(Date.UTC(y, m - 1, d - daysBack)).toISOString().slice(0, 10)
   // Determine Berlin UTC offset at Monday noon and convert to UTC
   const probe = new Date(`${mondayStr}T12:00:00Z`)
   const berlinHour = parseInt(
