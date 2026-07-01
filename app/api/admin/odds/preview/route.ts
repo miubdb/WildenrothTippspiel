@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { calculateOdds, getExactScoreOdds, buildPriorContext } from '@/lib/odds'
+import { getMatchXG, oddsFromXG, getExactScoreOdds, buildPriorContext } from '@/lib/odds'
+import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { bettingOpenTime } from '@/lib/season'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 
@@ -106,10 +107,13 @@ export async function GET(request: Request) {
     : { data: [] }
   const frozenMap = new Map((frozenRows ?? []).map((r) => [r.match_id, r.frozen_at]))
 
-  const previews = matchdayMatches.map((m) => {
-    const odds = calculateOdds(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+  const previews = []
+  for (const m of matchdayMatches) {
+    const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+    const odds = oddsFromXG(homeXG, awayXG)
     const exact = getExactScoreOdds(oddsMatches, m.home_team_id, m.away_team_id, priorCtx).slice(0, 12)
-    return {
+    await persistOddsDiagnostics(supabase, m.id, 'admin_preview', diagnostics)
+    previews.push({
       match_id: m.id,
       match_number: m.match_number,
       match_date: m.match_date,
@@ -118,9 +122,10 @@ export async function GET(request: Request) {
       away_team: m.away_team?.name ?? '?',
       frozen_at: frozenMap.get(m.id) ?? null,
       odds,
+      diagnostics,
       exact_scores: exact,
-    }
-  })
+    })
+  }
 
   return NextResponse.json({
     matchday: targetMd,

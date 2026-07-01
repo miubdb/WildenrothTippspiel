@@ -216,7 +216,8 @@ export default function AdminPage() {
     const data = await res.json()
     setOddsLoading(false)
     if (res.ok) {
-      setMessage(`Quoten berechnet: ${data.updated}/${data.total} Spiele aktualisiert.`)
+      const frozenNote = data.skippedFrozen > 0 ? ` (${data.skippedFrozen} bereits eingefroren, übersprungen)` : ''
+      setMessage(`Quoten berechnet: ${data.updated}/${data.total} Spiele aktualisiert.${frozenNote}`)
     } else {
       setMessage(`Fehler: ${data.error}`)
     }

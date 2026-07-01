@@ -15,14 +15,26 @@ const LEAGUE_AWAY_XG = 1.10
 // Bayesian prior weight: K equivalent games of prior belief.
 // With K=5: at 0 games → 100% prior; at 5 games → 50/50; at 10 games → 67% actual data.
 // Kept moderate so real team data shines through without the geometric product exploding.
+//
+// v2: K is stronger during a team's first EARLY_GAMES_THRESHOLD games of the CURRENT
+// season (ramping down linearly to the base value), since a 1-3 game sample in amateur
+// football is extremely noisy — this is on top of, not instead of, the prior-season
+// blending in augmentStat(), which already covers "no current-season data at all".
 const XG_PRIOR = 5
+const XG_PRIOR_EARLY_BONUS = 6
+const EARLY_GAMES_THRESHOLD = 8
 
-// Form multiplier from the last 5 finished games — moderate ±20% adjustment.
+// Form multiplier from the last 5 finished games — moderate ±10% adjustment (v2: was ±20%).
 // Pure season-long attack/defense averages can't capture momentum, so an
 // in-form team gets a meaningful xG boost beyond what their season totals show.
+// v2: ramped in linearly between FORM_RAMP_START and FORM_RAMP_FULL current-season
+// games played, instead of snapping to full strength the moment 3 games exist — a
+// 3-game sample was swinging odds by the full ±20% (now ±10%) with no runway.
 const FORM_GAMES = 5
-const FORM_MULT_BASE = 0.80
-const FORM_MULT_RANGE = 0.40 // result range [0.80, 1.20]
+const FORM_MULT_BASE = 0.90
+const FORM_MULT_RANGE = 0.20 // result range [0.90, 1.10] at full ramp
+const FORM_RAMP_START = 3
+const FORM_RAMP_FULL = 8
 
 // Prior-season cross-league normalization.
 // Prior games count at half weight vs current-season games; a full prior season
@@ -404,10 +416,26 @@ export function buildPriorContext(
 
 /**
  * Bayesian shrinkage toward league mean.
- * raw: observed average | leagueAvg: prior | n: observed games
+ * raw: observed average | leagueAvg: prior | n: observed games | k: prior strength
  */
-function bayesianXG(raw: number, leagueAvg: number, n: number): number {
-  return (n * raw + XG_PRIOR * leagueAvg) / (n + XG_PRIOR)
+function bayesianXG(raw: number, leagueAvg: number, n: number, k: number = XG_PRIOR): number {
+  return (n * raw + k * leagueAvg) / (n + k)
+}
+
+/** Count of finished current-season matches for teamId (home or away). */
+function getGamesPlayedThisSeason(matches: Match[], teamId: number): number {
+  return matches.filter(
+    (m) => m.status === 'finished' && (m.home_team_id === teamId || m.away_team_id === teamId)
+  ).length
+}
+
+/**
+ * Dynamic Bayesian prior strength: stronger during a team's first
+ * EARLY_GAMES_THRESHOLD current-season games, ramping down to the base XG_PRIOR.
+ */
+function getKEffective(gamesPlayed: number): number {
+  const rampFactor = Math.max(0, 1 - gamesPlayed / EARLY_GAMES_THRESHOLD)
+  return XG_PRIOR + XG_PRIOR_EARLY_BONUS * rampFactor
 }
 
 /** Goals scored per home game for teamId */
@@ -440,19 +468,27 @@ function homeGoalsConceded(matches: Match[], teamId: number): { avg: number; n: 
 
 /**
  * Form multiplier from the last FORM_GAMES finished matches (W=3, D=1, L=0).
- * Maps the form ratio [0, 1] linearly to [FORM_MULT_BASE, FORM_MULT_BASE+FORM_MULT_RANGE].
- * Needs at least 3 games of history to apply — otherwise neutral (1.0).
+ * Maps the form ratio [0, 1] linearly to [FORM_MULT_BASE, FORM_MULT_BASE+FORM_MULT_RANGE],
+ * then ramps that result in linearly between FORM_RAMP_START and FORM_RAMP_FULL total
+ * current-season games played — at exactly FORM_RAMP_START games the multiplier is
+ * neutral (1.0), reaching full strength only once FORM_RAMP_FULL games exist. Below
+ * FORM_RAMP_START games, neutral (1.0) — not enough evidence to react to at all.
  *
  * Season-long attack/defense averages alone don't reflect momentum. A top-of-table
  * team riding a streak (or a struggling team in a slump) shows up in form first,
  * before the season averages catch up. The multiplier injects that signal into
- * the team's own xG so real, current sporting differences come through clearly.
+ * the team's own xG so real, current sporting differences come through clearly —
+ * but the ramp prevents a 3-game sample from swinging odds at full strength.
  */
 function getTeamFormMult(matches: Match[], teamId: number): number {
+  const gamesPlayed = getGamesPlayedThisSeason(matches, teamId)
+  if (gamesPlayed < FORM_RAMP_START) return 1.0
   const form = getForm(matches, teamId, FORM_GAMES)
   if (form.length < 3) return 1.0
   const pts = form.reduce((acc, r) => acc + (r === 'W' ? 3 : r === 'D' ? 1 : 0), 0)
-  return FORM_MULT_BASE + FORM_MULT_RANGE * (pts / (form.length * 3))
+  const fullMult = FORM_MULT_BASE + FORM_MULT_RANGE * (pts / (form.length * 3))
+  const rampProgress = Math.min(1, (gamesPlayed - FORM_RAMP_START) / (FORM_RAMP_FULL - FORM_RAMP_START))
+  return 1.0 + (fullMult - 1.0) * rampProgress
 }
 
 const TRANSFER_FACTOR_FLOOR = 0.65
@@ -524,6 +560,25 @@ function getRosterFactor(teamName: string, priorCtx: PriorContext): number {
   return Math.max(TRANSFER_FACTOR_FLOOR, Math.min(TRANSFER_FACTOR_CEILING, factor))
 }
 
+export interface OddsDiagnostics {
+  home: {
+    gamesPlayed: number
+    kEffective: number
+    formMult: number
+    rosterFactor: number
+    rawXG: number
+    finalXG: number
+  }
+  away: {
+    gamesPlayed: number
+    kEffective: number
+    formMult: number
+    rosterFactor: number
+    rawXG: number
+    finalXG: number
+  }
+}
+
 /**
  * Geometric-mean xG model with Bayesian shrinkage and form adjustment.
  *
@@ -535,16 +590,22 @@ function getRosterFactor(teamName: string, priorCtx: PriorContext): number {
  *   arithmetic mean for equal values, lower for unequal values (AM–GM inequality),
  *   so a strong attacker vs a strong defence still yields moderate xG (correct).
  *
- * Bayesian shrinkage (K=5) is applied to the combined raw estimate. A team-form
- * multiplier (±20%) then modulates each team's own xG to reflect recent momentum
- * that the season-long averages haven't fully absorbed yet.
+ * Bayesian shrinkage is applied to the combined raw estimate, with a dynamic K that's
+ * stronger during a team's first EARLY_GAMES_THRESHOLD current-season games (v2). A
+ * ramped team-form multiplier (±10%, v2 — was ±20%) then modulates each team's own xG
+ * to reflect recent momentum that the season-long averages haven't fully absorbed yet.
+ *
+ * Also returns `diagnostics` — the intermediate values behind the final xG, persisted
+ * to `odds_diagnostics` by callers for admin explainability. Computing it is free
+ * (everything here is already computed for the xG itself), so it's always returned;
+ * callers simply choose whether to persist it.
  */
 export function getMatchXG(
   matches: Match[],
   homeTeamId: number,
   awayTeamId: number,
   priorCtx?: PriorContext
-): { homeXG: number; awayXG: number } {
+): { homeXG: number; awayXG: number; diagnostics: OddsDiagnostics } {
   let homeAtk = homeGoalsScored(matches, homeTeamId)    // home team goals scored at home
   let awayDef = awayGoalsConceded(matches, awayTeamId)  // away team goals conceded away
   let awayAtk = awayGoalsScored(matches, awayTeamId)    // away team goals scored away
@@ -581,27 +642,52 @@ export function getMatchXG(
   const homeN = (homeAtk.n + awayDef.n) / 2
   const awayN = (awayAtk.n + homeDef.n) / 2
 
+  const homeGamesPlayed = getGamesPlayedThisSeason(matches, homeTeamId)
+  const awayGamesPlayed = getGamesPlayedThisSeason(matches, awayTeamId)
+  const homeK = getKEffective(homeGamesPlayed)
+  const awayK = getKEffective(awayGamesPlayed)
+
   const homeFormMult = getTeamFormMult(matches, homeTeamId)
   const awayFormMult = getTeamFormMult(matches, awayTeamId)
 
   const homeRosterFactor = homeName && priorCtx ? getRosterFactor(homeName, priorCtx) : 1.0
   const awayRosterFactor = awayName && priorCtx ? getRosterFactor(awayName, priorCtx) : 1.0
 
+  const homeXG = Math.max(0.25, bayesianXG(rawHomeXG, LEAGUE_HOME_XG, homeN, homeK) * homeFormMult * homeRosterFactor)
+  const awayXG = Math.max(0.25, bayesianXG(rawAwayXG, LEAGUE_AWAY_XG, awayN, awayK) * awayFormMult * awayRosterFactor)
+
   return {
-    homeXG: Math.max(0.25, bayesianXG(rawHomeXG, LEAGUE_HOME_XG, homeN) * homeFormMult * homeRosterFactor),
-    awayXG: Math.max(0.25, bayesianXG(rawAwayXG, LEAGUE_AWAY_XG, awayN) * awayFormMult * awayRosterFactor),
+    homeXG,
+    awayXG,
+    diagnostics: {
+      home: {
+        gamesPlayed: homeGamesPlayed,
+        kEffective: homeK,
+        formMult: homeFormMult,
+        rosterFactor: homeRosterFactor,
+        rawXG: rawHomeXG,
+        finalXG: homeXG,
+      },
+      away: {
+        gamesPlayed: awayGamesPlayed,
+        kEffective: awayK,
+        formMult: awayFormMult,
+        rosterFactor: awayRosterFactor,
+        rawXG: rawAwayXG,
+        finalXG: awayXG,
+      },
+    },
   }
 }
 
 // ---------- Main calculation (all markets from one unified Poisson model) ----------
 
-export function calculateOdds(
-  matches: Match[],
-  homeTeamId: number,
-  awayTeamId: number,
-  priorCtx?: PriorContext
-): OddsData {
-  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
+/**
+ * Derives every market's odds from a given (homeXG, awayXG) pair via the shared
+ * score matrix. Split out from calculateOdds() so callers who already have xG
+ * (e.g. because they also need the getMatchXG diagnostics) don't compute it twice.
+ */
+export function oddsFromXG(homeXG: number, awayXG: number): OddsData {
   const matrix = buildScoreMatrix(homeXG, awayXG)
 
   // Aggregate raw probabilities from the joint score distribution
@@ -654,6 +740,16 @@ export function calculateOdds(
     hdp_home_minus_2_5: toOdds(pHomeMinus25),
     hdp_away_plus_2_5:  toOdds(1 - pHomeMinus25),
   }
+}
+
+export function calculateOdds(
+  matches: Match[],
+  homeTeamId: number,
+  awayTeamId: number,
+  priorCtx?: PriorContext
+): OddsData {
+  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
+  return oddsFromXG(homeXG, awayXG)
 }
 
 /**

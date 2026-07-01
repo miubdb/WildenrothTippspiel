@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { calculateOdds, buildPriorContext } from '@/lib/odds'
+import { getMatchXG, oddsFromXG, buildPriorContext } from '@/lib/odds'
+import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 
 export async function POST() {
@@ -73,15 +74,24 @@ export async function POST() {
   }
   const priorCtx = buildPriorContext(priorMatches, teamNames, leaguePlayers, lineupEntries)
 
-  // Find scheduled matches to update odds for
-  const scheduledMatches = allMatches.filter((m) => m.status === 'scheduled')
+  // Find scheduled matches to update odds for — never touch already-frozen rows:
+  // once betting has opened and odds are frozen, they must never change under
+  // bettors, even if this recalculation button is pressed again.
+  const scheduledMatchIds = allMatches.filter((m) => m.status === 'scheduled').map((m) => m.id)
+  const { data: frozenRows } = scheduledMatchIds.length > 0
+    ? await supabase.from('odds').select('match_id').in('match_id', scheduledMatchIds).not('frozen_at', 'is', null)
+    : { data: [] }
+  const frozenIds = new Set((frozenRows ?? []).map((r) => r.match_id))
+  const scheduledMatches = allMatches.filter((m) => m.status === 'scheduled' && !frozenIds.has(m.id))
+  const skippedFrozen = scheduledMatchIds.length - scheduledMatches.length
 
   let upsertCount = 0
   const errors: string[] = []
 
   for (const match of scheduledMatches) {
     try {
-      const oddsData = calculateOdds(allMatches, match.home_team_id, match.away_team_id, priorCtx)
+      const { homeXG, awayXG, diagnostics } = getMatchXG(allMatches, match.home_team_id, match.away_team_id, priorCtx)
+      const oddsData = oddsFromXG(homeXG, awayXG)
 
       const { error } = await supabase.from('odds').upsert(
         {
@@ -116,6 +126,7 @@ export async function POST() {
         errors.push(`Match ${match.id}: ${error.message}`)
       } else {
         upsertCount++
+        await persistOddsDiagnostics(supabase, match.id, 'admin_recalc', diagnostics)
       }
     } catch (err) {
       errors.push(`Match ${match.id}: ${String(err)}`)
@@ -126,6 +137,7 @@ export async function POST() {
     success: true,
     updated: upsertCount,
     total: scheduledMatches.length,
+    skippedFrozen,
     errors: errors.length > 0 ? errors : undefined,
   })
 }

@@ -7,7 +7,8 @@ import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { MatchdayRecap } from '@/components/MatchdayRecap'
 import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
-import { calculateOdds, buildPriorContext } from '@/lib/odds'
+import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext } from '@/lib/odds'
+import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { isSeasonStarted, bettingOpenTime } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
@@ -228,12 +229,17 @@ export default async function TippsPage({
     const toFreeze = matchdayMatches.filter(m => m.status === 'scheduled' && !frozenSet.has(m.id))
     if (toFreeze.length > 0) {
       const now = new Date().toISOString()
+      // Freezing must succeed regardless of which user's page load triggers it (the
+      // `odds` table only grants write access to admins under RLS) — use the
+      // service-role client, same as the other system-level writes in this file.
+      const adminSupaOdds = createAdminClient()
       for (const m of toFreeze) {
-        const odds = calculateOdds(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+        const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+        const odds = oddsFromXG(homeXG, awayXG)
         oddsMap[m.id] = odds
         // Upsert: safe to call concurrently — snapshot cutoff is deterministic,
         // so any two simultaneous requests produce identical values.
-        await supabase.from('odds').upsert({
+        await adminSupaOdds.from('odds').upsert({
           match_id:  m.id,
           matchday:  m.matchday,
           frozen_at: now,
@@ -259,6 +265,7 @@ export default async function TippsPage({
           hdp_home_minus_2_5: odds.hdp_home_minus_2_5,
           hdp_away_plus_2_5:  odds.hdp_away_plus_2_5,
         }, { onConflict: 'match_id' })
+        await persistOddsDiagnostics(adminSupaOdds, m.id, 'freeze', diagnostics)
       }
     }
   }
