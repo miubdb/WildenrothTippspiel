@@ -1928,16 +1928,20 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
                     >
                       {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                     </select>
-                    <label className="text-[11px] flex items-center gap-1">
-                      <input type="checkbox" checked={r.is_offered}
-                        onChange={e => updateAvailability(r.player_id, { is_offered: e.target.checked })} />
+                    <button type="button"
+                      onClick={() => updateAvailability(r.player_id, { is_offered: !r.is_offered })}
+                      className={`text-[11px] font-medium px-2 py-0.5 rounded-full border transition-colors ${
+                        r.is_offered ? 'bg-red-700 border-red-700 text-white' : 'bg-white border-gray-200 text-gray-500'
+                      }`}>
                       angeboten
-                    </label>
-                    <label className="text-[11px] flex items-center gap-1">
-                      <input type="checkbox" checked={r.is_offered_2plus}
-                        onChange={e => updateAvailability(r.player_id, { is_offered_2plus: e.target.checked })} />
+                    </button>
+                    <button type="button"
+                      onClick={() => updateAvailability(r.player_id, { is_offered_2plus: !r.is_offered_2plus })}
+                      className={`text-[11px] font-medium px-2 py-0.5 rounded-full border transition-colors ${
+                        r.is_offered_2plus ? 'bg-red-700 border-red-700 text-white' : 'bg-white border-gray-200 text-gray-500'
+                      }`}>
                       2+
-                    </label>
+                    </button>
                     <button onClick={() => cancelPlayer(r.player_id, r.player.name)}
                       className="ml-auto text-[10px] text-red-600 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50">
                       Spieler entfernen
@@ -1971,11 +1975,13 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
                     <input type="number" min="1" max="10" value={s.goals}
                       onChange={e => setScorers(arr => arr.map((x, i) => i === idx ? { ...x, goals: parseInt(e.target.value) || 1 } : x))}
                       className="w-12 text-center border border-gray-200 rounded px-1 py-1" />
-                    <label className="flex items-center gap-1 text-[11px]">
-                      <input type="checkbox" checked={s.is_own_goal}
-                        onChange={e => setScorers(arr => arr.map((x, i) => i === idx ? { ...x, is_own_goal: e.target.checked } : x))} />
+                    <button type="button"
+                      onClick={() => setScorers(arr => arr.map((x, i) => i === idx ? { ...x, is_own_goal: !x.is_own_goal } : x))}
+                      className={`text-[11px] font-medium px-2 py-1 rounded-full border transition-colors ${
+                        s.is_own_goal ? 'bg-red-700 border-red-700 text-white' : 'bg-white border-gray-200 text-gray-500'
+                      }`}>
                       ET
-                    </label>
+                    </button>
                     <button onClick={() => setScorers(arr => arr.filter((_, i) => i !== idx))}
                       className="text-red-600">✕</button>
                   </div>
