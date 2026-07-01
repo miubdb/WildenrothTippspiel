@@ -4,6 +4,7 @@ import { LeaderboardClient } from './LeaderboardClient'
 import type { BetRow, ComboMeta, MatchdayStats } from './LeaderboardClient'
 import type { CommentData } from '@/components/CommentSection'
 import type { RecapData } from '@/components/MatchdayRecap'
+import { bettingOpenTime } from '@/lib/season'
 
 export const revalidate = 60
 
@@ -63,21 +64,7 @@ export default async function LeaderboardPage({
     .sort((a, b) => a - b)[0]
 
   // Before Monday 12:00 Berlin → show last completed matchday; after → show upcoming matchday
-  function mondayNoon(refDate: Date): Date {
-    const berlinDate = refDate.toLocaleDateString('sv', { timeZone: 'Europe/Berlin' })
-    const [y, m, d] = berlinDate.split('-').map(Number)
-    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay()
-    const daysBack = dow === 0 ? 6 : dow - 1
-    // Use Date.UTC to handle month/year boundaries correctly
-    const mondayStr = new Date(Date.UTC(y, m - 1, d - daysBack)).toISOString().slice(0, 10)
-    const probe = new Date(`${mondayStr}T12:00:00Z`)
-    const berlinHour = parseInt(
-      new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', hour12: false }).format(probe), 10
-    )
-    const utcHour = 24 - berlinHour
-    return new Date(`${mondayStr}T${String(utcHour).padStart(2, '0')}:00:00Z`)
-  }
-  const thisWeekMondayNoon = mondayNoon(new Date())
+  const thisWeekMondayNoon = bettingOpenTime(new Date())
   const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
   const completedMatchdays = allMatchdays.filter((md) => {
     const mdM = seasonMatches.filter((m) => m.matchday === md)

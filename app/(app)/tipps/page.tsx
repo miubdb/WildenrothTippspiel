@@ -8,7 +8,7 @@ import { MatchdayRecap } from '@/components/MatchdayRecap'
 import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch } from '@/types'
 import { calculateOdds, buildPriorContext } from '@/lib/odds'
-import { isSeasonStarted } from '@/lib/season'
+import { isSeasonStarted, bettingOpenTime } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
 import { crestPath } from '@/lib/teams'
@@ -34,27 +34,6 @@ function socialSelLabel(marketType: string, selection: string, players?: Record<
     return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
   }
   return SELECTION_DISPLAY[marketType]?.[selection] ?? selection
-}
-
-/** Returns Monday 12:00 Europe/Berlin of the week containing firstMatchDate */
-function bettingOpenTime(firstMatchDate: Date): Date {
-  // Get date string in Berlin timezone (sv locale → YYYY-MM-DD)
-  const berlinDate = firstMatchDate.toLocaleDateString('sv', { timeZone: 'Europe/Berlin' })
-  const [y, m, d] = berlinDate.split('-').map(Number)
-  // Weekday in Berlin (UTC date for YYYY-MM-DD has correct weekday)
-  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay() // 0=Sun..6=Sat
-  const daysBack = dow === 0 ? 6 : dow - 1
-  // Use Date.UTC to handle month/year boundaries correctly
-  const mondayStr = new Date(Date.UTC(y, m - 1, d - daysBack)).toISOString().slice(0, 10)
-  // Determine Berlin UTC offset at Monday noon and convert to UTC
-  const probe = new Date(`${mondayStr}T12:00:00Z`)
-  const berlinHour = parseInt(
-    new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', hour12: false }).format(probe),
-    10
-  )
-  // berlinHour is Berlin clock when UTC=12; to get Berlin=12: utcHour = 12 - (berlinHour - 12)
-  const utcHour = 24 - berlinHour
-  return new Date(`${mondayStr}T${String(utcHour).padStart(2, '0')}:00:00Z`)
 }
 
 export default async function TippsPage({

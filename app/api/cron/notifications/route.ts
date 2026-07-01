@@ -1,25 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser, sendPushToAll } from '@/lib/push'
-
-function bettingOpenTime(firstMatchDate: Date): Date {
-  const berlinDate = firstMatchDate.toLocaleDateString('sv', { timeZone: 'Europe/Berlin' })
-  const [y, m, d] = berlinDate.split('-').map(Number)
-  const matchDay = new Date(Date.UTC(y, m - 1, d))
-  const dow = matchDay.getUTCDay()
-  const daysBack = dow === 0 ? 6 : dow - 1
-  // Use Date arithmetic to avoid month-boundary issues (d - daysBack can be ≤ 0)
-  const monday = new Date(matchDay)
-  monday.setUTCDate(monday.getUTCDate() - daysBack)
-  const mondayStr = monday.toISOString().slice(0, 10)
-  const probe = new Date(`${mondayStr}T12:00:00Z`)
-  const berlinHour = parseInt(
-    new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', hour12: false }).format(probe),
-    10
-  )
-  const utcHour = 24 - berlinHour
-  return new Date(`${mondayStr}T${String(utcHour).padStart(2, '0')}:00:00Z`)
-}
+import { bettingOpenTime } from '@/lib/season'
 
 export async function GET(request: NextRequest) {
   const secret = request.headers.get('authorization')?.replace('Bearer ', '')
