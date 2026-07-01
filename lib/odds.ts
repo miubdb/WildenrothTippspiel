@@ -455,33 +455,54 @@ function getTeamFormMult(matches: Match[], teamId: number): number {
   return FORM_MULT_BASE + FORM_MULT_RANGE * (pts / (form.length * 3))
 }
 
+const TRANSFER_FACTOR_FLOOR = 0.65
+const TRANSFER_FACTOR_DAMPING = 0.5
+const MIN_GOALS_SAMPLE = 8
+
 /**
- * Roster factor based on recent lineup data vs last-season key player goals.
- * Returns a multiplier [0.90, 1.0] reflecting whether key scorers are active.
+ * Roster factor reflecting whether last season's key scorers are still around.
+ *
+ * Two tiers, depending on what evidence is available:
+ * 1. Once enough CURRENT-season lineup data exists (≥3 matches), use it directly —
+ *    a player who transferred out (or is injured/benched) simply won't show up in
+ *    recent lineups, so this naturally detects both transfers and short-term absences.
+ * 2. Before that (e.g. pre-season, or the first couple of matchdays), fall back to
+ *    the known prior-season transfer/retirement records: sum up last season's goals
+ *    that came from players who are still active for this team vs. everyone who
+ *    scored, and dampen the resulting shortfall into a bounded multiplier. This is
+ *    what lets a team's attack be discounted from matchday 1 if a top scorer left
+ *    over the summer, without waiting for lineup evidence to accumulate.
  */
 function getRosterFactor(teamName: string, priorCtx: PriorContext): number {
-  const recentLineups = priorCtx.lineups.get(teamName) ?? []
-  const uniqueMatches = new Set(recentLineups.map(e => e.match_id))
-  if (uniqueMatches.size < 3) return 1.0
-
-  const last5MatchIds = [...uniqueMatches].slice(-5)
-  const recentPlayers = new Set(
-    recentLineups.filter(e => last5MatchIds.includes(e.match_id)).map(e => e.player_name)
-  )
-
   const keyPlayers = priorCtx.leaguePlayers.get(teamName) ?? []
   const totalKeyGoals = keyPlayers.reduce((s, p) => s + p.goals, 0)
-  if (totalKeyGoals === 0) return 1.0
 
-  const activeGoals = keyPlayers
-    .filter(p => recentPlayers.has(p.name))
+  const recentLineups = priorCtx.lineups.get(teamName) ?? []
+  const uniqueMatches = new Set(recentLineups.map(e => e.match_id))
+
+  if (uniqueMatches.size >= 3) {
+    if (totalKeyGoals === 0) return 1.0
+    const last5MatchIds = [...uniqueMatches].slice(-5)
+    const recentPlayers = new Set(
+      recentLineups.filter(e => last5MatchIds.includes(e.match_id)).map(e => e.player_name)
+    )
+    const activeGoals = keyPlayers
+      .filter(p => recentPlayers.has(p.name))
+      .reduce((s, p) => s + p.goals, 0)
+    const activeGoalShare = activeGoals / totalKeyGoals
+    if (activeGoalShare < 0.5) return 0.90
+    if (activeGoalShare < 0.7) return 0.95
+    return 1.0
+  }
+
+  // Fallback: static prior-season transfer/retirement status, no lineup evidence needed.
+  if (totalKeyGoals < MIN_GOALS_SAMPLE) return 1.0
+  const stillActiveGoals = keyPlayers
+    .filter(p => !p.status || p.status === 'active')
     .reduce((s, p) => s + p.goals, 0)
-
-  const activeGoalShare = activeGoals / totalKeyGoals
-
-  if (activeGoalShare < 0.5) return 0.90
-  if (activeGoalShare < 0.7) return 0.95
-  return 1.0
+  const retainedShare = stillActiveGoals / totalKeyGoals
+  const factor = 1 - (1 - retainedShare) * TRANSFER_FACTOR_DAMPING
+  return Math.max(TRANSFER_FACTOR_FLOOR, Math.min(1.0, factor))
 }
 
 /**

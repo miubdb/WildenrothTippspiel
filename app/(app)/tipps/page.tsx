@@ -6,7 +6,7 @@ import { MyBets } from '@/components/MyBets'
 import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { MatchdayRecap } from '@/components/MatchdayRecap'
 import type { RecapData } from '@/components/MatchdayRecap'
-import type { Match, PriorMatch } from '@/types'
+import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 import { calculateOdds, buildPriorContext } from '@/lib/odds'
 import { isSeasonStarted, bettingOpenTime } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
@@ -48,6 +48,8 @@ export default async function TippsPage({
   const [
     { data: allMatchesRaw },
     { data: priorMatchesRaw },
+    { data: leaguePlayersRaw },
+    { data: lineupEntriesRaw },
     seasonStarted,
     { data: earlyOpenSetting },
     { data: { user } },
@@ -64,6 +66,12 @@ export default async function TippsPage({
     supabase
       .from('prior_season_matches')
       .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date'),
+    supabase
+      .from('league_players')
+      .select('id, team_name, name, goals, matches, status, transfer_to'),
+    supabase
+      .from('match_lineups')
+      .select('id, match_id, team_name, player_name, minutes_played, goals, assists, created_at'),
     isSeasonStarted(supabase),
     supabase.from('app_settings').select('value').eq('key', 'early_betting_open').single(),
     supabase.auth.getUser(),
@@ -82,7 +90,17 @@ export default async function TippsPage({
     if (m.home_team) teamNames.set(m.home_team_id, m.home_team.name)
     if (m.away_team) teamNames.set(m.away_team_id, m.away_team.name)
   }
-  const priorCtx = buildPriorContext(priorMatches, teamNames)
+  const leaguePlayers: LeaguePlayer[] = (leaguePlayersRaw ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    team_name: p.team_name,
+    goals: p.goals,
+    games: p.matches,
+    status: p.status,
+    transfer_to: p.transfer_to,
+  }))
+  const lineupEntries: LineupEntry[] = (lineupEntriesRaw ?? []) as LineupEntry[]
+  const priorCtx = buildPriorContext(priorMatches, teamNames, leaguePlayers, lineupEntries)
 
   const SEASON_START_TIPPS = '2026-08-01'
   // Matchday 999 is the test matchday — always include it regardless of date

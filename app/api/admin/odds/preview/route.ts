@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { calculateOdds, getExactScoreOdds, buildPriorContext } from '@/lib/odds'
 import { bettingOpenTime } from '@/lib/season'
-import type { Match, PriorMatch } from '@/types'
+import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 
 const SEASON_START = '2026-08-01'
 
@@ -43,12 +43,30 @@ export async function GET(request: Request) {
 
   const priorMatches: PriorMatch[] = (priorMatchesRaw ?? []) as PriorMatch[]
 
+  const { data: leaguePlayersRaw } = await supabase
+    .from('league_players')
+    .select('id, team_name, name, goals, matches, status, transfer_to')
+  const { data: lineupEntriesRaw } = await supabase
+    .from('match_lineups')
+    .select('id, match_id, team_name, player_name, minutes_played, goals, assists, created_at')
+
+  const leaguePlayers: LeaguePlayer[] = (leaguePlayersRaw ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    team_name: p.team_name,
+    goals: p.goals,
+    games: p.matches,
+    status: p.status,
+    transfer_to: p.transfer_to,
+  }))
+  const lineupEntries: LineupEntry[] = (lineupEntriesRaw ?? []) as LineupEntry[]
+
   const teamNames = new Map<number, string>()
   for (const m of allMatches) {
     if (m.home_team) teamNames.set(m.home_team_id, m.home_team.name)
     if (m.away_team) teamNames.set(m.away_team_id, m.away_team.name)
   }
-  const priorCtx = buildPriorContext(priorMatches, teamNames)
+  const priorCtx = buildPriorContext(priorMatches, teamNames, leaguePlayers, lineupEntries)
 
   const matchdays = [...new Set(allMatches.map((m) => m.matchday))].sort((a, b) => a - b)
 

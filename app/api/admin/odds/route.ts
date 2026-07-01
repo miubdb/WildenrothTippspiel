@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { calculateOdds, buildPriorContext } from '@/lib/odds'
-import type { Match, PriorMatch } from '@/types'
+import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 
 export async function POST() {
   const supabase = await createClient()
@@ -46,12 +46,30 @@ export async function POST() {
 
   const priorMatches: PriorMatch[] = (priorMatchesRaw ?? []) as PriorMatch[]
 
+  const { data: leaguePlayersRaw } = await supabase
+    .from('league_players')
+    .select('id, team_name, name, goals, matches, status, transfer_to')
+  const { data: lineupEntriesRaw } = await supabase
+    .from('match_lineups')
+    .select('id, match_id, team_name, player_name, minutes_played, goals, assists, created_at')
+
+  const leaguePlayers: LeaguePlayer[] = (leaguePlayersRaw ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    team_name: p.team_name,
+    goals: p.goals,
+    games: p.matches,
+    status: p.status,
+    transfer_to: p.transfer_to,
+  }))
+  const lineupEntries: LineupEntry[] = (lineupEntriesRaw ?? []) as LineupEntry[]
+
   const teamNames = new Map<number, string>()
   for (const m of allMatches) {
     if (m.home_team) teamNames.set(m.home_team_id, m.home_team.name)
     if (m.away_team) teamNames.set(m.away_team_id, m.away_team.name)
   }
-  const priorCtx = buildPriorContext(priorMatches, teamNames)
+  const priorCtx = buildPriorContext(priorMatches, teamNames, leaguePlayers, lineupEntries)
 
   // Find scheduled matches to update odds for
   const scheduledMatches = allMatches.filter((m) => m.status === 'scheduled')
@@ -66,13 +84,27 @@ export async function POST() {
       const { error } = await supabase.from('odds').upsert(
         {
           match_id: match.id,
+          matchday: match.matchday,
           home_win: oddsData.home_win,
           draw: oddsData.draw,
           away_win: oddsData.away_win,
+          odds_1x: oddsData.odds_1x,
+          odds_x2: oddsData.odds_x2,
+          odds_12: oddsData.odds_12,
           over_2_5: oddsData.over_2_5,
           under_2_5: oddsData.under_2_5,
+          over_3_5: oddsData.over_3_5,
+          under_3_5: oddsData.under_3_5,
+          over_5_5: oddsData.over_5_5,
+          under_5_5: oddsData.under_5_5,
+          over_7_5: oddsData.over_7_5,
+          under_7_5: oddsData.under_7_5,
           btts_yes: oddsData.btts_yes,
           btts_no: oddsData.btts_no,
+          hdp_home_minus_1_5: oddsData.hdp_home_minus_1_5,
+          hdp_away_plus_1_5: oddsData.hdp_away_plus_1_5,
+          hdp_home_minus_2_5: oddsData.hdp_home_minus_2_5,
+          hdp_away_plus_2_5: oddsData.hdp_away_plus_2_5,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'match_id' }

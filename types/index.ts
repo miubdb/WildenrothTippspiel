@@ -95,6 +95,8 @@ export interface LeaguePlayer {
   team_name: string
   goals: number
   games: number
+  status?: string | null
+  transfer_to?: string | null
 }
 
 export interface LineupEntry {
