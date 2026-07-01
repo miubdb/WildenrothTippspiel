@@ -169,7 +169,8 @@ export default async function TippsPage({
   // Betting window: opens Monday 12:00 of match week (unless early_betting_open override is set)
   const earlyBettingOpen = earlyOpenSetting?.value === 'true'
   const bettingOpens = deadline ? bettingOpenTime(deadline) : null
-  const isBettingOpen = earlyBettingOpen || !bettingOpens || new Date() >= bettingOpens
+  // earlyBettingOpen only applies to the chronologically first upcoming matchday
+  const isBettingOpen = (earlyBettingOpen && currentMatchday === firstScheduled) || !bettingOpens || new Date() >= bettingOpens
 
   const SEASON_START = '2026-08-01'
   // seasonMatches already declared above as filtered by SEASON_START_TIPPS (same value)
