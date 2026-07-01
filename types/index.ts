@@ -97,6 +97,8 @@ export interface LeaguePlayer {
   games: number
   status?: string | null
   transfer_to?: string | null
+  prior_league_level?: 'bezirksliga' | 'kreisliga' | 'kreisklasse' | 'b_klasse' | null
+  prior_team_name?: string | null
 }
 
 export interface LineupEntry {

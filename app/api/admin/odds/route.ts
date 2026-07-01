@@ -48,7 +48,7 @@ export async function POST() {
 
   const { data: leaguePlayersRaw } = await supabase
     .from('league_players')
-    .select('id, team_name, name, goals, matches, status, transfer_to')
+    .select('id, team_name, name, goals, matches, status, transfer_to, prior_league_level, prior_team_name')
   const { data: lineupEntriesRaw } = await supabase
     .from('match_lineups')
     .select('id, match_id, team_name, player_name, minutes_played, goals, assists, created_at')
@@ -61,6 +61,8 @@ export async function POST() {
     games: p.matches,
     status: p.status,
     transfer_to: p.transfer_to,
+    prior_league_level: p.prior_league_level,
+    prior_team_name: p.prior_team_name,
   }))
   const lineupEntries: LineupEntry[] = (lineupEntriesRaw ?? []) as LineupEntry[]
 

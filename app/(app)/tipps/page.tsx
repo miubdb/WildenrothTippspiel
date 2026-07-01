@@ -68,7 +68,7 @@ export default async function TippsPage({
       .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date'),
     supabase
       .from('league_players')
-      .select('id, team_name, name, goals, matches, status, transfer_to'),
+      .select('id, team_name, name, goals, matches, status, transfer_to, prior_league_level, prior_team_name'),
     supabase
       .from('match_lineups')
       .select('id, match_id, team_name, player_name, minutes_played, goals, assists, created_at'),
@@ -98,6 +98,8 @@ export default async function TippsPage({
     games: p.matches,
     status: p.status,
     transfer_to: p.transfer_to,
+    prior_league_level: p.prior_league_level,
+    prior_team_name: p.prior_team_name,
   }))
   const lineupEntries: LineupEntry[] = (lineupEntriesRaw ?? []) as LineupEntry[]
   const priorCtx = buildPriorContext(priorMatches, teamNames, leaguePlayers, lineupEntries)
