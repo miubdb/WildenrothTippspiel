@@ -65,25 +65,36 @@ export default async function TippsPage({
   const params = await searchParams
   const supabase = await createClient()
 
-  const { data: allMatchesRaw } = await supabase
-    .from('matches')
-    .select(
-      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category,
-       home_team:teams!matches_home_team_id_fkey(id, name, short_name),
-       away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
-    )
-    .gte('match_date', '2026-08-01')
-    .order('match_date', { ascending: true })
+  // Fetch all independent data in parallel
+  const [
+    { data: allMatchesRaw },
+    { data: priorMatchesRaw },
+    seasonStarted,
+    { data: earlyOpenSetting },
+    { data: { user } },
+  ] = await Promise.all([
+    supabase
+      .from('matches')
+      .select(
+        `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category,
+         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
+         away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
+      )
+      .gte('match_date', '2026-08-01')
+      .order('match_date', { ascending: true }),
+    supabase
+      .from('prior_season_matches')
+      .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date'),
+    isSeasonStarted(supabase),
+    supabase.from('app_settings').select('value').eq('key', 'early_betting_open').single(),
+    supabase.auth.getUser(),
+  ])
 
   const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
     ...m,
     home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
     away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
   }))
-
-  const { data: priorMatchesRaw } = await supabase
-    .from('prior_season_matches')
-    .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date')
 
   const priorMatches: PriorMatch[] = (priorMatchesRaw ?? []) as PriorMatch[]
 
@@ -97,7 +108,6 @@ export default async function TippsPage({
   const SEASON_START_TIPPS = '2026-08-01'
   // Matchday 999 is the test matchday — always include it regardless of date
   const seasonMatches = allMatches.filter((m) => m.matchday === 999 || m.match_date >= SEASON_START_TIPPS)
-  const seasonStarted = await isSeasonStarted(supabase)
   const isPreSeason = !seasonStarted || seasonMatches.filter((m) => m.matchday !== 999).length === 0
 
   // Pre-season: show 1-28 placeholder; in-season: derive from actual matches
@@ -157,7 +167,6 @@ export default async function TippsPage({
   const isDeadlinePassed = deadline ? deadline <= new Date() : false
 
   // Betting window: opens Monday 12:00 of match week (unless early_betting_open override is set)
-  const { data: earlyOpenSetting } = await supabase.from('app_settings').select('value').eq('key', 'early_betting_open').single()
   const earlyBettingOpen = earlyOpenSetting?.value === 'true'
   const bettingOpens = deadline ? bettingOpenTime(deadline) : null
   const isBettingOpen = earlyBettingOpen || !bettingOpens || new Date() >= bettingOpens
@@ -401,20 +410,6 @@ export default async function TippsPage({
   const positions: Record<number, number> = {}
   sortedTeams.forEach(([id], idx) => { positions[id] = idx + 1 })
 
-  const { data: { user } } = await supabase.auth.getUser()
-
-  // Fetch user profile (Wildenroth flag + season eligibility)
-  const { data: userProfile } = user ? await supabase
-    .from('profiles')
-    .select('is_wildenroth, eligible_for_current_season, is_admin')
-    .eq('id', user.id)
-    .single() : { data: null }
-  const isWildenrothPlayer = userProfile?.is_wildenroth ?? false
-
-  // Saisonstart-Regel: nicht teilnahmeberechtigte Nutzer bekommen eine Hinweis-Seite
-  const isNotEligible = seasonStarted && !!user
-    && !userProfile?.eligible_for_current_season && !userProfile?.is_admin
-
   // Find Wildenroth team ID
   const wildenrothTeam = allMatches.flatMap(m => [m.home_team, m.away_team])
     .find(t => t?.name?.includes('Wildenroth'))
@@ -422,12 +417,25 @@ export default async function TippsPage({
 
   const matchdayMatchIds = matchdayMatches.map((m) => m.id)
 
-  // Own bets: fetch full data for MyBets component + derive counts for header
+  // Fetch user profile and own bets in parallel
   type OwnBet = {
     id: number; match_id: number; market_type: string; selection: string
     odds_value: number; stake: number | null; status: string; combo_id: number | null; is_risky: boolean
   }
   type OwnCombo = { id: number; stake: number; status: string; legs: OwnBet[] }
+
+  const [{ data: userProfile }, ownBetsResult] = await Promise.all([
+    user ? supabase.from('profiles').select('is_wildenroth, eligible_for_current_season, is_admin').eq('id', user.id).single() : Promise.resolve({ data: null }),
+    user && matchdayMatchIds.length > 0
+      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky').eq('user_id', user.id).in('match_id', matchdayMatchIds)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const isWildenrothPlayer = userProfile?.is_wildenroth ?? false
+
+  // Saisonstart-Regel: nicht teilnahmeberechtigte Nutzer bekommen eine Hinweis-Seite
+  const isNotEligible = seasonStarted && !!user
+    && !userProfile?.eligible_for_current_season && !userProfile?.is_admin
 
   let normalBetCount = 0
   let riskyBetCount = 0
@@ -435,13 +443,8 @@ export default async function TippsPage({
   let userCombos: OwnCombo[] = []
 
   if (user && matchdayMatchIds.length > 0) {
-    const { data: ownBets } = await supabase
-      .from('bets')
-      .select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky')
-      .eq('user_id', user.id)
-      .in('match_id', matchdayMatchIds)
-
-    if (ownBets && ownBets.length > 0) {
+    const ownBets = ownBetsResult.data ?? []
+    if (ownBets.length > 0) {
       userSingles = (ownBets as OwnBet[]).filter(b => !b.combo_id)
       const comboIds = [...new Set(ownBets.filter(b => b.combo_id).map(b => Number(b.combo_id)))]
       if (comboIds.length > 0) {
