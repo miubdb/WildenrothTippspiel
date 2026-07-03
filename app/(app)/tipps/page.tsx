@@ -515,7 +515,10 @@ export default async function TippsPage({
     }
   }
 
-  if (isDeadlinePassed && matchdayMatchIds.length > 0) {
+  // RLS enforces per-match/per-combo-leg visibility server-side; this is just a cheap
+  // pre-check to skip the query entirely before any match in the matchday has kicked off.
+  const anyMatchStarted = matchdayMatches.some((m) => new Date(m.match_date) <= new Date())
+  if (anyMatchStarted && matchdayMatchIds.length > 0) {
     const { data: rawSocial } = await supabase
       .from('bets')
       .select('id, market_type, selection, odds_value, status, combo_id, user_id, match_id, stake')
