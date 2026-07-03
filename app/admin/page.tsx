@@ -621,7 +621,7 @@ export default function AdminPage() {
                         {u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ 2</span>}
                       </div>
                       <div className="text-[11px] text-gray-400">
-                        {u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} Wildis · {u.eligible_for_current_season ? <span className="text-green-600">berechtigt</span> : <span className="text-amber-600">nicht berechtigt</span>}
+                        {u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} {wl(u.balance)} · {u.eligible_for_current_season ? <span className="text-green-600">berechtigt</span> : <span className="text-amber-600">nicht berechtigt</span>}
                       </div>
                     </div>
                     <button
@@ -890,6 +890,10 @@ interface OddsPreviewResponse {
 
 function fmt(n: number): string {
   return n.toFixed(2).replace('.', ',')
+}
+
+function wl(n: number): string {
+  return Math.abs(n) === 1 ? 'Wildi' : 'Wildis'
 }
 
 type OverrideRow = { match_id: number } & Record<string, number | null>
@@ -1600,7 +1604,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                         </span>
                         <span className="text-xs text-gray-500">
                           {legs.length} Tipps · @{comboOdds.toFixed(2).replace('.', ',')}
-                          {comboMap[Number(bet.combo_id)]?.stake != null && ` · ${comboMap[Number(bet.combo_id)].stake} Wildis`}
+                          {comboMap[Number(bet.combo_id)]?.stake != null && ` · ${comboMap[Number(bet.combo_id)].stake} ${wl(comboMap[Number(bet.combo_id)].stake)}`}
                         </span>
                         <StatusChip status={effectiveComboStatus} />
                       </div>
@@ -1623,7 +1627,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                     <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
                     {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
                     <span className="text-red-600 font-bold ml-auto">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
-                    <span className="text-gray-400">{bet.stake != null ? `${bet.stake} Wildis` : ''}</span>
+                    <span className="text-gray-400">{bet.stake != null ? `${bet.stake} ${wl(bet.stake)}` : ''}</span>
                     <StatusChip status={bet.status} />
                   </div>
                 )
@@ -2237,8 +2241,8 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
       {selectedMatch && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <div>
-              <h3 className="font-bold text-gray-900">
+            <div className="min-w-0 flex-1">
+              <h3 className="font-bold text-gray-900 truncate">
                 {selectedMatch.home_team?.name} – {selectedMatch.away_team?.name}
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">

@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { AWARD_META, type AwardType } from '@/lib/awards'
+import { wildiLabel } from '@/components/WildiIcon'
 
 export const revalidate = 300
 
@@ -185,12 +186,12 @@ export default async function RecapPage({
             <div className="px-3 py-3 text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Eingesetzt</div>
               <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">
-                {fmtAmt(myStats.staked)} Wildis
+                {fmtAmt(myStats.staked)} {wildiLabel(myStats.staked)}
               </div>
             </div>
             <div className="px-3 py-3 text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ausgezahlt</div>
-              <div className="font-bold text-green-600 text-sm">{fmtAmt(myStats.payout)} Wildis</div>
+              <div className="font-bold text-green-600 text-sm">{fmtAmt(myStats.payout)} {wildiLabel(myStats.payout)}</div>
             </div>
             <div className="px-3 py-3 text-center">
               <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ergebnis</div>
@@ -200,7 +201,7 @@ export default async function RecapPage({
                 }`}
               >
                 {myProfit !== null && myProfit >= 0 ? '+' : ''}
-                {fmtAmt(myProfit ?? 0)} Wildis
+                {fmtAmt(myProfit ?? 0)} {wildiLabel(myProfit ?? 0)}
               </div>
             </div>
           </div>
@@ -309,7 +310,7 @@ export default async function RecapPage({
                       )}
                     </div>
                     <div className="text-xs text-gray-400 dark:text-gray-500">
-                      Eingesetzt: {fmtAmt(entry.staked)} Wildis · Ausgezahlt: {fmtAmt(entry.payout)} Wildis
+                      Eingesetzt: {fmtAmt(entry.staked)} {wildiLabel(entry.staked)} · Ausgezahlt: {fmtAmt(entry.payout)} {wildiLabel(entry.payout)}
                     </div>
                   </div>
                   <div
@@ -318,7 +319,7 @@ export default async function RecapPage({
                     }`}
                   >
                     {entry.profit >= 0 ? '+' : ''}
-                    {fmtAmt(entry.profit)} Wildis
+                    {fmtAmt(entry.profit)} {wildiLabel(entry.profit)}
                   </div>
                 </div>
               )

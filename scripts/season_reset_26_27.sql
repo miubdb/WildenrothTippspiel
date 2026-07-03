@@ -3,7 +3,7 @@
 -- Im Supabase Dashboard → SQL Editor ausführen
 -- ============================================================
 
--- 1. Alle Spieler-Guthaben auf 1.000 € zurücksetzen
+-- 1. Alle Spieler-Guthaben auf 1.000 Wildis zurücksetzen
 UPDATE profiles SET balance = 1000.00;
 
 -- 2. season-Spalte zu bets hinzufügen (falls noch nicht vorhanden)

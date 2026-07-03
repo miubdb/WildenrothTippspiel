@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser, sendPushToAll } from '@/lib/push'
+import { wildiLabel } from '@/components/WildiIcon'
 
 function settleBet(
   marketType: string,
@@ -271,13 +272,13 @@ export async function POST(request: NextRequest) {
     let body: string
     if (won > 0 && lost === 0) {
       title = won === 1 ? '🎉 Wette gewonnen!' : `🎉 ${won} Wetten gewonnen!`
-      body = `+${amount.toFixed(2)} Wildis wurden deinem Konto gutgeschrieben.`
+      body = `+${amount.toFixed(2)} ${wildiLabel(amount)} wurden deinem Konto gutgeschrieben.`
     } else if (won === 0 && lost > 0) {
       title = lost === 1 ? '😬 Wette verloren' : `😬 ${lost} Wetten verloren`
       body = 'Viel Glück beim nächsten Spieltag!'
     } else if (won > 0 && lost > 0) {
       title = `📊 ${won + lost} Wetten ausgewertet`
-      body = `${won} gewonnen, ${lost} verloren · Saldo: ${amount >= 0 ? '+' : ''}${amount.toFixed(2)} Wildis`
+      body = `${won} gewonnen, ${lost} verloren · Saldo: ${amount >= 0 ? '+' : ''}${amount.toFixed(2)} ${wildiLabel(amount)}`
     } else {
       continue
     }
@@ -370,7 +371,7 @@ export async function POST(request: NextRequest) {
             pnlByUser[c.user_id] = (pnlByUser[c.user_id] ?? 0) + g
           }
           const topPnl = Object.entries(pnlByUser).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1])[0]
-          if (topPnl) awardInputs.push({ user_id: topPnl[0], award_type: 'spieltagskoenig', value: topPnl[1], value_text: `+${topPnl[1].toFixed(2)} Wildis` })
+          if (topPnl) awardInputs.push({ user_id: topPnl[0], award_type: 'spieltagskoenig', value: topPnl[1], value_text: `+${topPnl[1].toFixed(2)} ${wildiLabel(topPnl[1])}` })
 
           // 2. Eier aus Stahl — highest won odds (singles OR combos)
           const bestWonSingle = [...wonSingles].sort((a: { odds_value: number }, b: { odds_value: number }) => b.odds_value - a.odds_value)[0]
@@ -397,7 +398,7 @@ export async function POST(request: NextRequest) {
             .sort((a, b) => (b.c.stake * b.c.total_odds) - (a.c.stake * a.c.total_odds))[0]
           if (unlucky) {
             const potential = unlucky.c.stake * unlucky.c.total_odds
-            awardInputs.push({ user_id: unlucky.c.user_id, award_type: 'unlucky_bastard', value: potential, value_text: `${Math.round(potential)} Wildis möglich` })
+            awardInputs.push({ user_id: unlucky.c.user_id, award_type: 'unlucky_bastard', value: potential, value_text: `${Math.round(potential)} ${wildiLabel(potential)} möglich` })
           }
 
           // 4. Ergebnis-Orakel — won exact_score bets; highest stake wins if multiple
@@ -414,7 +415,7 @@ export async function POST(request: NextRequest) {
             ...lostCombos.map(c => ({ user_id: c.user_id, stake: c.stake, potential: c.stake * c.total_odds })),
           ].sort((a, b) => b.stake - a.stake || b.potential - a.potential)
           if (lostAll[0]) {
-            awardInputs.push({ user_id: lostAll[0].user_id, award_type: 'griff_ins_klo', value: lostAll[0].stake, value_text: `${lostAll[0].stake} Wildis versenkt` })
+            awardInputs.push({ user_id: lostAll[0].user_id, award_type: 'griff_ins_klo', value: lostAll[0].stake, value_text: `${lostAll[0].stake} ${wildiLabel(lostAll[0].stake)} versenkt` })
           }
 
           // 6. Betonmischer — lowest odds among won bets (tiebreak: higher stake)

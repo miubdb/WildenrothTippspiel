@@ -8,6 +8,10 @@ function fmtAmt(n: number) {
   return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function wildiLabel(n: number) {
+  return Math.abs(n) === 1 ? 'Wildi' : 'Wildis'
+}
+
 export type ShareCardData = {
   matchday?: number
   // mvp / risky / pechvogel
@@ -66,8 +70,8 @@ export function ShareCard({
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-sm ${
                   i === 0 ? 'bg-yellow-400 text-yellow-900' : i === 1 ? 'bg-gray-300 text-gray-700' : i === 2 ? 'bg-amber-600 text-white' : 'bg-gray-100 text-gray-500'
                 }`}>{i + 1}</div>
-                <div className="flex-1 font-bold text-gray-900 truncate">{r.name}</div>
-                <div className="font-black text-red-700">{fmtAmt(r.balance)} Wildis</div>
+                <div className="flex-1 min-w-0 font-bold text-gray-900 truncate">{r.name}</div>
+                <div className="font-black text-red-700 flex-shrink-0">{fmtAmt(r.balance)} {wildiLabel(r.balance)}</div>
               </div>
             ))}
           </div>

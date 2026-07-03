@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react'
 import { ShareCard, type ShareCardData } from './ShareCard'
-import { WildiIcon, fmtWildi } from '@/components/WildiIcon'
+import { WildiIcon, fmtWildi, wildiLabel } from '@/components/WildiIcon'
 
 export type RecapLegDetail = {
   matchName: string
@@ -80,7 +80,7 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
           </div>
           <div className="text-right flex-shrink-0">
             <div className="text-[10px] text-gray-400 uppercase tracking-wide">Einsatz</div>
-            <div className="font-bold text-gray-800 dark:text-gray-200 text-sm">{fmtAmt(ub.stake)} Wildis</div>
+            <div className="font-bold text-gray-800 dark:text-gray-200 text-sm">{fmtAmt(ub.stake)} {wildiLabel(ub.stake)}</div>
           </div>
         </div>
         {ub.legDetails.length > 0 && (
@@ -112,11 +112,11 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
           <span className="text-2xl">😭</span>
           <div className="flex-1">
             <div className="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide">Wäre geworden</div>
-            <div className="font-black text-green-600 dark:text-green-400 text-lg">+{fmtAmt(wouldHaveGained)} Wildis</div>
+            <div className="font-black text-green-600 dark:text-green-400 text-lg">+{fmtAmt(wouldHaveGained)} {wildiLabel(wouldHaveGained)}</div>
           </div>
           <div className="text-right text-xs text-gray-400 dark:text-gray-500">
             <div>Auszahlung</div>
-            <div className="font-semibold">{fmtAmt(ub.wouldHavePayout)} Wildis</div>
+            <div className="font-semibold">{fmtAmt(ub.wouldHavePayout)} {wildiLabel(ub.wouldHavePayout)}</div>
           </div>
         </div>
       </div>
@@ -186,7 +186,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={spieltagskoenig.name}
               value={<>+{fmtAmt(spieltagskoenig.profit)} <WildiIcon size={20} /></>}
               detail={pickTpl(['{name} räumt heute richtig ab.', '{name} lacht sich ins Fäustchen.'], spieltagskoenig.name)}
-              onShare={() => setShare({ type: 'mvp', data: { matchday, name: spieltagskoenig.name, value: `+${fmtAmt(spieltagskoenig.profit)} Wildis`, subtitle: `${spieltagskoenig.name} ist Spieltagskönig` } })}
+              onShare={() => setShare({ type: 'mvp', data: { matchday, name: spieltagskoenig.name, value: `+${fmtAmt(spieltagskoenig.profit)} ${wildiLabel(spieltagskoenig.profit)}`, subtitle: `${spieltagskoenig.name} ist Spieltagskönig` } })}
               accentBg="bg-yellow-50"
               accentBorder="border-yellow-200"
               accentText="text-yellow-600"
@@ -198,7 +198,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Eier aus Stahl"
               name={eierAusStahl.name}
               value={`@${fmtOdds(eierAusStahl.odds)}`}
-              detail={`Einsatz ${fmtAmt(eierAusStahl.stake)} Wildis → +${fmtAmt(eierAusStahl.payout - eierAusStahl.stake)} Wildis${eierAusStahl.isCombo && eierAusStahl.legs ? ` · ${eierAusStahl.legs}er-Kombi` : ''}`}
+              detail={`Einsatz ${fmtAmt(eierAusStahl.stake)} ${wildiLabel(eierAusStahl.stake)} → +${fmtAmt(eierAusStahl.payout - eierAusStahl.stake)} ${wildiLabel(eierAusStahl.payout - eierAusStahl.stake)}${eierAusStahl.isCombo && eierAusStahl.legs ? ` · ${eierAusStahl.legs}er-Kombi` : ''}`}
               onShare={() => setShare({ type: 'risky', data: { matchday, name: eierAusStahl.name, value: `@${fmtOdds(eierAusStahl.odds)}`, subtitle: `${eierAusStahl.name} hatte Eier aus Stahl` } })}
               accentBg="bg-purple-50"
               accentBorder="border-purple-200"
@@ -220,7 +220,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="On Fire"
               name={onFire.name}
               value={`${onFire.count}x gewonnen`}
-              detail={`Spieltagssaldo: ${onFire.pnl >= 0 ? '+' : ''}${fmtAmt(onFire.pnl)} Wildis`}
+              detail={`Spieltagssaldo: ${onFire.pnl >= 0 ? '+' : ''}${fmtAmt(onFire.pnl)} ${wildiLabel(onFire.pnl)}`}
               accentBg="bg-orange-50"
               accentBorder="border-orange-200"
               accentText="text-orange-600"
@@ -232,7 +232,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Ergebnis-Orakel"
               name={ergebnisOrakel.name}
               value={ergebnisOrakel.score}
-              detail={`Einsatz ${fmtAmt(ergebnisOrakel.stake)} Wildis · Exaktes Ergebnis`}
+              detail={`Einsatz ${fmtAmt(ergebnisOrakel.stake)} ${wildiLabel(ergebnisOrakel.stake)} · Exaktes Ergebnis`}
               accentBg="bg-indigo-50"
               accentBorder="border-indigo-200"
               accentText="text-indigo-700"
@@ -251,7 +251,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={griffInsKlo.name}
               value={<>-{fmtAmt(griffInsKlo.loss)} <WildiIcon size={20} /></>}
               detail={pickTpl(['{name} greift daneben.', 'Heute ist nicht {name}s Tag.'], griffInsKlo.name)}
-              onShare={() => setShare({ type: 'pechvogel', data: { matchday, name: griffInsKlo.name, value: `-${fmtAmt(griffInsKlo.loss)} Wildis`, subtitle: `${griffInsKlo.name} greift ins Klo` } })}
+              onShare={() => setShare({ type: 'pechvogel', data: { matchday, name: griffInsKlo.name, value: `-${fmtAmt(griffInsKlo.loss)} ${wildiLabel(griffInsKlo.loss)}`, subtitle: `${griffInsKlo.name} greift ins Klo` } })}
               accentBg="bg-red-50"
               accentBorder="border-red-200"
               accentText="text-red-600"
@@ -263,7 +263,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Betonmischer"
               name={betonmischer.name}
               value={`@${fmtOdds(betonmischer.odds)}`}
-              detail={`Einsatz ${fmtAmt(betonmischer.stake)} Wildis → +${fmtAmt(betonmischer.payout - betonmischer.stake)} Wildis`}
+              detail={`Einsatz ${fmtAmt(betonmischer.stake)} ${wildiLabel(betonmischer.stake)} → +${fmtAmt(betonmischer.payout - betonmischer.stake)} ${wildiLabel(betonmischer.payout - betonmischer.stake)}`}
               accentBg="bg-stone-50"
               accentBorder="border-stone-200"
               accentText="text-stone-600"

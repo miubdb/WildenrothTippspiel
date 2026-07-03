@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { ReactionBar } from '@/components/ReactionBar'
 import { CommentSection, type CommentData } from '@/components/CommentSection'
+import { wildiLabel } from '@/components/WildiIcon'
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -128,17 +129,17 @@ export function WetteCard({
             )}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="text-sm font-black text-red-700">@{fmtOdds(wette.totalOdds)}</span>
-              <span className="text-[10px] text-gray-500 dark:text-gray-400">{fmt(wette.stake)} Wildis</span>
+              <span className="text-[10px] text-gray-500 dark:text-gray-400">{fmt(wette.stake)} {wildiLabel(wette.stake)}</span>
               {wette.status === 'pending' && (
                 <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                  {'→ mög. '}<span className="font-semibold text-gray-700 dark:text-gray-300">{fmt(wette.stake * wette.totalOdds)} Wildis</span>
+                  {'→ mög. '}<span className="font-semibold text-gray-700 dark:text-gray-300">{fmt(wette.stake * wette.totalOdds)} {wildiLabel(wette.stake * wette.totalOdds)}</span>
                 </span>
               )}
               {wette.status === 'won' && wette.payout != null && (
-                <span className="text-[10px] font-bold text-green-600">+{fmt(wette.payout)} Wildis</span>
+                <span className="text-[10px] font-bold text-green-600">+{fmt(wette.payout)} {wildiLabel(wette.payout)}</span>
               )}
               {wette.status === 'lost' && (
-                <span className="text-[10px] text-red-400 line-through">{fmt(wette.stake)} Wildis</span>
+                <span className="text-[10px] text-red-400 line-through">{fmt(wette.stake)} {wildiLabel(wette.stake)}</span>
               )}
             </div>
           </div>
