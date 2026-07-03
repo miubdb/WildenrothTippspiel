@@ -18,7 +18,7 @@ export default function AnleitungPage() {
           möglichst viel daraus zu machen. Wer am Ende der Saison das höchste Guthaben hat, gewinnt.
         </p>
         <div className="mt-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg px-3 py-2 text-sm text-green-800 dark:text-green-300">
-          💰 Jeden <strong>Montag um 12:00 Uhr</strong> gibt es automatisch <strong>10 Wildis</strong> — auch nach einer Pechsträhne geht es weiter.
+          💰 Ab Saisonstart gibt es jeden <strong>Montag um 12:00 Uhr</strong> automatisch <strong>10 Wildis</strong> Taschengeld — auch nach einer Pechsträhne geht es weiter.
         </div>
       </HelpAccordion>
 
@@ -94,6 +94,37 @@ export default function AnleitungPage() {
           <Row label="Einsatz:" value={<>Maximal <strong>250 Wildis pro Wettschein</strong></>} />
           <Row label="Inaktiv:" labelColor="text-orange-600" value={<>Wer in einem Spieltag <strong>keine einzige Wette</strong> platziert, zahlt automatisch <strong>100 Wildis Strafe</strong> — wird nach Spieltagsabrechnung abgezogen</>} />
           <Row label="Storno:" labelColor="text-blue-700 dark:text-blue-400" value="Einzelwette: bis zum Anpfiff des Spiels. Kombiwette: bis der erste enthaltene Anpfiff beginnt. Der Einsatz wird sofort zurückgebucht." />
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+          Ein neuer Spieltag öffnet nie, bevor der vorherige Spieltag begonnen hat — es ist also nie gleichzeitig auf zwei Spieltage wettbar.
+        </p>
+      </HelpAccordion>
+
+      {/* Verschobene Spiele — NEU */}
+      <HelpAccordion title="Verschobene Spiele" emoji="🔁">
+        <p>
+          Wird ein Spiel verschoben, bleibt deine Wette darauf bestehen und weiterhin <strong>stornierbar</strong> —
+          der Annahmeschluss greift erst wieder, sobald ein neuer Termin feststeht und das Spiel tatsächlich angepfiffen wird.
+        </p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+          Bei einer sehr langen Verschiebung ohne neuen Termin entscheidet der Admin im Einzelfall — z.B. durch manuelle
+          Stornierung oder nachträgliche Ergebniseingabe, sobald das Spiel nachgeholt wurde.
+        </p>
+      </HelpAccordion>
+
+      {/* Sichtbarkeit fremder Tipps — NEU */}
+      <HelpAccordion title="Tipps anderer Nutzer" emoji="🔒">
+        <p>
+          Bis zum Anpfiff bleiben fremde Wetten geheim — du siehst nur, wie viele Wettscheine für ein Spiel
+          platziert wurden (z.B. „3 Wettscheine platziert – sichtbar ab Anpfiff"), aber weder Teams, Markt, Quote noch Tipp.
+        </p>
+        <div className="mt-2 space-y-1">
+          <div className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1">
+            <strong>Einzelwette:</strong> wird sichtbar, sobald das jeweilige Spiel angepfiffen ist.
+          </div>
+          <div className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1">
+            <strong>Kombiwette:</strong> wird sichtbar, sobald mindestens eines der enthaltenen Spiele angepfiffen ist.
+          </div>
         </div>
       </HelpAccordion>
 
@@ -214,18 +245,64 @@ export default function AnleitungPage() {
       {/* Wildenroth-Spieler & Trainer */}
       <HelpAccordion title="Wildenroth-Spieler & Trainer" emoji="⚽">
         <p>
-          Als aktiver Spieler oder Trainer der SpVgg Wildenroth darfst du bei Wildenroth-Spielen
-          <strong> nicht gegen Wildenroth wetten</strong>.
+          Als aktiver Spieler, Trainer oder Torwarttrainer der <strong>1. oder 2. Mannschaft</strong> von
+          SpVgg Wildenroth darfst du bei Spielen deines Teams <strong>nicht gegen dein eigenes Team wetten</strong>.
+          Die beiden Flags sind unabhängig — bist du bei beiden Teams aktiv, gilt die Sperre für beide.
         </p>
         <div className="mt-2 space-y-1">
           <div className="text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 rounded px-2 py-1">
-            ✅ Erlaubt: Wildenroth-Sieg (1X2), genaues Ergebnis mit Wildenroth-Sieg,
+            ✅ Erlaubt: Sieg des eigenen Teams (1X2), genaues Ergebnis mit eigenem Sieg,
             neutrale Tormärkte (Über/Unter, Beide treffen)
           </div>
           <div className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1">
-            🚫 Gesperrt: Wildenroth-Niederlage, Unentschieden, alle Doppelte-Chance-Picks gegen Wildenroth,
-            genaue Ergebnisse mit Unentschieden oder Wildenroth-Niederlage
+            🚫 Gesperrt: Niederlage oder Unentschieden des eigenen Teams, alle Doppelte-Chance-Picks dagegen,
+            genaue Ergebnisse mit Unentschieden oder eigener Niederlage
           </div>
+        </div>
+      </HelpAccordion>
+
+      {/* B-Klasse, Wildenroth II & Topspiel — NEU */}
+      <HelpAccordion title="Wildenroth II & B-Klasse-Topspiel" emoji="🥈">
+        <p>
+          Neben den Spielen der 1. Mannschaft (Kreisliga) sind pro Tippspiel-Spieltag auch die Spiele der
+          <strong> Wildenroth II</strong> (B-Klasse) wettbar, sowie ein vom Admin ausgewähltes
+          <strong> B-Klasse-Topspiel der Woche</strong>. Alle übrigen B-Klasse-Spiele sind reine Ergebnis-Information
+          und nicht wettbar.
+        </p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+          Da die B-Klasse ihre eigene Spieltag-Nummerierung hat, wird jedes Wildenroth-II- oder Topspiel-Match
+          automatisch dem Tippspiel-Spieltag zugeordnet, dessen Termin zeitlich am nächsten liegt — nicht der
+          gleichlautenden B-Klasse-Spieltagnummer.
+        </p>
+      </HelpAccordion>
+
+      {/* Rangliste & Auszeichnungen — NEU */}
+      <HelpAccordion title="Rangliste & Auszeichnungen" emoji="🏅">
+        <p>
+          Die <strong>Saison-Rangliste</strong> sortiert nach Guthaben (inkl. offener Wetten) — dein Profit
+          gegenüber dem Startguthaben ist die angezeigte +/- Zahl. Zusätzlich gibt es eine
+          <strong> Spieltags-Rangliste</strong>, die nur den Gewinn/Verlust des jeweils einzelnen Spieltags zeigt.
+        </p>
+        <div className="mt-2 space-y-1">
+          <div className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1">
+            🔥 <strong>Streak:</strong> mindestens 2 Spieltage in Folge mit positivem Saldo.
+          </div>
+          <div className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1">
+            🏅 <strong>Spieltagsbester:</strong> bester (positiver) Saldo an einem Spieltag — die Zahl zeigt, wie oft du das schon warst.
+          </div>
+        </div>
+        <p className="mt-2 text-sm">
+          Nach jedem abgerechneten Spieltag werden automatisch bis zu <strong>7 Auszeichnungen</strong> vergeben,
+          sichtbar auf deinem Profil und auf jedem Spielerprofil:
+        </p>
+        <div className="mt-1.5 grid grid-cols-1 gap-1">
+          <AwardRow emoji="🏆" title="Spieltagskönig" desc="Bester Gesamtsaldo an diesem Spieltag" />
+          <AwardRow emoji="🥚" title="Eier aus Stahl" desc="Gewonnene Einzelwette mit der höchsten Quote" />
+          <AwardRow emoji="😭" title="Unlucky Bastard" desc="Kombiwette, die nur an einem einzigen Tipp gescheitert ist" />
+          <AwardRow emoji="🔮" title="Ergebnis-Orakel" desc="Genaues Endergebnis richtig getippt" />
+          <AwardRow emoji="🚽" title="Griff ins Klo" desc="Höchster verlorener Einsatz an diesem Spieltag" />
+          <AwardRow emoji="🧱" title="Betonmischer" desc="Sicherste gewonnene Wette (niedrigste Quote)" />
+          <AwardRow emoji="🔥" title="On Fire" desc="Die meisten gewonnenen Wettscheine an einem Spieltag (mind. 2)" />
         </div>
       </HelpAccordion>
 
@@ -260,6 +337,18 @@ function Row({ label, value, labelColor }: { label: string; value: React.ReactNo
         {label || 'Schluss:'}
       </span>
       <span className="text-gray-600 dark:text-gray-300">{value}</span>
+    </div>
+  )
+}
+
+function AwardRow({ emoji, title, desc }: { emoji: string; title: string; desc: string }) {
+  return (
+    <div className="flex gap-2 items-start text-xs">
+      <span className="flex-shrink-0">{emoji}</span>
+      <div>
+        <span className="font-semibold text-gray-700 dark:text-gray-200">{title}</span>
+        <span className="text-gray-500 dark:text-gray-400"> — {desc}</span>
+      </div>
     </div>
   )
 }
