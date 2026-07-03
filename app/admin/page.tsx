@@ -14,6 +14,7 @@ interface MatchRow {
   home_team: { name: string; short_name: string } | null
   away_team: { name: string; short_name: string } | null
   match_category: string | null
+  is_topspiel: boolean
 }
 
 interface AdminUser {
@@ -121,7 +122,7 @@ export default function AdminPage() {
     const { data } = await supabase
       .from('matches')
       .select(
-        `id, match_number, matchday, match_date, status, home_score, away_score, match_category,
+        `id, match_number, matchday, match_date, status, home_score, away_score, match_category, is_topspiel,
          home_team:teams!matches_home_team_id_fkey(name, short_name),
          away_team:teams!matches_away_team_id_fkey(name, short_name)`
       )
@@ -219,6 +220,15 @@ export default function AdminPage() {
       .update({ match_category: category || null })
       .eq('id', matchId)
     setMatches(prev => prev.map(m => m.id === matchId ? { ...m, match_category: category || null } : m))
+  }
+
+  // Marks/unmarks a B-Klasse match as the admin-selected weekly Topspiel — the one
+  // extra B-Klasse match that becomes bettable on the Tippspiel-Spieltag its date
+  // falls into. Admin is responsible for only flagging one match per week.
+  async function toggleTopspiel(matchId: number, value: boolean) {
+    const supabaseClient = createClient()
+    await supabaseClient.from('matches').update({ is_topspiel: value }).eq('id', matchId)
+    setMatches(prev => prev.map(m => m.id === matchId ? { ...m, is_topspiel: value } : m))
   }
 
   async function recalculateOdds() {
@@ -349,6 +359,50 @@ export default function AdminPage() {
                   <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-3 text-center">
                     <div className="text-2xl font-black text-blue-600">{openBets}</div>
                     <div className="text-[10px] text-blue-700 font-semibold mt-0.5 leading-tight">offene Wetten</div>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* B-Klasse Topspiel selection */}
+            {(() => {
+              const now = new Date()
+              const in21Days = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000)
+              const bklasseUpcoming = matches
+                .filter(m => m.match_category === 'b-klasse' && m.status === 'scheduled'
+                  && new Date(m.match_date) >= now && new Date(m.match_date) <= in21Days)
+                .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+              const currentTopspiel = matches.find(m => m.match_category === 'b-klasse' && m.is_topspiel && m.status === 'scheduled')
+              if (bklasseUpcoming.length === 0 && !currentTopspiel) return null
+              return (
+                <div>
+                  <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-1">
+                    B-Klasse-Topspiel der Woche
+                  </h2>
+                  <p className="text-xs text-gray-400 mb-2">
+                    Genau ein B-Klasse-Spiel pro Woche kann als zusätzliches, wettbares Topspiel markiert werden.
+                  </p>
+                  <div className="space-y-1.5">
+                    {(currentTopspiel && !bklasseUpcoming.some(m => m.id === currentTopspiel.id) ? [currentTopspiel, ...bklasseUpcoming] : bklasseUpcoming).map((match) => (
+                      <label
+                        key={match.id}
+                        className={`flex items-center gap-2 rounded-xl px-3 py-2 border cursor-pointer ${match.is_topspiel ? 'bg-yellow-50 border-yellow-300' : 'bg-white border-gray-200'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={match.is_topspiel}
+                          onChange={(e) => toggleTopspiel(match.id, e.target.checked)}
+                          className="w-4 h-4 accent-yellow-500 flex-shrink-0"
+                        />
+                        <span className="flex-1 text-sm text-gray-800 truncate">
+                          {match.home_team?.name ?? '?'} – {match.away_team?.name ?? '?'}
+                        </span>
+                        <span className="text-xs text-gray-400 flex-shrink-0">
+                          {new Date(match.match_date).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                        </span>
+                        {match.is_topspiel && <span className="text-xs">⭐</span>}
+                      </label>
+                    ))}
                   </div>
                 </div>
               )

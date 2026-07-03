@@ -58,7 +58,7 @@ export default async function TippsPage({
     supabase
       .from('matches')
       .select(
-        `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category,
+        `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel,
          home_team:teams!matches_home_team_id_fkey(id, name, short_name),
          away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
       )
@@ -118,20 +118,53 @@ export default async function TippsPage({
   // matchdays (e.g. Spieltag 2 played as a midweek catch-up after Spieltag 7).
   // The official matchday NUMBER stays as-is everywhere (labels, tables, results),
   // but ordering/"default"/"completed" logic must follow actual kickoff dates.
+  //
+  // Kreisliga (1. Mannschaft) defines the Tippspiel-Spieltag structure. Wildenroth II
+  // and B-Klasse matches run on their own, independent BFV matchday numbering — their
+  // raw `matchday` number is NOT meaningful here. Instead each such match is assigned
+  // to whichever Kreisliga-Spieltag's date range it falls closest to (see
+  // `effectiveMatchdayOf` below). Plain B-Klasse matches (not the admin-selected
+  // weekly Topspiel) never appear on the Tippspiel page at all.
+  const isKreisligaMatch = (m: Match) => !m.match_category || m.match_category === 'kreisliga'
+  const kreisligaMatches = seasonMatches.filter((m) => m.matchday !== 999 && isKreisligaMatch(m))
+
   const matchdayMinDate = new Map<number, number>()
-  for (const m of seasonMatches) {
-    if (m.matchday === 999) continue
+  const matchdayMaxDate = new Map<number, number>()
+  for (const m of kreisligaMatches) {
     const t = new Date(m.match_date).getTime()
-    const prev = matchdayMinDate.get(m.matchday)
-    if (prev === undefined || t < prev) matchdayMinDate.set(m.matchday, t)
+    const prevMin = matchdayMinDate.get(m.matchday)
+    if (prevMin === undefined || t < prevMin) matchdayMinDate.set(m.matchday, t)
+    const prevMax = matchdayMaxDate.get(m.matchday)
+    if (prevMax === undefined || t > prevMax) matchdayMaxDate.set(m.matchday, t)
+  }
+  const kreisligaMatchdaysSorted = [...matchdayMinDate.keys()].sort((a, b) => matchdayMinDate.get(a)! - matchdayMinDate.get(b)!)
+
+  // Assigns a Wildenroth-II / Topspiel-flagged B-Klasse match to the Kreisliga-Spieltag
+  // whose date range it falls inside, or the nearest one by distance otherwise.
+  function effectiveMatchdayOf(m: Match): number | null {
+    if (m.matchday === 999) return 999
+    if (isKreisligaMatch(m)) return m.matchday
+    const isWildenrothII = m.match_category === 'wildenroth_ii'
+    const isTopspiel = m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel)
+    if (!isWildenrothII && !isTopspiel) return null // plain B-Klasse match — not bettable, not shown
+    if (kreisligaMatchdaysSorted.length === 0) return null
+    const t = new Date(m.match_date).getTime()
+    let best: number = kreisligaMatchdaysSorted[0]
+    let bestDist = Infinity
+    for (const md of kreisligaMatchdaysSorted) {
+      const min = matchdayMinDate.get(md)!
+      const max = matchdayMaxDate.get(md)!
+      const dist = t < min ? min - t : t > max ? t - max : 0
+      if (dist < bestDist) { bestDist = dist; best = md }
+    }
+    return best
   }
 
   const allMatchdays = isPreSeason
     ? [...(hasTestMatchday ? [999] : []), ...Array.from({ length: 28 }, (_, i) => i + 1)]
-    : [...new Set(seasonMatches.map((m) => m.matchday))]
-        .sort((a, b) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0))
+    : [...(hasTestMatchday ? [999] : []), ...kreisligaMatchdaysSorted]
 
-  const firstScheduled = [...new Set(seasonMatches.filter((m) => m.status === 'scheduled').map((m) => m.matchday))]
+  const firstScheduled = [...new Set(kreisligaMatches.filter((m) => m.status === 'scheduled').map((m) => m.matchday))]
     .sort((a, b) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0))[0]
 
   // Before Monday 12:00 Berlin → default to last completed matchday (Sunday games just ended)
@@ -139,7 +172,7 @@ export default async function TippsPage({
   const thisWeekMondayNoon = bettingOpenTime(new Date())
   const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
   const completedMatchdays = allMatchdays.filter((md) => {
-    const mdM = seasonMatches.filter((m) => m.matchday === md)
+    const mdM = md === 999 ? seasonMatches.filter((m) => m.matchday === 999) : kreisligaMatches.filter((m) => m.matchday === md)
     const nonPostponed = mdM.filter((m) => m.status !== 'postponed')
     return nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
   })
@@ -160,7 +193,7 @@ export default async function TippsPage({
     requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
 
   const matchdayMatches = seasonMatches
-    .filter((m) => m.matchday === currentMatchday)
+    .filter((m) => effectiveMatchdayOf(m) === currentMatchday)
     .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
 
   const deadline = matchdayMatches[0] ? new Date(matchdayMatches[0].match_date) : null
@@ -885,7 +918,7 @@ export default async function TippsPage({
         <div className="space-y-3">
           {(() => {
             const kreisliga = matchdayMatches.filter(m => !m.match_category || m.match_category === 'kreisliga')
-            const bklasse = matchdayMatches.filter(m => m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel')
+            const bklasse = matchdayMatches.filter(m => m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel))
             return (
               <>
                 {kreisliga.map((match) => (
