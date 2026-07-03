@@ -46,3 +46,21 @@ export async function isSeasonStarted(supabase: SupabaseClient): Promise<boolean
   if (!firstMatch) return false
   return new Date(firstMatch.match_date) <= new Date()
 }
+
+/** Returns true iff the real first matchday-1 match of the current season has
+ *  actually kicked off. Unlike isSeasonStarted(), this ignores the admin-togglable
+ *  app_settings.season_started display flag — use this wherever "has the season
+ *  truly begun" gates something consequential (registration eligibility, payouts),
+ *  since that flag can be set early purely to display the real schedule. */
+export async function hasFirstMatchdayKickedOff(supabase: SupabaseClient): Promise<boolean> {
+  const { data: firstMatch } = await supabase
+    .from('matches')
+    .select('match_date')
+    .eq('matchday', 1)
+    .gte('match_date', '2026-08-01')
+    .order('match_date', { ascending: true })
+    .limit(1)
+    .single()
+  if (!firstMatch) return false
+  return new Date(firstMatch.match_date) <= new Date()
+}

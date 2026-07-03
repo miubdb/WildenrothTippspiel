@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { isSeasonStarted } from '@/lib/season'
+import { hasFirstMatchdayKickedOff } from '@/lib/season'
 
 /** Called right after a successful sign-up.
- *  Sets is_wildenroth flag and, if season already started,
- *  marks the new user as ineligible for the current season. */
+ *  Sets is_wildenroth flag and, if the real season has already started
+ *  (matchday 1 has kicked off), marks the new user as ineligible until an
+ *  admin explicitly approves them. Registrations before kickoff are
+ *  auto-eligible — deliberately NOT gated on the admin-togglable
+ *  app_settings.season_started display flag, which can be set early. */
 export async function POST(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -17,7 +20,7 @@ export async function POST(req: Request) {
     isWildenroth = body.isWildenroth === true
   } catch { /* body is optional */ }
 
-  const seasonStarted = await isSeasonStarted(supabase)
+  const seasonStarted = await hasFirstMatchdayKickedOff(supabase)
   const admin = createAdminClient()
 
   const updates: Record<string, unknown> = {}
