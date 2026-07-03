@@ -166,7 +166,10 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
     }
   }
 
-  const visibleWetten = wetten.filter(w => {
+  // Own bets are never hidden from yourself — only other users' not-yet-started
+  // bets need the anti-leak visibility filter (server already enforces this via
+  // RLS; this just avoids fetching/rendering something the API would reject anyway).
+  const visibleWetten = isOwnBets ? wetten : wetten.filter(w => {
     if (w.type === 'single') {
       const b = bets.find(x => !x.combo_id && x.id === w.betId)
       return b?.match ? new Date(b.match.match_date) <= now : false
@@ -175,6 +178,18 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
     const legs = bets.filter(x => x.combo_id === w.comboId)
     return legs.some(l => l.match && new Date(l.match.match_date) <= now)
   })
+
+  // A single bet is cancellable until its own match kicks off; a combo only while
+  // ALL of its legs are still unstarted — mirrors /api/bets/cancel exactly, rather
+  // than the coarser "has the matchday's first match started" check.
+  function isWetteCancellable(w: WetteData): boolean {
+    if (w.type === 'single') {
+      const b = bets.find(x => !x.combo_id && x.id === w.betId)
+      return !!b?.match && new Date(b.match.match_date) > now
+    }
+    const legs = bets.filter(x => x.combo_id === w.comboId)
+    return legs.length > 0 && legs.every(l => l.match && new Date(l.match.match_date) > now)
+  }
 
   return (
     <div className="space-y-2">
@@ -202,7 +217,7 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
           <WetteCard
             key={wette.id}
             wette={wette}
-            onCancel={isOwnBets && !isDeadlinePassed ? onCancel : undefined}
+            onCancel={isOwnBets && isWetteCancellable(wette) ? onCancel : undefined}
             cancellingId={cancelId}
             isDeadlinePassed={isDeadlinePassed}
             social={social}
@@ -310,7 +325,7 @@ export function LeaderboardClient({
           {!isDeadlinePassed && matchdayNumber && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <div className="font-semibold mb-0.5">Stand vor Spieltag {matchdayNumber}</div>
-              <div className="text-blue-600 dark:text-blue-400">Einzelwetten werden je Spiel nach dessen Anpfiff sichtbar. Kombiwetten sobald mindestens ein Leg angepfiffen wurde. Dein eigenes Guthaben kann davon abweichen.</div>
+              <div className="text-blue-600 dark:text-blue-400">Einzelwetten werden je Spiel nach dessen Anpfiff sichtbar. Kombiwetten sobald mindestens ein Leg angepfiffen wurde. Die Rangliste zählt Guthaben + offene (noch nicht abgerechnete) Einsätze — dein Guthaben, das du sonst in der App siehst, ist während laufender Wetten entsprechend niedriger.</div>
             </div>
           )}
 
@@ -427,7 +442,7 @@ export function LeaderboardClient({
           {!isDeadlinePassed && matchdayNumber && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <div className="font-semibold mb-0.5">Rangliste: Stand vor Spieltag {matchdayNumber}</div>
-              <div className="text-blue-600 dark:text-blue-400">Einzelwetten werden je Spiel nach dessen Anpfiff sichtbar. Kombiwetten sobald mindestens ein Leg angepfiffen wurde. Dein eigenes Guthaben kann davon abweichen.</div>
+              <div className="text-blue-600 dark:text-blue-400">Einzelwetten werden je Spiel nach dessen Anpfiff sichtbar. Kombiwetten sobald mindestens ein Leg angepfiffen wurde. Die Rangliste zählt Guthaben + offene (noch nicht abgerechnete) Einsätze — dein Guthaben, das du sonst in der App siehst, ist während laufender Wetten entsprechend niedriger.</div>
             </div>
           )}
 

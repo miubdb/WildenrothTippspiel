@@ -145,7 +145,9 @@ export default async function LeaderboardPage({
   const sortedProfiles = [...(profiles ?? [])].sort((a, b) => {
     const balA = a.balance + (pendingStakesPerUser[a.id] ?? 0)
     const balB = b.balance + (pendingStakesPerUser[b.id] ?? 0)
-    return balB - balA
+    if (balB !== balA) return balB - balA
+    // Tiebreak: alphabetical by name, so exact ties render in a stable, defined order
+    return (a.display_name || a.username).localeCompare(b.display_name || b.username, 'de')
   })
 
   // Bets for selected matchday
