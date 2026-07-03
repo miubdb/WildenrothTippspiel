@@ -168,7 +168,25 @@ export default async function TippsPage({
 
   // Betting window: opens Monday 12:00 of match week (unless early_betting_open override is set)
   const earlyBettingOpen = earlyOpenSetting?.value === 'true'
-  const bettingOpens = deadline ? bettingOpenTime(deadline) : null
+  const ownBettingOpens = deadline ? bettingOpenTime(deadline) : null
+  // Prevent two matchdays being open for betting at once: a matchday can never open
+  // before the immediately preceding (chronological) matchday's last match has kicked
+  // off, even if both fall in the same calendar week (BFV sometimes schedules e.g.
+  // Spieltag 3 midweek and Spieltag 4 that same weekend).
+  const chronologicalMatchdays = allMatchdays.filter((md) => md !== 999)
+  const currentMdIdx = chronologicalMatchdays.indexOf(currentMatchday)
+  const prevMatchday = currentMdIdx > 0 ? chronologicalMatchdays[currentMdIdx - 1] : null
+  const prevMatchdayLastKickoff = prevMatchday != null
+    ? seasonMatches
+        .filter((m) => m.matchday === prevMatchday)
+        .reduce<number | null>((latest, m) => {
+          const t = new Date(m.match_date).getTime()
+          return latest === null || t > latest ? t : latest
+        }, null)
+    : null
+  const bettingOpens = ownBettingOpens && prevMatchdayLastKickoff != null && prevMatchdayLastKickoff > ownBettingOpens.getTime()
+    ? new Date(prevMatchdayLastKickoff)
+    : ownBettingOpens
   // earlyBettingOpen only applies to the chronologically first upcoming matchday
   const isBettingOpen = (earlyBettingOpen && currentMatchday === firstScheduled) || !bettingOpens || new Date() >= bettingOpens
 
