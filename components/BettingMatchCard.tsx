@@ -8,6 +8,10 @@ import { getExactScoreOdds, getForm, getTeamRecord } from '@/lib/odds'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
 import { TeamLogo } from '@/components/TeamLogo'
 
+function isBKlasseTopspiel(match: Match): boolean {
+  return match.match_category === 'bklasse_topspiel' || (match.match_category === 'b-klasse' && !!match.is_topspiel)
+}
+
 type GoalscorerRow = {
   player_id: number
   player_name: string
@@ -168,8 +172,8 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
           {match.match_category === 'wildenroth_ii' && (
             <span className="text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded px-1.5 py-0.5">WILDENROTH II</span>
           )}
-          {match.match_category === 'bklasse_topspiel' && (
-            <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded px-1.5 py-0.5">B-KLASSE</span>
+          {isBKlasseTopspiel(match) && (
+            <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded px-1.5 py-0.5" title="Vom Admin ausgewähltes zusätzliches wettbares B-Klasse-Spiel dieser Woche">B-KLASSE-TOPSPIEL</span>
           )}
         </div>
         <span className="text-xs text-gray-400 dark:text-gray-500">{showDetail ? '▲ Details' : '▼ Details'}</span>
@@ -200,13 +204,13 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             <FormBadges form={awayForm} />
           </div>
         </div>
-        {(match.match_category === 'wildenroth_ii' || match.match_category === 'bklasse_topspiel') && (
+        {(match.match_category === 'wildenroth_ii' || isBKlasseTopspiel(match)) && (
           <div className="flex gap-1.5 mt-1">
             {match.match_category === 'wildenroth_ii' && (
               <span className="text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded px-1.5 py-0.5">WILDENROTH II</span>
             )}
-            {match.match_category === 'bklasse_topspiel' && (
-              <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded px-1.5 py-0.5">B-KLASSE</span>
+            {isBKlasseTopspiel(match) && (
+              <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded px-1.5 py-0.5" title="Vom Admin ausgewähltes zusätzliches wettbares B-Klasse-Spiel dieser Woche">B-KLASSE-TOPSPIEL</span>
             )}
           </div>
         )}
