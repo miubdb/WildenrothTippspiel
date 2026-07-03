@@ -20,6 +20,10 @@ export default function AnleitungPage() {
         <div className="mt-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg px-3 py-2 text-sm text-green-800 dark:text-green-300">
           💰 Ab Saisonstart gibt es jeden <strong>Montag um 12:00 Uhr</strong> automatisch <strong>10 Wildis</strong> Taschengeld — auch nach einer Pechsträhne geht es weiter.
         </div>
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          Dein Profil zeigt <strong>Wettbilanz</strong> (was du durch Tipps gewonnen/verloren hast) getrennt vom
+          Taschengeld — so siehst du klar, was tatsächlich von deinem Tipp-Geschick kommt.
+        </p>
       </HelpAccordion>
 
       {/* App installieren — offen, neue User brauchen das zuerst */}
