@@ -661,6 +661,9 @@ export default function AdminPage() {
               </div>
             </div>
 
+            {/* Kader & Transfers */}
+            <KaderSection />
+
             {/* Saison */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
               <h3 className="font-bold text-gray-900 mb-3">Saison</h3>
@@ -2513,5 +2516,175 @@ function TestMatchdayPanel() {
         )}
       </div>
     </details>
+  )
+}
+
+// ---------- Kader & Transfers ----------
+// Pragmatic CRUD over league_players (RLS already restricts writes to admins,
+// so this uses the regular session client directly, same pattern as
+// handleCategoryChange above). Feeds the roster-factor odds adjustment via
+// lib/odds.ts's getRosterFactor — see CLAUDE.md.
+
+type LeaguePlayerRow = {
+  id: number
+  season: string
+  team_name: string
+  name: string
+  goals: number
+  matches: number
+  status: string
+  transfer_to: string | null
+  prior_league_level: string | null
+  prior_team_name: string | null
+}
+
+const KADER_TEAMS = [
+  'SpVgg Wildenroth', 'SpVgg Wildenroth II',
+]
+
+const KADER_STATUS_LABELS: Record<string, string> = {
+  active: 'Aktiv',
+  transferred_out: 'Abgang',
+  retired: 'Karriereende',
+  internal_move: 'Wechsel 1./2.',
+  transferred_in: 'Zugang',
+}
+
+function KaderSection() {
+  const supabase = createClient()
+  const [players, setPlayers] = useState<LeaguePlayerRow[]>([])
+  const [teamFilter, setTeamFilter] = useState(KADER_TEAMS[0])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [newName, setNewName] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('league_players')
+      .select('id, season, team_name, name, goals, matches, status, transfer_to, prior_league_level, prior_team_name')
+      .eq('team_name', teamFilter)
+      .order('name')
+    setLoading(false)
+    if (error) { setError(error.message); return }
+    setPlayers((data ?? []) as LeaguePlayerRow[])
+  }, [supabase, teamFilter])
+
+  useEffect(() => { load() }, [load])
+
+  async function updateStatus(id: number, status: string) {
+    setError(null)
+    const { error } = await supabase.from('league_players').update({ status }).eq('id', id)
+    if (error) { setError(error.message); return }
+    setPlayers(prev => prev.map(p => p.id === id ? { ...p, status } : p))
+  }
+
+  async function updateTransferTo(id: number, transfer_to: string) {
+    setError(null)
+    const { error } = await supabase.from('league_players').update({ transfer_to: transfer_to || null }).eq('id', id)
+    if (error) { setError(error.message); return }
+    setPlayers(prev => prev.map(p => p.id === id ? { ...p, transfer_to: transfer_to || null } : p))
+  }
+
+  async function addPlayer() {
+    if (!newName.trim()) return
+    setSaving(true)
+    setError(null)
+    const { error } = await supabase.from('league_players').insert({
+      season: '26/27',
+      team_name: teamFilter,
+      name: newName.trim(),
+      status: 'active',
+      goals: 0,
+      matches: 0,
+    })
+    setSaving(false)
+    if (error) { setError(error.message); return }
+    setNewName('')
+    load()
+  }
+
+  async function deletePlayer(id: number) {
+    if (!confirm('Spieler aus dem Kader entfernen?')) return
+    const { error } = await supabase.from('league_players').delete().eq('id', id)
+    if (error) { setError(error.message); return }
+    setPlayers(prev => prev.filter(p => p.id !== id))
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <h3 className="font-bold text-gray-900 mb-1">Kader &amp; Transfers</h3>
+      <p className="text-sm text-gray-500 mb-3">
+        Fließt in den Kader-Faktor der Quotenberechnung ein — Abgänge, Zugänge und Karriereenden pflegen.
+      </p>
+
+      <div className="flex bg-gray-100 rounded-xl p-1 mb-3">
+        {KADER_TEAMS.map(t => (
+          <button
+            key={t}
+            onClick={() => setTeamFilter(t)}
+            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${teamFilter === t ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
+      {loading ? (
+        <div className="text-sm text-gray-400 text-center py-4">Lädt…</div>
+      ) : (
+        <div className="space-y-1.5 mb-3">
+          {players.map(p => (
+            <div key={p.id} className="flex items-center gap-2 flex-wrap bg-gray-50 rounded-xl px-3 py-2 text-xs">
+              <span className="font-semibold text-gray-800 flex-shrink-0 min-w-[110px]">{p.name}</span>
+              <select
+                value={p.status}
+                onChange={(e) => updateStatus(p.id, e.target.value)}
+                className="border border-gray-200 rounded-lg px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-500"
+              >
+                {Object.entries(KADER_STATUS_LABELS).map(([val, label]) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
+              </select>
+              {(p.status === 'transferred_out' || p.status === 'internal_move') && (
+                <input
+                  value={p.transfer_to ?? ''}
+                  onChange={(e) => updateTransferTo(p.id, e.target.value)}
+                  placeholder="wohin?"
+                  className="w-28 border border-gray-200 rounded-lg px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-500"
+                />
+              )}
+              <span className="text-gray-400 ml-auto">{p.goals} Tore · {p.matches} Sp.</span>
+              <button
+                onClick={() => deletePlayer(p.id)}
+                className="text-gray-300 hover:text-red-600 flex-shrink-0"
+                title="Entfernen"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          {players.length === 0 && <div className="text-sm text-gray-400 text-center py-3">Kein Kader hinterlegt.</div>}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <input
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          placeholder="Neuer Spieler (Name)"
+          className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+        />
+        <button
+          onClick={addPlayer}
+          disabled={saving || !newName.trim()}
+          className="px-3 py-1.5 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
+        >
+          + Hinzufügen
+        </button>
+      </div>
+    </div>
   )
 }

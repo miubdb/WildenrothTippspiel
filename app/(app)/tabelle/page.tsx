@@ -87,6 +87,13 @@ function computeStandings(matches: Match[]): Standing[] {
     form: getForm(matches, s.teamId, 5),
   }))
 
+  // Before a single match has been played, sort alphabetically rather than by
+  // insertion order (which was just whatever order teams appeared while
+  // iterating fixtures — not meaningful, and looked arbitrary/random).
+  if (rows.every((r) => r.played === 0)) {
+    return rows.sort((a, b) => a.teamName.localeCompare(b.teamName, 'de'))
+  }
+
   rows.sort((a, b) => b.pts - a.pts)
   const result: Standing[] = []
   let i = 0
