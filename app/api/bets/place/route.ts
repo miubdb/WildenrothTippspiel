@@ -369,6 +369,14 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Max 1 risky bet (odds > 20) per matchday
+    if (isRisky && existingRiskyCount + newBetCount > 1) {
+      return NextResponse.json(
+        { error: `Maximal 1 Risky-Wette pro Spieltag erlaubt. Du hast bereits eine Risky-Wette für Spieltag ${matchday} platziert.` },
+        { status: 400 }
+      )
+    }
   }
 
   // Use test season label for test matchday so bets are excluded from real leaderboard P&L

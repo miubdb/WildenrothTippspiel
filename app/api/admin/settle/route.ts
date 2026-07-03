@@ -105,8 +105,29 @@ export async function POST(request: NextRequest) {
 
   const { matchId, homeScore, awayScore } = body
 
-  if (typeof matchId !== 'number' || typeof homeScore !== 'number' || typeof awayScore !== 'number') {
+  if (
+    typeof matchId !== 'number' ||
+    typeof homeScore !== 'number' || !Number.isInteger(homeScore) || homeScore < 0 ||
+    typeof awayScore !== 'number' || !Number.isInteger(awayScore) || awayScore < 0
+  ) {
     return NextResponse.json({ error: 'Ungültige Parameter.' }, { status: 400 })
+  }
+
+  // Refuse to re-settle an already-finished match: overwriting the score here would
+  // silently desync it from already-paid-out bets (settlement below only ever touches
+  // bets with status='pending', so a second call can't correct prior payouts) — fail
+  // loudly instead of corrupting balances quietly.
+  const { data: existingMatch } = await supabase
+    .from('matches')
+    .select('status')
+    .eq('id', matchId)
+    .single()
+
+  if (existingMatch?.status === 'finished') {
+    return NextResponse.json(
+      { error: 'Dieses Spiel wurde bereits abgerechnet. Eine Korrektur ist über diese Funktion nicht möglich.' },
+      { status: 409 }
+    )
   }
 
   // Update match
