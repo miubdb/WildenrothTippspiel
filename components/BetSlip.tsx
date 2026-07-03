@@ -3,7 +3,9 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useBetSlip, bsKey } from '@/context/BetSlipContext'
-import { WildiIcon, fmtWildi } from '@/components/WildiIcon'
+import { WildiIcon, fmtWildi, wildiLabel } from '@/components/WildiIcon'
+
+const STAKE_PRESETS = [10, 15, 50, 100, 200, 250]
 import type { MarketType } from '@/types'
 import { crestPath } from '@/lib/teams'
 
@@ -64,31 +66,37 @@ export function BetSlip() {
     setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(amt) }))
   }
 
+  // Accepts both "9.80" and the German "9,80" — comma is the natural decimal
+  // separator users will type here.
+  function parseStakeInput(raw: string): number {
+    return parseFloat(raw.replace(',', '.'))
+  }
+
   function handleStakeChange(matchId: number, marketType: MarketType, selection: string, raw: string) {
     setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: raw }))
-    const n = parseFloat(raw)
+    const n = parseStakeInput(raw)
     if (!isNaN(n) && n >= 1) setStake(matchId, marketType, n, selection)
   }
 
   function handleStakeBlur(matchId: number, marketType: MarketType, selection: string) {
     const raw = inputValues[key(matchId, marketType, selection)] ?? ''
-    const n = parseFloat(raw)
+    const n = parseStakeInput(raw)
     const validated = !isNaN(n) && n >= 1 ? n : (getStake(matchId, marketType, selection) || 10)
     setStake(matchId, marketType, validated, selection)
-    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(validated) }))
+    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(validated).replace('.', ',') }))
   }
 
   function handleComboStakeChange(raw: string) {
     setComboInputValue(raw)
-    const n = parseFloat(raw)
+    const n = parseStakeInput(raw)
     if (!isNaN(n) && n >= 1) setComboStake(n)
   }
 
   function handleComboStakeBlur() {
-    const n = parseFloat(comboInputValue)
+    const n = parseStakeInput(comboInputValue)
     const validated = !isNaN(n) && n >= 1 ? n : (comboStake || 10)
     setComboStake(validated)
-    setComboInputValue(String(validated))
+    setComboInputValue(String(validated).replace('.', ','))
   }
 
   function handleComboButton(amt: number) {
@@ -168,7 +176,9 @@ export function BetSlip() {
       }
 
       const newBalStr = data.newBalance?.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      setSuccess(`Wette platziert! Neues Guthaben: ${newBalStr} Wildis`)
+      setSuccess(`Wette platziert! Neues Guthaben: ${newBalStr} ${wildiLabel(data.newBalance)}`)
+      setInputValues({})
+      setComboInputValue('10')
       clearSlip()
       setOpen(false)
       router.refresh()
@@ -342,7 +352,7 @@ export function BetSlip() {
                     <div className="mt-2 flex items-center gap-2">
                       <span className="text-xs text-gray-500">Einsatz:</span>
                       <div className="flex flex-wrap items-center gap-1">
-                        {[5, 10, 25, 50, 100, 250].map((amt) => (
+                        {STAKE_PRESETS.map((amt) => (
                           <button
                             key={amt}
                             onClick={() => handleStakeButton(s.matchId, s.marketType, s.selection, amt)}
@@ -356,19 +366,19 @@ export function BetSlip() {
                           </button>
                         ))}
                         <input
-                          type="number"
-                          min="1"
-                          max="250"
+                          type="text"
+                          inputMode="decimal"
                           value={getInputValue(s.matchId, s.marketType, s.selection)}
                           onChange={(e) => handleStakeChange(s.matchId, s.marketType, s.selection, e.target.value)}
                           onBlur={() => handleStakeBlur(s.matchId, s.marketType, s.selection)}
-                          className="w-16 text-center py-1 px-1 border border-gray-200 rounded-lg text-xs font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500"
+                          placeholder="eigener Betrag"
+                          className="w-24 text-center py-1.5 px-1 border-2 border-red-200 rounded-lg text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
                         />
                       </div>
                       <span className="text-xs text-gray-500 ml-auto">
                         Gewinn:{' '}
                         <span className="text-green-600 font-semibold">
-                          {fmtWildi(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue)} Wildis
+                          {fmtWildi(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue)} {wildiLabel(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue)}
                         </span>
                       </span>
                     </div>
@@ -378,7 +388,7 @@ export function BetSlip() {
             </div>
 
             {/* Combo Stake or Summary */}
-            <div className="px-5 py-4 border-t border-gray-100 bg-gray-50 rounded-b-3xl safe-bottom">
+            <div className="px-5 pt-4 pb-6 border-t border-gray-100 bg-gray-50 rounded-b-3xl safe-bottom">
               {mode === 'combo' && (
                 <>
                   <div className="flex items-center justify-between mb-3">
@@ -390,7 +400,7 @@ export function BetSlip() {
                   <div className="flex items-center gap-3 mb-3">
                     <span className="text-sm text-gray-600 whitespace-nowrap">Einsatz:</span>
                     <div className="flex flex-wrap items-center gap-1">
-                      {[5, 10, 25, 50, 100, 250].map((amt) => (
+                      {STAKE_PRESETS.map((amt) => (
                         <button
                           key={amt}
                           onClick={() => handleComboButton(amt)}
@@ -400,24 +410,24 @@ export function BetSlip() {
                               : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
                           }`}
                         >
-                          {amt} Wildis
+                          {amt} <WildiIcon size={13} />
                         </button>
                       ))}
                       <input
-                        type="number"
-                        min="1"
-                        max="250"
+                        type="text"
+                        inputMode="decimal"
                         value={comboInputValue}
                         onChange={(e) => handleComboStakeChange(e.target.value)}
                         onBlur={handleComboStakeBlur}
-                        className="w-16 text-center py-1.5 px-1 border border-gray-200 rounded-lg text-xs font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-red-500 bg-white"
+                        placeholder="eigener Betrag"
+                        className="w-24 text-center py-1.5 px-1 border-2 border-red-200 rounded-lg text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white"
                       />
                     </div>
                   </div>
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-gray-600">Möglicher Gewinn</span>
                     <span className="font-bold text-green-600 text-lg flex items-center gap-1">
-                      {fmtWildi(potentialPayout)} Wildis <WildiIcon size={18} />
+                      {fmtWildi(potentialPayout)} {wildiLabel(potentialPayout)} <WildiIcon size={18} />
                     </span>
                   </div>
                 </>
@@ -427,11 +437,11 @@ export function BetSlip() {
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <div className="text-xs text-gray-500">Gesamteinsatz</div>
-                    <div className="font-semibold text-gray-900 flex items-center gap-1">{fmtWildi(totalSingleStake)} Wildis <WildiIcon size={14} /></div>
+                    <div className="font-semibold text-gray-900 flex items-center gap-1">{fmtWildi(totalSingleStake)} {wildiLabel(totalSingleStake)} <WildiIcon size={14} /></div>
                   </div>
                   <div className="text-right">
                     <div className="text-xs text-gray-500">Möglicher Gewinn</div>
-                    <div className="font-bold text-green-600 flex items-center gap-1 justify-end">{fmtWildi(potentialPayout)} Wildis <WildiIcon size={14} /></div>
+                    <div className="font-bold text-green-600 flex items-center gap-1 justify-end">{fmtWildi(potentialPayout)} {wildiLabel(potentialPayout)} <WildiIcon size={14} /></div>
                   </div>
                 </div>
               )}
@@ -470,8 +480,8 @@ export function BetSlip() {
                     Wette platzieren
                     <span className="ml-1 text-red-200 text-sm font-normal">
                       ({mode === 'combo'
-                        ? `${fmtWildi(comboStake)} Wildis`
-                        : `${fmtWildi(totalSingleStake)} Wildis`})
+                        ? `${fmtWildi(comboStake)} ${wildiLabel(comboStake)}`
+                        : `${fmtWildi(totalSingleStake)} ${wildiLabel(totalSingleStake)}`})
                     </span>
                   </>
                 )}

@@ -60,10 +60,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Keine Auswahlen.' }, { status: 400 })
   }
 
-  // Validate stakes — must be a finite, whole, positive number within bounds.
+  // Validate stakes — must be a finite, positive number within bounds, with at
+  // most 2 decimal places (e.g. 9,80 or 9,72 Wildis are valid stakes).
   // (Client only enforces min="1" in the UI, which a direct API call can bypass.)
   function isValidStake(n: unknown): n is number {
-    return typeof n === 'number' && Number.isFinite(n) && Number.isInteger(n) && n >= 1 && n <= MAX_STAKE
+    return typeof n === 'number' && Number.isFinite(n) && n >= 1 && n <= MAX_STAKE
+      && Math.round(n * 100) === n * 100
   }
 
   if (mode === 'combo') {
