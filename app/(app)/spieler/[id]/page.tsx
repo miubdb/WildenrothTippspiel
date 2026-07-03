@@ -6,7 +6,6 @@ import { fmtWildi } from '@/components/WildiIcon'
 export const revalidate = 60
 
 const CURRENT_SEASON = '26/27'
-const STARTING_BALANCE = 1000
 
 export default async function SpielerPage({
   params,
@@ -39,18 +38,18 @@ export default async function SpielerPage({
   // Season bets
   const { data: betsRaw } = await supabase
     .from('bets')
-    .select('id, status, combo_id, season')
+    .select('id, status, combo_id, season, stake, payout')
     .eq('user_id', id)
 
   const bets = (betsRaw ?? []).filter(b => !b.season || b.season === CURRENT_SEASON)
   const singleBets = bets.filter(b => !b.combo_id)
   const comboIds = [...new Set(bets.filter(b => b.combo_id).map(b => b.combo_id as string))]
 
-  const comboStatuses: { status: string }[] = []
+  const comboStatuses: { status: string; stake: number; payout: number | null }[] = []
   if (comboIds.length > 0) {
     const { data: cbData } = await supabase
       .from('combo_bets')
-      .select('status, season')
+      .select('status, season, stake, payout')
       .in('id', comboIds)
     for (const cb of (cbData ?? []).filter(c => !c.season || c.season === CURRENT_SEASON)) {
       comboStatuses.push(cb)
@@ -62,6 +61,15 @@ export default async function SpielerPage({
     comboStatuses.filter(c => c.status === 'won').length
   const lostBets = singleBets.filter(b => b.status === 'lost').length +
     comboStatuses.filter(c => c.status === 'lost').length
+
+  // Wettbilanz = actual betting profit/loss from settled bets only — kept
+  // separate from balance-vs-start-balance, which also includes weekly pocket
+  // money and any inactivity penalties (see profil/page.tsx for the same split).
+  const totalStaked = singleBets.reduce((acc, b) => acc + (b.stake ?? 0), 0) +
+    comboStatuses.reduce((acc, cb) => acc + (cb.stake ?? 0), 0)
+  const totalPayout = singleBets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0) +
+    comboStatuses.filter(cb => cb.status === 'won').reduce((acc, cb) => acc + (cb.payout ?? 0), 0)
+  const wettbilanz = totalPayout - totalStaked
 
   const { data: awardsRaw } = await supabase
     .from('user_awards')
@@ -92,7 +100,6 @@ export default async function SpielerPage({
   const awardTotalCount = awards.length
   const awardUniqueTypes = groupedAwards.length
 
-  const profit = profile.balance - (profile.season_start_balance ?? STARTING_BALANCE)
   const initial = (profile.display_name || '?')[0].toUpperCase()
 
   return (
@@ -147,9 +154,9 @@ export default async function SpielerPage({
           </div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
-          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Gewinn/Verlust</div>
-          <div className={`text-lg font-black ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
-            {profit >= 0 ? '+' : ''}{profit.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Wildis
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wettbilanz</div>
+          <div className={`text-lg font-black ${wettbilanz > 0 ? 'text-green-600' : wettbilanz < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
+            {wettbilanz >= 0 ? '+' : ''}{wettbilanz.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Wildis
           </div>
         </div>
       </div>

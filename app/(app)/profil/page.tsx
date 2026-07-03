@@ -185,7 +185,14 @@ export default async function ProfilPage({
     [...comboBetsMap.values()].reduce((acc, cb) => acc + cb.stake, 0)
   const totalPayout = singleBets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0) +
     [...comboBetsMap.values()].filter(cb => cb.status === 'won').reduce((acc, cb) => acc + (cb.payout ?? 0), 0)
+  // "Wettbilanz" = actual betting profit/loss, computed purely from settled bet
+  // records — NOT the same as balance-vs-start, which also includes weekly
+  // pocket money and any inactivity penalties (neither of which is a betting
+  // result). Showing balance-vs-start as "Gewinn/Verlust" would make free
+  // pocket money look like a won bet, which is exactly what we want to avoid.
+  const wettbilanz = totalPayout - totalStaked
   const profit = profile.balance - (profile.season_start_balance ?? 1000)
+  const sonstigeBuchungen = profit - wettbilanz
 
   // Previous season quick stats (singles + combos)
   const prevSingleBets = prevBets.filter(b => !b.combo_id)
@@ -324,12 +331,18 @@ export default async function ProfilPage({
           </div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
-          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Gewinn/Verlust <span className="text-[10px]">26/27</span></div>
-          <div className={`text-xl font-black ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-900'}`}>
-            {profit >= 0 ? '+' : ''}{fmtWildi(profit) + ' Wildis'}
+          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wettbilanz <span className="text-[10px]">26/27</span></div>
+          <div className={`text-xl font-black ${wettbilanz > 0 ? 'text-green-600' : wettbilanz < 0 ? 'text-red-600' : 'text-gray-900'}`}>
+            {wettbilanz >= 0 ? '+' : ''}{fmtWildi(wettbilanz) + ' Wildis'}
           </div>
         </div>
       </div>
+
+      {sonstigeBuchungen !== 0 && (
+        <div className="text-xs text-gray-400 dark:text-gray-500 px-1 -mt-2">
+          Taschengeld &amp; Sonstiges (nicht Teil der Wettbilanz): {sonstigeBuchungen >= 0 ? '+' : ''}{fmtWildi(sonstigeBuchungen)} Wildis
+        </div>
+      )}
 
       {/* Stats */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
@@ -418,8 +431,8 @@ export default async function ProfilPage({
               <h2 className="font-bold text-gray-900 dark:text-gray-100">Guthaben-Verlauf</h2>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Stand nach abgeschlossenen Spieltagen</p>
             </div>
-            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${profit >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-              {profit >= 0 ? '+' : ''}{fmtWildi(profit)} Wildis
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${wettbilanz >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+              {wettbilanz >= 0 ? '+' : ''}{fmtWildi(wettbilanz)} Wildis
             </span>
           </div>
           <div className="px-4 py-3">
