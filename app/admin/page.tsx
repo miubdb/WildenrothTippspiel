@@ -24,6 +24,7 @@ interface AdminUser {
   eligible_for_current_season: boolean
   is_admin: boolean
   is_wildenroth: boolean
+  is_wildenroth_ii: boolean
 }
 
 type Tab = 'spieltag' | 'quoten' | 'erklaerung' | 'verwaltung'
@@ -52,7 +53,7 @@ export default function AdminPage() {
   const fetchSeasonData = useCallback(async () => {
     const [{ data: setting }, { data: profs }] = await Promise.all([
       supabase.from('app_settings').select('value').eq('key', 'season_started').single(),
-      supabase.from('profiles').select('id, username, display_name, balance, eligible_for_current_season, is_admin, is_wildenroth').order('username'),
+      supabase.from('profiles').select('id, username, display_name, balance, eligible_for_current_season, is_admin, is_wildenroth, is_wildenroth_ii').order('username'),
     ])
     setSeasonStarted(setting?.value === 'true')
     setUsers((profs ?? []) as AdminUser[])
@@ -101,6 +102,17 @@ export default function AdminPage() {
       body: JSON.stringify({ action: 'set_user_wildenroth', userId, value }),
     })
     if (res.ok) { setMessage('Wildenroth-Flag aktualisiert.'); fetchSeasonData() }
+    else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
+  }
+
+  async function toggleUserWildenrothII(userId: string, value: boolean) {
+    setMessage(null)
+    const res = await fetch('/api/admin/season', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_user_wildenroth_ii', userId, value }),
+    })
+    if (res.ok) { setMessage('Wildenroth-II-Flag aktualisiert.'); fetchSeasonData() }
     else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
   }
 
@@ -511,7 +523,8 @@ export default function AdminPage() {
                       <div className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1 flex-wrap">
                         {u.display_name || u.username}
                         {u.is_admin && <span className="text-[10px] text-red-600 font-bold">ADMIN</span>}
-                        {u.is_wildenroth && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽</span>}
+                        {u.is_wildenroth && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽ 1</span>}
+                        {u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ 2</span>}
                       </div>
                       <div className="text-[11px] text-gray-400">
                         {u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} Wildis · {u.eligible_for_current_season ? <span className="text-green-600">berechtigt</span> : <span className="text-amber-600">nicht berechtigt</span>}
@@ -520,9 +533,16 @@ export default function AdminPage() {
                     <button
                       onClick={() => toggleUserWildenroth(u.id, !u.is_wildenroth)}
                       className={`px-2 py-1.5 rounded-lg text-xs font-bold border ${u.is_wildenroth ? 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-100'}`}
-                      title="Wildenroth-Spieler/Trainer"
+                      title="Wildenroth-Spieler/Trainer (1. Mannschaft)"
                     >
-                      ⚽
+                      ⚽ 1
+                    </button>
+                    <button
+                      onClick={() => toggleUserWildenrothII(u.id, !u.is_wildenroth_ii)}
+                      className={`px-2 py-1.5 rounded-lg text-xs font-bold border ${u.is_wildenroth_ii ? 'bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-200' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-100'}`}
+                      title="Wildenroth-Spieler/Trainer (2. Mannschaft)"
+                    >
+                      ⚽ 2
                     </button>
                     <input
                       type="number"

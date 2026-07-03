@@ -417,10 +417,10 @@ export default async function TippsPage({
   const positions: Record<number, number> = {}
   sortedTeams.forEach(([id], idx) => { positions[id] = idx + 1 })
 
-  // Find Wildenroth team ID
-  const wildenrothTeam = allMatches.flatMap(m => [m.home_team, m.away_team])
-    .find(t => t?.name?.includes('Wildenroth'))
-  const wildenrothTeamId = wildenrothTeam?.id ?? null
+  // Find Wildenroth team IDs (1. and 2. Mannschaft are separate teams/flags)
+  const allTeamsInMatches = allMatches.flatMap(m => [m.home_team, m.away_team])
+  const wildenrothTeamId = allTeamsInMatches.find(t => t?.name === 'SpVgg Wildenroth')?.id ?? null
+  const wildenrothIiTeamId = allTeamsInMatches.find(t => t?.name === 'SpVgg Wildenroth II')?.id ?? null
 
   const matchdayMatchIds = matchdayMatches.map((m) => m.id)
 
@@ -432,13 +432,14 @@ export default async function TippsPage({
   type OwnCombo = { id: number; stake: number; status: string; legs: OwnBet[] }
 
   const [{ data: userProfile }, ownBetsResult] = await Promise.all([
-    user ? supabase.from('profiles').select('is_wildenroth, eligible_for_current_season, is_admin').eq('id', user.id).single() : Promise.resolve({ data: null }),
+    user ? supabase.from('profiles').select('is_wildenroth, is_wildenroth_ii, eligible_for_current_season, is_admin').eq('id', user.id).single() : Promise.resolve({ data: null }),
     user && matchdayMatchIds.length > 0
       ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky').eq('user_id', user.id).in('match_id', matchdayMatchIds)
       : Promise.resolve({ data: [] }),
   ])
 
   const isWildenrothPlayer = userProfile?.is_wildenroth ?? false
+  const isWildenrothIiPlayer = userProfile?.is_wildenroth_ii ?? false
 
   // Saisonstart-Regel: nicht teilnahmeberechtigte Nutzer bekommen eine Hinweis-Seite
   const isNotEligible = seasonStarted && !!user
@@ -879,6 +880,8 @@ export default async function TippsPage({
                     positions={positions}
                     isWildenrothPlayer={isWildenrothPlayer}
                     wildenrothTeamId={wildenrothTeamId}
+                    isWildenrothIiPlayer={isWildenrothIiPlayer}
+                    wildenrothIiTeamId={wildenrothIiTeamId}
                     goalscorers={goalscorerOffersByMatch[match.id] ?? null}
                   />
                 ))}
@@ -899,6 +902,8 @@ export default async function TippsPage({
                         positions={positions}
                         isWildenrothPlayer={isWildenrothPlayer}
                         wildenrothTeamId={wildenrothTeamId}
+                        isWildenrothIiPlayer={isWildenrothIiPlayer}
+                        wildenrothIiTeamId={wildenrothIiTeamId}
                         goalscorers={goalscorerOffersByMatch[match.id] ?? null}
                       />
                     ))}

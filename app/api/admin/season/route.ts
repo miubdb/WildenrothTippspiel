@@ -30,5 +30,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true })
   }
 
+  if (body.action === 'set_user_wildenroth_ii') {
+    await admin.from('profiles').update({ is_wildenroth_ii: body.value }).eq('id', body.userId)
+    return NextResponse.json({ ok: true })
+  }
+
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
 }

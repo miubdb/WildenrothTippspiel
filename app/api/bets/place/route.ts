@@ -239,27 +239,33 @@ export async function POST(request: NextRequest) {
   }
 
   // Wildenroth conflict-of-interest check (mirrors the frontend guard).
+  // Team 1 and Team 2 flags are independent — a user can be flagged for either or both.
   const { data: profileFlags } = await supabase
     .from('profiles')
-    .select('is_wildenroth')
+    .select('is_wildenroth, is_wildenroth_ii')
     .eq('id', user.id)
     .single()
 
-  if (profileFlags?.is_wildenroth) {
-    const { data: wildenrothTeamRow } = await supabase
+  if (profileFlags?.is_wildenroth || profileFlags?.is_wildenroth_ii) {
+    const { data: wildenrothTeamRows } = await supabase
       .from('teams')
-      .select('id')
-      .ilike('name', '%Wildenroth%')
-      .limit(1)
-      .maybeSingle()
-    const wildenrothTeamId = wildenrothTeamRow?.id ?? null
-    if (wildenrothTeamId != null) {
-      for (const s of selections) {
-        const m = matches.find((x) => x.id === s.matchId)
-        if (!m) continue
-        const involves = m.home_team_id === wildenrothTeamId || m.away_team_id === wildenrothTeamId
+      .select('id, name')
+      .in('name', ['SpVgg Wildenroth', 'SpVgg Wildenroth II'])
+    const team1Id = wildenrothTeamRows?.find((t) => t.name === 'SpVgg Wildenroth')?.id ?? null
+    const team2Id = wildenrothTeamRows?.find((t) => t.name === 'SpVgg Wildenroth II')?.id ?? null
+
+    const flaggedTeamIds = [
+      ...(profileFlags?.is_wildenroth && team1Id != null ? [team1Id] : []),
+      ...(profileFlags?.is_wildenroth_ii && team2Id != null ? [team2Id] : []),
+    ]
+
+    for (const s of selections) {
+      const m = matches.find((x) => x.id === s.matchId)
+      if (!m) continue
+      for (const teamId of flaggedTeamIds) {
+        const involves = m.home_team_id === teamId || m.away_team_id === teamId
         if (!involves) continue
-        const wildenrothIsHome = m.home_team_id === wildenrothTeamId
+        const wildenrothIsHome = m.home_team_id === teamId
         if (
           isAgainstWildenroth(s.marketType, s.selection, {
             isWildenrothPlayer: true,

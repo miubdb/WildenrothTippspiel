@@ -27,16 +27,19 @@ interface BettingMatchCardProps {
   positions?: Record<number, number>
   isWildenrothPlayer?: boolean
   wildenrothTeamId?: number | null
+  isWildenrothIiPlayer?: boolean
+  wildenrothIiTeamId?: number | null
   goalscorers?: GoalscorerRow[] | null
 }
 
 type Tab = '1x2' | 'goals' | 'exact' | 'handicap' | 'goalscorer'
 
-export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, goalscorers }: BettingMatchCardProps) {
+export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers }: BettingMatchCardProps) {
   const { selections, addSelection } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
   const [wildenrothBlockMsg, setWildenrothBlockMsg] = useState(false)
+  const [wildenrothBlockTeam, setWildenrothBlockTeam] = useState<1 | 2>(1)
   const [replacedMsg, setReplacedMsg] = useState(false)
 
   const homeName = match.home_team?.name ?? 'Heim'
@@ -62,12 +65,31 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     (match.home_team_id === wildenrothTeamId || match.away_team_id === wildenrothTeamId)
   const wildenrothIsHome = match.home_team_id === wildenrothTeamId
 
+  const matchInvolvesWildenrothII = wildenrothIiTeamId != null &&
+    (match.home_team_id === wildenrothIiTeamId || match.away_team_id === wildenrothIiTeamId)
+  const wildenrothIiIsHome = match.home_team_id === wildenrothIiTeamId
+
+  // Returns which team's flag (1 or 2) makes this selection a conflict of interest, or null.
+  function againstWildenrothTeam(marketType: string, selection: string): 1 | 2 | null {
+    if (
+      checkAgainstWildenroth(marketType, selection, {
+        isWildenrothPlayer: !!isWildenrothPlayer,
+        matchInvolvesWildenroth,
+        wildenrothIsHome,
+      })
+    ) return 1
+    if (
+      checkAgainstWildenroth(marketType, selection, {
+        isWildenrothPlayer: !!isWildenrothIiPlayer,
+        matchInvolvesWildenroth: matchInvolvesWildenrothII,
+        wildenrothIsHome: wildenrothIiIsHome,
+      })
+    ) return 2
+    return null
+  }
+
   function isAgainstWildenroth(marketType: string, selection: string): boolean {
-    return checkAgainstWildenroth(marketType, selection, {
-      isWildenrothPlayer: !!isWildenrothPlayer,
-      matchInvolvesWildenroth,
-      wildenrothIsHome,
-    })
+    return againstWildenrothTeam(marketType, selection) != null
   }
 
   function isSelected(marketType: string, selection: string) {
@@ -77,7 +99,9 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   }
 
   function add(marketType: string, marketLabel: string, selection: string, selectionLabel: string, oddsValue: number) {
-    if (isAgainstWildenroth(marketType, selection)) {
+    const blockedByTeam = againstWildenrothTeam(marketType, selection)
+    if (blockedByTeam != null) {
+      setWildenrothBlockTeam(blockedByTeam)
       setWildenrothBlockMsg(true)
       setTimeout(() => setWildenrothBlockMsg(false), 8000)
       return
@@ -245,7 +269,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         <div className="border-t border-red-100 bg-red-50 px-4 py-3 flex items-start gap-2">
           <span className="text-lg flex-shrink-0">⚽🚫</span>
           <div className="text-xs text-red-700 leading-snug">
-            <span className="font-bold">Befangenheit erkannt!</span> Als Wildenroth-Spieler oder -Trainer darfst du nicht gegen dein eigenes Team wetten – das wäre Wettbewerbsverzerrung! 😄 Nur Wildenroth-Siege tippen erlaubt!
+            <span className="font-bold">Befangenheit erkannt!</span> Als Spieler/Trainer der {wildenrothBlockTeam === 2 ? '2. Mannschaft' : '1. Mannschaft'} darfst du nicht gegen dein eigenes Team wetten – das wäre Wettbewerbsverzerrung! 😄 Nur Siege deines Teams tippen erlaubt!
           </div>
         </div>
       )}
