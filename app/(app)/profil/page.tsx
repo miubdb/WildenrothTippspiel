@@ -291,15 +291,14 @@ export default async function ProfilPage({
           ) : (
             <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center flex-shrink-0">
               <span className="text-red-700 font-black text-2xl">
-                {(profile.display_name || profile.username || '?')[0].toUpperCase()}
+                {(profile.display_name || '?')[0].toUpperCase()}
               </span>
             </div>
           )}
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-black truncate">
-              {profile.display_name || profile.username}
+              {profile.display_name}
             </h1>
-            <p className="text-red-200 text-sm">@{profile.username}</p>
             <p className="text-red-200 text-xs mt-0.5">{user.email}</p>
           </div>
         </div>
@@ -520,8 +519,7 @@ export default async function ProfilPage({
       {/* Profile Edit */}
       <ProfileEditForm
         userId={user.id}
-        displayName={profile.display_name || profile.username}
-        username={profile.username}
+        displayName={profile.display_name}
         avatarUrl={profile.avatar_url ?? null}
         bio={profile.bio ?? null}
         favoriteTeam={profile.favorite_team ?? null}

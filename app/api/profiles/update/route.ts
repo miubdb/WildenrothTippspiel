@@ -8,7 +8,7 @@ export async function PATCH(req: Request) {
 
   const body = await req.json()
   const { field, value, currentPassword } = body as {
-    field: 'display_name' | 'username' | 'password'
+    field: 'display_name' | 'password'
     value: string
     currentPassword?: string
   }
@@ -39,33 +39,27 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ ok: true })
   }
 
-  if (field === 'username') {
-    const trimmed = value.trim().toLowerCase().replace(/[^a-z0-9_]/g, '')
-    if (trimmed.length < 3) {
-      return NextResponse.json({ error: 'Benutzername muss mindestens 3 Zeichen haben' }, { status: 400 })
-    }
-    // Check uniqueness
-    const { data: existing } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('username', trimmed)
-      .neq('id', user.id)
-      .maybeSingle()
-    if (existing) {
-      return NextResponse.json({ error: 'Benutzername ist bereits vergeben' }, { status: 400 })
-    }
-    const { error } = await supabase.from('profiles').update({ username: trimmed }).eq('id', user.id)
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
-    return NextResponse.json({ ok: true, newValue: trimmed })
-  }
-
   if (field === 'display_name') {
     const trimmed = value.trim()
     if (trimmed.length < 2) {
       return NextResponse.json({ error: 'Anzeigename muss mindestens 2 Zeichen haben' }, { status: 400 })
     }
+    const { data: existing } = await supabase
+      .from('profiles')
+      .select('id')
+      .ilike('display_name', trimmed)
+      .neq('id', user.id)
+      .maybeSingle()
+    if (existing) {
+      return NextResponse.json({ error: 'Dieser Name ist leider schon vergeben.' }, { status: 400 })
+    }
     const { error } = await supabase.from('profiles').update({ display_name: trimmed }).eq('id', user.id)
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+    if (error) {
+      if (error.code === '23505') {
+        return NextResponse.json({ error: 'Dieser Name ist leider schon vergeben.' }, { status: 400 })
+      }
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
     return NextResponse.json({ ok: true, newValue: trimmed })
   }
 

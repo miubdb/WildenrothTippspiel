@@ -3,12 +3,11 @@
 import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-type Field = 'username' | 'password'
+type Field = 'password'
 
 interface Props {
   userId: string
   displayName: string
-  username: string
   avatarUrl: string | null
   bio: string | null
   favoriteTeam: string | null
@@ -17,7 +16,6 @@ interface Props {
 export function ProfileEditForm({
   userId,
   displayName: initialDisplayName,
-  username: initialUsername,
   avatarUrl: initialAvatarUrl,
   bio: initialBio,
   favoriteTeam: initialFavoriteTeam,
@@ -38,10 +36,8 @@ export function ProfileEditForm({
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null)
   const [profileError, setProfileError] = useState<string | null>(null)
 
-  // ── Username / Password (kept via existing API route) ──
+  // ── Password (kept via existing API route) ──
   const [activeField, setActiveField] = useState<Field | null>(null)
-  const [username, setUsername] = useState(initialUsername)
-  const [usernameInput, setUsernameInput] = useState(initialUsername)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -85,6 +81,20 @@ export function ProfileEditForm({
         return
       }
 
+      if (trimmedName.toLowerCase() !== initialDisplayName.toLowerCase()) {
+        const { data: existing } = await supabase
+          .from('profiles')
+          .select('id')
+          .ilike('display_name', trimmedName)
+          .neq('id', userId)
+          .maybeSingle()
+        if (existing) {
+          setProfileError('Dieser Name ist leider schon vergeben.')
+          setSaving(false)
+          return
+        }
+      }
+
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
@@ -94,7 +104,14 @@ export function ProfileEditForm({
           avatar_url: newAvatarUrl,
         })
         .eq('id', userId)
-      if (updateError) throw updateError
+      if (updateError) {
+        if (updateError.code === '23505') {
+          setProfileError('Dieser Name ist leider schon vergeben.')
+          setSaving(false)
+          return
+        }
+        throw updateError
+      }
 
       setAvatarUrl(newAvatarUrl)
       setPendingFile(null)
@@ -119,19 +136,12 @@ export function ProfileEditForm({
     setError(null)
     setSuccess(null)
 
-    const body: Record<string, string> = { field }
-
-    if (field === 'username') {
-      body.value = usernameInput.trim()
-    } else {
-      if (newPassword !== confirmPassword) {
-        setError('Passwörter stimmen nicht überein')
-        setLoading(false)
-        return
-      }
-      body.value = newPassword
-      body.currentPassword = currentPassword
+    if (newPassword !== confirmPassword) {
+      setError('Passwörter stimmen nicht überein')
+      setLoading(false)
+      return
     }
+    const body: Record<string, string> = { field, value: newPassword, currentPassword }
 
     const res = await fetch('/api/profiles/update', {
       method: 'PATCH',
@@ -146,19 +156,16 @@ export function ProfileEditForm({
       return
     }
 
-    if (field === 'username') setUsername(data.newValue)
-    if (field === 'password') {
-      setCurrentPassword('')
-      setNewPassword('')
-      setConfirmPassword('')
-    }
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
 
-    setSuccess(field === 'username' ? 'Benutzername aktualisiert' : 'Passwort geändert')
+    setSuccess('Passwort geändert')
     setActiveField(null)
   }
 
   const shownAvatar = previewUrl ?? avatarUrl
-  const initial = (displayName || username || '?')[0].toUpperCase()
+  const initial = (displayName || '?')[0].toUpperCase()
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
@@ -258,24 +265,6 @@ export function ProfileEditForm({
               </button>
             </div>
           </div>
-
-          {/* Username */}
-          <FieldRow
-            label="Benutzername"
-            currentValue={`@${username}`}
-            active={activeField === 'username'}
-            onEdit={() => openField('username')}
-            onCancel={() => { setActiveField(null); setError(null); setSuccess(null) }}
-          >
-            <input
-              className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600"
-              value={usernameInput}
-              onChange={e => setUsernameInput(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-              placeholder="benutzername"
-              autoFocus
-            />
-            <SaveRow loading={loading} onSave={() => save('username')} error={error} success={success} />
-          </FieldRow>
 
           {/* Password */}
           <FieldRow

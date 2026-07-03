@@ -375,7 +375,6 @@ export function LeaderboardClient({
                         {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium" title={`${streak} Spieltage in Folge im Plus`}>🔥 {streak}</span>}
                         {wWins >= 1 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-medium" title={`${wWins}× Spieltagsbester`}>🏅 {wWins}×</span>}
                       </div>
-                      <div className="text-xs text-gray-400 dark:text-gray-500">@{profile.username}</div>
                     </div>
                     {/* Balance */}
                     <div className="text-right flex-shrink-0 mr-1">

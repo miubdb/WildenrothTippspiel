@@ -93,7 +93,7 @@ export default async function SpielerPage({
   const awardUniqueTypes = groupedAwards.length
 
   const profit = profile.balance - (profile.season_start_balance ?? STARTING_BALANCE)
-  const initial = (profile.display_name || profile.username || '?')[0].toUpperCase()
+  const initial = (profile.display_name || '?')[0].toUpperCase()
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -113,8 +113,7 @@ export default async function SpielerPage({
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl font-black truncate">{profile.display_name || profile.username}</h1>
-            <p className="text-red-200 text-sm">@{profile.username}</p>
+            <h1 className="text-xl font-black truncate">{profile.display_name}</h1>
           </div>
         </div>
         {profile.bio && <p className="text-sm text-red-100 mt-3 italic">{profile.bio}</p>}

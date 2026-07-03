@@ -71,16 +71,30 @@ export default function RegisterPage() {
   const [isWildenroth, setIsWildenroth] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [checkingName, setCheckingName] = useState(false)
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }))
   }
 
-  function goNext() {
+  async function goNext() {
     setError(null)
     if (step === 'name') {
-      if (form.displayName.trim().length < 2) {
+      const trimmed = form.displayName.trim()
+      if (trimmed.length < 2) {
         setError('Bitte gib deinen Namen ein (mindestens 2 Zeichen).')
+        return
+      }
+      setCheckingName(true)
+      const supabase = createClient()
+      const { data: existing } = await supabase
+        .from('profiles')
+        .select('id')
+        .ilike('display_name', trimmed)
+        .maybeSingle()
+      setCheckingName(false)
+      if (existing) {
+        setError('Dieser Name ist leider schon vergeben.')
         return
       }
       setStep('email')
@@ -194,9 +208,10 @@ export default function RegisterPage() {
               <button
                 type="button"
                 onClick={goNext}
-                className="w-full mt-4 py-3 px-4 bg-red-700 hover:bg-red-800 text-white font-semibold rounded-xl transition-colors"
+                disabled={checkingName}
+                className="w-full mt-4 py-3 px-4 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-xl transition-colors"
               >
-                Weiter
+                {checkingName ? 'Prüfe Name…' : 'Weiter'}
               </button>
             </div>
           )}
