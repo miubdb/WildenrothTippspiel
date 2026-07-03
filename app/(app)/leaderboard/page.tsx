@@ -101,7 +101,10 @@ export default async function LeaderboardPage({
 
   const firstMatch = matchdayMatches[0]
   const isDeadlinePassed = firstMatch ? new Date(firstMatch.match_date) <= new Date() : false
-  const isMatchdayComplete = matchdayMatches.length > 0 && matchdayMatches.every(m => m.status === 'finished')
+  // A postponed match never blocks matchday completion — matches settle.ts /
+  // tipps page's own "completed" checks, which also exclude postponed matches.
+  const nonPostponedMdMatches = matchdayMatches.filter(m => m.status !== 'postponed')
+  const isMatchdayComplete = nonPostponedMdMatches.length > 0 && nonPostponedMdMatches.every(m => m.status === 'finished')
   // Default to Spieltag tab once the matchday kicks off, back to Rangliste once fully settled
   const hasMatchdayStarted = matchdayMatches.some(m => m.status === 'live' || m.status === 'finished')
   const defaultTabIsSpielTag = hasMatchdayStarted && !isMatchdayComplete

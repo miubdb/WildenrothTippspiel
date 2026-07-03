@@ -9,8 +9,17 @@ const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
 // Per-team league baselines (Kreisklasse: ~2.35 goals/game total).
 // Moderate home/away gap; baselines kept conservative so BTTS and O/U
 // don't floor even for genuinely high-scoring matchups.
-const LEAGUE_HOME_XG = 1.25
-const LEAGUE_AWAY_XG = 1.10
+const LEAGUE_HOME_XG = 1.22
+const LEAGUE_AWAY_XG = 1.13
+
+// Caps how much a team's prior-season dominance ratio (own rate vs. that league's
+// average) can carry over when projected onto the target league — without this, a
+// team that heavily dominated a weaker league (e.g. a promoted side) could still
+// project as above-average in the new, stronger league even after LEAGUE_STRENGTH
+// scaling, since an extreme enough ratio (e.g. 1.8×) times a discount (e.g. 0.68)
+// can still exceed 1.0. Capped symmetrically so relegated/weak teams aren't
+// distorted either.
+const PRIOR_RATIO_CAP = 1.4
 
 // Bayesian prior weight: K equivalent games of prior belief.
 // With K=5: at 0 games → 100% prior; at 5 games → 50/50; at 10 games → 67% actual data.
@@ -53,6 +62,12 @@ const LEAGUE_STRENGTH: Record<PriorMatch['league_level'], number> = {
 
 function clamp(odds: number): number {
   return Math.max(MIN_ODDS, Math.min(MAX_ODDS, odds))
+}
+
+// Symmetric cap on a prior-season performance ratio (team rate vs. that league's
+// average) — see PRIOR_RATIO_CAP above.
+function clampRatio(ratio: number): number {
+  return Math.max(1 / PRIOR_RATIO_CAP, Math.min(PRIOR_RATIO_CAP, ratio))
 }
 
 function round2(n: number): number {
@@ -323,10 +338,12 @@ function getPriorTeamStats(
     const n = data.homeScored.length
     const avgScored    = data.homeScored.reduce((s, v) => s + v, 0) / n
     const avgConceded  = data.homeConceded.reduce((s, v) => s + v, 0) / n
-    // home goals scored → rate vs la.homeAvg → scale to LEAGUE_HOME_XG
-    homeAtkSum += (la.homeAvg > 0 ? avgScored   / la.homeAvg : 1.0) * sf * LEAGUE_HOME_XG * n
-    // home goals conceded = away team's goals → rate vs la.awayAvg → scale to LEAGUE_AWAY_XG
-    homeDefSum += (la.awayAvg > 0 ? avgConceded / la.awayAvg : 1.0) * sf * LEAGUE_AWAY_XG * n
+    // home goals scored → rate vs la.homeAvg (capped) → scale to LEAGUE_HOME_XG
+    const homeAtkRatio = clampRatio(la.homeAvg > 0 ? avgScored / la.homeAvg : 1.0)
+    homeAtkSum += homeAtkRatio * sf * LEAGUE_HOME_XG * n
+    // home goals conceded = away team's goals → rate vs la.awayAvg (capped) → scale to LEAGUE_AWAY_XG
+    const homeDefRatio = clampRatio(la.awayAvg > 0 ? avgConceded / la.awayAvg : 1.0)
+    homeDefSum += homeDefRatio * sf * LEAGUE_AWAY_XG * n
     homeGamesTotal += n
   }
 
@@ -337,10 +354,12 @@ function getPriorTeamStats(
     const n = data.awayScored.length
     const avgScored    = data.awayScored.reduce((s, v) => s + v, 0) / n
     const avgConceded  = data.awayConceded.reduce((s, v) => s + v, 0) / n
-    // away goals scored → rate vs la.awayAvg → scale to LEAGUE_AWAY_XG
-    awayAtkSum += (la.awayAvg > 0 ? avgScored   / la.awayAvg : 1.0) * sf * LEAGUE_AWAY_XG * n
-    // away goals conceded = home team's goals → rate vs la.homeAvg → scale to LEAGUE_HOME_XG
-    awayDefSum += (la.homeAvg > 0 ? avgConceded / la.homeAvg : 1.0) * sf * LEAGUE_HOME_XG * n
+    // away goals scored → rate vs la.awayAvg (capped) → scale to LEAGUE_AWAY_XG
+    const awayAtkRatio = clampRatio(la.awayAvg > 0 ? avgScored / la.awayAvg : 1.0)
+    awayAtkSum += awayAtkRatio * sf * LEAGUE_AWAY_XG * n
+    // away goals conceded = home team's goals → rate vs la.homeAvg (capped) → scale to LEAGUE_HOME_XG
+    const awayDefRatio = clampRatio(la.homeAvg > 0 ? avgConceded / la.homeAvg : 1.0)
+    awayDefSum += awayDefRatio * sf * LEAGUE_HOME_XG * n
     awayGamesTotal += n
   }
 

@@ -48,6 +48,8 @@ export default function AdminPage() {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [eligBalance, setEligBalance] = useState<Record<string, string>>({})
   const [pendingBetsByMatch, setPendingBetsByMatch] = useState<Record<number, number>>({})
+  const [compFilter, setCompFilter] = useState<'all' | 'kreisliga' | 'wildenroth_ii' | 'b-klasse'>('all')
+  const [settledShown, setSettledShown] = useState(10)
 
   const supabase = createClient()
 
@@ -277,17 +279,27 @@ export default function AdminPage() {
     if (tab === 'quoten' && !preview) loadPreview()
   }, [tab, preview, loadPreview])
 
-  const settledMatches = matches.filter((m) => m.status === 'finished')
+  function matchesCompFilter(m: MatchRow) {
+    if (compFilter === 'all') return true
+    if (compFilter === 'kreisliga') return !m.match_category || m.match_category === 'kreisliga'
+    if (compFilter === 'wildenroth_ii') return m.match_category === 'wildenroth_ii'
+    // 'b-klasse' filter covers plain B-Klasse matches and the flagged Topspiel/bklasse_topspiel category
+    return m.match_category === 'b-klasse' || m.match_category === 'bklasse_topspiel'
+  }
+  const filteredMatches = matches.filter(matchesCompFilter)
+
+  const settledMatchesAll = filteredMatches.filter((m) => m.status === 'finished')
+  const settledMatches = [...settledMatchesAll].reverse() // most recent first
   // Past scheduled games awaiting result entry
-  const pendingMatches = matches.filter(
+  const pendingMatches = filteredMatches.filter(
     (m) => m.status === 'scheduled' && new Date(m.match_date) <= new Date()
   )
   // Future games — shown read-only, but with optional early result entry for rescheduled games
-  const upcomingMatches = matches.filter(
+  const upcomingMatches = filteredMatches.filter(
     (m) => m.status === 'scheduled' && new Date(m.match_date) > new Date()
   )
   // Postponed games — awaiting reschedule
-  const postponedMatches = matches.filter((m) => m.status === 'postponed')
+  const postponedMatches = filteredMatches.filter((m) => m.status === 'postponed')
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -341,6 +353,26 @@ export default function AdminPage() {
         {/* Spieltag Tab */}
         {tab === 'spieltag' && (
           <div className="space-y-4">
+            {/* Competition filter */}
+            <div className="flex bg-white border border-gray-200 rounded-xl p-1 shadow-sm overflow-x-auto">
+              {([
+                ['all', 'Alle'],
+                ['kreisliga', 'Kreisliga'],
+                ['wildenroth_ii', 'Wildenroth II'],
+                ['b-klasse', 'B-Klasse'],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => { setCompFilter(key); setSettledShown(10) }}
+                  className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
+                    compFilter === key ? 'bg-gray-800 text-white shadow' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             {/* Status overview */}
             {(() => {
               const noResult = matches.filter(m => m.status !== 'finished' && m.status !== 'postponed' && new Date(m.match_date) <= new Date())
@@ -482,17 +514,25 @@ export default function AdminPage() {
               </div>
             )}
 
-            {/* Settled */}
+            {/* Settled — most recent first */}
             {settledMatches.length > 0 && (
               <div>
                 <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">
                   Abgerechnete Spiele ({settledMatches.length})
                 </h2>
                 <div className="space-y-2">
-                  {settledMatches.slice(0, 10).map((match) => (
+                  {settledMatches.slice(0, settledShown).map((match) => (
                     <MatchRow key={match.id} match={match} playerSuggestions={playerSuggestions} />
                   ))}
                 </div>
+                {settledShown < settledMatches.length && (
+                  <button
+                    onClick={() => setSettledShown((n) => n + 20)}
+                    className="w-full mt-2 py-2 text-xs font-semibold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 rounded-lg"
+                  >
+                    Weitere anzeigen ({settledMatches.length - settledShown} übrig)
+                  </button>
+                )}
               </div>
             )}
 
@@ -1604,6 +1644,10 @@ function StatusChip({ status }: { status: string }) {
   )
 }
 
+function isWildenrothMatch(match: MatchRow) {
+  return !!(match.home_team?.name?.includes('Wildenroth') || match.away_team?.name?.includes('Wildenroth'))
+}
+
 function MatchSettleCard({
   match,
   score,
@@ -1675,6 +1719,27 @@ function MatchSettleCard({
           {match.away_team?.name ?? '?'}
         </div>
       </div>
+
+      {onCategoryChange && (
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-xs text-gray-400 flex-shrink-0">Wettbewerb:</span>
+          <select
+            value={match.match_category ?? 'kreisliga'}
+            onChange={(e) => onCategoryChange(match.id, e.target.value)}
+            className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-red-500"
+          >
+            <option value="kreisliga">Kreisliga</option>
+            <option value="wildenroth_ii">Wildenroth II</option>
+            <option value="b-klasse">B-Klasse</option>
+            <option value="bklasse_topspiel">B-Klasse-Topspiel</option>
+          </select>
+          {isWildenrothMatch(match) && (
+            <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium ml-auto">
+              ⚽ Torschützen im Tab &quot;Quoten&quot; erfassen
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-2">
         <button
