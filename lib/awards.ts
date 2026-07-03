@@ -1,5 +1,15 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 
+// Monthly awards (not implemented yet — conceptual note only, per release-scope
+// decision to not build this before launch):
+// Same 7 categories, computed the same way as the per-matchday versions here,
+// but aggregated across all matchdays whose match_date falls in a calendar
+// month instead of a single settled matchday. Would need: (1) a `period`
+// column (e.g. 'YYYY-MM') alongside the existing `matchday` column on
+// user_awards so both granularities coexist in one table, and (2) a monthly
+// cron/admin trigger analogous to persistAwards() below, run once the month's
+// last matchday settles. Deferred until after release.
+
 export type AwardType =
   | 'spieltagskoenig'
   | 'eier_aus_stahl'

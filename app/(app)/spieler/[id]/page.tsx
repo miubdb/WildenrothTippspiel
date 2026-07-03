@@ -79,7 +79,7 @@ export default async function SpielerPage({
   const awards = awardsRaw ?? []
 
   // Group awards by award_type
-  const awardGroupMap = new Map<string, { icon: string; title: string; description: string; count: number; latestMatchday: number; latestSeason: string; latestValueText: string | null }>()
+  const awardGroupMap = new Map<string, { icon: string; title: string; description: string; count: number; latestMatchday: number; latestSeason: string; latestValueText: string | null; instances: { matchday: number; season: string; valueText: string | null }[] }>()
   for (const a of awards) {
     const existing = awardGroupMap.get(a.award_type)
     if (!existing) {
@@ -91,9 +91,11 @@ export default async function SpielerPage({
         latestMatchday: a.matchday,
         latestSeason: a.season,
         latestValueText: a.value_text ?? null,
+        instances: [{ matchday: a.matchday, season: a.season, valueText: a.value_text ?? null }],
       })
     } else {
       existing.count++
+      existing.instances.push({ matchday: a.matchday, season: a.season, valueText: a.value_text ?? null })
     }
   }
   const groupedAwards = Array.from(awardGroupMap.entries()).map(([award_type, v]) => ({ award_type, ...v }))
@@ -189,22 +191,34 @@ export default async function SpielerPage({
         ) : (
           <div className="p-3 grid grid-cols-2 gap-2">
             {groupedAwards.map((a) => (
-              <div key={a.award_type} className="relative bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2.5 flex items-center gap-2.5">
+              <details key={a.award_type} className="relative bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2.5 [&_summary::-webkit-details-marker]:hidden">
                 {a.count > 1 && (
                   <span className="absolute top-1.5 right-1.5 bg-red-600 text-white text-[10px] font-bold leading-none rounded-full px-1.5 py-0.5">
                     {a.count}×
                   </span>
                 )}
-                <span className="text-2xl flex-shrink-0">{a.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight">{a.title}</div>
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{a.description}</div>
-                  <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
-                    ST {a.latestMatchday} · {a.latestSeason}
-                    {a.latestValueText && <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">{a.latestValueText}</span>}
+                <summary className="flex items-center gap-2.5 cursor-pointer list-none">
+                  <span className="text-2xl flex-shrink-0">{a.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight">{a.title}</div>
+                    <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{a.description}</div>
+                    <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      ST {a.latestMatchday} · {a.latestSeason}
+                      {a.latestValueText && <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">{a.latestValueText}</span>}
+                    </div>
                   </div>
-                </div>
-              </div>
+                </summary>
+                {a.count > 1 && (
+                  <div className="mt-2 pt-2 border-t border-amber-200 dark:border-amber-800/50 space-y-1">
+                    {a.instances.map((inst, i) => (
+                      <div key={i} className="text-[10px] text-gray-500 dark:text-gray-400 flex justify-between">
+                        <span>Spieltag {inst.matchday} · {inst.season}</span>
+                        {inst.valueText && <span className="font-semibold text-amber-700 dark:text-amber-400">{inst.valueText}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </details>
             ))}
           </div>
         )}
