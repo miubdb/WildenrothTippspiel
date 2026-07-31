@@ -72,7 +72,17 @@ const isKreisligaMatch = (m: Pick<Match, 'match_category'>) =>
 export interface EffectiveMatchdayIndex {
   kreisligaMatchdaysSorted: number[]
   matchdayMinDate: Map<number, number>
-  matchdayMaxDate: Map<number, number>
+  /** Median kickoff timestamp per Kreisliga Spieltag — used (not min/max) to
+   *  place a Wildenroth-II/Topspiel match, specifically because it stays
+   *  stable when a single Kreisliga match of that Spieltag gets postponed and
+   *  later rescheduled far out (a min/max window would balloon to cover that
+   *  outlier date and could then wrongly "claim" a later Spieltag's matches). */
+  matchdayAnchorDate: Map<number, number>
+}
+
+function median(sorted: number[]): number {
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
 }
 
 /**
@@ -89,26 +99,31 @@ export interface EffectiveMatchdayIndex {
  */
 export function buildEffectiveMatchdayIndex(seasonMatches: Match[]): EffectiveMatchdayIndex {
   const kreisligaMatches = seasonMatches.filter((m) => m.matchday !== 999 && isKreisligaMatch(m))
-  const matchdayMinDate = new Map<number, number>()
-  const matchdayMaxDate = new Map<number, number>()
+  const datesByMatchday = new Map<number, number[]>()
   for (const m of kreisligaMatches) {
     const t = new Date(m.match_date).getTime()
-    const prevMin = matchdayMinDate.get(m.matchday)
-    if (prevMin === undefined || t < prevMin) matchdayMinDate.set(m.matchday, t)
-    const prevMax = matchdayMaxDate.get(m.matchday)
-    if (prevMax === undefined || t > prevMax) matchdayMaxDate.set(m.matchday, t)
+    const arr = datesByMatchday.get(m.matchday)
+    if (arr) arr.push(t)
+    else datesByMatchday.set(m.matchday, [t])
+  }
+  const matchdayMinDate = new Map<number, number>()
+  const matchdayAnchorDate = new Map<number, number>()
+  for (const [md, dates] of datesByMatchday) {
+    dates.sort((a, b) => a - b)
+    matchdayMinDate.set(md, dates[0])
+    matchdayAnchorDate.set(md, median(dates))
   }
   const kreisligaMatchdaysSorted = [...matchdayMinDate.keys()].sort(
     (a, b) => matchdayMinDate.get(a)! - matchdayMinDate.get(b)!
   )
-  return { kreisligaMatchdaysSorted, matchdayMinDate, matchdayMaxDate }
+  return { kreisligaMatchdaysSorted, matchdayMinDate, matchdayAnchorDate }
 }
 
 /**
  * Assigns a Wildenroth-II / Topspiel-flagged B-Klasse match to the Kreisliga
- * Spieltag whose date range it falls inside (or the nearest one by distance
- * otherwise). Plain B-Klasse matches (not the admin-selected weekly Topspiel)
- * return null — they're never bettable and never shown on the Tippspiel page.
+ * Spieltag whose median kickoff date it's closest to. Plain B-Klasse matches
+ * (not the admin-selected weekly Topspiel) return null — they're never
+ * bettable and never shown on the Tippspiel page.
  */
 export function effectiveMatchdayOf(m: Match, index: EffectiveMatchdayIndex): number | null {
   if (m.matchday === 999) return 999
@@ -121,9 +136,7 @@ export function effectiveMatchdayOf(m: Match, index: EffectiveMatchdayIndex): nu
   let best: number = index.kreisligaMatchdaysSorted[0]
   let bestDist = Infinity
   for (const md of index.kreisligaMatchdaysSorted) {
-    const min = index.matchdayMinDate.get(md)!
-    const max = index.matchdayMaxDate.get(md)!
-    const dist = t < min ? min - t : t > max ? t - max : 0
+    const dist = Math.abs(t - index.matchdayAnchorDate.get(md)!)
     if (dist < bestDist) { bestDist = dist; best = md }
   }
   return best
