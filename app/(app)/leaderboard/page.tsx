@@ -111,11 +111,18 @@ export default async function LeaderboardPage({
   // A postponed match never blocks matchday completion — matches settle.ts /
   // tipps page's own "completed" checks, which also exclude postponed matches.
   const nonPostponedMdMatches = matchdayMatches.filter(m => m.status !== 'postponed')
-  const isMatchdayComplete = nonPostponedMdMatches.length > 0 && nonPostponedMdMatches.every(m => m.status === 'finished')
+  const matchdayMatchIds = new Set(matchdayMatches.map(m => m.id))
+  // "All non-postponed matches finished" isn't the same as "this Spieltag is
+  // truly done" — a postponed match keeps its Spieltag label but can settle
+  // weeks/months later, with its bets staying pending the whole time. Without
+  // this check the recap/Rangliste switch (and the recap block below) would
+  // fire while stakes on that game are still open — matches the same gate in
+  // app/api/admin/settle/route.ts.
+  const matchdayHasPendingBets = allBets.some(b => b.status === 'pending' && b.match_id != null && matchdayMatchIds.has(b.match_id))
+  const isMatchdayComplete = nonPostponedMdMatches.length > 0 && nonPostponedMdMatches.every(m => m.status === 'finished') && !matchdayHasPendingBets
   // Default to Spieltag tab once the matchday kicks off, back to Rangliste once fully settled
   const hasMatchdayStarted = matchdayMatches.some(m => m.status === 'live' || m.status === 'finished')
   const defaultTabIsSpielTag = hasMatchdayStarted && !isMatchdayComplete
-  const matchdayMatchIds = new Set(matchdayMatches.map(m => m.id))
 
   // Always compute ALL pending stakes across all matches so balance+pending = true ranking value.
   // This prevents reducing balances from leaking bet sizes before reveal.

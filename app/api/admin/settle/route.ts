@@ -332,44 +332,52 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, settled: settledBetIds.length, combosChecked: combosToCheck.size, testMode: true })
       }
 
-      // Persist awards after settlement — but only once every bet on this
-      // Spieltag is truly settled, INCLUDING goalscorer bets, which resolve on
-      // a separate timeline once the admin submits the scorer list (see
-      // app/api/admin/goalscorers/scorers/route.ts, which calls the same
+      const mIds = matchdayMatches.map((m) => m.id)
+      // "All non-postponed matches finished" is not the same as "this Spieltag
+      // is truly done" — a postponed match keeps its OWN Spieltag label (the
+      // official BFV number never changes) but can resolve weeks or months
+      // later, with its bets staying 'pending' the whole time. Gate the recap
+      // push AND awards on the bets, not just the matches, so we never
+      // announce "Spieltag X abgeschlossen" while one of its games — and
+      // everyone's stake on it — is still open. When that game finally
+      // settles, this same code path runs again and fires both, correctly,
+      // for the first time (computeAndPersistMatchdayAwards's dedup-before-
+      // insert means a delayed award set replaces nothing spurious).
+      const { count: stillPendingCount } = mIds.length > 0
+        ? await admin.from('bets').select('id', { count: 'exact', head: true }).in('match_id', mIds).eq('status', 'pending')
+        : { count: 0 }
+      const spieltagTrulyDone = !stillPendingCount
+
+      // Persist awards after settlement — also waits on goalscorer bets, which
+      // resolve on a separate timeline once the admin submits the scorer list
+      // (see app/api/admin/goalscorers/scorers/route.ts, which calls the same
       // computeAndPersistMatchdayAwards() once it becomes the "last" event to
-      // settle this Spieltag). Computing awards while those are still pending
-      // would silently omit their contribution to Spieltagskönig/On Fire/etc.
-      try {
-        const { computeAndPersistMatchdayAwards } = await import('@/lib/awards')
-        const mIds = matchdayMatches.map((m) => m.id)
-        if (mIds.length > 0) {
-          const { count: stillPendingCount } = await admin
-            .from('bets')
-            .select('id', { count: 'exact', head: true })
-            .in('match_id', mIds)
-            .eq('status', 'pending')
-          if (!stillPendingCount) {
-            await computeAndPersistMatchdayAwards(admin, '26/27', matchday, mIds)
-          }
-        }
-      } catch (e) { console.error('Award persistence failed:', e) }
+      // settle this Spieltag).
+      if (spieltagTrulyDone && mIds.length > 0) {
+        try {
+          const { computeAndPersistMatchdayAwards } = await import('@/lib/awards')
+          await computeAndPersistMatchdayAwards(admin, '26/27', matchday, mIds)
+        } catch (e) { console.error('Award persistence failed:', e) }
+      }
 
       // Deactivate early betting override once any matchday is settled
       await admin.from('app_settings').update({ value: 'false', updated_at: new Date().toISOString() }).eq('key', 'early_betting_open')
 
-      const { error: dedupError } = await admin
-        .from('push_reminders')
-        .insert({ type: 'recap', matchday })
+      if (spieltagTrulyDone) {
+        const { error: dedupError } = await admin
+          .from('push_reminders')
+          .insert({ type: 'recap', matchday })
 
-      if (!dedupError) {
-        // Only send if insert succeeded (prevents duplicate on concurrent requests)
-        await sendPushToAll(
-          '📊 Spieltags-Recap verfügbar',
-          `Der ${matchday}. Spieltag ist abgeschlossen – schau dir die Highlights an!`,
-          `/recap/${matchday}`,
-          'matchday_recap',
-          `recap-${matchday}`
-        )
+        if (!dedupError) {
+          // Only send if insert succeeded (prevents duplicate on concurrent requests)
+          await sendPushToAll(
+            '📊 Spieltags-Recap verfügbar',
+            `Der ${matchday}. Spieltag ist abgeschlossen – schau dir die Highlights an!`,
+            `/recap/${matchday}`,
+            'matchday_recap',
+            `recap-${matchday}`
+          )
+        }
       }
 
       // Apply 100 Wildis inactivity penalty per user who placed no bets this matchday.
