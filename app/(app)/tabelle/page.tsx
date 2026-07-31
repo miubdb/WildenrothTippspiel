@@ -180,6 +180,50 @@ const BKLASSE_TEAM_IDS = new Set([29,30,31,32,33,34,35,36,37,38,39,40])
 
 const PRIOR_NAME_MAP: Record<string, string> = { 'TSV Oberalting': 'TSV Oberalting-Seefeld' }
 
+type Zone = [from: number, to: number]
+
+/**
+ * Auf-/Abstiegszonen der Saison 26/27.
+ *   Kreisliga (16 Vereine): 1 Aufsteiger, 1 Aufstiegsrelegation,
+ *                           2 Abstiegsrelegation (12–13), 3 Direktabsteiger (14–16).
+ *   B-Klasse  (12 Vereine): 1 Aufsteiger, 1 Aufstiegsrelegation, 1 Direktabsteiger (12).
+ * Relativ zu `total` gerechnet, damit die Markierung nicht verrutscht, falls sich
+ * die Ligagröße ändert. Die Guards verhindern, dass sich Auf- und Abstiegszonen
+ * bei einer (unerwartet) kleinen Tabelle überlappen.
+ */
+function getZones(total: number, bklasse: boolean): {
+  promo: Zone | null
+  promoRelegation: Zone | null
+  relegation: Zone | null
+  drop: Zone | null
+} {
+  if (bklasse) {
+    return {
+      promo: [1, 1],
+      promoRelegation: [2, 2],
+      relegation: null,
+      drop: total >= 4 ? [total, total] : null,
+    }
+  }
+  return {
+    promo: [1, 1],
+    promoRelegation: [2, 2],
+    relegation: total >= 8 ? [total - 4, total - 3] : null,
+    drop: total >= 8 ? [total - 2, total] : null,
+  }
+}
+
+const inZone = (pos: number, z: Zone | null) => z !== null && pos >= z[0] && pos <= z[1]
+const zoneLabel = (z: Zone) => (z[0] === z[1] ? `Platz ${z[0]}` : `Platz ${z[0]}–${z[1]}`)
+
+function getPositionStyle(pos: number, zones: ReturnType<typeof getZones>) {
+  if (inZone(pos, zones.promo)) return 'bg-green-600 text-white'
+  if (inZone(pos, zones.promoRelegation)) return 'bg-green-200 dark:bg-green-900/40 text-green-800 dark:text-green-400'
+  if (inZone(pos, zones.drop)) return 'bg-red-500 text-white'
+  if (inZone(pos, zones.relegation)) return 'bg-orange-200 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400'
+  return 'text-gray-400 dark:text-gray-500'
+}
+
 export default async function TabellePage({
   searchParams,
 }: {
@@ -245,19 +289,7 @@ export default async function TabellePage({
 
   const topAttacks = [...standings].sort((a, b) => b.gf - a.gf).slice(0, 5)
 
-  // Position badge logic
-  function getPositionStyle(pos: number, total: number, bklasse: boolean) {
-    if (bklasse) {
-      if (pos === 1) return 'bg-green-600 text-white'        // Direktaufstieg
-      if (pos === total) return 'bg-red-500 text-white'      // Direktabstieg
-      return 'text-gray-400 dark:text-gray-500'
-    }
-    if (pos === 1) return 'bg-green-600 text-white'
-    if (pos === 2) return 'bg-green-200 dark:bg-green-900/40 text-green-800 dark:text-green-400'
-    if (total >= 16 && pos >= total - 1) return 'bg-red-500 text-white'
-    if (total >= 16 && pos >= total - 3 && pos <= total - 2) return 'bg-orange-200 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400'
-    return 'text-gray-400 dark:text-gray-500'
-  }
+  const zones = getZones(standings.length, isB)
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -315,9 +347,8 @@ export default async function TabellePage({
 
         {standings.map((s, idx) => {
           const pos = idx + 1
-          const total = standings.length
           const isWildenroth = s.teamName.includes('Wildenroth')
-          const badgeStyle = getPositionStyle(pos, total, isB)
+          const badgeStyle = getPositionStyle(pos, zones)
           return (
             <div
               key={s.teamId}
@@ -380,26 +411,30 @@ export default async function TabellePage({
       {/* Legend */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
         <div className="flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400">
-          <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded-full bg-green-600" />
-            <span>Direktaufstieg (Platz 1)</span>
-          </div>
-          {!isB && (
+          {zones.promo && (
+            <div className="flex items-center gap-1.5">
+              <div className="w-4 h-4 rounded-full bg-green-600" />
+              <span>Direktaufstieg ({zoneLabel(zones.promo)})</span>
+            </div>
+          )}
+          {zones.promoRelegation && (
             <div className="flex items-center gap-1.5">
               <div className="w-4 h-4 rounded-full bg-green-200 dark:bg-green-900/40" />
-              <span>Aufstiegsrelegation (Platz 2)</span>
+              <span>Aufstiegsrelegation ({zoneLabel(zones.promoRelegation)})</span>
             </div>
           )}
-          {!isB && (
+          {zones.relegation && (
             <div className="flex items-center gap-1.5">
               <div className="w-4 h-4 rounded-full bg-orange-200 dark:bg-orange-900/40" />
-              <span>Abstiegsrelegation (Platz 13–14)</span>
+              <span>Abstiegsrelegation ({zoneLabel(zones.relegation)})</span>
             </div>
           )}
-          <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded-full bg-red-500" />
-            <span>Direktabstieg ({isB ? `Platz ${standings.length}` : 'Platz 15–16'})</span>
-          </div>
+          {zones.drop && (
+            <div className="flex items-center gap-1.5">
+              <div className="w-4 h-4 rounded-full bg-red-500" />
+              <span>Direktabstieg ({zoneLabel(zones.drop)})</span>
+            </div>
+          )}
         </div>
       </div>
 
