@@ -3,6 +3,11 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser } from '@/lib/push'
 import { fmtWildi, wildiLabel } from '@/components/WildiIcon'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { computeAndPersistMatchdayAwards } from '@/lib/awards'
+import type { Match } from '@/types'
+
+const SEASON_START = '2026-08-01'
 
 /**
  * POST /api/admin/goalscorers/scorers
@@ -110,9 +115,10 @@ export async function POST(request: NextRequest) {
   const jobs: Promise<unknown>[] = []
   for (const [userId, amount] of userPayouts) {
     if (amount <= 0) continue
-    const { data: p } = await admin.from('profiles').select('balance').eq('id', userId).single()
-    if (!p) continue
-    await admin.from('profiles').update({ balance: Number(p.balance) + amount }).eq('id', userId)
+    // Atomic increment — avoids losing a payout if this races a concurrent
+    // bet placement/cancellation or another settlement call for the same user
+    // (a plain select-then-update here would silently clobber that change).
+    await admin.rpc('increment_balance', { p_user_id: userId, p_amount: amount })
     jobs.push(sendPushToUser(userId, '🎉 Wette gewonnen!', `+${fmtWildi(amount)} ${wildiLabel(amount)} wurden deinem Konto gutgeschrieben.`, '/profil'))
   }
   for (const uid of loserIds) {
@@ -120,6 +126,44 @@ export async function POST(request: NextRequest) {
     jobs.push(sendPushToUser(uid, '😬 Wette verloren', 'Deine Torschützenwette wurde leider nicht gewonnen.', '/tipps'))
   }
   await Promise.allSettled(jobs)
+
+  // Goalscorer bets can be the LAST thing to settle for a Spieltag (the match
+  // score settles first via /api/admin/settle, which skips awards while these
+  // are still pending — see computeAndPersistMatchdayAwards's doc comment).
+  // Check whether this Spieltag is now fully settled and, if so, compute awards
+  // here instead — matchday === 999 is excluded inside computeAndPersistMatchdayAwards.
+  try {
+    const { data: matchInfo } = await admin
+      .from('matches')
+      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+      .eq('id', matchId)
+      .single()
+    if (matchInfo) {
+      const { data: seasonMatchesRaw } = await admin
+        .from('matches')
+        .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+        .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
+      const seasonMatches = (seasonMatchesRaw ?? []) as Match[]
+      const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
+      const matchday = effectiveMatchdayOf(matchInfo as Match, mdIndex)
+      if (matchday != null && matchday !== 999) {
+        const matchdayMatches = seasonMatches.filter((m) => effectiveMatchdayOf(m, mdIndex) === matchday)
+        const nonPostponed = matchdayMatches.filter((m) => m.status !== 'postponed')
+        const allFinished = nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
+        if (allFinished) {
+          const mIds = matchdayMatches.map((m) => m.id)
+          const { count: stillPendingCount } = await admin
+            .from('bets')
+            .select('id', { count: 'exact', head: true })
+            .in('match_id', mIds)
+            .eq('status', 'pending')
+          if (!stillPendingCount) {
+            await computeAndPersistMatchdayAwards(admin, '26/27', matchday, mIds)
+          }
+        }
+      }
+    }
+  } catch (e) { console.error('Award persistence failed (goalscorer settlement):', e) }
 
   return NextResponse.json({ success: true, settled: bets?.length ?? 0, combosChecked: combosToCheck.size })
 }

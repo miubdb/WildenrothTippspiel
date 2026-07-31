@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import { BettingMatchCard } from '@/components/BettingMatchCard'
 import { BetSlip } from '@/components/BetSlip'
 import { MyBets } from '@/components/MyBets'
@@ -9,7 +10,7 @@ import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
-import { isSeasonStarted, bettingOpenTime } from '@/lib/season'
+import { isSeasonStarted, bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
 import { crestPath } from '@/lib/teams'
@@ -65,15 +66,24 @@ export default async function TippsPage({
       )
       .gte('match_date', '2026-08-01')
       .order('match_date', { ascending: true }),
-    supabase
+    fetchAllRows((from, to) => supabase
       .from('prior_season_matches')
-      .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date'),
-    supabase
+      .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date')
+      .order('id')
+      .range(from, to)
+    ).then((data) => ({ data })),
+    fetchAllRows((from, to) => supabase
       .from('league_players')
-      .select('id, team_name, name, goals, matches, status, transfer_to, prior_league_level, prior_team_name'),
-    supabase
+      .select('id, team_name, name, goals, matches, status, transfer_to, prior_league_level, prior_team_name')
+      .order('id')
+      .range(from, to)
+    ).then((data) => ({ data })),
+    fetchAllRows((from, to) => supabase
       .from('match_lineups')
-      .select('id, match_id, team_name, player_name, minutes_played, goals, assists, created_at'),
+      .select('id, match_id, team_name, player_name, minutes_played, goals, assists, created_at')
+      .order('id')
+      .range(from, to)
+    ).then((data) => ({ data })),
     isSeasonStarted(supabase),
     supabase.from('app_settings').select('value').eq('key', 'early_betting_open').single(),
     supabase.auth.getUser(),
@@ -129,37 +139,9 @@ export default async function TippsPage({
   const isKreisligaMatch = (m: Match) => !m.match_category || m.match_category === 'kreisliga'
   const kreisligaMatches = seasonMatches.filter((m) => m.matchday !== 999 && isKreisligaMatch(m))
 
-  const matchdayMinDate = new Map<number, number>()
-  const matchdayMaxDate = new Map<number, number>()
-  for (const m of kreisligaMatches) {
-    const t = new Date(m.match_date).getTime()
-    const prevMin = matchdayMinDate.get(m.matchday)
-    if (prevMin === undefined || t < prevMin) matchdayMinDate.set(m.matchday, t)
-    const prevMax = matchdayMaxDate.get(m.matchday)
-    if (prevMax === undefined || t > prevMax) matchdayMaxDate.set(m.matchday, t)
-  }
-  const kreisligaMatchdaysSorted = [...matchdayMinDate.keys()].sort((a, b) => matchdayMinDate.get(a)! - matchdayMinDate.get(b)!)
-
-  // Assigns a Wildenroth-II / Topspiel-flagged B-Klasse match to the Kreisliga-Spieltag
-  // whose date range it falls inside, or the nearest one by distance otherwise.
-  function effectiveMatchdayOf(m: Match): number | null {
-    if (m.matchday === 999) return 999
-    if (isKreisligaMatch(m)) return m.matchday
-    const isWildenrothII = m.match_category === 'wildenroth_ii'
-    const isTopspiel = m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel)
-    if (!isWildenrothII && !isTopspiel) return null // plain B-Klasse match — not bettable, not shown
-    if (kreisligaMatchdaysSorted.length === 0) return null
-    const t = new Date(m.match_date).getTime()
-    let best: number = kreisligaMatchdaysSorted[0]
-    let bestDist = Infinity
-    for (const md of kreisligaMatchdaysSorted) {
-      const min = matchdayMinDate.get(md)!
-      const max = matchdayMaxDate.get(md)!
-      const dist = t < min ? min - t : t > max ? t - max : 0
-      if (dist < bestDist) { bestDist = dist; best = md }
-    }
-    return best
-  }
+  const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
+  const { matchdayMinDate, kreisligaMatchdaysSorted } = mdIndex
+  const effectiveMatchdayOf = (m: Match) => effectiveMatchdayOfShared(m, mdIndex)
 
   const allMatchdays = isPreSeason
     ? [...(hasTestMatchday ? [999] : []), ...Array.from({ length: 28 }, (_, i) => i + 1)]
@@ -212,7 +194,11 @@ export default async function TippsPage({
   const prevMatchday = currentMdIdx > 0 ? chronologicalMatchdays[currentMdIdx - 1] : null
   const prevMatchdayLastKickoff = prevMatchday != null
     ? seasonMatches
-        .filter((m) => m.matchday === prevMatchday)
+        // Must match by effective (displayed) Spieltag, not the raw `matchday`
+        // column — a Wildenroth-II/Topspiel match keeps its own independent BFV
+        // matchday number, which can coincidentally equal `prevMatchday` while its
+        // real kickoff is weeks away, wrongly pushing the betting window open time.
+        .filter((m) => effectiveMatchdayOf(m) === prevMatchday)
         .reduce<number | null>((latest, m) => {
           const t = new Date(m.match_date).getTime()
           return latest === null || t > latest ? t : latest
@@ -927,7 +913,7 @@ export default async function TippsPage({
                     key={match.id}
                     match={match}
                     odds={match.status === 'scheduled' && isBettingOpen ? (oddsMap[match.id] ?? null) : null}
-                    allMatches={seasonMatches}
+                    allMatches={oddsMatches}
                     historyMatches={allMatches}
                     positions={positions}
                     isWildenrothPlayer={isWildenrothPlayer}
@@ -949,7 +935,7 @@ export default async function TippsPage({
                         key={match.id}
                         match={match}
                         odds={match.status === 'scheduled' && isBettingOpen ? (oddsMap[match.id] ?? null) : null}
-                        allMatches={seasonMatches}
+                        allMatches={oddsMatches}
                         historyMatches={allMatches}
                         positions={positions}
                         isWildenrothPlayer={isWildenrothPlayer}

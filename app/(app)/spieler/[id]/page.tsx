@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { crestPath } from '@/lib/teams'
 import { fmtWildi } from '@/components/WildiIcon'
 
@@ -23,14 +24,52 @@ export default async function SpielerPage({
 
   if (!profile) notFound()
 
-  // Rank among all eligible profiles (ordered by balance desc)
+  // Pending stakes across ALL matches (not just settled ones) so that
+  // balance + pending = the same "true" ranking value /leaderboard shows —
+  // reducing a balance the moment a bet is placed would otherwise leak that
+  // bet's size to anyone viewing this profile before kickoff (see
+  // leaderboard/page.tsx, which this mirrors exactly to keep both pages
+  // agreeing on both the displayed figure and the rank).
+  const pendingStakesPerUser: Record<string, number> = {}
+  {
+    const adminSupa = createAdminClient()
+    const { data: pendingBetRows } = await adminSupa
+      .from('bets')
+      .select('user_id, stake, combo_id')
+      .eq('status', 'pending')
+    const seenComboIds = new Set<number>()
+    for (const b of pendingBetRows ?? []) {
+      if (!b.combo_id) {
+        pendingStakesPerUser[b.user_id] = (pendingStakesPerUser[b.user_id] ?? 0) + (b.stake ?? 0)
+      } else {
+        seenComboIds.add(Number(b.combo_id))
+      }
+    }
+    if (seenComboIds.size > 0) {
+      const { data: comboPendingRows } = await adminSupa
+        .from('combo_bets')
+        .select('user_id, stake')
+        .in('id', [...seenComboIds])
+      for (const c of comboPendingRows ?? []) {
+        pendingStakesPerUser[c.user_id] = (pendingStakesPerUser[c.user_id] ?? 0) + c.stake
+      }
+    }
+  }
+  const displayBalance = profile.balance + (pendingStakesPerUser[profile.id] ?? 0)
+
+  // Rank among all eligible profiles — same ranking value and tiebreak as
+  // /leaderboard, so the two pages never disagree about someone's rank.
   const { data: eligibleProfiles } = await supabase
     .from('profiles')
-    .select('id, balance')
+    .select('id, username, display_name, balance')
     .or('eligible_for_current_season.eq.true,is_admin.eq.true')
-    .order('balance', { ascending: false })
 
-  const ranked = eligibleProfiles ?? []
+  const ranked = [...(eligibleProfiles ?? [])].sort((a, b) => {
+    const balA = a.balance + (pendingStakesPerUser[a.id] ?? 0)
+    const balB = b.balance + (pendingStakesPerUser[b.id] ?? 0)
+    if (balB !== balA) return balB - balA
+    return (a.display_name || a.username).localeCompare(b.display_name || b.username, 'de')
+  })
   const rankIdx = ranked.findIndex(p => p.id === id)
   const rank = rankIdx >= 0 ? rankIdx + 1 : null
   const totalRanked = ranked.length
@@ -145,7 +184,7 @@ export default async function SpielerPage({
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Guthaben</div>
           <div className="text-lg font-black text-gray-900 dark:text-gray-100">
-            {profile.balance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
+            {displayBalance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
           </div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">

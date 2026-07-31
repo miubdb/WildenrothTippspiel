@@ -2,6 +2,8 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { AWARD_META, type AwardType } from '@/lib/awards'
 import { wildiLabel } from '@/components/WildiIcon'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import type { Match } from '@/types'
 
 export const revalidate = 300
 
@@ -28,21 +30,31 @@ export default async function RecapPage({
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Fetch matches for this matchday (current season only — matchday numbers
-  // repeat across seasons, so filter by season start date like the rest of the app)
+  // Fetch matches for this EFFECTIVE Spieltag (current season only — matchday
+  // numbers repeat across seasons, so filter by season start date like the rest
+  // of the app). A Wildenroth-II/Topspiel match keeps its own independent BFV
+  // matchday number, so grouping by the raw `matchday` column would silently
+  // drop it (and its bets) from the recap for the Spieltag it was actually shown
+  // and bet on under — see lib/season.ts effectiveMatchdayOf.
   const SEASON_START = '2026-08-01'
-  const { data: matchRows } = await supabase
+  const { data: matchRowsRaw } = await supabase
     .from('matches')
     .select(
-      `id, match_date, home_score, away_score, status,
+      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel,
        home_team:teams!matches_home_team_id_fkey(name),
        away_team:teams!matches_away_team_id_fkey(name)`
     )
-    .eq('matchday', matchday)
-    .gte('match_date', SEASON_START)
+    .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
     .order('match_date', { ascending: true })
 
-  if (!matchRows || matchRows.length === 0) notFound()
+  // The joined home_team/away_team embeds aren't part of the Match shape used by
+  // effectiveMatchdayOf (it only reads matchday/match_category/is_topspiel/match_date),
+  // so cast through unknown rather than fighting the embed's array shape here.
+  const seasonMatchesForRecap = (matchRowsRaw ?? []) as unknown as Match[]
+  const mdIndex = buildEffectiveMatchdayIndex(seasonMatchesForRecap)
+  const matchRows = (matchRowsRaw ?? []).filter((m) => effectiveMatchdayOf(m as unknown as Match, mdIndex) === matchday)
+
+  if (matchRows.length === 0) notFound()
 
   const matches = matchRows.map((m) => ({
     ...m,

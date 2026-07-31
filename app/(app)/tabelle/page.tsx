@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
 import { TeamLogo } from '@/components/TeamLogo'
+import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 
 export const revalidate = 60
 
@@ -134,8 +135,13 @@ async function getPriorStandings(supabase: Awaited<ReturnType<typeof import('@/l
   const { data } = await supabase.rpc('get_prior_standings' as never)
   if (data) return data as PriorStanding[]
 
-  const { data: rows } = await supabase.from('prior_season_matches').select('home_team,away_team,home_score,away_score,league_name,league_level,league_number')
-  if (!rows) return []
+  const rows = await fetchAllRows((from, to) => supabase
+    .from('prior_season_matches')
+    .select('id,home_team,away_team,home_score,away_score,league_name,league_level,league_number')
+    .order('id')
+    .range(from, to)
+  )
+  if (rows.length === 0) return []
 
   type TeamKey = string
   const stats = new Map<TeamKey, { team: string; leagueName: string; leagueLevel: string; leagueNumber: string; pts: number; gf: number; ga: number; games: number }>()

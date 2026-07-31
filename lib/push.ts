@@ -1,5 +1,13 @@
-import webpush from 'web-push'
+import webpush, { WebPushError } from 'web-push'
 import { createAdminClient } from '@/lib/supabase/admin'
+
+// Per the Web Push spec, only 404/410 mean "this subscription is dead, forget
+// it" — every other outcome (429 rate-limited, 5xx from the push service, a
+// timeout, a too-large payload) is transient or actionable some other way and
+// must not delete a subscription that could still be good.
+function isGoneError(err: unknown): boolean {
+  return err instanceof WebPushError && (err.statusCode === 404 || err.statusCode === 410)
+}
 
 function initVapid() {
   webpush.setVapidDetails(
@@ -98,6 +106,7 @@ export async function sendPushToUser(
 
   const payload = JSON.stringify({ title, body, url })
   const failed: string[] = []
+  const gone: string[] = []
   const failReasons: string[] = []
   let sentCount = 0
 
@@ -111,18 +120,19 @@ export async function sendPushToUser(
         sentCount++
       } catch (err) {
         failed.push(sub.endpoint)
+        if (isGoneError(err)) gone.push(sub.endpoint)
         failReasons.push(err instanceof Error ? err.message : String(err))
         console.error(`Push failed for ${sub.endpoint}:`, err)
       }
     })
   )
 
-  if (failed.length > 0) {
+  if (gone.length > 0) {
     await supabase
       .from('push_subscriptions')
       .delete()
       .eq('user_id', userId)
-      .in('endpoint', failed)
+      .in('endpoint', gone)
   }
 
   if (sentCount > 0) {
@@ -170,7 +180,7 @@ export async function sendPushToAll(title: string, body: string, url = '/tipps',
   if (!subs || subs.length === 0) return
 
   const payload = JSON.stringify({ title, body, url })
-  const failed: string[] = []
+  const gone: { user_id: string; endpoint: string }[] = []
   const sentUsers = new Set<string>()
   const failedUsers = new Set<string>()
 
@@ -183,18 +193,21 @@ export async function sendPushToAll(title: string, body: string, url = '/tipps',
         )
         sentUsers.add(sub.user_id)
       } catch (err) {
-        failed.push(sub.endpoint)
         failedUsers.add(sub.user_id)
+        if (isGoneError(err)) gone.push({ user_id: sub.user_id, endpoint: sub.endpoint })
       }
     })
   )
 
-  if (failed.length > 0) {
-    await admin
-      .from('push_subscriptions')
-      .delete()
-      .in('endpoint', failed)
-  }
+  // Delete precisely by (user_id, endpoint) — the same endpoint string could in
+  // principle belong to more than one user_id (a shared browser profile), so
+  // matching on endpoint alone could clear a row for a user whose send didn't
+  // even fail.
+  await Promise.allSettled(
+    gone.map((g) =>
+      admin.from('push_subscriptions').delete().eq('user_id', g.user_id).eq('endpoint', g.endpoint)
+    )
+  )
 
   for (const userId of sentUsers) {
     logNotification(userId, category, title, body, dedupeKey ?? null, 'sent').catch(() => {})

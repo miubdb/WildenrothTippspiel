@@ -4,16 +4,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser } from '@/lib/push'
 
 export async function POST(request: NextRequest) {
-  // Env check first — surface missing vars immediately
-  const missingEnv = ['SUPABASE_SERVICE_ROLE_KEY', 'VAPID_SUBJECT', 'VAPID_PRIVATE_KEY', 'NEXT_PUBLIC_VAPID_PUBLIC_KEY']
-    .filter(k => !process.env[k])
-  if (missingEnv.length > 0) {
-    return NextResponse.json(
-      { error: `Fehlende Umgebungsvariablen in Vercel: ${missingEnv.join(', ')}` },
-      { status: 500 }
-    )
-  }
-
+  // Authenticate BEFORE anything else — the env-var check below reveals which
+  // server-only secrets (service-role key, VAPID private key) are configured,
+  // and doing that ahead of auth let anyone with no credentials fingerprint
+  // the deployment (500 + named vars vs 401, with zero access required).
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 })
@@ -24,6 +18,19 @@ export async function POST(request: NextRequest) {
     .select('is_admin')
     .eq('id', user.id)
     .single()
+
+  const missingEnv = ['SUPABASE_SERVICE_ROLE_KEY', 'VAPID_SUBJECT', 'VAPID_PRIVATE_KEY', 'NEXT_PUBLIC_VAPID_PUBLIC_KEY']
+    .filter(k => !process.env[k])
+  if (missingEnv.length > 0) {
+    return NextResponse.json(
+      {
+        error: profile?.is_admin
+          ? `Fehlende Umgebungsvariablen in Vercel: ${missingEnv.join(', ')}`
+          : 'Push-Benachrichtigungen sind aktuell nicht verfügbar.',
+      },
+      { status: 500 }
+    )
+  }
 
   const body = await request.json()
   const { targetUserId } = body

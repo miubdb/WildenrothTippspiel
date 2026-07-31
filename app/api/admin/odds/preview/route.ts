@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getMatchXG, oddsFromXG, getExactScoreOdds, buildPriorContext } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { bettingOpenTime } from '@/lib/season'
+import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 
 const SEASON_START = '2026-08-01'
@@ -38,18 +39,27 @@ export async function GET(request: Request) {
     away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
   }))
 
-  const { data: priorMatchesRaw } = await supabase
+  const priorMatchesRaw = await fetchAllRows((from, to) => supabase
     .from('prior_season_matches')
     .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date')
+    .order('id')
+    .range(from, to)
+  )
 
-  const priorMatches: PriorMatch[] = (priorMatchesRaw ?? []) as PriorMatch[]
+  const priorMatches: PriorMatch[] = priorMatchesRaw as PriorMatch[]
 
-  const { data: leaguePlayersRaw } = await supabase
+  const leaguePlayersRaw = await fetchAllRows((from, to) => supabase
     .from('league_players')
     .select('id, team_name, name, goals, matches, status, transfer_to, prior_league_level, prior_team_name')
-  const { data: lineupEntriesRaw } = await supabase
+    .order('id')
+    .range(from, to)
+  )
+  const lineupEntriesRaw = await fetchAllRows((from, to) => supabase
     .from('match_lineups')
     .select('id, match_id, team_name, player_name, minutes_played, goals, assists, created_at')
+    .order('id')
+    .range(from, to)
+  )
 
   const leaguePlayers: LeaguePlayer[] = (leaguePlayersRaw ?? []).map((p) => ({
     id: p.id,

@@ -4,7 +4,8 @@ import { LeaderboardClient } from './LeaderboardClient'
 import type { BetRow, ComboMeta, MatchdayStats } from './LeaderboardClient'
 import type { CommentData } from '@/components/CommentSection'
 import type { RecapData } from '@/components/MatchdayRecap'
-import { bettingOpenTime } from '@/lib/season'
+import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared } from '@/lib/season'
+import type { Match } from '@/types'
 
 export const revalidate = 60
 
@@ -27,7 +28,7 @@ export default async function LeaderboardPage({
   ] = await Promise.all([
     supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url').or('eligible_for_current_season.eq.true,is_admin.eq.true').order('balance', { ascending: false }),
     supabase.auth.getUser(),
-    supabase.from('matches').select('id, matchday, match_date, status').order('match_date', { ascending: true }),
+    supabase.from('matches').select('id, match_number, matchday, home_team_id, away_team_id, match_date, status, match_category, is_topspiel').order('match_date', { ascending: true }),
     supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season'),
     supabase.from('combo_bets').select('id, user_id, stake, total_odds, status, payout, season'),
   ])
@@ -45,7 +46,7 @@ export default async function LeaderboardPage({
   const CURRENT_SEASON = '26/27'
   const SEASON_START = '2026-08-01'
 
-  const allMatchesRaw2 = allMatchesRaw ?? []
+  const allMatchesRaw2 = (allMatchesRaw ?? []) as Match[]
   // Only current-season matches drive the leaderboard matchday list
   // Matchday 999 is the test matchday — include regardless of date
   const seasonMatches = allMatchesRaw2.filter(m => m.matchday === 999 || m.match_date >= SEASON_START)
@@ -54,33 +55,39 @@ export default async function LeaderboardPage({
   // matchdays (e.g. Spieltag 2 as a midweek catch-up after Spieltag 7). The official
   // matchday NUMBER stays as the label, but ordering/"current"/"completed" must
   // follow actual kickoff dates — mirrors the same fix applied in tipps/page.tsx.
-  const matchdayMinDate = new Map<number, number>()
-  for (const m of seasonMatches) {
-    if (m.matchday === 999) continue
-    const t = new Date(m.match_date).getTime()
-    const prev = matchdayMinDate.get(m.matchday)
-    if (prev === undefined || t < prev) matchdayMinDate.set(m.matchday, t)
-  }
+  // Wildenroth-II / B-Klasse-Topspiel matches also carry their own independent BFV
+  // matchday numbering, so every grouping of BETS below uses the shared
+  // effective-Spieltag mapping (lib/season.ts) instead of the raw `matchday`
+  // column — otherwise a bet placed on such a match (shown under a specific
+  // Tippspiel-Spieltag tab on /tipps) lands under the wrong Spieltag here.
+  const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
+  const { matchdayMinDate, kreisligaMatchdaysSorted } = mdIndex
+  const effectiveMatchdayOf = (m: Match) => effectiveMatchdayOfShared(m, mdIndex)
   const byKickoff = (a: number, b: number) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0)
+  const isKreisligaMatch = (m: Match) => !m.match_category || m.match_category === 'kreisliga'
+  const kreisligaMatches = seasonMatches.filter(m => m.matchday !== 999 && isKreisligaMatch(m))
+  const hasTestMatchday = seasonMatches.some(m => m.matchday === 999)
 
   // Fall back to 1-28 placeholder when no real season matches exist yet (ignore test matchday)
-  const allMatchdays = seasonMatches.filter(m => m.matchday !== 999).length > 0
-    ? [...new Set(seasonMatches.map(m => m.matchday))].sort(byKickoff)
-    : Array.from({ length: 28 }, (_, i) => i + 1)
+  const allMatchdays = kreisligaMatchdaysSorted.length > 0
+    ? [...(hasTestMatchday ? [999] : []), ...kreisligaMatchdaysSorted]
+    : [...(hasTestMatchday ? [999] : []), ...Array.from({ length: 28 }, (_, i) => i + 1)]
   const allMatches = allMatchesRaw2
   const allBets = (allBetsRaw ?? []).filter(b => !b.season || b.season === CURRENT_SEASON)
   const allCombos = (allCombosRaw ?? []).filter(c => !c.season || c.season === CURRENT_SEASON)
 
-  // Current matchday for Spieltag tab
-  const firstScheduledMd = [...new Set(seasonMatches.filter(m => m.status === 'scheduled').map(m => m.matchday))]
+  // Current matchday for Spieltag tab — driven by the Kreisliga schedule only,
+  // matching tipps/page.tsx's `firstScheduled`/`completedMatchdays`.
+  const firstScheduledMd = [...new Set(kreisligaMatches.filter(m => m.status === 'scheduled').map(m => m.matchday))]
     .sort(byKickoff)[0]
 
   // Before Monday 12:00 Berlin → show last completed matchday; after → show upcoming matchday
   const thisWeekMondayNoon = bettingOpenTime(new Date())
   const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
   const completedMatchdays = allMatchdays.filter((md) => {
-    const mdM = seasonMatches.filter((m) => m.matchday === md)
-    return mdM.length > 0 && mdM.every((m) => m.status === 'finished')
+    const mdM = md === 999 ? seasonMatches.filter((m) => m.matchday === 999) : kreisligaMatches.filter((m) => m.matchday === md)
+    const nonPostponed = mdM.filter((m) => m.status !== 'postponed')
+    return nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
   })
   const lastCompletedMd = completedMatchdays.length > 0
     ? completedMatchdays.reduce((latest, md) => byKickoff(md, latest) > 0 ? md : latest)
@@ -96,7 +103,7 @@ export default async function LeaderboardPage({
   const currentMatchday = requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
 
   const matchdayMatches = currentMatchday != null
-    ? seasonMatches.filter(m => m.matchday === currentMatchday).sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+    ? seasonMatches.filter(m => effectiveMatchdayOf(m) === currentMatchday).sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
     : []
 
   const firstMatch = matchdayMatches[0]
@@ -228,8 +235,10 @@ export default async function LeaderboardPage({
   }
 
   // ── Per-matchday stats for all users (Wochentippkönig + Streaks) ──
-  // Build matchId → matchday map
-  const matchToMatchday = new Map(allMatches.map(m => [m.id, m.matchday]))
+  // Build matchId → EFFECTIVE Spieltag map (current season only — allBets/allCombos
+  // are already CURRENT_SEASON-filtered, and using the raw `matchday` column here
+  // would attribute a Wildenroth-II/Topspiel bet to the wrong Spieltag).
+  const matchToMatchday = new Map(seasonMatches.map(m => [m.id, effectiveMatchdayOf(m)]))
 
   // For each user × matchday: net P&L
   type UserMdKey = string // `${userId}_${matchday}`
@@ -262,10 +271,13 @@ export default async function LeaderboardPage({
     mdPnl.set(key, (mdPnl.get(key) ?? 0) + delta)
   }
 
-  // Wochentippkönig: per settled matchday, who gained the most?
+  // Wochentippkönig: per settled matchday, who gained the most? Current season
+  // only, ordered by kickoff — `allMatches` includes prior-season history, which
+  // used to make this permanently stuck on last season's final matchdays (the
+  // 🔥 streak badge in particular never lit up during the whole current season).
   const settledMatchdays = [...new Set(
-    allMatches.filter(m => m.status === 'finished').map(m => m.matchday)
-  )]
+    seasonMatches.filter(m => m.status === 'finished').map(m => effectiveMatchdayOf(m))
+  )].filter((md): md is number => md !== null).sort(byKickoff)
   const weeklyWinners = new Map<number, string>() // matchday → userId
 
   for (const md of settledMatchdays) {

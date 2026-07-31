@@ -3,6 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser, sendPushToAll } from '@/lib/push'
 import { wildiLabel } from '@/components/WildiIcon'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import type { Match } from '@/types'
+
+const SEASON_START = '2026-08-01'
 
 function settleBet(
   marketType: string,
@@ -77,6 +81,10 @@ function settleBet(
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
+  // bets/combo_bets UPDATE and the balance RPCs are service-role-only (see
+  // app/api/bets/place/route.ts) — this route already re-checks is_admin below,
+  // so every write via `admin` here stays gated by that same check.
+  const admin = createAdminClient()
 
   const {
     data: { user },
@@ -178,7 +186,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update the bet
-    await supabase
+    await admin
       .from('bets')
       .update({ status: result, payout: result === 'won' ? payout : 0 })
       .eq('id', bet.id)
@@ -217,14 +225,14 @@ export async function POST(request: NextRequest) {
     if (comboBet.status !== 'pending') continue
 
     if (anyLost) {
-      await supabase
+      await admin
         .from('combo_bets')
         .update({ status: 'lost', payout: 0 })
         .eq('id', comboId)
     } else {
       // All legs won
       const payout = Math.round(comboBet.stake * comboBet.total_odds * 100) / 100
-      await supabase
+      await admin
         .from('combo_bets')
         .update({ status: 'won', payout })
         .eq('id', comboId)
@@ -253,15 +261,12 @@ export async function POST(request: NextRequest) {
   // Apply balance updates + send one bundled push per user
   const allAffectedUsers = new Set([...Object.keys(userBalanceUpdates), ...Object.keys(userWonCount), ...Object.keys(userLostCount)])
   const pushNotifications: Promise<unknown>[] = []
-  // Use adminSupa so RLS doesn't silently block updating other users' balances
-  const adminSupaSettle = createAdminClient()
-
   for (const userId of allAffectedUsers) {
     const amount = userBalanceUpdates[userId] ?? 0
     if (amount > 0) {
       // Atomic increment — avoids losing a payout if this races a concurrent
       // bet placement/cancellation or another settle call for the same user.
-      await adminSupaSettle.rpc('increment_balance', { p_user_id: userId, p_amount: amount })
+      await admin.rpc('increment_balance', { p_user_id: userId, p_amount: amount })
     }
 
     const won = userWonCount[userId] ?? 0
@@ -290,164 +295,61 @@ export async function POST(request: NextRequest) {
 
   await Promise.allSettled(pushNotifications)
 
-  // Check if the entire matchday is now complete → send recap push (once)
+  // Check if the entire (effective) Spieltag is now complete → send recap push
+  // (once). Wildenroth-II / B-Klasse-Topspiel matches carry their own independent
+  // BFV matchday numbering, so grouping by the raw `matchday` column here would
+  // gate this on the wrong set of matches (see lib/season.ts effectiveMatchdayOf) —
+  // the completion gate, award match-set and inactivity-penalty match-set below
+  // must all agree with what tipps/page.tsx actually displayed/allowed betting on.
   const { data: matchInfo } = await supabase
     .from('matches')
-    .select('matchday')
+    .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
     .eq('id', matchId)
     .single()
 
   if (matchInfo) {
-    const { matchday } = matchInfo
-    const { data: matchdayMatches } = await supabase
+    const { data: seasonMatchesRaw } = await admin
       .from('matches')
-      .select('status')
-      .eq('matchday', matchday)
+      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+      .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
+    const seasonMatchesForMd = (seasonMatchesRaw ?? []) as Match[]
+    const mdIndex = buildEffectiveMatchdayIndex(seasonMatchesForMd)
+    const matchday = effectiveMatchdayOf(matchInfo as Match, mdIndex)
 
-    const nonPostponedInMatchday = (matchdayMatches ?? []).filter(m => m.status !== 'postponed')
+    const matchdayMatches = matchday == null
+      ? []
+      : seasonMatchesForMd.filter((m) => effectiveMatchdayOf(m, mdIndex) === matchday)
+
+    const nonPostponedInMatchday = matchdayMatches.filter(m => m.status !== 'postponed')
     const allFinished =
+      matchday != null &&
       nonPostponedInMatchday.length > 0 &&
       nonPostponedInMatchday.every((m) => m.status === 'finished')
 
     if (allFinished) {
-      const admin = createAdminClient()
-
       // Test matchday 999: skip recap push, awards and inactivity penalty
       if (matchday >= 900) {
         return NextResponse.json({ success: true, settled: settledBetIds.length, combosChecked: combosToCheck.size, testMode: true })
       }
 
-      // Persist awards after settlement
+      // Persist awards after settlement — but only once every bet on this
+      // Spieltag is truly settled, INCLUDING goalscorer bets, which resolve on
+      // a separate timeline once the admin submits the scorer list (see
+      // app/api/admin/goalscorers/scorers/route.ts, which calls the same
+      // computeAndPersistMatchdayAwards() once it becomes the "last" event to
+      // settle this Spieltag). Computing awards while those are still pending
+      // would silently omit their contribution to Spieltagskönig/On Fire/etc.
       try {
-        const { persistAwards } = await import('@/lib/awards')
-        const { data: mdMatchRows } = await admin.from('matches').select('id').eq('matchday', matchday)
-        const mIds = (mdMatchRows ?? []).map((m: { id: number }) => m.id)
+        const { computeAndPersistMatchdayAwards } = await import('@/lib/awards')
+        const mIds = matchdayMatches.map((m) => m.id)
         if (mIds.length > 0) {
-          // Fetch all settled single bets for this matchday (no cancelled = not in won/lost)
-          const { data: rawBets } = await admin
+          const { count: stillPendingCount } = await admin
             .from('bets')
-            .select('user_id, match_id, stake, odds_value, payout, status, is_risky, combo_id, market_type, selection')
+            .select('id', { count: 'exact', head: true })
             .in('match_id', mIds)
-            .in('status', ['won', 'lost'])
-          const allBets = rawBets ?? []
-          const singleBets = allBets.filter((b: { combo_id: unknown }) => !b.combo_id)
-          const legBets = allBets.filter((b: { combo_id: unknown }) => b.combo_id)
-          const comboIds = [...new Set(legBets.map((b: { combo_id: unknown }) => Number(b.combo_id)))]
-
-          // Fetch all combo_bets (won + lost) for these combos
-          type CB = { id: number; user_id: string; stake: number; total_odds: number; payout: number; status: string }
-          let comboBets: CB[] = []
-          // Also fetch ALL legs of these combos (may include legs outside this matchday)
-          let allLegs: { combo_id: number; status: string }[] = []
-          if (comboIds.length > 0) {
-            const { data: cbData } = await admin
-              .from('combo_bets')
-              .select('id, user_id, stake, total_odds, payout, status')
-              .in('id', comboIds)
-              .in('status', ['won', 'lost'])
-            comboBets = (cbData ?? []) as CB[]
-            const { data: legData } = await admin
-              .from('bets')
-              .select('combo_id, status')
-              .in('combo_id', comboIds)
-            allLegs = (legData ?? []).map((l: { combo_id: unknown; status: string }) => ({ combo_id: Number(l.combo_id), status: l.status }))
-          }
-
-          const wonSingles = singleBets.filter((b: { status: string }) => b.status === 'won')
-          const wonCombos  = comboBets.filter(c => c.status === 'won')
-          const lostSingles = singleBets.filter((b: { status: string }) => b.status === 'lost')
-          const lostCombos  = comboBets.filter(c => c.status === 'lost')
-
-          const awardInputs: import('@/lib/awards').AwardInput[] = []
-
-          // 1. Spieltagskönig — best net saldo (singles + combos)
-          const pnlByUser: Record<string, number> = {}
-          for (const b of singleBets) {
-            const g = b.status === 'won' ? (b.payout ?? 0) - b.stake : -b.stake
-            pnlByUser[b.user_id] = (pnlByUser[b.user_id] ?? 0) + g
-          }
-          for (const c of comboBets) {
-            const g = c.status === 'won' ? c.payout - c.stake : -c.stake
-            pnlByUser[c.user_id] = (pnlByUser[c.user_id] ?? 0) + g
-          }
-          const topPnl = Object.entries(pnlByUser).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1])[0]
-          if (topPnl) awardInputs.push({ user_id: topPnl[0], award_type: 'spieltagskoenig', value: topPnl[1], value_text: `+${topPnl[1].toFixed(2)} ${wildiLabel(topPnl[1])}` })
-
-          // 2. Eier aus Stahl — highest won odds (singles OR combos)
-          const bestWonSingle = [...wonSingles].sort((a: { odds_value: number }, b: { odds_value: number }) => b.odds_value - a.odds_value)[0]
-          const bestWonCombo  = [...wonCombos].sort((a, b) => b.total_odds - a.total_odds)[0]
-          const eiSOdds = bestWonSingle?.odds_value ?? 0
-          const eiCOdds = bestWonCombo?.total_odds ?? 0
-          if (eiSOdds > 0 || eiCOdds > 0) {
-            if (eiSOdds >= eiCOdds && bestWonSingle) {
-              awardInputs.push({ user_id: bestWonSingle.user_id, award_type: 'eier_aus_stahl', value: eiSOdds, value_text: `@${eiSOdds.toFixed(2).replace('.', ',')}` })
-            } else if (bestWonCombo) {
-              awardInputs.push({ user_id: bestWonCombo.user_id, award_type: 'eier_aus_stahl', value: eiCOdds, value_text: `@${eiCOdds.toFixed(2).replace('.', ',')}` })
-            }
-          }
-
-          // 3. Unlucky Bastard — lost combo with exactly 1 lost leg, highest potential payout
-          const legsByCombo: Record<number, { status: string }[]> = {}
-          for (const l of allLegs) {
-            if (!legsByCombo[l.combo_id]) legsByCombo[l.combo_id] = []
-            legsByCombo[l.combo_id].push({ status: l.status })
-          }
-          const unlucky = lostCombos
-            .map(c => ({ c, legs: legsByCombo[c.id] ?? [], lostCount: (legsByCombo[c.id] ?? []).filter(l => l.status === 'lost').length }))
-            .filter(x => x.lostCount === 1 && x.legs.length >= 2 && x.legs.every(l => l.status !== 'pending'))
-            .sort((a, b) => (b.c.stake * b.c.total_odds) - (a.c.stake * a.c.total_odds))[0]
-          if (unlucky) {
-            const potential = unlucky.c.stake * unlucky.c.total_odds
-            awardInputs.push({ user_id: unlucky.c.user_id, award_type: 'unlucky_bastard', value: potential, value_text: `${Math.round(potential)} ${wildiLabel(potential)} möglich` })
-          }
-
-          // 4. Ergebnis-Orakel — won exact_score bets; highest stake wins if multiple
-          const exactWon = singleBets
-            .filter((b: { market_type: string; status: string }) => b.market_type === 'exact_score' && b.status === 'won')
-            .sort((a: { stake: number }, b: { stake: number }) => b.stake - a.stake)
-          if (exactWon[0]) {
-            awardInputs.push({ user_id: exactWon[0].user_id, award_type: 'ergebnis_orakel', value: exactWon[0].stake, value_text: exactWon[0].selection })
-          }
-
-          // 5. Griff ins Klo — highest lost stake; tiebreak: higher potential payout (stake × odds)
-          const lostAll = [
-            ...lostSingles.map((b: { user_id: string; stake: number; odds_value: number }) => ({ user_id: b.user_id, stake: b.stake, potential: b.stake * b.odds_value })),
-            ...lostCombos.map(c => ({ user_id: c.user_id, stake: c.stake, potential: c.stake * c.total_odds })),
-          ].sort((a, b) => b.stake - a.stake || b.potential - a.potential)
-          if (lostAll[0]) {
-            awardInputs.push({ user_id: lostAll[0].user_id, award_type: 'griff_ins_klo', value: lostAll[0].stake, value_text: `${lostAll[0].stake} ${wildiLabel(lostAll[0].stake)} versenkt` })
-          }
-
-          // 6. Betonmischer — lowest odds among won bets (tiebreak: higher stake)
-          const allWon = [
-            ...wonSingles.map((b: { user_id: string; odds_value: number; stake: number; payout: number }) => ({ user_id: b.user_id, odds: b.odds_value, stake: b.stake })),
-            ...wonCombos.map(c => ({ user_id: c.user_id, odds: c.total_odds, stake: c.stake })),
-          ]
-          if (allWon.length > 0) {
-            allWon.sort((a, b) => a.odds - b.odds || b.stake - a.stake)
-            const beton = allWon[0]
-            awardInputs.push({ user_id: beton.user_id, award_type: 'betonmischer', value: beton.odds, value_text: `@${beton.odds.toFixed(2).replace('.', ',')}` })
-          }
-
-          // 7. On Fire — most won bet slips (singles + combos each = 1), min 2, tiebreak: saldo
-          const wonSlips: Record<string, { count: number; pnl: number }> = {}
-          for (const b of wonSingles) {
-            const e = wonSlips[b.user_id] ?? { count: 0, pnl: 0 }
-            wonSlips[b.user_id] = { count: e.count + 1, pnl: e.pnl + ((b.payout ?? 0) - b.stake) }
-          }
-          for (const c of wonCombos) {
-            const e = wonSlips[c.user_id] ?? { count: 0, pnl: 0 }
-            wonSlips[c.user_id] = { count: e.count + 1, pnl: e.pnl + (c.payout - c.stake) }
-          }
-          const fireEntry = Object.entries(wonSlips)
-            .filter(([, { count }]) => count >= 2)
-            .sort((a, b) => b[1].count - a[1].count || b[1].pnl - a[1].pnl)[0]
-          if (fireEntry) {
-            awardInputs.push({ user_id: fireEntry[0], award_type: 'on_fire', value: fireEntry[1].count, value_text: `${fireEntry[1].count} Wettscheine gewonnen` })
-          }
-
-          if (awardInputs.length > 0) {
-            await persistAwards(admin, '26/27', matchday, awardInputs)
+            .eq('status', 'pending')
+          if (!stillPendingCount) {
+            await computeAndPersistMatchdayAwards(admin, '26/27', matchday, mIds)
           }
         }
       } catch (e) { console.error('Award persistence failed:', e) }
@@ -477,11 +379,7 @@ export async function POST(request: NextRequest) {
         .insert({ type: 'inactivity_fee', matchday })
 
       if (!penaltyDedupError) {
-        const { data: mdMatchRows } = await admin
-          .from('matches')
-          .select('id')
-          .eq('matchday', matchday)
-        const mdMatchIds = (mdMatchRows ?? []).map(m => m.id)
+        const mdMatchIds = matchdayMatches.map((m) => m.id)
 
         if (mdMatchIds.length > 0) {
           const { data: activeBetRows } = await admin
@@ -490,9 +388,14 @@ export async function POST(request: NextRequest) {
             .in('match_id', mdMatchIds)
           const activeUserIds = new Set((activeBetRows ?? []).map(b => b.user_id as string))
 
+          // Only users actually allowed to bet this season can be "inactive" —
+          // ineligible users are hard-blocked from placing any bet at all
+          // (see app/api/bets/place/route.ts NOT_ELIGIBLE), so penalizing them
+          // here would charge people for a season they were never allowed to play.
           const { data: allProfiles } = await admin
             .from('profiles')
             .select('id')
+            .or('eligible_for_current_season.eq.true,is_admin.eq.true')
 
           const INACTIVITY_PENALTY = 100
           await Promise.allSettled(

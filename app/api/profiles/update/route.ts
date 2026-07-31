@@ -44,6 +44,9 @@ export async function PATCH(req: Request) {
     if (trimmed.length < 2) {
       return NextResponse.json({ error: 'Anzeigename muss mindestens 2 Zeichen haben' }, { status: 400 })
     }
+    if (trimmed.length > 30) {
+      return NextResponse.json({ error: 'Anzeigename darf maximal 30 Zeichen haben' }, { status: 400 })
+    }
     const { data: existing } = await supabase
       .from('profiles')
       .select('id')

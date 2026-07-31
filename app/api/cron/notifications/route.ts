@@ -1,11 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser, sendPushToAll } from '@/lib/push'
 import { bettingOpenTime } from '@/lib/season'
 
+function isAuthorized(request: NextRequest): boolean {
+  const expected = process.env.CRON_SECRET
+  // Fail closed: an unconfigured secret must never make every request "match".
+  if (!expected) return false
+  const header = request.headers.get('authorization') ?? ''
+  const got = header.startsWith('Bearer ') ? header.slice(7) : ''
+  const a = Buffer.from(got)
+  const b = Buffer.from(expected)
+  // timingSafeEqual throws on length mismatch, so check that first (a length
+  // check does not itself leak the secret's content, only its length).
+  return a.length === b.length && timingSafeEqual(a, b)
+}
+
 export async function GET(request: NextRequest) {
-  const secret = request.headers.get('authorization')?.replace('Bearer ', '')
-  if (secret !== process.env.CRON_SECRET) {
+  if (!isAuthorized(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -151,7 +164,7 @@ export async function GET(request: NextRequest) {
                 'bet_reminder',
                 dedupeKey
               )
-              sent.push(`bet-reminder:${matchday}-${user.id}`)
+              sent.push(`bet-reminder:${matchday}`)
             }
           }
         }
@@ -160,7 +173,7 @@ export async function GET(request: NextRequest) {
 
   } catch (err) {
     console.error('Cron notification error:', err)
-    return NextResponse.json({ error: 'Cron failed', details: String(err) }, { status: 500 })
+    return NextResponse.json({ error: 'Cron failed' }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, sent, timestamp: now.toISOString() })

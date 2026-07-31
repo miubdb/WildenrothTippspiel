@@ -224,6 +224,7 @@ export function ProfileEditForm({
                 value={displayName}
                 onChange={e => setDisplayName(e.target.value)}
                 placeholder="Dein Anzeigename"
+                maxLength={30}
               />
             </div>
 

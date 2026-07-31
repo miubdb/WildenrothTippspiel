@@ -93,12 +93,9 @@ export async function POST(request: NextRequest) {
 
   const pushJobs: Promise<unknown>[] = []
   for (const [userId, refundAmount] of perUser) {
-    const { data: p } = await admin.from('profiles').select('balance').eq('id', userId).single()
-    if (!p) continue
-    await admin
-      .from('profiles')
-      .update({ balance: Number(p.balance) + refundAmount })
-      .eq('id', userId)
+    // Atomic increment — see scorers/route.ts for why a select-then-update here
+    // would silently lose a concurrent bet placement/cancellation/settlement.
+    await admin.rpc('increment_balance', { p_user_id: userId, p_amount: refundAmount })
 
     pushJobs.push(
       sendPushToUser(
