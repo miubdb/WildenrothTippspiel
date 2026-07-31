@@ -515,11 +515,25 @@ const TRANSFER_FACTOR_CEILING = 1.15
 const LOSS_DAMPING = 0.5   // departures are a certain loss — apply at half strength
 const GAIN_DAMPING = 0.4   // signings are an uncertain gain — apply more conservatively
 const INCOMING_CONFIDENCE = 0.65 // extra discount: new signings must still prove it at the new club
-const MIN_GOALS_SAMPLE = 8
+const MIN_CONTRIBUTION_SAMPLE = 8
+// A goals-only importance metric is blind to non-scorers — a regular centre-back
+// or keeper who plays every minute but never scores contributed 0 to the old
+// "totalKeyGoals" sum, so losing them moved the roster factor not at all. Convert
+// minutes played into goal-equivalent "contribution" too, so a full-season
+// regular (~2000-2500 minutes) registers on a similar scale to a decent scorer
+// regardless of whether they ever found the net themselves.
+const MINUTES_PER_GOAL_EQUIVALENT = 200
+
+function contribution(p: Pick<LeaguePlayer, 'goals' | 'minutes'>): number {
+  return p.goals + (p.minutes ?? 0) / MINUTES_PER_GOAL_EQUIVALENT
+}
 
 /**
- * Roster factor reflecting whether last season's key scorers are still around,
- * and whether known incoming signings add comparable quality back.
+ * Roster factor reflecting whether last season's key contributors are still
+ * around, and whether known incoming signings add comparable quality back.
+ * "Contribution" = goals + minutes played (see MINUTES_PER_GOAL_EQUIVALENT) so
+ * non-scoring regulars (defenders, goalkeepers) are weighed too, not just
+ * scorers — a team can lose real quality with zero effect on the score sheet.
  *
  * Two tiers, depending on what evidence is available:
  * 1. Once enough CURRENT-season lineup data exists (≥3 matches), use it directly —
@@ -528,52 +542,53 @@ const MIN_GOALS_SAMPLE = 8
  *    New signings are excluded here since their real current-season output is
  *    already captured by the normal season-average stats at that point.
  * 2. Before that (pre-season / first couple of matchdays), fall back to the known
- *    prior-season transfer/retirement/signing records: net last season's goals
- *    that departed against goals a known new signing brings in (normalized across
- *    leagues via the same LEAGUE_STRENGTH scale used for team-level prior stats,
- *    then damped for integration uncertainty), and dampen the result into a bounded
- *    multiplier. This lets a team's attack be adjusted from matchday 1 based on
- *    known transfer activity, without waiting for lineup evidence to accumulate.
+ *    prior-season transfer/retirement/signing records: net last season's
+ *    contribution that departed against contribution a known new signing brings
+ *    in (normalized across leagues via the same LEAGUE_STRENGTH scale used for
+ *    team-level prior stats, then damped for integration uncertainty), and
+ *    dampen the result into a bounded multiplier. This lets a team's attack be
+ *    adjusted from matchday 1 based on known transfer activity, without waiting
+ *    for lineup evidence to accumulate.
  */
 function getRosterFactor(teamName: string, priorCtx: PriorContext): number {
   const allPlayers = priorCtx.leaguePlayers.get(teamName) ?? []
   const returningPlayers = allPlayers.filter(p => p.status !== 'transferred_in')
   const incomingPlayers = allPlayers.filter(p => p.status === 'transferred_in')
 
-  const totalKeyGoals = returningPlayers.reduce((s, p) => s + p.goals, 0)
+  const totalKeyContribution = returningPlayers.reduce((s, p) => s + contribution(p), 0)
 
   const recentLineups = priorCtx.lineups.get(teamName) ?? []
   const uniqueMatches = new Set(recentLineups.map(e => e.match_id))
 
   if (uniqueMatches.size >= 3) {
-    if (totalKeyGoals === 0) return 1.0
+    if (totalKeyContribution === 0) return 1.0
     const last5MatchIds = [...uniqueMatches].slice(-5)
     const recentPlayers = new Set(
       recentLineups.filter(e => last5MatchIds.includes(e.match_id)).map(e => e.player_name)
     )
-    const activeGoals = returningPlayers
+    const activeContribution = returningPlayers
       .filter(p => recentPlayers.has(p.name))
-      .reduce((s, p) => s + p.goals, 0)
-    const activeGoalShare = activeGoals / totalKeyGoals
-    if (activeGoalShare < 0.5) return 0.90
-    if (activeGoalShare < 0.7) return 0.95
+      .reduce((s, p) => s + contribution(p), 0)
+    const activeShare = activeContribution / totalKeyContribution
+    if (activeShare < 0.5) return 0.90
+    if (activeShare < 0.7) return 0.95
     return 1.0
   }
 
   // Fallback: static prior-season transfer/retirement/signing records.
-  if (totalKeyGoals < MIN_GOALS_SAMPLE) return 1.0
+  if (totalKeyContribution < MIN_CONTRIBUTION_SAMPLE) return 1.0
 
-  const retainedGoals = returningPlayers
+  const retainedContribution = returningPlayers
     .filter(p => !p.status || p.status === 'active')
-    .reduce((s, p) => s + p.goals, 0)
+    .reduce((s, p) => s + contribution(p), 0)
 
-  const incomingCreditedGoals = incomingPlayers.reduce((s, p) => {
+  const incomingCreditedContribution = incomingPlayers.reduce((s, p) => {
     const level = p.prior_league_level as PriorMatch['league_level'] | null | undefined
     const strength = level ? LEAGUE_STRENGTH[level] : 1.0
-    return s + p.goals * strength * INCOMING_CONFIDENCE
+    return s + contribution(p) * strength * INCOMING_CONFIDENCE
   }, 0)
 
-  const ratio = (retainedGoals + incomingCreditedGoals) / totalKeyGoals
+  const ratio = (retainedContribution + incomingCreditedContribution) / totalKeyContribution
   const delta = ratio - 1
   const factor = 1 + delta * (delta < 0 ? LOSS_DAMPING : GAIN_DAMPING)
   return Math.max(TRANSFER_FACTOR_FLOOR, Math.min(TRANSFER_FACTOR_CEILING, factor))

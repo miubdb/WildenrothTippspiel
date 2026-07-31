@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser, sendPushToAll } from '@/lib/push'
 import { wildiLabel } from '@/components/WildiIcon'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, recapMatchdayOf } from '@/lib/season'
 import type { Match } from '@/types'
 
 const SEASON_START = '2026-08-01'
@@ -295,12 +295,19 @@ export async function POST(request: NextRequest) {
 
   await Promise.allSettled(pushNotifications)
 
-  // Check if the entire (effective) Spieltag is now complete → send recap push
-  // (once). Wildenroth-II / B-Klasse-Topspiel matches carry their own independent
-  // BFV matchday numbering, so grouping by the raw `matchday` column here would
-  // gate this on the wrong set of matches (see lib/season.ts effectiveMatchdayOf) —
-  // the completion gate, award match-set and inactivity-penalty match-set below
-  // must all agree with what tipps/page.tsx actually displayed/allowed betting on.
+  // Check if the entire Spieltag's STORY is now complete → send recap push
+  // (once). Two different groupings are in play here, deliberately:
+  //  - effectiveMatchdayOf: the DISPLAY grouping — a Kreisliga match always
+  //    keeps its own official BFV number, exactly what tipps/page.tsx shows
+  //    and what a bet was placed under. Used below only for the inactivity
+  //    fairness check ("did this user bet on anything shown under this tab").
+  //  - recapMatchdayOf: the RECAP grouping — a Kreisliga match that's been
+  //    rescheduled far outside its own Spieltag's normal window gets folded
+  //    into whichever Spieltag is actually being played around its real date,
+  //    so THAT Spieltag's recap/awards don't wait weeks/months for one
+  //    outlier game. See lib/season.ts for the full reasoning — this does not
+  //    delay any individual payout or the per-match win/lost push above, only
+  //    the supplementary awards/recap layer.
   const { data: matchInfo } = await supabase
     .from('matches')
     .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
@@ -314,9 +321,12 @@ export async function POST(request: NextRequest) {
       .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
     const seasonMatchesForMd = (seasonMatchesRaw ?? []) as Match[]
     const mdIndex = buildEffectiveMatchdayIndex(seasonMatchesForMd)
-    const matchday = effectiveMatchdayOf(matchInfo as Match, mdIndex)
+    const matchday = recapMatchdayOf(matchInfo as Match, mdIndex)
 
     const matchdayMatches = matchday == null
+      ? []
+      : seasonMatchesForMd.filter((m) => recapMatchdayOf(m, mdIndex) === matchday)
+    const displayMatchdayMatches = matchday == null
       ? []
       : seasonMatchesForMd.filter((m) => effectiveMatchdayOf(m, mdIndex) === matchday)
 
@@ -387,7 +397,11 @@ export async function POST(request: NextRequest) {
         .insert({ type: 'inactivity_fee', matchday })
 
       if (!penaltyDedupError) {
-        const mdMatchIds = matchdayMatches.map((m) => m.id)
+        // Fairness check uses the DISPLAY grouping, not the recap grouping —
+        // a user who bet on a match shown under this Spieltag's tab must
+        // count as active for it even if that specific match later turned
+        // out to be a recap-outlier reassigned elsewhere for award purposes.
+        const mdMatchIds = displayMatchdayMatches.map((m) => m.id)
 
         if (mdMatchIds.length > 0) {
           const { data: activeBetRows } = await admin

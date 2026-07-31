@@ -119,20 +119,8 @@ export function buildEffectiveMatchdayIndex(seasonMatches: Match[]): EffectiveMa
   return { kreisligaMatchdaysSorted, matchdayMinDate, matchdayAnchorDate }
 }
 
-/**
- * Assigns a Wildenroth-II / Topspiel-flagged B-Klasse match to the Kreisliga
- * Spieltag whose median kickoff date it's closest to. Plain B-Klasse matches
- * (not the admin-selected weekly Topspiel) return null — they're never
- * bettable and never shown on the Tippspiel page.
- */
-export function effectiveMatchdayOf(m: Match, index: EffectiveMatchdayIndex): number | null {
-  if (m.matchday === 999) return 999
-  if (isKreisligaMatch(m)) return m.matchday
-  const isWildenrothII = m.match_category === 'wildenroth_ii'
-  const isTopspiel = m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel)
-  if (!isWildenrothII && !isTopspiel) return null
+function nearestMatchdayByDate(t: number, index: EffectiveMatchdayIndex): number | null {
   if (index.kreisligaMatchdaysSorted.length === 0) return null
-  const t = new Date(m.match_date).getTime()
   let best: number = index.kreisligaMatchdaysSorted[0]
   let bestDist = Infinity
   for (const md of index.kreisligaMatchdaysSorted) {
@@ -140,4 +128,74 @@ export function effectiveMatchdayOf(m: Match, index: EffectiveMatchdayIndex): nu
     if (dist < bestDist) { bestDist = dist; best = md }
   }
   return best
+}
+
+/**
+ * Assigns a Wildenroth-II / Topspiel-flagged B-Klasse match to the Kreisliga
+ * Spieltag whose median kickoff date it's closest to. Plain B-Klasse matches
+ * (not the admin-selected weekly Topspiel) return null — they're never
+ * bettable and never shown on the Tippspiel page.
+ *
+ * For a KREISLIGA match this always returns its own official BFV matchday
+ * number, with no exception — that label is what tipps/page.tsx displays and
+ * what the user placed their bet under, and (per the BFV's own "Verlegte
+ * Spiele außerhalb des Spieltages" listing) it must never change just because
+ * the match itself got rescheduled. Use this for anything DISPLAY/BETTING
+ * related: which tab a match/bet appears under, the per-matchday bet limit,
+ * etc. For anything about WHEN a Spieltag's story is considered told
+ * (awards, recap, inactivity timing), use `recapMatchdayOf` instead — see its
+ * doc comment for why these two must not be the same function.
+ */
+export function effectiveMatchdayOf(m: Match, index: EffectiveMatchdayIndex): number | null {
+  if (m.matchday === 999) return 999
+  if (isKreisligaMatch(m)) return m.matchday
+  const isWildenrothII = m.match_category === 'wildenroth_ii'
+  const isTopspiel = m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel)
+  if (!isWildenrothII && !isTopspiel) return null
+  const t = new Date(m.match_date).getTime()
+  return nearestMatchdayByDate(t, index)
+}
+
+/** A Kreisliga match whose kickoff has drifted more than this many days from
+ *  its own Spieltag's median date is treated, for recap/awards purposes only,
+ *  as an outlier — its bets get folded into whichever Spieltag is actually
+ *  being played around its real date instead of making that Spieltag's whole
+ *  recap wait for it. Small BFV variance (a Monday game 1-2 days out) stays
+ *  put; a genuine reschedule to a different part of the season does not. */
+const RECAP_OUTLIER_DAYS = 10
+
+/**
+ * Answers "which Spieltag's story does this match's bets belong to?" — used
+ * ONLY for awards, the recap push/page, per-Spieltag leaderboard P&L
+ * (Wochentippkönig/streaks), and inactivity-penalty TIMING (not the fairness
+ * check itself, see below).
+ *
+ * Why this must differ from `effectiveMatchdayOf`: that function anchors a
+ * Kreisliga match to its own official number unconditionally, by design (the
+ * label must never change). But that means a match postponed 60+ days out
+ * would make its ENTIRE original Spieltag's awards/recap wait 60+ days too —
+ * for a match whose own bettors already got settled and notified immediately
+ * per-match regardless (see app/api/admin/settle/route.ts's per-user push,
+ * sent the moment THAT match is scored). Nobody's money or "did I win" push
+ * is delayed by any of this; only the supplementary trophy/recap layer was.
+ * Once a Kreisliga match drifts beyond RECAP_OUTLIER_DAYS from its own
+ * Spieltag's median, this reassigns it to the nearest Spieltag by date
+ * instead — so the ORIGINAL Spieltag's recap can close promptly from its
+ * on-time matches, and the outlier's contribution lands wherever it actually
+ * played out, where it's far less likely to be badly late itself.
+ *
+ * Do NOT use this for what tab a match/bet displays under, or for the
+ * per-matchday bet limit — those must stay on `effectiveMatchdayOf`.
+ */
+export function recapMatchdayOf(m: Match, index: EffectiveMatchdayIndex): number | null {
+  if (m.matchday === 999) return 999
+  if (isKreisligaMatch(m)) {
+    const anchor = index.matchdayAnchorDate.get(m.matchday)
+    const t = new Date(m.match_date).getTime()
+    if (anchor != null && Math.abs(t - anchor) <= RECAP_OUTLIER_DAYS * 86400000) {
+      return m.matchday
+    }
+    return nearestMatchdayByDate(t, index)
+  }
+  return effectiveMatchdayOf(m, index)
 }

@@ -96,6 +96,7 @@ export interface LeaguePlayer {
   team_name: string
   goals: number
   games: number
+  minutes: number
   status?: string | null
   transfer_to?: string | null
   prior_league_level?: 'bezirksliga' | 'kreisliga' | 'kreisklasse' | 'b_klasse' | null

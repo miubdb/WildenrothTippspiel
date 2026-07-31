@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser } from '@/lib/push'
 import { fmtWildi, wildiLabel } from '@/components/WildiIcon'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, recapMatchdayOf } from '@/lib/season'
 import { computeAndPersistMatchdayAwards } from '@/lib/awards'
 import type { Match } from '@/types'
 
@@ -145,9 +145,10 @@ export async function POST(request: NextRequest) {
         .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
       const seasonMatches = (seasonMatchesRaw ?? []) as Match[]
       const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
-      const matchday = effectiveMatchdayOf(matchInfo as Match, mdIndex)
+      // Recap grouping, not display grouping — see lib/season.ts recapMatchdayOf.
+      const matchday = recapMatchdayOf(matchInfo as Match, mdIndex)
       if (matchday != null && matchday !== 999) {
-        const matchdayMatches = seasonMatches.filter((m) => effectiveMatchdayOf(m, mdIndex) === matchday)
+        const matchdayMatches = seasonMatches.filter((m) => recapMatchdayOf(m, mdIndex) === matchday)
         const nonPostponed = matchdayMatches.filter((m) => m.status !== 'postponed')
         const allFinished = nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
         if (allFinished) {

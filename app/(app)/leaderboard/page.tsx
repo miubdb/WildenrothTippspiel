@@ -4,7 +4,7 @@ import { LeaderboardClient } from './LeaderboardClient'
 import type { BetRow, ComboMeta, MatchdayStats } from './LeaderboardClient'
 import type { CommentData } from '@/components/CommentSection'
 import type { RecapData } from '@/components/MatchdayRecap'
-import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared } from '@/lib/season'
+import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, recapMatchdayOf as recapMatchdayOfShared } from '@/lib/season'
 import type { Match } from '@/types'
 
 export const revalidate = 60
@@ -63,6 +63,13 @@ export default async function LeaderboardPage({
   const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
   const { matchdayMinDate, kreisligaMatchdaysSorted } = mdIndex
   const effectiveMatchdayOf = (m: Match) => effectiveMatchdayOfShared(m, mdIndex)
+  // Recap grouping (awards/streaks/Wochentippkönig/"is this Spieltag's story
+  // done" timing) differs from the display grouping above for a Kreisliga
+  // match rescheduled far outside its own Spieltag's window — see
+  // lib/season.ts recapMatchdayOf. Must match app/api/admin/settle/route.ts's
+  // grouping exactly, or the persisted Spieltagskönig trophy and this page's
+  // live Wochentippkönig banner could disagree about the same Spieltag.
+  const recapMatchdayOf = (m: Match) => recapMatchdayOfShared(m, mdIndex)
   const byKickoff = (a: number, b: number) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0)
   const isKreisligaMatch = (m: Match) => !m.match_category || m.match_category === 'kreisliga'
   const kreisligaMatches = seasonMatches.filter(m => m.matchday !== 999 && isKreisligaMatch(m))
@@ -108,18 +115,17 @@ export default async function LeaderboardPage({
 
   const firstMatch = matchdayMatches[0]
   const isDeadlinePassed = firstMatch ? new Date(firstMatch.match_date) <= new Date() : false
-  // A postponed match never blocks matchday completion — matches settle.ts /
-  // tipps page's own "completed" checks, which also exclude postponed matches.
-  const nonPostponedMdMatches = matchdayMatches.filter(m => m.status !== 'postponed')
   const matchdayMatchIds = new Set(matchdayMatches.map(m => m.id))
-  // "All non-postponed matches finished" isn't the same as "this Spieltag is
-  // truly done" — a postponed match keeps its Spieltag label but can settle
-  // weeks/months later, with its bets staying pending the whole time. Without
-  // this check the recap/Rangliste switch (and the recap block below) would
-  // fire while stakes on that game are still open — matches the same gate in
-  // app/api/admin/settle/route.ts.
-  const matchdayHasPendingBets = allBets.some(b => b.status === 'pending' && b.match_id != null && matchdayMatchIds.has(b.match_id))
-  const isMatchdayComplete = nonPostponedMdMatches.length > 0 && nonPostponedMdMatches.every(m => m.status === 'finished') && !matchdayHasPendingBets
+  // "Is this Spieltag's story done" uses the RECAP grouping (a match rescheduled
+  // far out doesn't hold this Spieltag's recap hostage — see recapMatchdayOf
+  // above), not the display list of matches shown under the tab.
+  const recapGroupMatches = currentMatchday != null
+    ? seasonMatches.filter(m => recapMatchdayOf(m) === currentMatchday)
+    : []
+  const recapGroupMatchIds = new Set(recapGroupMatches.map(m => m.id))
+  const nonPostponedRecapMatches = recapGroupMatches.filter(m => m.status !== 'postponed')
+  const matchdayHasPendingBets = allBets.some(b => b.status === 'pending' && b.match_id != null && recapGroupMatchIds.has(b.match_id))
+  const isMatchdayComplete = nonPostponedRecapMatches.length > 0 && nonPostponedRecapMatches.every(m => m.status === 'finished') && !matchdayHasPendingBets
   // Default to Spieltag tab once the matchday kicks off, back to Rangliste once fully settled
   const hasMatchdayStarted = matchdayMatches.some(m => m.status === 'live' || m.status === 'finished')
   const defaultTabIsSpielTag = hasMatchdayStarted && !isMatchdayComplete
@@ -242,10 +248,11 @@ export default async function LeaderboardPage({
   }
 
   // ── Per-matchday stats for all users (Wochentippkönig + Streaks) ──
-  // Build matchId → EFFECTIVE Spieltag map (current season only — allBets/allCombos
-  // are already CURRENT_SEASON-filtered, and using the raw `matchday` column here
-  // would attribute a Wildenroth-II/Topspiel bet to the wrong Spieltag).
-  const matchToMatchday = new Map(seasonMatches.map(m => [m.id, effectiveMatchdayOf(m)]))
+  // Build matchId → RECAP Spieltag map (current season only — allBets/allCombos
+  // are already CURRENT_SEASON-filtered). Recap grouping, not display grouping,
+  // so Wochentippkönig/streaks agree with the persisted Spieltagskönig award
+  // (see recapMatchdayOf above) instead of waiting on a rescheduled outlier.
+  const matchToMatchday = new Map(seasonMatches.map(m => [m.id, recapMatchdayOf(m)]))
 
   // For each user × matchday: net P&L
   type UserMdKey = string // `${userId}_${matchday}`
@@ -283,7 +290,7 @@ export default async function LeaderboardPage({
   // used to make this permanently stuck on last season's final matchdays (the
   // 🔥 streak badge in particular never lit up during the whole current season).
   const settledMatchdays = [...new Set(
-    seasonMatches.filter(m => m.status === 'finished').map(m => effectiveMatchdayOf(m))
+    seasonMatches.filter(m => m.status === 'finished').map(m => recapMatchdayOf(m))
   )].filter((md): md is number => md !== null).sort(byKickoff)
   const weeklyWinners = new Map<number, string>() // matchday → userId
 
@@ -322,8 +329,10 @@ export default async function LeaderboardPage({
   // Spieltag Recap for leaderboard
   let leaderboardRecapData: RecapData | null = null
 
-  if (isMatchdayComplete && matchdayMatchIds.size > 0) {
-    const mdMatchIdArr = [...matchdayMatchIds]
+  if (isMatchdayComplete && recapGroupMatchIds.size > 0) {
+    // Recap grouping here too, so this live-computed card matches what
+    // computeAndPersistMatchdayAwards persisted for the same Spieltag.
+    const mdMatchIdArr = [...recapGroupMatchIds]
     const recapBets = allBets.filter(b => b.match_id != null && mdMatchIdArr.includes(b.match_id) && (b.status === 'won' || b.status === 'lost'))
 
     if (recapBets.length > 0) {

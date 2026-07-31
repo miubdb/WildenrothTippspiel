@@ -74,7 +74,7 @@ export default async function TippsPage({
     ).then((data) => ({ data })),
     fetchAllRows((from, to) => supabase
       .from('league_players')
-      .select('id, team_name, name, goals, matches, status, transfer_to, prior_league_level, prior_team_name')
+      .select('id, team_name, name, goals, matches, minutes, status, transfer_to, prior_league_level, prior_team_name')
       .order('id')
       .range(from, to)
     ).then((data) => ({ data })),
@@ -108,6 +108,7 @@ export default async function TippsPage({
     team_name: p.team_name,
     goals: p.goals,
     games: p.matches,
+    minutes: p.minutes,
     status: p.status,
     transfer_to: p.transfer_to,
     prior_league_level: p.prior_league_level,
