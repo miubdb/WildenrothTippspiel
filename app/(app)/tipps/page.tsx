@@ -10,7 +10,7 @@ import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
-import { isSeasonStarted, bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared } from '@/lib/season'
+import { isSeasonStarted, bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
 import { crestPath } from '@/lib/teams'
@@ -922,6 +922,7 @@ export default async function TippsPage({
                     isWildenrothIiPlayer={isWildenrothIiPlayer}
                     wildenrothIiTeamId={wildenrothIiTeamId}
                     goalscorers={goalscorerOffersByMatch[match.id] ?? null}
+                    originalMatchday={isRescheduledMatch(match, mdIndex) ? match.matchday : null}
                   />
                 ))}
                 {bklasse.length > 0 && (

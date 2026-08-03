@@ -34,11 +34,15 @@ interface BettingMatchCardProps {
   isWildenrothIiPlayer?: boolean
   wildenrothIiTeamId?: number | null
   goalscorers?: GoalscorerRow[] | null
+  /** Set when this Kreisliga match is displayed under a Spieltag other than
+   *  its own official BFV number (see `isRescheduledMatch` in lib/season.ts)
+   *  — shows a "eigentlich Spieltag X" hint so it doesn't look like a mistake. */
+  originalMatchday?: number | null
 }
 
 type Tab = '1x2' | 'goals' | 'exact' | 'handicap' | 'goalscorer'
 
-export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers }: BettingMatchCardProps) {
+export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, originalMatchday }: BettingMatchCardProps) {
   const { selections, addSelection } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
@@ -174,6 +178,14 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
           )}
           {isBKlasseTopspiel(match) && (
             <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded px-1.5 py-0.5" title="Vom Admin ausgewähltes zusätzliches wettbares B-Klasse-Spiel dieser Woche">B-KLASSE-TOPSPIEL</span>
+          )}
+          {originalMatchday != null && (
+            <span
+              className="text-[10px] font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded px-1.5 py-0.5"
+              title="Dieses Spiel wurde vom BFV verlegt und wird hier bei dem Spieltag angezeigt, zu dem es zeitlich passt"
+            >
+              eigentlich Spieltag {originalMatchday}
+            </span>
           )}
         </div>
         <span className="text-xs text-gray-400 dark:text-gray-500">{showDetail ? '▲ Details' : '▼ Details'}</span>
