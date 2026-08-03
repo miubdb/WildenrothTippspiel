@@ -225,6 +225,25 @@ export async function POST(request: NextRequest) {
       .in('match_id', matchIds)
     const oddsMap = new Map((oddsRows ?? []).map(r => [r.match_id, r]))
 
+    // Admin odds overrides (per-market manual corrections) must win here too —
+    // tipps/page.tsx already merges these for display, and a bet must validate
+    // against exactly what the user was shown, or every overridden market gets
+    // rejected with "Quote hat sich geändert" the moment someone tries to bet it.
+    const { data: overrideRows } = await admin
+      .from('match_odds_overrides')
+      .select('*')
+      .in('match_id', matchIds)
+    for (const ov of overrideRows ?? []) {
+      const existing = oddsMap.get(ov.match_id)
+      if (!existing) continue
+      const merged = { ...existing }
+      for (const col of Object.keys(ov)) {
+        if (col === 'match_id' || col === 'updated_by' || col === 'updated_at') continue
+        if (ov[col] != null) merged[col] = ov[col]
+      }
+      oddsMap.set(ov.match_id, merged)
+    }
+
     for (const s of oddsCheckedSels) {
       const row = oddsMap.get(s.matchId)
       const col = ODDS_COLUMN[s.marketType][s.selection]
