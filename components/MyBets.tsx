@@ -40,10 +40,10 @@ const SEL_LABELS: Record<string, Record<string, string>> = {
   over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
   btts: { yes: 'Beide treffen', no: 'Nicht beide' },
   handicap: {
-    home_minus_1_5: '–1,5',
-    away_plus_1_5: '+1,5',
-    home_minus_2_5: '–2,5',
-    away_plus_2_5: '+2,5',
+    home_minus_1_5: 'Heim –1,5',
+    away_plus_1_5: 'Gast +1,5',
+    home_minus_2_5: 'Heim –2,5',
+    away_plus_2_5: 'Gast +2,5',
   },
 }
 

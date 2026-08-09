@@ -465,6 +465,10 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             {/* Handicap */}
             {activeTab === 'handicap' && (
               <div className="space-y-2">
+                <div className="text-[11px] text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-2.5 py-2 leading-snug">
+                  <strong className="text-gray-700 dark:text-gray-300">{homeName} –1,5:</strong> gewinnt nur bei Sieg mit mind. 2 Toren Unterschied.{' '}
+                  <strong className="text-gray-700 dark:text-gray-300">{awayName} +1,5:</strong> gewinnt auch bei Unentschieden oder Niederlage mit 1 Tor. Keine Rückerstattung (kein Unentschieden im Handicap-Markt möglich).
+                </div>
                 <div>
                   <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Handicap –1,5 / +1,5</div>
                   <div className="grid grid-cols-2 gap-2">
