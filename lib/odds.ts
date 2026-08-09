@@ -35,6 +35,13 @@ const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
 const LEAGUE_HOME_XG = 2.17
 const LEAGUE_AWAY_XG = 1.50
 
+/** Expected goals of an average team in an average fixture (mean of the home and
+ *  away baselines). Exported so the goalscorer model can express "how attacking
+ *  is this fixture for us, relative to normal" against the same scale the main
+ *  model uses, instead of a second hand-tuned constant that silently drifts
+ *  whenever the baselines are recalibrated. */
+export const LEAGUE_AVG_TEAM_XG = (LEAGUE_HOME_XG + LEAGUE_AWAY_XG) / 2
+
 // Caps how much a team's prior-season dominance ratio (own rate vs. that league's
 // average) can carry over when projected onto the target league — without this, a
 // team that heavily dominated a weaker league (e.g. a promoted side) could still

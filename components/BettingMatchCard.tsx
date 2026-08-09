@@ -305,7 +305,10 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         <div className="border-t border-gray-100 dark:border-gray-700">
           {/* Tab Bar */}
           <div className="flex border-b border-gray-100 dark:border-gray-700 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            {(matchInvolvesWildenroth && goalscorers && goalscorers.length > 0
+            {/* Show the Torschützen tab only when at least one player is actually
+                offered — gating on row count alone rendered a tab that then said
+                "Keine Torschützen verfügbar." Both Wildenroth sides qualify. */}
+            {((matchInvolvesWildenroth || matchInvolvesWildenrothII) && goalscorers && goalscorers.some(g => g.is_offered)
               ? [['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap'], ['goalscorer', 'Torschützen']] as [Tab, string][]
               : [['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap']] as [Tab, string][]
             ).map(([tab, label]) => (

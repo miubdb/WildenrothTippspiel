@@ -329,12 +329,22 @@ export default async function TippsPage({
   // Player name map used by display components for goalscorer selections.
   const playerNameMap: Record<number, string> = {}
   {
-    // Identify Wildenroth team via name match against season teams
-    const wildenrothTeamRow = allMatches.flatMap(m => [m.home_team, m.away_team])
-      .find(t => t?.name?.includes('Wildenroth'))
-    const wildenrothId = wildenrothTeamRow?.id ?? null
+    // Both Wildenroth sides get a goalscorer market, each from its own squad.
+    // Resolved by exact name: a substring match on 'Wildenroth' also hits
+    // 'SpVgg Wildenroth II', and .find() would then pick whichever happens to
+    // appear first in the fixture list.
+    const teamIdByName = new Map<string, number>()
+    for (const m of allMatches) {
+      if (m.home_team?.name) teamIdByName.set(m.home_team.name, m.home_team_id)
+      if (m.away_team?.name) teamIdByName.set(m.away_team.name, m.away_team_id)
+    }
+    const wildenrothSides = [
+      { teamId: teamIdByName.get('SpVgg Wildenroth') ?? null, squads: ['1', 'both'] },
+      { teamId: teamIdByName.get('SpVgg Wildenroth II') ?? null, squads: ['2', 'both'] },
+    ].filter((s): s is { teamId: number; squads: string[] } => s.teamId != null)
 
-    if (wildenrothId != null) {
+    for (const side of wildenrothSides) {
+      const wildenrothId = side.teamId
       const wildenrothMatches = matchdayMatches.filter(
         m => m.status === 'scheduled' && (m.home_team_id === wildenrothId || m.away_team_id === wildenrothId)
       )
@@ -342,8 +352,8 @@ export default async function TippsPage({
       // Always fetch active players (needed for name map at display time).
       const { data: playersRaw } = await supabase
         .from('wildenroth_players')
-        .select('id, name, position, games, minutes, goals, assists, is_goalkeeper, is_penalty_taker, is_freekick_taker, active')
-        .eq('active', true).in('squad', ['1', 'both'])
+        .select('id, name, position, games, minutes, goals, assists, prev_games, prev_minutes, prev_goals, is_goalkeeper, is_penalty_taker, is_freekick_taker, active')
+        .eq('active', true).in('squad', side.squads)
       const players = (playersRaw ?? []) as WildenrothPlayer[]
       for (const p of players) playerNameMap[p.id] = p.name
 
@@ -356,16 +366,21 @@ export default async function TippsPage({
           .in('match_id', wmIds)
 
         const frozenSet = new Set((existingRows ?? []).filter(r => r.frozen_at).map(r => r.match_id))
+        // match_goalscorer_odds only grants writes to admins, so the freeze must
+        // go through the service-role client exactly like the 1X2 freeze above —
+        // otherwise a normal member's page load silently writes nothing and the
+        // Torschützen tab never appears for them.
+        const adminSupaGs = createAdminClient()
 
         for (const m of wildenrothMatches) {
           if (!frozenSet.has(m.id)) {
             // Freeze for this match now
             const offers = computeGoalscorerOffersForMatch(
-              seasonMatches, m.home_team_id, m.away_team_id, wildenrothId, players,
+              seasonMatches, m.home_team_id, m.away_team_id, wildenrothId, players, priorCtx,
             )
             const now = new Date().toISOString()
             for (const o of offers) {
-              await supabase.from('match_goalscorer_odds').upsert({
+              await adminSupaGs.from('match_goalscorer_odds').upsert({
                 match_id: m.id,
                 player_id: o.player_id,
                 status: 'available',

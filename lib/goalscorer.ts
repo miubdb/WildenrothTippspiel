@@ -1,5 +1,5 @@
 import type { Match } from '@/types'
-import { getMatchXG } from '@/lib/odds'
+import { getMatchXG, LEAGUE_AVG_TEAM_XG, type PriorContext } from '@/lib/odds'
 
 /**
  * Goalscorer odds for Wildenroth players.
@@ -16,8 +16,10 @@ const MAX_ODDS = 30.0
 // Bayesian shrinkage of per-90 goal rate toward a position-based prior.
 const PRIOR_GAMES = 5
 
-// Wildenroth season-baseline xG per match (used to scale player rates by match difficulty).
-const WILDENROTH_BASELINE_XG = 1.6
+// Baseline xG per match used to scale player rates by fixture difficulty.
+// Tracks the main model's league baselines instead of being hand-set, so a
+// recalibration there can't silently inflate every player's goal expectation.
+const WILDENROTH_BASELINE_XG = LEAGUE_AVG_TEAM_XG
 
 // Filtering thresholds.
 const MIN_PROJ_MINUTES = 25     // player must avg >= 25 min/game to be offered
@@ -40,6 +42,27 @@ export type WildenrothPlayer = {
   is_penalty_taker: boolean
   is_freekick_taker: boolean
   active: boolean
+  /** Last completed season. Used as the sample while the current season has no
+   *  data — without this the market is dead by construction on matchday 1 of
+   *  every season, since `games`/`minutes` are reset to 0 at the season roll. */
+  prev_games?: number | null
+  prev_minutes?: number | null
+  prev_goals?: number | null
+}
+
+/** Which sample to judge a player on: the current season once they have actually
+ *  played, otherwise last season. Returning zeros for a genuinely unknown player
+ *  (new signing, no history) is deliberate — they stay unoffered until there is
+ *  something to price them on. */
+function sampleOf(p: WildenrothPlayer): { games: number; minutes: number; goals: number } {
+  if (p.games > 0 && p.minutes > 0) {
+    return { games: p.games, minutes: p.minutes, goals: p.goals }
+  }
+  return {
+    games: p.prev_games ?? 0,
+    minutes: p.prev_minutes ?? 0,
+    goals: p.prev_goals ?? 0,
+  }
 }
 
 export type GoalscorerOffer = {
@@ -74,15 +97,17 @@ function positionPrior(position: string | null): number {
 
 function bayesianGoalsPer90(player: WildenrothPlayer): number {
   const prior = positionPrior(player.position)
-  if (player.minutes <= 0) return prior
-  const observedPer90 = (player.goals / player.minutes) * 90
-  const observedGames = player.minutes / 90
+  const s = sampleOf(player)
+  if (s.minutes <= 0) return prior
+  const observedPer90 = (s.goals / s.minutes) * 90
+  const observedGames = s.minutes / 90
   return (observedGames * observedPer90 + PRIOR_GAMES * prior) / (observedGames + PRIOR_GAMES)
 }
 
 function projectedMinutes(player: WildenrothPlayer): number {
-  if (player.games <= 0 || player.minutes <= 0) return 0
-  const avg = player.minutes / player.games
+  const s = sampleOf(player)
+  if (s.games <= 0 || s.minutes <= 0) return 0
+  const avg = s.minutes / s.games
   return Math.min(90, avg)
 }
 
@@ -150,8 +175,12 @@ export function computeGoalscorerOffersForMatch(
   awayTeamId: number,
   wildenrothTeamId: number,
   players: WildenrothPlayer[],
+  priorCtx?: PriorContext,
 ): GoalscorerOffer[] {
-  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId)
+  // priorCtx must be passed: without it this xG skips prior-season blending and
+  // the roster factor, so the goalscorer market would be derived from a
+  // different team-strength estimate than the 1X2/O-U markets on the same card.
+  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
   const wildenrothMatchXG = homeTeamId === wildenrothTeamId ? homeXG : awayXG
   return players.map(p => computePlayerOdds(p, wildenrothMatchXG))
 }
