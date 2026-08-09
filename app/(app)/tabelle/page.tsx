@@ -133,7 +133,9 @@ function leagueShort(leagueName: string): string {
 
 async function getPriorStandings(supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>): Promise<PriorStanding[]> {
   const { data } = await supabase.rpc('get_prior_standings' as never)
-  if (data) return data as PriorStanding[]
+  // Guard against an empty (but non-null) result — a bare truthiness check on
+  // `data` would return `[]` here and never fall through to the table read.
+  if (Array.isArray(data) && data.length > 0) return data as PriorStanding[]
 
   const rows = await fetchAllRows((from, to) => supabase
     .from('prior_season_matches')
@@ -250,18 +252,24 @@ export default async function TabellePage({
     .gte('match_date', '2026-08-01')
     .order('match_date', { ascending: true })
 
-  const allMatches: Match[] = (rawMatches ?? []).map((m) => ({
-    ...m,
-    home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
-    away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
-  }))
+  const allMatches: Match[] = (rawMatches ?? [])
+    // matchday 999 is the reserved test matchday — always excluded from the
+    // real standings, matching the guards in tipps/page.tsx and leaderboard.
+    .filter((m) => m.matchday !== 999)
+    .map((m) => ({
+      ...m,
+      home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
+      away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
+    }))
 
-  // Split matches by liga
+  // Split matches by liga. bklasse_topspiel is an admin-selected B-Klasse match
+  // (see CLAUDE.md match_category) — it belongs in the B-Klasse standings, not
+  // the Kreisliga ones, even though it's also bettable on the Kreisliga Spieltag.
   const kreisligaMatches = allMatches.filter(
-    (m) => !m.match_category || m.match_category === 'kreisliga' || m.match_category === 'bklasse_topspiel'
+    (m) => !m.match_category || m.match_category === 'kreisliga'
   )
   const bklasseMatches = allMatches.filter(
-    (m) => m.match_category === 'b-klasse' || m.match_category === 'wildenroth_ii'
+    (m) => m.match_category === 'b-klasse' || m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel'
   )
 
   const activeMatches = isB ? bklasseMatches : kreisligaMatches
@@ -269,7 +277,7 @@ export default async function TabellePage({
   const computedStandings = computeStandings(activeMatches)
 
   const fallbackTeams = isB
-    ? BKLASSE_TEAM_NAMES.sort((a, b) => a.localeCompare(b, 'de'))
+    ? [...BKLASSE_TEAM_NAMES].sort((a, b) => a.localeCompare(b, 'de'))
     : [...OUR_TEAMS].sort((a, b) => a.localeCompare(b, 'de'))
 
   const standings: Standing[] = computedStandings.length > 0
@@ -283,19 +291,68 @@ export default async function TabellePage({
   const wildenrothPos = standings.findIndex((s) => s.teamName.includes('Wildenroth')) + 1
   const wildenrothName = isB ? 'SpVgg Wildenroth II' : 'SpVgg Wildenroth'
 
-  const playedMatchdays = Math.max(
-    ...activeMatches.filter((m) => m.status === 'finished').map((m) => m.matchday),
-    0
-  )
+  // Single data-availability signal, used everywhere the page decides between
+  // "26/27 has started producing real numbers" and "nothing played yet" — not
+  // the calendar date, so a slow start to the season doesn't flip anything
+  // prematurely and a finished match flips it immediately.
+  const finishedMatches = activeMatches.filter((m) => m.status === 'finished')
+  const hasCurrentSeasonData = finishedMatches.length > 0
 
-  const priorStandings = (!isB && playedMatchdays === 0) ? await getPriorStandings(supabase) : []
+  const playedMatchdays = Math.max(...finishedMatches.map((m) => m.matchday), 0)
+
+  const priorStandings = !hasCurrentSeasonData ? await getPriorStandings(supabase) : []
+  const relevantTeamNames = isB ? new Set(BKLASSE_TEAM_NAMES) : OUR_TEAMS
   const ourPriorStandings = priorStandings
-    .filter(s => OUR_TEAMS.has(s.team))
+    .filter(s => relevantTeamNames.has(s.team))
     .sort((a, b) => (LEAGUE_LEVEL_ORDER[a.leagueLevel] ?? 9) - (LEAGUE_LEVEL_ORDER[b.leagueLevel] ?? 9) || b.pts - a.pts)
+  const wildenrothPrior = ourPriorStandings.find(s => s.team.includes('Wildenroth'))
 
   const topAttacks = [...standings].sort((a, b) => b.gf - a.gf).slice(0, 5)
 
-  const zones = getZones(standings.length, isB)
+  // Torjäger: current-season goals come from optional admin lineup entries
+  // (match_lineups) — switch to that source as soon as it has anything, since
+  // waiting for `hasCurrentSeasonData` would swap a populated prior-season list
+  // for an empty current one on the very first finished match. Prior-season
+  // goals come from league_players and are only trustworthy for players still
+  // at the club this season (status active/internal_move) — a departed
+  // player's tally isn't "our" scorer anymore, and an incoming transfer's
+  // tally was scored at a different club.
+  const scorerTeamNames = isB ? new Set(BKLASSE_TEAM_NAMES) : OUR_TEAMS
+  const { data: lineupScorersRaw } = await supabase
+    .from('match_lineups')
+    .select('player_name, team_name, goals, match_id, matches!inner(match_date, matchday, match_category)')
+    .in('team_name', [...scorerTeamNames])
+    .gt('goals', 0)
+    .gte('matches.match_date', '2026-08-01')
+    .neq('matches.matchday', 999)
+  const currentScorerMap = new Map<string, { name: string; team: string; goals: number }>()
+  for (const r of (lineupScorersRaw ?? []) as { player_name: string; team_name: string; goals: number }[]) {
+    const key = `${r.team_name}::${r.player_name}`
+    const cur = currentScorerMap.get(key) ?? { name: r.player_name, team: r.team_name, goals: 0 }
+    cur.goals += r.goals
+    currentScorerMap.set(key, cur)
+  }
+  const currentScorers = [...currentScorerMap.values()].sort((a, b) => b.goals - a.goals).slice(0, 10)
+  const hasCurrentScorerData = currentScorers.length > 0
+
+  const priorScorers = hasCurrentScorerData ? [] : await (async () => {
+    const rows = await fetchAllRows((from, to) => supabase
+      .from('league_players')
+      .select('name, team_name, goals, status')
+      .eq('season', '25/26')
+      .gt('goals', 0)
+      .order('goals', { ascending: false })
+      .range(from, to)
+    )
+    return rows
+      .filter((p) => scorerTeamNames.has(p.team_name) && (p.status === 'active' || p.status === 'internal_move'))
+      .slice(0, 10)
+  })()
+
+  // Neutral (unfilled) zones before any current-season result exists — the
+  // alphabetical pre-season order carries no promotion/relegation information,
+  // so colouring rank badges by it would be misleading.
+  const zones = hasCurrentSeasonData ? getZones(standings.length, isB) : { promo: null, promoRelegation: null, relegation: null, drop: null }
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -304,11 +361,16 @@ export default async function TabellePage({
         <div className="text-red-200 text-xs font-medium uppercase tracking-wide">Saison 26/27</div>
         <div className="text-2xl font-black mt-0.5">Tabelle</div>
         <div className="text-red-200 text-sm mt-1">
-          {isB ? 'B-Klasse 2' : 'Kreisliga Gruppe 2'} · {playedMatchdays}. Spieltag gespielt
+          {isB ? 'B-Klasse 2' : 'Kreisliga Gruppe 2'} · {hasCurrentSeasonData ? `${playedMatchdays}. Spieltag gespielt` : 'Noch keine Spiele · alphabetisch sortiert'}
         </div>
-        {wildenrothPos > 0 && (
+        {hasCurrentSeasonData && wildenrothPos > 0 && (
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2 text-sm">
             {wildenrothName}: <span className="font-bold text-white">Platz {wildenrothPos}</span>
+          </div>
+        )}
+        {!hasCurrentSeasonData && wildenrothPrior && (
+          <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2 text-sm">
+            {wildenrothName} (Vorsaison 25/26): <span className="font-bold text-white">Platz {wildenrothPrior.pos}</span> · {leagueShort(wildenrothPrior.leagueName)}
           </div>
         )}
       </div>
@@ -414,7 +476,8 @@ export default async function TabellePage({
         })}
       </div>
 
-      {/* Legend */}
+      {/* Legend — only meaningful once the table reflects real results */}
+      {hasCurrentSeasonData && (
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
         <div className="flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400">
           {zones.promo && (
@@ -443,9 +506,10 @@ export default async function TabellePage({
           )}
         </div>
       </div>
+      )}
 
       {/* Team Stats */}
-      {!isB && playedMatchdays === 0 && ourPriorStandings.length > 0 ? (
+      {!hasCurrentSeasonData && ourPriorStandings.length > 0 ? (
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <h2 className="font-bold text-gray-900 dark:text-gray-100">Teamstatistiken</h2>
@@ -477,6 +541,13 @@ export default async function TabellePage({
               )
             })}
           </div>
+        </div>
+      ) : !hasCurrentSeasonData ? (
+        // No current-season results AND no prior-season data for this liga
+        // (prior_season_matches currently has zero B-Klasse rows) — say so
+        // instead of rendering a Teamstatistiken card that's all zeroes.
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-6 text-center">
+          <div className="text-sm text-gray-500 dark:text-gray-400">Vorsaison-Daten für die B-Klasse liegen nicht vor.</div>
         </div>
       ) : (
         <>
@@ -529,6 +600,35 @@ export default async function TabellePage({
             </div>
           </div>
         </>
+      )}
+
+      {/* Torjäger */}
+      {(hasCurrentScorerData || priorScorers.length > 0) && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Torjäger</h2>
+            <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+              {hasCurrentScorerData ? 'Saison 26/27' : 'Vorsaison 25/26 · Werte der aktuellen Kader'}
+            </div>
+          </div>
+          <div className="divide-y divide-gray-50 dark:divide-gray-700">
+            {(hasCurrentScorerData
+              ? currentScorers.map(s => ({ name: s.name, team: s.team, goals: s.goals }))
+              : priorScorers.map(s => ({ name: s.name, team: s.team_name, goals: s.goals }))
+            ).map((s, i) => (
+              <div key={`${s.team}::${s.name}`} className="flex items-center px-4 py-2.5 gap-2">
+                <div className="text-sm font-bold text-gray-300 dark:text-gray-600 w-4">{i + 1}</div>
+                <TeamLogo name={s.team} size="sm" className="flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{s.name}</div>
+                  <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{s.team}</div>
+                </div>
+                <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{s.goals}</div>
+                <div className="text-xs text-gray-400 dark:text-gray-500">Tore</div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )

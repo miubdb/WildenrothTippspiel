@@ -3,11 +3,63 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
+import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 
 export const revalidate = 60
 
 const SEASON_START = '2026-08-01'
 const CREST = '/crests/spvgg-wildenroth.png'
+
+interface PriorStanding {
+  leagueName: string
+  pos: number
+  games: number
+  pts: number
+  gf: number
+  ga: number
+}
+
+/** SpVgg Wildenroth's 25/26 finish, computed within its own prior league only
+ *  (not a full-table read like tabelle/page.tsx, since only one row is needed
+ *  here) — used as the pre-season fallback while 26/27 has no results yet. */
+async function getWildenrothPriorStanding(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  teamName: string,
+): Promise<PriorStanding | null> {
+  const { data: ownRows } = await supabase
+    .from('prior_season_matches')
+    .select('league_number, league_name')
+    .or(`home_team.eq.${teamName},away_team.eq.${teamName}`)
+    .limit(1)
+  const leagueNumber = ownRows?.[0]?.league_number
+  const leagueName = ownRows?.[0]?.league_name
+  if (!leagueNumber) return null
+
+  const rows = await fetchAllRows((from, to) => supabase
+    .from('prior_season_matches')
+    .select('home_team, away_team, home_score, away_score')
+    .eq('league_number', leagueNumber)
+    .order('id')
+    .range(from, to)
+  )
+  const stats = new Map<string, { pts: number; gf: number; ga: number; games: number }>()
+  for (const r of rows) {
+    if (!stats.has(r.home_team)) stats.set(r.home_team, { pts: 0, gf: 0, ga: 0, games: 0 })
+    if (!stats.has(r.away_team)) stats.set(r.away_team, { pts: 0, gf: 0, ga: 0, games: 0 })
+    const h = stats.get(r.home_team)!; const a = stats.get(r.away_team)!
+    const hs = r.home_score ?? 0; const as_ = r.away_score ?? 0
+    h.gf += hs; h.ga += as_; h.games++
+    a.gf += as_; a.ga += hs; a.games++
+    if (hs > as_) h.pts += 3
+    else if (hs === as_) { h.pts++; a.pts++ }
+    else a.pts += 3
+  }
+  const sorted = [...stats.entries()].sort((x, y) => y[1].pts - x[1].pts || (y[1].gf - y[1].ga) - (x[1].gf - x[1].ga) || y[1].gf - x[1].gf)
+  const idx = sorted.findIndex(([name]) => name === teamName)
+  if (idx === -1) return null
+  const [, s] = sorted[idx]
+  return { leagueName: leagueName ?? '', pos: idx + 1, games: s.games, pts: s.pts, gf: s.gf, ga: s.ga }
+}
 
 interface PlayerRow {
   id: number
@@ -19,6 +71,8 @@ interface PlayerRow {
   games: number | null
   goals: number | null
   assists: number | null
+  prev_goals: number | null
+  prev_assists: number | null
   is_goalkeeper: boolean | null
   is_penalty_taker: boolean | null
   is_freekick_taker: boolean | null
@@ -99,7 +153,7 @@ export default async function WildenrothTeamPage() {
       .order('match_date', { ascending: true }),
     supabase
       .from('wildenroth_players')
-      .select('id, name, position, shirt_number, image_url, squad, games, goals, assists, is_goalkeeper, is_penalty_taker, is_freekick_taker')
+      .select('id, name, position, shirt_number, image_url, squad, games, goals, assists, prev_goals, prev_assists, is_goalkeeper, is_penalty_taker, is_freekick_taker')
       .eq('active', true)
       .in('squad', ['1', 'both'])
       .order('name'),
@@ -118,10 +172,12 @@ export default async function WildenrothTeamPage() {
   const hasFinished = matches.some((m) => m.status === 'finished')
   const form = wildenrothSt ? getForm(matches, wildenrothSt.teamId, 5) : []
 
-  const topScorers = [...players]
-    .filter((p) => (p.goals ?? 0) > 0)
-    .sort((a, b) => (b.goals ?? 0) - (a.goals ?? 0))
-    .slice(0, 5)
+  const priorStanding = hasFinished ? null : await getWildenrothPriorStanding(supabase, 'SpVgg Wildenroth')
+
+  const hasCurrentGoals = players.some((p) => (p.goals ?? 0) > 0)
+  const topScorers = hasCurrentGoals
+    ? [...players].filter((p) => (p.goals ?? 0) > 0).sort((a, b) => (b.goals ?? 0) - (a.goals ?? 0)).slice(0, 5)
+    : [...players].filter((p) => (p.prev_goals ?? 0) > 0).sort((a, b) => (b.prev_goals ?? 0) - (a.prev_goals ?? 0)).slice(0, 5)
 
   const grouped = POSITIONS.map((g) => ({
     ...g,
@@ -195,6 +251,25 @@ export default async function WildenrothTeamPage() {
               </div>
             </div>
           </>
+        ) : priorStanding ? (
+          <>
+            <div className="px-4 py-2 text-xs text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-700">
+              Vorsaison 25/26 · {priorStanding.leagueName}
+            </div>
+            <div className="grid grid-cols-4 divide-x divide-gray-100 dark:divide-gray-700">
+              {[
+                { label: 'Platz', value: String(priorStanding.pos) },
+                { label: 'Punkte', value: String(priorStanding.pts) },
+                { label: 'Spiele', value: String(priorStanding.games) },
+                { label: 'Tordiff.', value: (priorStanding.gf - priorStanding.ga) >= 0 ? `+${priorStanding.gf - priorStanding.ga}` : String(priorStanding.gf - priorStanding.ga) },
+              ].map(({ label, value }) => (
+                <div key={label} className="px-3 py-3 text-center">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</div>
+                  <div className="font-black text-red-700 dark:text-red-400 text-lg">{value}</div>
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Saison noch nicht gestartet</div>
         )}
@@ -204,6 +279,9 @@ export default async function WildenrothTeamPage() {
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
           <h2 className="font-bold text-gray-900 dark:text-gray-100">Top-Torschützen</h2>
+          {!hasCurrentGoals && topScorers.length > 0 && (
+            <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Vorsaison 25/26</div>
+          )}
         </div>
         {topScorers.length > 0 ? (
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
@@ -218,11 +296,11 @@ export default async function WildenrothTeamPage() {
                   <div className="text-xs text-gray-400 dark:text-gray-500">{p.position ?? '—'}</div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <span className="text-xl font-black text-red-700 dark:text-red-400">{p.goals ?? 0}</span>
+                  <span className="text-xl font-black text-red-700 dark:text-red-400">{hasCurrentGoals ? (p.goals ?? 0) : (p.prev_goals ?? 0)}</span>
                   <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">Tore</span>
                 </div>
                 <div className="text-right flex-shrink-0 w-14">
-                  <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{p.assists ?? 0}</div>
+                  <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{hasCurrentGoals ? (p.assists ?? 0) : (p.prev_assists ?? 0)}</div>
                   <div className="text-[10px] text-gray-400 dark:text-gray-500">Assists</div>
                 </div>
               </div>
