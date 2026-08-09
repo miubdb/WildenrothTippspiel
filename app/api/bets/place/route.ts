@@ -379,6 +379,32 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Reject backing two different outcomes of the SAME market on the SAME match.
+  // That is never a bet, it is a hedge — and on a two-way market whose short side
+  // sits near the odds floor it can be an outright arbitrage. The betting UI
+  // already treats a second selection in one market as a replacement, so this
+  // only closes the direct-API path. (Cross-market hedges like 1X2 + Doppelte
+  // Chance stay allowed; the odds floor in lib/odds.ts keeps those books > 1.)
+  {
+    const { data: sameMarket } = await supabase
+      .from('bets')
+      .select('match_id, market_type, selection')
+      .eq('user_id', user.id)
+      .eq('status', 'pending')
+      .in('match_id', matchIds)
+    for (const s of selections) {
+      const conflict = (sameMarket ?? []).find(
+        (b) => b.match_id === s.matchId && b.market_type === s.marketType && b.selection !== s.selection
+      )
+      if (conflict) {
+        return NextResponse.json(
+          { error: 'Du hast für dieses Spiel bereits eine Wette im selben Markt platziert. Bitte storniere sie zuerst.' },
+          { status: 400 }
+        )
+      }
+    }
+  }
+
   // Enforce bet limit per matchday: max 3 total, max 2 with odds <= 20.
   // Grouped by EFFECTIVE Spieltag (lib/season.ts), not the raw `matchday` column —
   // a Wildenroth-II/Topspiel match keeps its own independent BFV matchday number,

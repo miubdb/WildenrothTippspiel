@@ -3,7 +3,15 @@ import type { Match, OddsData, PriorMatch, LeaguePlayer, LineupEntry } from '@/t
 // ---------- Constants ----------
 
 const HOUSE_MARGIN = 0.12
-const MIN_ODDS = 1.05
+// Floor for any offered price. This is NOT cosmetic: toOdds() computes
+// 1/(p*(1+margin)), which for a near-certain outcome legitimately falls below
+// 1.0, and clamping it back up hands the punter a positive-EV bet. At the old
+// floor of 1.05 anything with p > 1/(1.05*1.12) = 0.851 was clamped, so e.g.
+// "Unter 5,5" (p ~ 0.977) paid 1.05 for an EV of 1.026 — free money, and the
+// paired book summed to < 1.0, i.e. backing both sides was risk-free profit.
+// At 1.01 the break-even point moves to p > 0.990; swept over the realistic xG
+// band this leaves zero positive-EV selections and zero sub-1.0 books.
+const MIN_ODDS = 1.01
 const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
 
 // Per-team league baselines. These anchor the ABSOLUTE goal level of every
@@ -375,9 +383,14 @@ function getPriorTeamStats(
     // home goals scored → rate vs la.homeAvg (capped) → scale to LEAGUE_HOME_XG
     const homeAtkRatio = clampRatio(la.homeAvg > 0 ? avgScored / la.homeAvg : 1.0)
     homeAtkSum += homeAtkRatio * sf * LEAGUE_HOME_XG * n
-    // home goals conceded = away team's goals → rate vs la.awayAvg (capped) → scale to LEAGUE_AWAY_XG
+    // home goals conceded = away team's goals → rate vs la.awayAvg (capped) → scale to LEAGUE_AWAY_XG.
+    // NOTE the DIVISION by sf: strength scales attack and defence in opposite
+    // directions. A team that conceded at its own league's average rate in a
+    // WEAKER league (sf < 1) will concede MORE than average here, not less —
+    // multiplying by sf projected promoted sides as better defensively the
+    // weaker the league they came from, which deflated every Over market.
     const homeDefRatio = clampRatio(la.awayAvg > 0 ? avgConceded / la.awayAvg : 1.0)
-    homeDefSum += homeDefRatio * sf * LEAGUE_AWAY_XG * n
+    homeDefSum += (homeDefRatio / sf) * LEAGUE_AWAY_XG * n
     homeGamesTotal += n
   }
 
@@ -391,9 +404,10 @@ function getPriorTeamStats(
     // away goals scored → rate vs la.awayAvg (capped) → scale to LEAGUE_AWAY_XG
     const awayAtkRatio = clampRatio(la.awayAvg > 0 ? avgScored / la.awayAvg : 1.0)
     awayAtkSum += awayAtkRatio * sf * LEAGUE_AWAY_XG * n
-    // away goals conceded = home team's goals → rate vs la.homeAvg (capped) → scale to LEAGUE_HOME_XG
+    // away goals conceded = home team's goals → rate vs la.homeAvg (capped) → scale to LEAGUE_HOME_XG.
+    // Divided by sf for the same reason as the home block above.
     const awayDefRatio = clampRatio(la.homeAvg > 0 ? avgConceded / la.homeAvg : 1.0)
-    awayDefSum += awayDefRatio * sf * LEAGUE_HOME_XG * n
+    awayDefSum += (awayDefRatio / sf) * LEAGUE_HOME_XG * n
     awayGamesTotal += n
   }
 
