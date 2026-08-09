@@ -1,126 +1,174 @@
-# Finalisierung 26/27 — Arbeitsstand
+# Finalisierung 26/27 — Abschlussbericht
 
-Arbeitsnotiz zur 19-Punkte-Finalisierungsliste. Kann gelöscht werden, sobald alles erledigt ist.
-Stand: Punkte 1–9 erledigt und auf `main`. Hintergrund-Audit für 10/11/12/13/14/15/16/17/18 läuft.
+Alle 19 Punkte der Finalisierungsliste sind bearbeitet und auf `main`. Diese Datei kann gelöscht werden.
 
-## Erledigt und auf `main` gepusht
+## Vollständige Commit-Liste (chronologisch)
 
-| Commit | Inhalt |
-|---|---|
-| `f4b710d` | Wett-Validierung berücksichtigt Admin-Overrides |
-| `2279413` | **Punkt 1** — Spieltagsauswahl numerisch sortiert |
-| `63ae4db` | **Punkt 4** — Über/Unter-Quoten: Liga-Basiswert war 36 % zu niedrig; Ü/U 7,5 entfernt |
-| `df57d07` | **Punkt 4** — Abwehr-Vorzeichen, Quoten-Untergrenze, Hedging-Sperre |
-| `1f2ec2d` | **Punkt 5** — Torschützenmarkt wieder funktionsfähig (beide Mannschaften) |
-| `04a6a81` | **Nutzer-Entscheidung 2** — Handicap-COI-Lücke geschlossen (away_plus_* immer gesperrt) |
-| `b4dbf8a` | **Punkt 3** — Handicap-Hilfetext + Team-Labels vereinheitlicht |
-| `668b466` | **Punkt 6+7** — Tabelle/Teamseiten: Vorsaison-Fallback datengetrieben, Torjäger-Karte |
-| `93efb9f` | **Punkt 8+9** — Kader für Nicht-Admins ausgeblendet; Herrsching-Wappen gefixt |
-| DB-only (kein Commit) | **Nutzer-Entscheidung 1** — Landsberg II wieder Favorit; **Nutzer-Entscheidung 3** — Wildenroth-II-Kaderdaten eingepflegt |
+f4b710d Wett-Validierung berücksichtigt Admin-Overrides
+2279413 Punkt 1 — Spieltagsauswahl numerisch sortiert
+63ae4db Punkt 4 — Über/Unter-Quoten: Liga-Basiswert korrigiert, Ü/U 7,5 entfernt
+df57d07 Punkt 4 — Abwehr-Vorzeichen, Quoten-Untergrenze, Hedging-Sperre
+1f2ec2d Punkt 5 — Torschützenmarkt wieder funktionsfähig
+04a6a81 Handicap-COI-Lücke geschlossen (Nutzer-Entscheidung 2)
+b4dbf8a Punkt 3 — Handicap-Hilfetext + Labels
+668b466 Punkt 6+7 — Tabelle/Teamseiten Vorsaison-Fallback, Torjäger-Karte
+93efb9f Punkt 8+9 — Kader ausgeblendet, Herrsching-Wappen
+97fda1f Punkt 15 — Inaktivitätsstrafe 100 → 50
+2553c1c Punkt 14 dokumentiert (Fix lag in Supabase, siehe unten)
+e997efa KRITISCH — RLS-Leck combo_bets behoben
+9c061d2 KRITISCH — Saison-Kollision Dedupe, Goalscorer-Recap-Lücke
+a010c16 Recap/Awards — Cross-Spieltag-Kombiwetten-Doppelzählung, Tiebreaks
+ee4bc40 Admin — Wildenroth-II-Torschützen-Recompute, Saisonfilter
+e4585a9 Push — fehlende RLS-INSERT-Policy, falsche Spieltag-Gruppierung
+416b1d5 Auth — anon-Profilzugriff eingeschränkt, ILIKE-Injection, redirectTo
+1b34b00 Punkt 13 — Hilfe-Seite aktualisiert
 
-### Punkt 1 — Spieltagsauswahl
-`kreisligaMatchdaysSorted` (lib/season.ts) war nach *frühester Anstoßzeit* sortiert und wurde direkt
-als Auswahlleiste gerendert → `1-3-4-5-6-13-7-2-8-...` (exakt reproduziert). Fix: neues
-`kreisligaMatchdaysNumeric` für die Anzeige. **`kreisligaMatchdaysSorted` bleibt chronologisch** und
-bleibt am Wettfenster-Gate — numerisch dort würde Spieltag 2 (16.09.) und 8 (20.09.) gleichzeitig öffnen.
+Plus DB-only (kein Git-Commit): Landsberg-II-Favorit (Nutzer-Entscheidung 1),
+Wildenroth-II-Kaderdaten (Nutzer-Entscheidung 3), Taschengeld-Fix (Punkt 14),
+diverse RLS/GRANT-Migrationen.
 
-### Punkt 2 — Spielpläne — keine Änderung nötig
-Beide PDFs (Stand 09.08.) sind inhaltlich **identisch** mit denen vom 31.07. Vollabgleich gegen die DB:
-**372/372 Spiele stimmen exakt**, verifiziert über Prüfsummen je Spieltag (52/52 Gruppen identisch).
-23 Spiele sind im PDF als verlegt markiert; 8 davon werden durch die >7-Tage-Regel einem anderen
-Spieltag zugeordnet (mit Badge "eigentlich Spieltag X").
+## Die wichtigsten Funde
 
-### Punkt 3 — Handicap
-Settlement ist ein sauberes Asian Handicap ohne Rückerstattung, die vom Nutzer vorgeschlagenen
-Texte waren fachlich korrekt. Hilfetext im Handicap-Tab ergänzt; bare `-1,5`/`+1,5`-Labels (ohne
-Team) in MyBets.tsx und tipps/page.tsx auf `Heim -1,5`/`Gast +1,5` vereinheitlicht.
+**Kritisch (echtes Geld/Datenlecks):**
+1. **Über/Unter-Quoten**: Liga-Torbasis war 36 % zu niedrig (2,35 statt real 3,67 Tore/Spiel)
+2. **Quoten-Untergrenze**: erzeugte handfeste Arbitrage (garantierter Gewinn)
+3. **combo_bets RLS-Leck**: jeder eingeloggte Nutzer konnte fremde Kombiwetten Wochen vor
+   Anpfiff einsehen (Einsatz, Quote, Auszahlung) — falsches Zeitfenster in der Datenbank-Policy
+4. **profiles RLS-Leck**: Guthaben, Admin-Status und Wildenroth-Flags aller Nutzer waren ohne
+   Login über die Supabase-API auslesbar
+5. **push_reminders Saison-Kollision**: hätte Recap-Push UND Inaktivitätsstrafe für Spieltag
+   24/25/26 dieser Saison stillschweigend für immer blockiert (Kollision mit Test-Daten von
+   letzter Saison)
+6. **notification_preferences ohne INSERT-Policy**: die meisten Nutzer bekamen nie eine
+   Präferenzen-Zeile angelegt → Push-Benachrichtigungen liefen für sie ins Leere
 
-### Punkt 4 — Quoten (wichtigster Fund)
-`LEAGUE_HOME_XG/AWAY_XG` waren 1,22/1,13 = 2,35 Tore/Spiel. **Real (prior_season_matches,
-Kreisliga Zugspitze 25/26, 364 Spiele): 2,173 / 1,497 = 3,670.**
+**Hoch (Kernfunktionalität kaputt):**
+7. Torschützenmarkt lief komplett leer (vier unabhängige Ursachen)
+8. Kombiwetten-Doppelzählung bei echten Pokalen (Spieltagskönig etc.), nicht nur in der Anzeige
+9. Wildenroth-II-Torschützen-Recompute im Admin-Bereich war komplett kaputt
+10. Cron-Benachrichtigungen gruppierten nach falscher Spieltag-Logik
 
-    Über 3,5   4,99 -> 2,02   (empirisch fair ~1,76)
-    Über 5,5  36,48 -> 6,91   (empirisch fair ~5,62)
+## Detail-Zusammenfassung je Punkt
 
-Poisson-Mathematik war korrekt, nur der Mittelwert falsch. Weitere Funde: `LEAGUE_STRENGTH` wurde in
-die Abwehr-Terme multipliziert statt dividiert; `MIN_ODDS` 1,05 erzeugte positiv-EV-Wetten und Bücher
-< 1,0 (Arbitrage) → auf 1,01 gesenkt; Gegenwetten im selben Markt serverseitig gesperrt.
-`odds`/`odds_diagnostics` wurden geleert (0 offene Wetten betroffen).
+**1 — Spieltagsauswahl**: numerisch sortiert statt chronologisch (`1-3-4-5-6-13-7-2-8...` behoben).
+Wettfenster-Gate bleibt bewusst chronologisch.
 
-### Punkt 5 — Torschützen
-Vier unabhängige Ursachen behoben (Datenlücke, fehlender Saisonwechsel-Fallback, falscher
-DB-Client beim Einfrieren, fehlende Wildenroth-II-Unterstützung). `wildenroth_players.prev_*`
-aus `league_players` befüllt für beide Mannschaften.
+**2 — Spielpläne**: 372/372 Spiele exakt geprüft, keine Abweichung zur DB.
 
-### Punkt 6+7 — Tabelle & Teamstatistik-Saisonwechsel, Liga-Torschützen
-Ein zentrales `hasCurrentSeasonData`-Flag (>=1 abgeschlossenes Spiel) ersetzt mehrere widersprüchliche
-Ad-hoc-Checks. Platz-Chip und Auf-/Abstiegsfarben erscheinen erst mit echten Ergebnissen; B-Klasse
-zeigt "keine Vorsaison-Daten" statt einer Nullwerte-Tabelle (prior_season_matches hat 0 B-Klasse-Zeilen).
-Neue "Torjäger"-Karte auf /tabelle (aktuell: match_lineups, sonst Vorsaison aus league_players).
-Beide Teamseiten zeigen jetzt eine echte 25/26-Vorsaison-Karte statt "Saison noch nicht gestartet".
+**3 — Handicap**: Texte des Nutzers waren fachlich korrekt; Hilfetext ergänzt, Labels vereinheitlicht.
 
-### Punkt 8+9
-Kader-/Spielerbereich auf beiden Teamseiten nur noch für Admins sichtbar (`profiles.is_admin`),
-nichts gelöscht. Herrsching-Wappen: `[SG] TSV Herrsching/SF Breitbrunn 2` hatte keinen passenden
-Slug → `CREST_NAME_ALIAS` in `lib/teams.ts` ergänzt (zeigt jetzt auf `tsv-herrsching-ii.png`),
-`TeamLogo.tsx` nutzt jetzt dieselbe Funktion statt einer eigenen (leicht abweichenden) Kopie.
+**4 — Quoten**: Kernfehler war die Liga-Torbasis. Zusätzlich: Abwehrstärke falsch skaliert,
+Quoten-Untergrenze erzeugte Arbitrage, Ü/U 7,5 entfernt.
 
-### Punkt 14 — Taschengeld (Fund: liegt NICHT im Next.js-Code, sondern in Supabase)
-Die Auszahlung läuft komplett DB-seitig: Postgres-Funktion `add_weekly_pocket_money()`, ausgelöst
-durch `pg_cron`-Job `weekly-pocket-money` (`0 10,11 * * 1` — Montag 10 UND 11 Uhr UTC; die Funktion
-selbst filtert per `EXTRACT(HOUR ... 'Europe/Berlin') = 12` auf die tatsächliche 12-Uhr-Stunde, sodass
-je nach Sommer-/Winterzeit genau einer der beiden Cron-Trigger tatsächlich auszahlt — sauberes
-DST-Handling). Der Saisonstart-Guard (`EXISTS (... matchday=1 AND match_date <= now())`) verhindert
-korrekt jede Auszahlung vor dem ersten Spieltag-1-Anstoß (15.08.) — die erste greifende Montag-12-Uhr-
-Prüfung ist damit bereits automatisch der 17.08.2026, wie gefordert. Eine verwaiste Edge Function
-`weekly-pocket-money` existiert zusätzlich (ruft dieselbe SQL-Funktion auf), wird aber vom Cron-Job
-nicht genutzt (der ruft die Funktion direkt per SQL) — unschädlich, aber doppelt gepflegt.
+**5 — Torschützen**: Datenlücke (alle Spieler 0 Spiele/Minuten), fehlender Saisonwechsel-Fallback,
+falscher DB-Client beim Einfrieren, keine Wildenroth-II-Unterstützung — alle vier behoben.
 
-**Zwei echte Bugs gefunden und direkt per Migration behoben** (`fix_weekly_pocket_money_eligibility_and_dedupe`):
-1. `UPDATE profiles SET balance = balance + 10` lief **ungefiltert über alle Profile** — auch über
-   `eligible_for_current_season = false`-Nutzer (aktuell 1 von 9: "Mj"). Jetzt auf
-   `eligible_for_current_season = true OR is_admin = true` eingeschränkt (gleiche Regel wie bei der
-   Inaktivitätsstrafe in settle.ts).
-2. **Keine Idempotenz-Sperre**: ein manueller Re-Run von `add_weekly_pocket_money()` in derselben
-   12-Uhr-Stunde hätte ein zweites Mal ausgezahlt. Neue Tabelle `weekly_pocket_money_log(week_start
-   date primary key)` — ein Insert-Unique-Constraint pro Kalenderwoche sperrt Doppelausführung,
-   analog zum bestehenden `push_reminders`-Dedupe-Muster für Recap/Inaktivstrafe.
-Mit einem harmlosen Testaufruf verifiziert (Saison noch nicht gestartet → korrekt kein Effekt,
-Log-Tabelle bleibt leer, Balances unverändert).
+**6+7 — Tabelle/Teamstatistik**: `hasCurrentSeasonData`-Flag ersetzt Ad-hoc-Checks; echte
+Vorsaison-Karten statt "noch nicht gestartet"; Torjäger-Karte neu.
 
-### Nutzer-Entscheidungen (aus Rückfrage beantwortet)
-1. **Landsberg II wieder Favorit**: Basis-Odds (Modell, unswapped) in `odds` für Match 293 eingefroren,
-   Landsberg-Favorit-Variante über `match_odds_overrides` gesetzt (funktioniert jetzt auch beim
-   tatsächlichen Wetten, nicht nur in der Anzeige).
-2. **Handicap-COI**: `away_plus_*` ist jetzt für Wildenroth-Spieler **immer** gesperrt (nicht nur wenn
-   Wildenroth Heim ist) — Commit `04a6a81`.
-3. **Wildenroth-II-Kader**: 44 Spieler mit echten 25/26-Werten in `league_players`
-   (`team_name='SpVgg Wildenroth II'`) eingepflegt, `wildenroth_players.prev_*` für Kader 2 befüllt
-   (inkl. Korrektur zweier Tippfehler: "Lukas Ballhuber"→"Lukas Balhuber", "Thorsten Romanh"→"Romahn").
+**8+9 — Kader/Wappen**: Kader für Nicht-Admins ausgeblendet; Herrsching-Wappen gemappt.
 
-## Offen — Punkte 10-19
+**10 — Rangliste/RLS**: Ranglisten-Rechnung korrekt. Zwei Bugs: das kritische combo_bets-RLS-Leck
+(oben) und ein mit gesamter Saison statt Spieltag verrechneter "N Wettscheine platziert"-Zähler.
 
-Hintergrund-Audit (Workflow `wwzclqx2o` abgeschlossen, `wf_e184b872-a3c` läuft) deckt ab:
-10 Rangliste/RLS · 11 Recap · 12 Awards · 13 Hilfe-Seite · 14 Taschengeld (10 Wildis, erste Zahlung
-17.08.2026 12:00) · 15 Inaktivitätsstrafe (100 → **50**, noch zu verifizieren/fixen) · 16 Adminbereich ·
-17 Benachrichtigungen · 18 Login/Registrierung · 19 Abschluss-Regressionsaudit.
+**11 — Recap**: Grundmechanik korrekt (Spieltag "truly done" = alle Spiele fertig + keine
+offenen Wetten). Zwei kritische Bugs behoben: Saison-Kollision im Dedupe, fehlender
+Recap-Push/Inaktivstrafe bei Torschützen-getriebenem Abschluss. Plus: Kombiwetten-Doppelzählung,
+Tiebreak-Abweichung zwischen Live-Vorschau und persistierten Pokalen, Testspieltag-Guard.
 
-**Nächster Schritt bei Fortsetzung:** Ergebnisse des Workflows `wf_e184b872-a3c` (Journal unter
-`/root/.claude/projects/-home-user-WildenrothTippspiel/b32b4259-557a-52c5-a5c5-3f9b5a149629/subagents/workflows/wf_e184b872-a3c/journal.jsonl`)
-auslesen und Fixes analog zu den obigen Commits umsetzen. Falls der Workflow nicht mehr existiert/
-abgelaufen ist: Punkte 10-18 einzeln neu untersuchen und beheben.
+**12 — Awards**: alle 7 Pokale gegen den Code verifiziert (siehe unten). Kombiwetten-Doppelzählung
+war der einzige echte Fehler — betraf die tatsächlich vergebenen Pokale, nicht nur die Anzeige.
 
-Bereits bekannte, noch offene Befunde (aus dem ersten Audit-Durchlauf, vor Punkt-6/7/8/9-Fixes
-notiert, teilweise inzwischen behoben — bei Fortsetzung gegenprüfen):
-- `getRosterFactor` kann nur nach unten wirken (Zugänge haben keine Vorwerte) → ligaweit ca. -6 %.
-  Nicht behoben, kein Nutzer-Entscheid dazu eingeholt — niedrige Priorität, nur erwähnen falls gefragt.
+**13 — Hilfe-Seite**: "Verschobene Spiele"-Abschnitt war komplett veraltet (neue >7-Tage-Regel
+fehlte), Risky-Schwelle falsch formuliert (≥20 statt >20), Handicap-Sperre nicht erwähnt,
+Kombi-Möglichkeit bei "Eier aus Stahl" nicht erwähnt, Gegenwetten-Sperre nicht dokumentiert.
 
-## Wichtige Fakten für die Fortsetzung
-- Supabase-Projekt: `mpyqtymkdhxuannqhtvp`
-- `app_settings.early_betting_open = 'true'` (auf Wunsch gesetzt, damit Spieltag 1 Quoten zeigt)
-- 0 offene Wetten, 0 Wetten auf 26/27-Spiele; die 116 vorhandenen Wetten sind alle abgerechnet (Testsaison)
-- Es existiert **kein** `over_under_7_5`-Wettschein → Entfernen war gefahrlos
-- Empirische Referenzwerte Kreisliga 25/26: 3,670 Tore/Spiel, Heimsieg .517 / Remis .181 / Auswärts .302,
-  BTTS .607, O2,5 .703 / O3,5 .508 / O5,5 .159
-- Match 293 (Wildenroth–Landsberg II, Spieltag 1) hat jetzt sowohl eine `odds`-Basiszeile als auch
-  einen `match_odds_overrides`-Eintrag (Landsberg-Favorit) — bei erneuter Modelländerung beide prüfen.
+**14 — Taschengeld**: Mechanismus liegt in Supabase (pg_cron + Postgres-Funktion, nicht im
+Next.js-Code). Zwei Bugs: lief ungefiltert über alle Profile (auch nicht-berechtigte), keine
+Doppelausführungs-Sperre. Beide behoben. Termin-Logik (17.08.2026) war bereits korrekt.
+
+**15 — Inaktivitätsstrafe**: 100 → 50 Wildis.
+
+**16 — Admin**: Wildenroth-II-Torschützen-Recompute war komplett kaputt (falsche Team-Auflösung).
+Vier Admin-Ansichten zeigten Vorsaison-Daten vermischt mit der aktuellen Saison (kein Season-Filter).
+Reschedule-Lücke (Testspieltag-Bereich) geschlossen.
+
+**17 — Benachrichtigungen**: fehlende RLS-INSERT-Policy (kritisch, oben), falsche Spieltag-Gruppierung
+im Cron. Der Goalscorer-Recap-Gap war bereits durch den Recap-Fix miterledigt.
+
+**18 — Login/Registrierung**: profiles-RLS-Leck (kritisch, oben), ILIKE-Injection in der
+Namens-Eindeutigkeitsprüfung, fehlendes redirectTo nach Login.
+
+**19 — Abschluss-Audit**: `npx tsc --noEmit` und `npm run build` laufen nach jeder Änderung sauber
+durch (finale Prüfung: 39 Routen erfolgreich gebaut, keine Type-Fehler). Verbleibende Lint-Warnungen/
+-Fehler sind alle vorbestehend in Dateien, die diese Session nicht angefasst wurden (verifiziert).
+
+## Die 7 Awards — wie sie tatsächlich vergeben werden
+
+1. **🏆 Spieltagskönig** — bester Netto-Saldo (Einzel- + Kombiwetten) des Spieltags. Muss > 0 sein,
+   sonst kein Gewinner. Kein expliziter Tiebreak bei exaktem Gleichstand.
+2. **🥚 Eier aus Stahl** — höchste Quote unter *gewonnenen* Wetten (Einzel oder Kombi).
+3. **😭 Unlucky Bastard** — nur Kombiwetten: genau 1 verlorenes Bein bei ≥2 Beinen insgesamt,
+   höchster möglicher Gewinn (Einsatz × Quote) unter den Kandidaten.
+4. **🔮 Ergebnis-Orakel** — gewonnene exakte-Ergebnis-Wette, nur als Einzelwette (nicht in Kombi),
+   höchster Einsatz gewinnt bei Gleichstand.
+5. **🚽 Griff ins Klo** — höchster verlorener Einsatz (Einzel + Kombi gemeinsam), Tiebreak: höherer
+   möglicher Gewinn.
+6. **🧱 Betonmischer** — niedrigste Quote unter gewonnenen Wetten, Tiebreak: höherer Einsatz.
+7. **🔥 On Fire** — meiste gewonnene Wettscheine (min. 2), Tiebreak: höherer Saldo.
+
+Alle sieben: maximal ein Gewinner pro Spieltag und Typ; derselbe Nutzer kann denselben Award an
+mehreren Spieltagen gewinnen (zählt im Pokalschrank als „×N"). Kombiwetten wurden bis zu diesem
+Fix bei Spieltag-übergreifenden Wetten auf mehreren Spieltagen gleichzeitig voll gezählt — jetzt
+genau einmal, beim frühesten betroffenen Spieltag.
+
+## Taschengeld & Inaktivität — Bestätigung
+
+- **10 Wildis** jeden Montag 12:00 Uhr Europe/Berlin, ab **17.08.2026** (durch den bereits
+  korrekten Saisonstart-Guard in der DB-Funktion) — jetzt zusätzlich auf berechtigte Nutzer
+  beschränkt und gegen Doppelausführung abgesichert.
+- **Inaktivitätsstrafe: 50 Wildis** (war 100) bei komplett ausgelassenem Spieltag.
+
+## Benachrichtigungen — Liste
+
+| Benachrichtigung | Trigger | Zielgruppe | Dedupe |
+|---|---|---|---|
+| Spieltag wettbar | Cron (30-Min-Takt) | alle Push-Abonnenten | notification_log, jetzt korrekt nach effektivem Spieltag gruppiert |
+| Wettscheine noch frei | Cron, 2,5h vor Anpfiff | Nutzer mit freien Slots | notification_log |
+| Wette abgerechnet | Settle-Route | einzelner Nutzer | notification_log |
+| Torschütze gewonnen/verloren | Goalscorer-Settle-Route | einzelner Nutzer | notification_log |
+| Spieltags-Recap | Settle/Goalscorer-Route (spieltagTrulyDone) | alle Push-Abonnenten | push_reminders (jetzt saisonsicher) |
+| Reaktion/Kommentar | sofort bei Aktion | betroffener Nutzer | notification_log |
+
+Alle funktionieren jetzt korrekt; vorher blockierte die fehlende RLS-INSERT-Policy die meisten
+Nutzer komplett.
+
+## Login/Registrierung — aktueller Workflow
+
+Registrierung: 3-Schritt-Assistent (Name → E-Mail → Passwort), optionales "Wildenroth-Spieler"-Flag.
+Name-Eindeutigkeit wird vor Anmeldung geprüft (jetzt ohne ILIKE-Injection-Lücke). Profil wird per
+DB-Trigger angelegt, Berechtigung für die aktuelle Saison automatisch gesetzt (außer Saison hat
+bereits begonnen). Login per E-Mail/Passwort, leitet jetzt korrekt zur ursprünglich angeforderten
+Seite weiter (`redirectTo`, nur relative Pfade erlaubt). `profiles`-Tabelle ist jetzt gegen
+anonymen Zugriff auf sensible Spalten (Guthaben, Admin-Status, Berechtigung) abgesichert.
+
+## Spielplan — Ergebnis
+
+Keine Abweichung zwischen PDF und Datenbank gefunden (372/372 Spiele exakt, inkl. Sommer-/
+Winterzeit-Umrechnung).
+
+## Offene Punkte (keine Code-Änderung nötig, nur zur Kenntnis)
+
+- `getRosterFactor` kann strukturell nur nach unten wirken (Zugänge haben keine Vorwerte) →
+  ligaweit ca. −6 %. Keine Nutzer-Entscheidung dazu eingeholt, niedrige Priorität.
+- Wildenroth-II-Torschützen haben keine Vorsaison-Daten in `league_players` (nur die 1. Mannschaft
+  wurde für andere Gegner erfasst) — Markt bleibt dort ohne weitere Dateneingabe auf 0.
+- Mehrere kleinere, niedrig priorisierte Admin-/UI-Befunde aus dem Audit wurden bewusst nicht
+  angefasst (z. B. doppelter B-Klasse-Topspiel-Auswahlmechanismus, fehlende Freitext-Suche in der
+  Admin-Spielliste) — rein kosmetisch/Komfort, kein Korrektheitsproblem.
+
+## Tests
+
+- `npx tsc --noEmit`: sauber nach jeder Änderung
+- `npm run build`: 39 Routen erfolgreich, zuletzt verifiziert
+- `npm run lint`: verbleibende Warnungen/Fehler alle vorbestehend, keine Regressionen
