@@ -3,11 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser } from '@/lib/push'
 import { fmtWildi, wildiLabel } from '@/components/WildiIcon'
-import { buildEffectiveMatchdayIndex, recapMatchdayOf } from '@/lib/season'
-import { computeAndPersistMatchdayAwards } from '@/lib/awards'
-import type { Match } from '@/types'
-
-const SEASON_START = '2026-08-01'
+import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
 
 /**
  * POST /api/admin/goalscorers/scorers
@@ -128,43 +124,15 @@ export async function POST(request: NextRequest) {
   await Promise.allSettled(jobs)
 
   // Goalscorer bets can be the LAST thing to settle for a Spieltag (the match
-  // score settles first via /api/admin/settle, which skips awards while these
-  // are still pending — see computeAndPersistMatchdayAwards's doc comment).
-  // Check whether this Spieltag is now fully settled and, if so, compute awards
-  // here instead — matchday === 999 is excluded inside computeAndPersistMatchdayAwards.
+  // score settles first via /api/admin/settle, which skips awards/recap/
+  // penalty while these are still pending). finalizeMatchdayIfDone checks
+  // whether this Spieltag is now fully settled and, if so, runs the full
+  // completion sequence (awards, recap push, inactivity penalty) — not just
+  // awards, which this route used to compute on its own while silently
+  // skipping the other two.
   try {
-    const { data: matchInfo } = await admin
-      .from('matches')
-      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
-      .eq('id', matchId)
-      .single()
-    if (matchInfo) {
-      const { data: seasonMatchesRaw } = await admin
-        .from('matches')
-        .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
-        .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
-      const seasonMatches = (seasonMatchesRaw ?? []) as Match[]
-      const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
-      // Recap grouping, not display grouping — see lib/season.ts recapMatchdayOf.
-      const matchday = recapMatchdayOf(matchInfo as Match, mdIndex)
-      if (matchday != null && matchday !== 999) {
-        const matchdayMatches = seasonMatches.filter((m) => recapMatchdayOf(m, mdIndex) === matchday)
-        const nonPostponed = matchdayMatches.filter((m) => m.status !== 'postponed')
-        const allFinished = nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
-        if (allFinished) {
-          const mIds = matchdayMatches.map((m) => m.id)
-          const { count: stillPendingCount } = await admin
-            .from('bets')
-            .select('id', { count: 'exact', head: true })
-            .in('match_id', mIds)
-            .eq('status', 'pending')
-          if (!stillPendingCount) {
-            await computeAndPersistMatchdayAwards(admin, '26/27', matchday, mIds)
-          }
-        }
-      }
-    }
-  } catch (e) { console.error('Award persistence failed (goalscorer settlement):', e) }
+    await finalizeMatchdayIfDone(admin, matchId)
+  } catch (e) { console.error('Matchday finalization failed (goalscorer settlement):', e) }
 
   return NextResponse.json({ success: true, settled: bets?.length ?? 0, combosChecked: combosToCheck.size })
 }

@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendPushToUser, sendPushToAll } from '@/lib/push'
+import { sendPushToUser } from '@/lib/push'
 import { wildiLabel } from '@/components/WildiIcon'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, recapMatchdayOf } from '@/lib/season'
-import type { Match } from '@/types'
-
-const SEASON_START = '2026-08-01'
+import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
 
 function settleBet(
   marketType: string,
@@ -295,143 +292,13 @@ export async function POST(request: NextRequest) {
 
   await Promise.allSettled(pushNotifications)
 
-  // Check if the entire Spieltag's STORY is now complete → send recap push
-  // (once). Two different groupings are in play here, deliberately:
-  //  - effectiveMatchdayOf: the DISPLAY grouping — a Kreisliga match always
-  //    keeps its own official BFV number, exactly what tipps/page.tsx shows
-  //    and what a bet was placed under. Used below only for the inactivity
-  //    fairness check ("did this user bet on anything shown under this tab").
-  //  - recapMatchdayOf: the RECAP grouping — a Kreisliga match that's been
-  //    rescheduled far outside its own Spieltag's normal window gets folded
-  //    into whichever Spieltag is actually being played around its real date,
-  //    so THAT Spieltag's recap/awards don't wait weeks/months for one
-  //    outlier game. See lib/season.ts for the full reasoning — this does not
-  //    delay any individual payout or the per-match win/lost push above, only
-  //    the supplementary awards/recap layer.
-  const { data: matchInfo } = await supabase
-    .from('matches')
-    .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
-    .eq('id', matchId)
-    .single()
-
-  if (matchInfo) {
-    const { data: seasonMatchesRaw } = await admin
-      .from('matches')
-      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
-      .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
-    const seasonMatchesForMd = (seasonMatchesRaw ?? []) as Match[]
-    const mdIndex = buildEffectiveMatchdayIndex(seasonMatchesForMd)
-    const matchday = recapMatchdayOf(matchInfo as Match, mdIndex)
-
-    const matchdayMatches = matchday == null
-      ? []
-      : seasonMatchesForMd.filter((m) => recapMatchdayOf(m, mdIndex) === matchday)
-    const displayMatchdayMatches = matchday == null
-      ? []
-      : seasonMatchesForMd.filter((m) => effectiveMatchdayOf(m, mdIndex) === matchday)
-
-    const nonPostponedInMatchday = matchdayMatches.filter(m => m.status !== 'postponed')
-    const allFinished =
-      matchday != null &&
-      nonPostponedInMatchday.length > 0 &&
-      nonPostponedInMatchday.every((m) => m.status === 'finished')
-
-    if (allFinished) {
-      // Test matchday 999: skip recap push, awards and inactivity penalty
-      if (matchday >= 900) {
-        return NextResponse.json({ success: true, settled: settledBetIds.length, combosChecked: combosToCheck.size, testMode: true })
-      }
-
-      const mIds = matchdayMatches.map((m) => m.id)
-      // "All non-postponed matches finished" is not the same as "this Spieltag
-      // is truly done" — a postponed match keeps its OWN Spieltag label (the
-      // official BFV number never changes) but can resolve weeks or months
-      // later, with its bets staying 'pending' the whole time. Gate the recap
-      // push AND awards on the bets, not just the matches, so we never
-      // announce "Spieltag X abgeschlossen" while one of its games — and
-      // everyone's stake on it — is still open. When that game finally
-      // settles, this same code path runs again and fires both, correctly,
-      // for the first time (computeAndPersistMatchdayAwards's dedup-before-
-      // insert means a delayed award set replaces nothing spurious).
-      const { count: stillPendingCount } = mIds.length > 0
-        ? await admin.from('bets').select('id', { count: 'exact', head: true }).in('match_id', mIds).eq('status', 'pending')
-        : { count: 0 }
-      const spieltagTrulyDone = !stillPendingCount
-
-      // Persist awards after settlement — also waits on goalscorer bets, which
-      // resolve on a separate timeline once the admin submits the scorer list
-      // (see app/api/admin/goalscorers/scorers/route.ts, which calls the same
-      // computeAndPersistMatchdayAwards() once it becomes the "last" event to
-      // settle this Spieltag).
-      if (spieltagTrulyDone && mIds.length > 0) {
-        try {
-          const { computeAndPersistMatchdayAwards } = await import('@/lib/awards')
-          await computeAndPersistMatchdayAwards(admin, '26/27', matchday, mIds)
-        } catch (e) { console.error('Award persistence failed:', e) }
-      }
-
-      // Deactivate early betting override once any matchday is settled
-      await admin.from('app_settings').update({ value: 'false', updated_at: new Date().toISOString() }).eq('key', 'early_betting_open')
-
-      if (spieltagTrulyDone) {
-        const { error: dedupError } = await admin
-          .from('push_reminders')
-          .insert({ type: 'recap', matchday })
-
-        if (!dedupError) {
-          // Only send if insert succeeded (prevents duplicate on concurrent requests)
-          await sendPushToAll(
-            '📊 Spieltags-Recap verfügbar',
-            `Der ${matchday}. Spieltag ist abgeschlossen – schau dir die Highlights an!`,
-            `/recap/${matchday}`,
-            'matchday_recap',
-            `recap-${matchday}`
-          )
-        }
-      }
-
-      // Apply 50 Wildis inactivity penalty per user who placed no bets this matchday.
-      // Dedup via push_reminders so this only runs once even if multiple matches settle simultaneously.
-      const { error: penaltyDedupError } = await admin
-        .from('push_reminders')
-        .insert({ type: 'inactivity_fee', matchday })
-
-      if (!penaltyDedupError) {
-        // Fairness check uses the DISPLAY grouping, not the recap grouping —
-        // a user who bet on a match shown under this Spieltag's tab must
-        // count as active for it even if that specific match later turned
-        // out to be a recap-outlier reassigned elsewhere for award purposes.
-        const mdMatchIds = displayMatchdayMatches.map((m) => m.id)
-
-        if (mdMatchIds.length > 0) {
-          const { data: activeBetRows } = await admin
-            .from('bets')
-            .select('user_id')
-            .in('match_id', mdMatchIds)
-          const activeUserIds = new Set((activeBetRows ?? []).map(b => b.user_id as string))
-
-          // Only users actually allowed to bet this season can be "inactive" —
-          // ineligible users are hard-blocked from placing any bet at all
-          // (see app/api/bets/place/route.ts NOT_ELIGIBLE), so penalizing them
-          // here would charge people for a season they were never allowed to play.
-          const { data: allProfiles } = await admin
-            .from('profiles')
-            .select('id')
-            .or('eligible_for_current_season.eq.true,is_admin.eq.true')
-
-          // 50, not 100 (10% of the 1000 Wildi starting balance) — 100 was judged
-          // too harsh a per-Spieltag penalty for an internal club Tippspiel.
-          const INACTIVITY_PENALTY = 50
-          await Promise.allSettled(
-            (allProfiles ?? [])
-              .filter(p => !activeUserIds.has(p.id))
-              .map(p => admin.rpc('apply_penalty', { p_user_id: p.id, p_amount: INACTIVITY_PENALTY }))
-          )
-        }
-      }
-
-    }
-  }
+  // Awards + recap push + inactivity penalty for the Spieltag this match
+  // belongs to, if settling it just completed that Spieltag's whole story.
+  // Shared with app/api/admin/goalscorers/scorers/route.ts, which used to
+  // duplicate only the awards half of this and silently skip the recap push
+  // and inactivity penalty whenever a goalscorer bet was the last thing to
+  // settle for a Spieltag — see lib/matchdayFinalize.ts for the full logic.
+  await finalizeMatchdayIfDone(admin, matchId)
 
   return NextResponse.json({
     success: true,
