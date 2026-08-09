@@ -95,12 +95,17 @@ export default function AnleitungPage() {
           <Row label="Schluss:" value={<><strong>Einzelwetten:</strong> bis zum Anpfiff des jeweiligen Spiels</>} />
           <Row label="" value={<><strong>Kombiwetten:</strong> nur wenn alle enthaltenen Spiele noch nicht begonnen haben</>} />
           <Row label="Wettscheine:" value={<>Maximal <strong>3 Wettscheine</strong> pro Spieltag (2 normale + 1 Risky)</>} />
-          <Row label="Einsatz:" value={<>Maximal <strong>250 Wildis pro Wettschein</strong></>} />
+          <Row label="Einsatz:" value={<><strong>1 bis 250 Wildis</strong> pro Wettschein</>} />
           <Row label="Inaktiv:" labelColor="text-orange-600" value={<>Wer in einem Spieltag <strong>keine einzige Wette</strong> platziert, zahlt automatisch <strong>50 Wildis Strafe</strong> — wird nach Spieltagsabrechnung abgezogen</>} />
           <Row label="Storno:" labelColor="text-blue-700 dark:text-blue-400" value="Einzelwette: bis zum Anpfiff des Spiels. Kombiwette: bis der erste enthaltene Anpfiff beginnt. Der Einsatz wird sofort zurückgebucht." />
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-          Ein neuer Spieltag öffnet nie, bevor der vorherige Spieltag begonnen hat — es ist also nie gleichzeitig auf zwei Spieltage wettbar.
+          Ein neuer Spieltag öffnet nie, bevor das letzte Spiel des vorherigen Spieltags angepfiffen wurde —
+          es ist also nie gleichzeitig auf zwei Spieltage wettbar.
+        </p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+          Auf ein Spiel, für das du im selben Markt schon eine offene Wette hast (z.B. bereits „Heimsieg" getippt),
+          kannst du keine zweite, widersprechende Wette platzieren (z.B. „Unentschieden") — storniere zuerst die bestehende.
         </p>
       </HelpAccordion>
 
@@ -109,6 +114,12 @@ export default function AnleitungPage() {
         <p>
           Wird ein Spiel verschoben, bleibt deine Wette darauf bestehen und weiterhin <strong>stornierbar</strong> —
           der Annahmeschluss greift erst wieder, sobald ein neuer Termin feststeht und das Spiel tatsächlich angepfiffen wird.
+        </p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+          Verschiebt sich ein Kreisliga-Spiel um mehr als 7 Tage vom üblichen Termin seines Spieltags, wird es automatisch
+          bei dem Spieltag angezeigt (und dort gewettet, abgerechnet und für Pokale gewertet), zu dem es zeitlich tatsächlich passt —
+          nicht mehr bei seiner offiziellen Spieltag-Nummer. Auf der Spielkarte steht dann ein kleiner Hinweis
+          „eigentlich Spieltag X", damit klar bleibt, warum das Spiel woanders auftaucht.
         </p>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
           Bei einer sehr langen Verschiebung ohne neuen Termin entscheidet der Admin im Einzelfall — z.B. durch manuelle
@@ -136,7 +147,7 @@ export default function AnleitungPage() {
       <HelpAccordion title="Risky Wette" emoji="🎲">
         <p>
           Neben den 2 normalen Wettscheinen hast du <strong>einen zusätzlichen Risky-Slot</strong> pro Spieltag.
-          Diesen darfst du nur mit einem Wettschein belegen, dessen <strong>Quote mindestens 20,00</strong> beträgt
+          Diesen darfst du nur mit einem Wettschein belegen, dessen <strong>Quote über 20,00</strong> liegt
           (Einzel- oder Kombiwette). So kannst du einen dritten, mutigen Tipp setzen.
         </p>
         <div className="mt-2 text-xs bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-600 dark:text-gray-300">
@@ -172,7 +183,7 @@ export default function AnleitungPage() {
 
       {/* Quoten */}
       <HelpAccordion title="Quoten" emoji="📈">
-        <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Gewinn = Einsatz × Quote</p>
+        <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Auszahlung = Einsatz × Quote</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Beispiel: 20 Wildis × 2,50 = <strong>50 Wildis Auszahlung</strong></p>
         <div className="mt-2 space-y-1.5">
           <QuoteExample odds={1.20} explanation="Klarer Favorit" />
@@ -256,11 +267,12 @@ export default function AnleitungPage() {
         <div className="mt-2 space-y-1">
           <div className="text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 rounded px-2 py-1">
             ✅ Erlaubt: Sieg des eigenen Teams (1X2), genaues Ergebnis mit eigenem Sieg,
-            neutrale Tormärkte (Über/Unter, Beide treffen)
+            neutrale Tormärkte (Über/Unter, Beide treffen), Handicap „Heim −X,5" wenn das eigene Team Heim ist
           </div>
           <div className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1">
             🚫 Gesperrt: Niederlage oder Unentschieden des eigenen Teams, alle Doppelte-Chance-Picks dagegen,
-            genaue Ergebnisse mit Unentschieden oder eigener Niederlage
+            genaue Ergebnisse mit Unentschieden oder eigener Niederlage, Handicap „Gast +X,5" immer (verhindert nie
+            eine Niederlage des eigenen Teams) sowie „Heim −X,5" wenn das eigene Team nicht Heim ist
           </div>
         </div>
       </HelpAccordion>
@@ -301,7 +313,7 @@ export default function AnleitungPage() {
         </p>
         <div className="mt-1.5 grid grid-cols-1 gap-1">
           <AwardRow emoji="🏆" title="Spieltagskönig" desc="Bester Gesamtsaldo an diesem Spieltag" />
-          <AwardRow emoji="🥚" title="Eier aus Stahl" desc="Gewonnene Einzelwette mit der höchsten Quote" />
+          <AwardRow emoji="🥚" title="Eier aus Stahl" desc="Gewonnene Wette (Einzel oder Kombi) mit der höchsten Quote" />
           <AwardRow emoji="😭" title="Unlucky Bastard" desc="Kombiwette, die nur an einem einzigen Tipp gescheitert ist" />
           <AwardRow emoji="🔮" title="Ergebnis-Orakel" desc="Genaues Endergebnis richtig getippt" />
           <AwardRow emoji="🚽" title="Griff ins Klo" desc="Höchster verlorener Einsatz an diesem Spieltag" />

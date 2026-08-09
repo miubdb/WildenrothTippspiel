@@ -171,7 +171,7 @@ export async function GET(request: NextRequest) {
               } else if (normalFree) {
                 body = `Spieltag ${matchday} – du hast noch ${2 - normalSlips} normalen Wettschein(e) frei. Jedes Spiel schließt bei seinem Anpfiff.`
               } else {
-                body = `Spieltag ${matchday} – dein Risky-Slot ist noch frei (Quote ≥ 20,00). Jedes Spiel schließt bei seinem Anpfiff.`
+                body = `Spieltag ${matchday} – dein Risky-Slot ist noch frei (Quote über 20,00). Jedes Spiel schließt bei seinem Anpfiff.`
               }
               await sendPushToUser(
                 user.id,
