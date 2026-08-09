@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer } from '@/lib/goalscorer'
-import type { Match } from '@/types'
+import { buildPriorContext } from '@/lib/odds'
+import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
+import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
+
+const SEASON_START = '2026-08-01'
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser()
@@ -98,15 +102,60 @@ export async function POST(request: NextRequest) {
   const players = (playersRaw ?? []) as WildenrothPlayer[]
 
   // Season fixtures (same window as main odds logic)
-  const SEASON_START = '2026-08-01'
   const { data: matchesRaw } = await supabase
     .from('matches')
     .select('id, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status')
     .gte('match_date', SEASON_START)
   const seasonMatches = (matchesRaw ?? []) as Match[]
 
+  // Same prior-season/roster context as the automatic freeze in tipps/page.tsx
+  // and the 1X2 admin recompute (app/api/admin/odds/route.ts) — without this,
+  // the goalscorer market would be derived from a different team-strength
+  // estimate than the 1X2/O-U markets on the same card (see the warning in
+  // lib/goalscorer.ts's computeGoalscorerOffersForMatch).
+  const { data: allTeams } = await supabase.from('teams').select('id, name')
+  const teamNames = new Map<number, string>()
+  for (const t of allTeams ?? []) teamNames.set(t.id, t.name)
+
+  const priorMatchesRaw = await fetchAllRows((from, to) => supabase
+    .from('prior_season_matches')
+    .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date')
+    .order('id')
+    .range(from, to)
+  )
+  const priorMatches = priorMatchesRaw as PriorMatch[]
+
+  const leaguePlayersRaw = await fetchAllRows((from, to) => supabase
+    .from('league_players')
+    .select('id, team_name, name, goals, matches, minutes, status, transfer_to, prior_league_level, prior_team_name')
+    .order('id')
+    .range(from, to)
+  )
+  const leaguePlayers: LeaguePlayer[] = (leaguePlayersRaw ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    team_name: p.team_name,
+    goals: p.goals,
+    games: p.matches,
+    minutes: p.minutes,
+    status: p.status,
+    transfer_to: p.transfer_to,
+    prior_league_level: p.prior_league_level,
+    prior_team_name: p.prior_team_name,
+  }))
+
+  const lineupEntriesRaw = await fetchAllRows((from, to) => supabase
+    .from('match_lineups')
+    .select('id, match_id, team_name, player_name, minutes_played, goals, assists, created_at')
+    .order('id')
+    .range(from, to)
+  )
+  const lineupEntries = (lineupEntriesRaw ?? []) as LineupEntry[]
+
+  const priorCtx = buildPriorContext(priorMatches, teamNames, leaguePlayers, lineupEntries)
+
   const offers = computeGoalscorerOffersForMatch(
-    seasonMatches, match.home_team_id, match.away_team_id, wildenrothId, players,
+    seasonMatches, match.home_team_id, match.away_team_id, wildenrothId, players, priorCtx,
   )
 
   const now = new Date().toISOString()
