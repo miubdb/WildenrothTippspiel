@@ -70,7 +70,18 @@ const isKreisligaMatch = (m: Pick<Match, 'match_category'>) =>
   !m.match_category || m.match_category === 'kreisliga'
 
 export interface EffectiveMatchdayIndex {
+  /** Spieltag numbers ordered by earliest kickoff. This is CHRONOLOGICAL order,
+   *  not numeric — the BFV plays Spieltage out of numeric sequence, so this is
+   *  what "the Spieltag before this one" means. Used by the betting-window gate
+   *  ("never two Spieltage open at once") and for tie-breaks in
+   *  `nearestMatchdayByDate`. Do NOT render this to users — use
+   *  `kreisligaMatchdaysNumeric` for any Spieltag picker. */
   kreisligaMatchdaysSorted: number[]
+  /** Spieltag numbers in plain numeric ascending order (1, 2, 3, …). This is
+   *  what every user-facing Spieltag selector must render: users look for
+   *  "Spieltag 7" by its number, not by where it happens to fall in the
+   *  calendar. */
+  kreisligaMatchdaysNumeric: number[]
   matchdayMinDate: Map<number, number>
   /** Median kickoff timestamp per Kreisliga Spieltag — used (not min/max) to
    *  place a Wildenroth-II/Topspiel match, specifically because it stays
@@ -116,7 +127,8 @@ export function buildEffectiveMatchdayIndex(seasonMatches: Match[]): EffectiveMa
   const kreisligaMatchdaysSorted = [...matchdayMinDate.keys()].sort(
     (a, b) => matchdayMinDate.get(a)! - matchdayMinDate.get(b)!
   )
-  return { kreisligaMatchdaysSorted, matchdayMinDate, matchdayAnchorDate }
+  const kreisligaMatchdaysNumeric = [...matchdayMinDate.keys()].sort((a, b) => a - b)
+  return { kreisligaMatchdaysSorted, kreisligaMatchdaysNumeric, matchdayMinDate, matchdayAnchorDate }
 }
 
 function nearestMatchdayByDate(t: number, index: EffectiveMatchdayIndex): number | null {

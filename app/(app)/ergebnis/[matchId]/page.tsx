@@ -2,8 +2,12 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { fmtWildi, wildiLabel } from '@/components/WildiIcon'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import type { Match } from '@/types'
 
 export const revalidate = 60
+
+const SEASON_START = '2026-08-01'
 
 const SEL_LABEL: Record<string, Record<string, string>> = {
   '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
@@ -50,7 +54,7 @@ export default async function ErgebnisPage({
   const { data: matchRaw } = await supabase
     .from('matches')
     .select(`
-      id, matchday, match_date, home_score, away_score, status,
+      id, matchday, match_date, home_score, away_score, status, match_category, is_topspiel,
       home_team:teams!matches_home_team_id_fkey(name),
       away_team:teams!matches_away_team_id_fkey(name)
     `)
@@ -64,6 +68,17 @@ export default async function ErgebnisPage({
     home_team: Array.isArray(matchRaw.home_team) ? matchRaw.home_team[0] : matchRaw.home_team,
     away_team: Array.isArray(matchRaw.away_team) ? matchRaw.away_team[0] : matchRaw.away_team,
   }
+
+  // The "back to Spieltag N" link must point at the Spieltag this match is
+  // actually displayed under. For a Kreisliga match rescheduled far out that is
+  // not its raw `matchday` number (see lib/season.ts effectiveMatchdayOf), so
+  // linking to the raw number would land on a tab that doesn't contain it.
+  const { data: seasonMatchesRaw } = await supabase
+    .from('matches')
+    .select('id, matchday, match_date, match_category, is_topspiel')
+    .gte('match_date', SEASON_START)
+  const mdIndex = buildEffectiveMatchdayIndex((seasonMatchesRaw ?? []) as Match[])
+  const backMatchday = effectiveMatchdayOf(match as Match, mdIndex) ?? match.matchday
 
   const { data: betsRaw } = await supabase
     .from('bets')
@@ -308,10 +323,10 @@ export default async function ErgebnisPage({
       {/* Navigation */}
       <div className="space-y-2 pt-1">
         <Link
-          href={`/tipps?matchday=${match.matchday}`}
+          href={`/tipps?matchday=${backMatchday}`}
           className="block w-full py-3 bg-red-700 hover:bg-red-800 text-white font-bold text-center rounded-xl transition-colors text-sm"
         >
-          Zurück zu Spieltag {match.matchday}
+          Zurück zu Spieltag {backMatchday}
         </Link>
         <Link
           href="/profil"

@@ -144,9 +144,19 @@ export default async function TippsPage({
   const { matchdayMinDate, kreisligaMatchdaysSorted } = mdIndex
   const effectiveMatchdayOf = (m: Match) => effectiveMatchdayOfShared(m, mdIndex)
 
+  // CHRONOLOGICAL list (earliest kickoff first). Feeds `chronologicalMatchdays`
+  // below, where "the Spieltag before this one" must mean the one actually
+  // played before it — the BFV runs Spieltage out of numeric sequence, so a
+  // numeric list there would let two Spieltage be bettable at once.
   const allMatchdays = isPreSeason
     ? [...(hasTestMatchday ? [999] : []), ...Array.from({ length: 28 }, (_, i) => i + 1)]
     : [...(hasTestMatchday ? [999] : []), ...kreisligaMatchdaysSorted]
+  // DISPLAY list for the Spieltag picker: plain numeric order, because users
+  // look for "Spieltag 7" by its number. Kept separate from `allMatchdays` on
+  // purpose — never use this one for chronological reasoning.
+  const displayMatchdays = isPreSeason
+    ? allMatchdays
+    : [...(hasTestMatchday ? [999] : []), ...mdIndex.kreisligaMatchdaysNumeric]
 
   const firstScheduled = [...new Set(kreisligaMatches.filter((m) => m.status === 'scheduled').map((m) => m.matchday))]
     .sort((a, b) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0))[0]
@@ -156,7 +166,11 @@ export default async function TippsPage({
   const thisWeekMondayNoon = bettingOpenTime(new Date())
   const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
   const completedMatchdays = allMatchdays.filter((md) => {
-    const mdM = md === 999 ? seasonMatches.filter((m) => m.matchday === 999) : kreisligaMatches.filter((m) => m.matchday === md)
+    // Group by the EFFECTIVE Spieltag, i.e. the matches actually shown under
+    // this tab. Grouping by the raw `matchday` column would keep a Spieltag
+    // "not completed" until an outlier match that is displayed under a
+    // different Spieltag has been played.
+    const mdM = seasonMatches.filter((m) => effectiveMatchdayOf(m) === md)
     const nonPostponed = mdM.filter((m) => m.status !== 'postponed')
     return nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
   })
@@ -857,9 +871,14 @@ export default async function TippsPage({
       </div>
 
       {/* Matchday Selector */}
-      <MatchdayScroller activeIndex={allMatchdays.indexOf(currentMatchday)}>
-        {allMatchdays.map((md) => {
-          const mdMatches = seasonMatches.filter((m) => m.matchday === md)
+      <MatchdayScroller activeIndex={displayMatchdays.indexOf(currentMatchday)}>
+        {displayMatchdays.map((md) => {
+          // Select the pill's matches the same way the page selects the ones it
+          // displays under that tab, so a pill's finished/bettable colour can't
+          // disagree with its own content (raw `matchday` would pull in
+          // B-Klasse/Wildenroth-II matches that carry independent BFV numbering
+          // and miss Kreisliga matches reassigned into this Spieltag).
+          const mdMatches = seasonMatches.filter((m) => effectiveMatchdayOf(m) === md)
           const hasScheduled = mdMatches.some((m) => m.status === 'scheduled')
           const allFinished = mdMatches.length > 0 && mdMatches.every((m) => m.status === 'finished')
           return (
