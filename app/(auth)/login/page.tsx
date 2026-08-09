@@ -1,12 +1,33 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
+// proxy.ts bounces an unauthenticated user off a protected route with
+// ?redirectTo=<original path>, so a deep link to e.g. /profil or /admin lands
+// back where the user meant to go instead of always dropping them on /tipps.
+// Only accept an internal, relative path — a bare "/" prefix without a
+// leading "//" (which browsers treat as protocol-relative, i.e. an open
+// redirect to an attacker-controlled host).
+function safeRedirect(raw: string | null): string {
+  if (!raw) return '/tipps'
+  if (!raw.startsWith('/') || raw.startsWith('//')) return '/tipps'
+  return raw
+}
+
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  )
+}
+
+function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -26,7 +47,7 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/tipps')
+    router.push(safeRedirect(searchParams.get('redirectTo')))
     router.refresh()
   }
 

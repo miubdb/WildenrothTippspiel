@@ -5,6 +5,16 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
+// Escape LIKE/ILIKE wildcards ('%', '_') and the escape character itself so a
+// display name containing them is matched literally, not as a pattern — an
+// unescaped name could otherwise false-positive against unrelated rows (e.g.
+// "a_b" matching "axb") and, if the pattern matches more than one existing
+// profile, silently pass the uniqueness check entirely (maybeSingle() errors
+// on multiple rows, and that error was never being checked).
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`)
+}
+
 function generateUsername(displayName: string): string {
   const base = displayName
     .toLowerCase()
@@ -87,12 +97,16 @@ export default function RegisterPage() {
       }
       setCheckingName(true)
       const supabase = createClient()
-      const { data: existing } = await supabase
+      const { data: existing, error: checkError } = await supabase
         .from('profiles')
         .select('id')
-        .ilike('display_name', trimmed)
+        .ilike('display_name', escapeLike(trimmed))
         .maybeSingle()
       setCheckingName(false)
+      if (checkError) {
+        setError('Name konnte nicht geprüft werden. Bitte erneut versuchen.')
+        return
+      }
       if (existing) {
         setError('Dieser Name ist leider schon vergeben.')
         return

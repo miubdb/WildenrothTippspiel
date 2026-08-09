@@ -47,10 +47,14 @@ export async function PATCH(req: Request) {
     if (trimmed.length > 30) {
       return NextResponse.json({ error: 'Anzeigename darf maximal 30 Zeichen haben' }, { status: 400 })
     }
+    // Escape LIKE/ILIKE wildcards so a name containing '%'/'_' is matched
+    // literally, not as a pattern (see the identical fix in
+    // app/(auth)/register/page.tsx for why this matters).
+    const escapedName = trimmed.replace(/[\\%_]/g, (c) => `\\${c}`)
     const { data: existing } = await supabase
       .from('profiles')
       .select('id')
-      .ilike('display_name', trimmed)
+      .ilike('display_name', escapedName)
       .neq('id', user.id)
       .maybeSingle()
     if (existing) {
