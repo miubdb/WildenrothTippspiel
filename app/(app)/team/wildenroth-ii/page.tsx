@@ -88,6 +88,14 @@ function PlayerAvatar({ player, size = 36 }: { player: PlayerRow; size?: number 
 export default async function WildenrothIITeamPage() {
   const supabase = await createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profile } = user
+    ? await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+    : { data: null }
+  // Same rationale as the 1st-team page: squad/player detail is unfinished
+  // and stays hidden from normal users, visible to admins who maintain it.
+  const showSquad = !!profile?.is_admin
+
   const [{ data: rawPlayers }, { data: rawMatches }] = await Promise.all([
     supabase
       .from('wildenroth_players')
@@ -233,7 +241,8 @@ export default async function WildenrothIITeamPage() {
         </div>
       )}
 
-      {/* Squad */}
+      {/* Squad — hidden from normal users until photos/history are complete */}
+      {showSquad && (
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
           <h2 className="font-bold text-gray-900 dark:text-gray-100">Kader 2. Mannschaft</h2>
@@ -279,6 +288,7 @@ export default async function WildenrothIITeamPage() {
           <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Keine aktiven Spieler erfasst.</div>
         )}
       </div>
+      )}
     </div>
   )
 }

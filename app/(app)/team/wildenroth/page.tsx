@@ -142,6 +142,16 @@ function PlayerAvatar({ player, size = 40 }: { player: PlayerRow; size?: number 
 export default async function WildenrothTeamPage() {
   const supabase = await createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profile } = user
+    ? await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+    : { data: null }
+  // Kader/player detail is unfinished (missing photos, missing historical
+  // stats) and stays hidden from normal users so the app doesn't look
+  // half-built; admins keep seeing it since they're the ones maintaining it.
+  // Nothing here is deleted — this only gates rendering.
+  const showSquad = !!profile?.is_admin
+
   const [{ data: rawMatches }, { data: rawPlayers }] = await Promise.all([
     supabase
       .from('matches')
@@ -311,7 +321,8 @@ export default async function WildenrothTeamPage() {
         )}
       </div>
 
-      {/* Squad */}
+      {/* Squad — hidden from normal users until photos/history are complete */}
+      {showSquad && (
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
           <h2 className="font-bold text-gray-900 dark:text-gray-100">Kader 1. Mannschaft</h2>
@@ -363,6 +374,7 @@ export default async function WildenrothTeamPage() {
           <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Keine aktiven Spieler erfasst.</div>
         )}
       </div>
+      )}
     </div>
   )
 }

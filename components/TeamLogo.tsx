@@ -2,23 +2,7 @@
 
 import NextImage from 'next/image'
 import { useState } from 'react'
-
-const LOGO_ALIAS: Record<string, string> = {
-  'SpVgg Wildenroth II': 'SpVgg Wildenroth',
-  'SC Schöngeising II': 'SC Schöngeising',
-  'TSV Türkenfeld II': 'TSV Türkenfeld',
-}
-
-function teamSlug(name: string): string {
-  return (LOGO_ALIAS[name] ?? name)
-    .toLowerCase()
-    .replace(/[äÄ]/g, 'ae')
-    .replace(/[öÖ]/g, 'oe')
-    .replace(/[üÜ]/g, 'ue')
-    .replace(/[ß]/g, 'ss')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-}
+import { crestSlug as teamSlug } from '@/lib/teams'
 
 export function TeamLogo({
   name,
