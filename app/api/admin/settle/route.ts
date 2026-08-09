@@ -390,7 +390,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Apply 100 Wildis inactivity penalty per user who placed no bets this matchday.
+      // Apply 50 Wildis inactivity penalty per user who placed no bets this matchday.
       // Dedup via push_reminders so this only runs once even if multiple matches settle simultaneously.
       const { error: penaltyDedupError } = await admin
         .from('push_reminders')
@@ -419,7 +419,9 @@ export async function POST(request: NextRequest) {
             .select('id')
             .or('eligible_for_current_season.eq.true,is_admin.eq.true')
 
-          const INACTIVITY_PENALTY = 100
+          // 50, not 100 (10% of the 1000 Wildi starting balance) — 100 was judged
+          // too harsh a per-Spieltag penalty for an internal club Tippspiel.
+          const INACTIVITY_PENALTY = 50
           await Promise.allSettled(
             (allProfiles ?? [])
               .filter(p => !activeUserIds.has(p.id))

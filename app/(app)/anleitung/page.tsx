@@ -96,7 +96,7 @@ export default function AnleitungPage() {
           <Row label="" value={<><strong>Kombiwetten:</strong> nur wenn alle enthaltenen Spiele noch nicht begonnen haben</>} />
           <Row label="Wettscheine:" value={<>Maximal <strong>3 Wettscheine</strong> pro Spieltag (2 normale + 1 Risky)</>} />
           <Row label="Einsatz:" value={<>Maximal <strong>250 Wildis pro Wettschein</strong></>} />
-          <Row label="Inaktiv:" labelColor="text-orange-600" value={<>Wer in einem Spieltag <strong>keine einzige Wette</strong> platziert, zahlt automatisch <strong>100 Wildis Strafe</strong> — wird nach Spieltagsabrechnung abgezogen</>} />
+          <Row label="Inaktiv:" labelColor="text-orange-600" value={<>Wer in einem Spieltag <strong>keine einzige Wette</strong> platziert, zahlt automatisch <strong>50 Wildis Strafe</strong> — wird nach Spieltagsabrechnung abgezogen</>} />
           <Row label="Storno:" labelColor="text-blue-700 dark:text-blue-400" value="Einzelwette: bis zum Anpfiff des Spiels. Kombiwette: bis der erste enthaltene Anpfiff beginnt. Der Einsatz wird sofort zurückgebucht." />
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
