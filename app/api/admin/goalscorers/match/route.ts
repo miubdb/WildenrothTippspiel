@@ -59,11 +59,6 @@ export async function POST(request: NextRequest) {
   const { matchId, force } = body
   if (!Number.isFinite(matchId)) return NextResponse.json({ error: 'matchId fehlt.' }, { status: 400 })
 
-  // Locate Wildenroth team
-  const { data: wildenrothTeam } = await supabase
-    .from('teams').select('id').ilike('name', '%Wildenroth%').limit(1).maybeSingle()
-  if (!wildenrothTeam) return NextResponse.json({ error: 'Wildenroth-Team nicht gefunden.' }, { status: 400 })
-
   const { data: match } = await supabase
     .from('matches')
     .select('id, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status')
@@ -71,9 +66,22 @@ export async function POST(request: NextRequest) {
     .single()
   if (!match) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 404 })
 
-  const wildenrothId = wildenrothTeam.id
-  const involves = match.home_team_id === wildenrothId || match.away_team_id === wildenrothId
-  if (!involves) return NextResponse.json({ error: 'Kein Wildenroth-Spiel.' }, { status: 400 })
+  // Resolve which Wildenroth side (if either) is playing, by exact name — an
+  // `ilike('%Wildenroth%')` match with no ORDER BY always resolved to
+  // SpVgg Wildenroth (id 14) regardless of which team actually played,
+  // rejecting every genuine Wildenroth II fixture with "Kein Wildenroth-Spiel."
+  const { data: wildenrothTeams } = await supabase
+    .from('teams').select('id, name').in('name', ['SpVgg Wildenroth', 'SpVgg Wildenroth II'])
+  const team1Id = wildenrothTeams?.find(t => t.name === 'SpVgg Wildenroth')?.id ?? null
+  const team2Id = wildenrothTeams?.find(t => t.name === 'SpVgg Wildenroth II')?.id ?? null
+
+  const involvesTeam1 = team1Id != null && (match.home_team_id === team1Id || match.away_team_id === team1Id)
+  const involvesTeam2 = team2Id != null && (match.home_team_id === team2Id || match.away_team_id === team2Id)
+  if (!involvesTeam1 && !involvesTeam2) {
+    return NextResponse.json({ error: 'Kein Wildenroth-Spiel.' }, { status: 400 })
+  }
+  const wildenrothId = involvesTeam1 ? team1Id! : team2Id!
+  const squads = involvesTeam1 ? ['1', 'both'] : ['2', 'both']
 
   // Skip if already frozen and not forced
   if (!force) {
@@ -85,8 +93,8 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Players — only 1st-team squad for Kreisliga goalscorer markets
-  const { data: playersRaw } = await supabase.from('wildenroth_players').select('*').eq('active', true).in('squad', ['1', 'both'])
+  // Players from the squad that's actually playing this match
+  const { data: playersRaw } = await supabase.from('wildenroth_players').select('*').eq('active', true).in('squad', squads)
   const players = (playersRaw ?? []) as WildenrothPlayer[]
 
   // Season fixtures (same window as main odds logic)

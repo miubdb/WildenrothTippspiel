@@ -33,11 +33,17 @@ export async function GET(request: Request) {
     )
     .order('match_date', { ascending: true })
 
-  const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
-    ...m,
-    home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
-    away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
-  }))
+  // Matchday numbers repeat across seasons — without this filter, a prior
+  // season's finished matches sharing today's matchday number would show up
+  // in the preview list and get bogus "admin_preview" odds_diagnostics rows
+  // persisted for them. matchday 999 (test) is exempt, same as elsewhere.
+  const allMatches: Match[] = (allMatchesRaw ?? [])
+    .filter((m) => m.match_date >= SEASON_START || m.matchday === 999)
+    .map((m) => ({
+      ...m,
+      home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
+      away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
+    }))
 
   const priorMatchesRaw = await fetchAllRows((from, to) => supabase
     .from('prior_season_matches')

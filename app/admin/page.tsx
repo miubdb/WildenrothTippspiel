@@ -3,6 +3,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
+// Matchday numbers repeat across seasons — without this filter the admin
+// match list (and everything fed by it: "Abgerechnete Spiele", the Spieltag
+// picker, the bets viewer) mixes in the prior season's identically-numbered
+// fixtures. matchday 999 (test) is exempt, same as everywhere else in the app.
+const SEASON_START = '2026-08-01'
+
 interface MatchRow {
   id: number
   match_number: number
@@ -128,6 +134,7 @@ export default function AdminPage() {
          home_team:teams!matches_home_team_id_fkey(name, short_name),
          away_team:teams!matches_away_team_id_fkey(name, short_name)`
       )
+      .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
       .order('match_date', { ascending: true })
 
     const rows: MatchRow[] = (data ?? []).map((m) => ({

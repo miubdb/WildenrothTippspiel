@@ -50,8 +50,14 @@ export async function POST(request: NextRequest) {
     }
 
     const updatePayload: Record<string, unknown> = { status: 'scheduled', match_date: parsedDate.toISOString() }
-    if (matchday != null && typeof matchday === 'number' && matchday > 0) {
+    // Reject the reserved test-matchday range (>=900, see settle/route.ts) —
+    // a typo in the admin's Spieltag-number field could otherwise silently
+    // move a real match into the range that settle/route.ts explicitly skips
+    // for recap push, awards and the inactivity penalty.
+    if (matchday != null && typeof matchday === 'number' && matchday > 0 && matchday < 900) {
       updatePayload.matchday = matchday
+    } else if (matchday != null && typeof matchday === 'number' && matchday >= 900) {
+      return NextResponse.json({ error: 'Spieltag-Nummer >= 900 ist für den Testspieltag reserviert.' }, { status: 400 })
     }
 
     const { error } = await adminSupa

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+const SEASON_START = '2026-08-01'
+
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
 
@@ -17,11 +19,16 @@ export async function GET(request: NextRequest) {
   const matchday = parseInt(request.nextUrl.searchParams.get('matchday') ?? '0', 10)
   if (!matchday) return NextResponse.json({ error: 'Spieltag fehlt.' }, { status: 400 })
 
-  // All match IDs for this matchday
+  // All match IDs for this matchday. Matchday numbers repeat across seasons
+  // (this one and the prior 25/26 season both run 1-30), so without the
+  // season filter this would mix in year-old settled bets from last season's
+  // identically-numbered Spieltag — matchday 999 (test) is exempt, same as
+  // everywhere else in the app.
   const { data: matchRows } = await supabase
     .from('matches')
     .select('id, home_team_id, away_team_id, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
     .eq('matchday', matchday)
+    .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
 
   const matchIds = (matchRows ?? []).map(m => m.id)
   if (matchIds.length === 0) return NextResponse.json({ bets: [], profiles: [], matches: [] })
