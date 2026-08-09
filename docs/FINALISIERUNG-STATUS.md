@@ -65,6 +65,29 @@ nichts gelöscht. Herrsching-Wappen: `[SG] TSV Herrsching/SF Breitbrunn 2` hatte
 Slug → `CREST_NAME_ALIAS` in `lib/teams.ts` ergänzt (zeigt jetzt auf `tsv-herrsching-ii.png`),
 `TeamLogo.tsx` nutzt jetzt dieselbe Funktion statt einer eigenen (leicht abweichenden) Kopie.
 
+### Punkt 14 — Taschengeld (Fund: liegt NICHT im Next.js-Code, sondern in Supabase)
+Die Auszahlung läuft komplett DB-seitig: Postgres-Funktion `add_weekly_pocket_money()`, ausgelöst
+durch `pg_cron`-Job `weekly-pocket-money` (`0 10,11 * * 1` — Montag 10 UND 11 Uhr UTC; die Funktion
+selbst filtert per `EXTRACT(HOUR ... 'Europe/Berlin') = 12` auf die tatsächliche 12-Uhr-Stunde, sodass
+je nach Sommer-/Winterzeit genau einer der beiden Cron-Trigger tatsächlich auszahlt — sauberes
+DST-Handling). Der Saisonstart-Guard (`EXISTS (... matchday=1 AND match_date <= now())`) verhindert
+korrekt jede Auszahlung vor dem ersten Spieltag-1-Anstoß (15.08.) — die erste greifende Montag-12-Uhr-
+Prüfung ist damit bereits automatisch der 17.08.2026, wie gefordert. Eine verwaiste Edge Function
+`weekly-pocket-money` existiert zusätzlich (ruft dieselbe SQL-Funktion auf), wird aber vom Cron-Job
+nicht genutzt (der ruft die Funktion direkt per SQL) — unschädlich, aber doppelt gepflegt.
+
+**Zwei echte Bugs gefunden und direkt per Migration behoben** (`fix_weekly_pocket_money_eligibility_and_dedupe`):
+1. `UPDATE profiles SET balance = balance + 10` lief **ungefiltert über alle Profile** — auch über
+   `eligible_for_current_season = false`-Nutzer (aktuell 1 von 9: "Mj"). Jetzt auf
+   `eligible_for_current_season = true OR is_admin = true` eingeschränkt (gleiche Regel wie bei der
+   Inaktivitätsstrafe in settle.ts).
+2. **Keine Idempotenz-Sperre**: ein manueller Re-Run von `add_weekly_pocket_money()` in derselben
+   12-Uhr-Stunde hätte ein zweites Mal ausgezahlt. Neue Tabelle `weekly_pocket_money_log(week_start
+   date primary key)` — ein Insert-Unique-Constraint pro Kalenderwoche sperrt Doppelausführung,
+   analog zum bestehenden `push_reminders`-Dedupe-Muster für Recap/Inaktivstrafe.
+Mit einem harmlosen Testaufruf verifiziert (Saison noch nicht gestartet → korrekt kein Effekt,
+Log-Tabelle bleibt leer, Balances unverändert).
+
 ### Nutzer-Entscheidungen (aus Rückfrage beantwortet)
 1. **Landsberg II wieder Favorit**: Basis-Odds (Modell, unswapped) in `odds` für Match 293 eingefroren,
    Landsberg-Favorit-Variante über `match_odds_overrides` gesetzt (funktioniert jetzt auch beim
