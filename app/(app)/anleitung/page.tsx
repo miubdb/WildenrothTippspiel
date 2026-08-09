@@ -205,9 +205,9 @@ export default function AnleitungPage() {
           title="Über/Unter Tore"
           description="Wie viele Tore fallen insgesamt?"
           items={[
-            { label: 'Ü/U 3,5', desc: 'Mind. 4 Tore (Über) oder max. 3 Tore (Unter)' },
+            { label: 'Ü/U 2,5', desc: 'Mind. 3 Tore (Über) oder max. 2 Tore (Unter)' },
+            { label: 'Ü/U 3,5', desc: 'Mind. 4 Tore oder max. 3 Tore' },
             { label: 'Ü/U 5,5', desc: 'Mind. 6 Tore oder max. 5 Tore' },
-            { label: 'Ü/U 7,5', desc: 'Mind. 8 Tore oder max. 7 Tore' },
           ]}
         />
         <MarketCard

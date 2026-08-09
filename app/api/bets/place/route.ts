@@ -18,6 +18,10 @@ const SEASON_START = '2026-08-01'
 const EXACT_SCORE_CEILING_MULT = 1.3
 const EXACT_SCORE_CEILING_ADD = 2
 
+/** Markets that are no longer offered. Kept out of the betting UI and rejected
+ *  here, but still handled by settlement so historical bets grade correctly. */
+const RETIRED_MARKETS = new Set(['over_under_7_5'])
+
 interface PlaceBetSelection {
   matchId: number
   marketType: string
@@ -100,6 +104,18 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         )
       }
+    }
+  }
+
+  // Retired markets: no longer offered in the UI, so reject them here too —
+  // the client is not the security boundary. Settlement still understands them
+  // so any bet placed before retirement grades correctly.
+  for (const s of selections) {
+    if (RETIRED_MARKETS.has(s.marketType)) {
+      return NextResponse.json(
+        { error: 'Dieser Wettmarkt wird nicht mehr angeboten.' },
+        { status: 400 }
+      )
     }
   }
 

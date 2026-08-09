@@ -6,11 +6,26 @@ const HOUSE_MARGIN = 0.12
 const MIN_ODDS = 1.05
 const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
 
-// Per-team league baselines (Kreisklasse: ~2.35 goals/game total).
-// Moderate home/away gap; baselines kept conservative so BTTS and O/U
-// don't floor even for genuinely high-scoring matchups.
-const LEAGUE_HOME_XG = 1.22
-const LEAGUE_AWAY_XG = 1.13
+// Per-team league baselines. These anchor the ABSOLUTE goal level of every
+// market: prior-season team stats are expressed as ratios vs. their own
+// league's average and then re-scaled onto these two numbers
+// (getPriorTeamStats), and they are also the Bayesian shrinkage target
+// (getMatchXG) — which, with zero current-season games played, means the xG of
+// every match is exactly these values times the roster factor.
+//
+// Measured from `prior_season_matches`, Kreisliga Zugspitze 25/26, both groups,
+// 364 matches: 2.173 goals/game at home, 1.497 away (3.670 total).
+// A single Poisson with that mean reproduces the observed over/under
+// frequencies almost exactly (modelled vs. empirical: O2.5 .709/.703,
+// O3.5 .500/.508, O5.5 .166/.159), so the distribution assumption is sound and
+// only the mean needed to be right.
+//
+// These were previously 1.22/1.13 (2.35 total) — a guess, and ~36% below the
+// real level, which is why every Over market was priced far too long
+// (Über 3,5 came out around 4.99 instead of ~1.8). Do not "tune" these by
+// hand: re-measure them from prior_season_matches for the league in question.
+const LEAGUE_HOME_XG = 2.17
+const LEAGUE_AWAY_XG = 1.50
 
 // Caps how much a team's prior-season dominance ratio (own rate vs. that league's
 // average) can carry over when projected onto the target league — without this, a
@@ -92,16 +107,35 @@ function poisson(lambda: number, k: number): number {
   return Math.exp(logP)
 }
 
+/** Score-matrix dimension. Must stay comfortably above the highest plausible
+ *  xG so the truncated tail is negligible: at maxGoals=10 the discarded mass is
+ *  ~1e-5 even for an xG of 3.5. (It was 8, which was already thin once the
+ *  league baselines were corrected upward.) */
+const SCORE_MATRIX_MAX_GOALS = 10
+
 /**
  * Build a home×away score probability matrix using independent Poisson for each team.
  * All downstream markets are derived from this single matrix for full consistency.
+ *
+ * The matrix is normalised to sum to exactly 1. Without it the truncated tail
+ * (scores above maxGoals) is silently dropped, and since every "under" market is
+ * derived as `1 - pOver`, that missing mass — which belongs entirely to "over" —
+ * would be handed to "under" instead, pricing unders too short and overs too long.
  */
-function buildScoreMatrix(homeXG: number, awayXG: number, maxGoals = 8): number[][] {
+function buildScoreMatrix(homeXG: number, awayXG: number, maxGoals = SCORE_MATRIX_MAX_GOALS): number[][] {
   const matrix: number[][] = []
+  let total = 0
   for (let h = 0; h <= maxGoals; h++) {
     matrix[h] = []
     for (let a = 0; a <= maxGoals; a++) {
-      matrix[h][a] = poisson(homeXG, h) * poisson(awayXG, a)
+      const p = poisson(homeXG, h) * poisson(awayXG, a)
+      matrix[h][a] = p
+      total += p
+    }
+  }
+  if (total > 0 && total !== 1) {
+    for (let h = 0; h <= maxGoals; h++) {
+      for (let a = 0; a <= maxGoals; a++) matrix[h][a] /= total
     }
   }
   return matrix
@@ -730,8 +764,8 @@ export function oddsFromXG(homeXG: number, awayXG: number): OddsData {
   let pBtts = 0
   let pHomeMinus15 = 0, pHomeMinus25 = 0
 
-  for (let h = 0; h <= 8; h++) {
-    for (let a = 0; a <= 8; a++) {
+  for (let h = 0; h <= SCORE_MATRIX_MAX_GOALS; h++) {
+    for (let a = 0; a <= SCORE_MATRIX_MAX_GOALS; a++) {
       const p = matrix[h][a]
       if (h > a) pHome += p
       else if (h === a) pDraw += p
@@ -806,9 +840,13 @@ export function getExactScoreOdds(
 
   const results: { score: string; odds: number; total: number; homeGoals: number }[] = []
 
-  for (let h = 0; h <= 8; h++) {
-    for (let a = 0; a <= 8; a++) {
-      const o = toOdds(poisson(homeXG, h) * poisson(awayXG, a))
+  // Derive from the same normalised matrix every other market uses, so the
+  // "no arbitrage across markets" property described above actually holds.
+  const matrix = buildScoreMatrix(homeXG, awayXG)
+
+  for (let h = 0; h <= SCORE_MATRIX_MAX_GOALS; h++) {
+    for (let a = 0; a <= SCORE_MATRIX_MAX_GOALS; a++) {
+      const o = toOdds(matrix[h][a])
       if (o <= MAX_EXACT_ODDS) {
         results.push({ score: `${h}:${a}`, odds: o, total: h + a, homeGoals: h })
       }

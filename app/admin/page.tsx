@@ -1063,8 +1063,8 @@ const OVERRIDE_FIELDS: { col: string; label: string }[][] = [
     { col: 'over_3_5', label: 'Ü3,5' }, { col: 'under_3_5', label: 'U3,5' },
   ],
   [
+    // Ü/U 7,5 is retired — not offered to bettors, so no override control for it.
     { col: 'over_5_5', label: 'Ü5,5' }, { col: 'under_5_5', label: 'U5,5' },
-    { col: 'over_7_5', label: 'Ü7,5' }, { col: 'under_7_5', label: 'U7,5' },
   ],
   [
     { col: 'btts_yes', label: 'BTTS Ja' }, { col: 'btts_no', label: 'BTTS Nein' },
@@ -1233,10 +1233,6 @@ function OddsPreviewMatchCard({
         <OddsRow label="Ü/U 5,5" cells={[
           ['Ü', displayOdds('over_5_5', o.over_5_5), isOverridden('over_5_5')],
           ['U', displayOdds('under_5_5', o.under_5_5), isOverridden('under_5_5')],
-        ]} />
-        <OddsRow label="Ü/U 7,5" cells={[
-          ['Ü', displayOdds('over_7_5', o.over_7_5), isOverridden('over_7_5')],
-          ['U', displayOdds('under_7_5', o.under_7_5), isOverridden('under_7_5')],
         ]} />
         <OddsRow label="BTTS" cells={[
           ['Ja', displayOdds('btts_yes', o.btts_yes), isOverridden('btts_yes')],

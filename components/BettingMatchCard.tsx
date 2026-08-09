@@ -400,21 +400,12 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                     />
                   </div>
                 </div>
-                <div>
-                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Über/Unter 7,5 Tore</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <OddsButton
-                      label="Über 7,5" odds={odds.over_7_5}
-                      selected={isSelected('over_under_7_5', 'over_7.5')}
-                      onClick={() => add('over_under_7_5', 'Über/Unter 7,5', 'over_7.5', 'Über 7,5', odds.over_7_5)}
-                    />
-                    <OddsButton
-                      label="Unter 7,5" odds={odds.under_7_5}
-                      selected={isSelected('over_under_7_5', 'under_7.5')}
-                      onClick={() => add('over_under_7_5', 'Über/Unter 7,5', 'under_7.5', 'Unter 7,5', odds.under_7_5)}
-                    />
-                  </div>
-                </div>
+                {/* Über/Unter 7,5 is deliberately not offered: at a realistic
+                    league baseline it is a ~2-4% shot whose odds sit at or near
+                    the MAX_ODDS cap, and it is the one total where independent
+                    Poisson visibly under-models the tail. The 2,5/3,5/5,5 lines
+                    cover the useful range. Settlement + label maps for it are
+                    kept so any historical bet still renders and grades. */}
                 <div>
                   <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Beide Teams treffen</div>
                   <div className="grid grid-cols-2 gap-2">

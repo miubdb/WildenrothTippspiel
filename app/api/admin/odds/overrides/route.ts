@@ -5,7 +5,8 @@ const MARKET_COLS = [
   'home_win', 'draw', 'away_win',
   'odds_1x', 'odds_x2', 'odds_12',
   'over_2_5', 'under_2_5', 'over_3_5', 'under_3_5',
-  'over_5_5', 'under_5_5', 'over_7_5', 'under_7_5',
+  // over_7_5/under_7_5 intentionally absent — retired market, not offered.
+  'over_5_5', 'under_5_5',
   'btts_yes', 'btts_no',
   'hdp_home_minus_1_5', 'hdp_away_plus_1_5', 'hdp_home_minus_2_5', 'hdp_away_plus_2_5',
 ] as const
