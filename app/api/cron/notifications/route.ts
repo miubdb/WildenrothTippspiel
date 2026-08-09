@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser, sendPushToAll } from '@/lib/push'
-import { bettingOpenTime } from '@/lib/season'
+import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import type { Match } from '@/types'
+
+const SEASON_START = '2026-08-01'
 
 function isAuthorized(request: NextRequest): boolean {
   const expected = process.env.CRON_SECRET
@@ -29,20 +32,34 @@ export async function GET(request: NextRequest) {
   try {
     // ── A) Neuer Spieltag ist wettbar ─────────────────────────────────────
 
-    const { data: allMatches } = await admin
+    // Full current-season match set (not just scheduled) — buildEffectiveMatchdayIndex
+    // needs the whole season's kickoff dates to compute each Spieltag's anchor.
+    const { data: seasonMatchesRaw } = await admin
       .from('matches')
-      .select('id, matchday, match_date, status')
-      .eq('status', 'scheduled')
+      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+      .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
       .order('match_date', { ascending: true })
 
-    if (!allMatches) throw new Error('Failed to fetch matches')
+    if (!seasonMatchesRaw) throw new Error('Failed to fetch matches')
+    const seasonMatches = seasonMatchesRaw as Match[]
+    const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
 
+    // Group by the EFFECTIVE Spieltag (lib/season.ts), not the raw `matchday`
+    // column — a Kreisliga match rescheduled far outside its own Spieltag's
+    // window, or a Wildenroth-II/B-Klasse-Topspiel match whose independent BFV
+    // numbering happens to collide with an unrelated Kreisliga Spieltag,
+    // would otherwise group under the wrong Spieltag for "betting open" /
+    // "bets remaining" pushes — exactly what tipps/page.tsx displays and what
+    // effectiveMatchdayOf is the single source of truth for elsewhere.
+    const allMatches = seasonMatches.filter((m) => m.status === 'scheduled')
     const matchdayMap = new Map<number, { firstDate: Date; allDates: Date[] }>()
     for (const m of allMatches) {
+      const matchday = effectiveMatchdayOf(m, mdIndex)
+      if (matchday == null) continue
       const date = new Date(m.match_date)
-      const existing = matchdayMap.get(m.matchday)
+      const existing = matchdayMap.get(matchday)
       if (!existing) {
-        matchdayMap.set(m.matchday, { firstDate: date, allDates: [date] })
+        matchdayMap.set(matchday, { firstDate: date, allDates: [date] })
       } else {
         existing.allDates.push(date)
         if (date < existing.firstDate) existing.firstDate = date
@@ -86,7 +103,7 @@ export async function GET(request: NextRequest) {
 
       // Send "bets remaining" reminder 2.5h before first match (window: 135–165 min)
       if (minutesTillDeadline >= 135 && minutesTillDeadline < 165) {
-        const matchdayMatches = allMatches.filter(m => m.matchday === matchday)
+        const matchdayMatches = allMatches.filter(m => effectiveMatchdayOf(m, mdIndex) === matchday)
         const matchdayMatchIds = matchdayMatches.map(m => m.id)
 
         // Get all eligible users
