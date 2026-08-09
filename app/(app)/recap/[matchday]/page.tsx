@@ -134,17 +134,39 @@ export default async function RecapPage({
     userPnl.set(b.user_id, cur)
   }
 
-  // Count settled combo bets that have legs in this matchday
+  // Count settled combo bets, but exactly ONCE per combo across the whole
+  // season — not once per Spieltag its legs happen to touch. A combo whose
+  // legs span two Spieltage would otherwise get its full stake/payout added
+  // to BOTH Spieltage's totals. Fetch every leg of every combo touched here
+  // (not just the ones in this matchday) and assign the combo to the
+  // earliest recap-Spieltag among its legs; only count it here if that
+  // canonical Spieltag is the one this page is showing.
   const processedCombos = new Set<number>()
-  for (const b of (betRows ?? []).filter((b) => b.combo_id !== null)) {
-    if (processedCombos.has(b.combo_id as number)) continue
-    processedCombos.add(b.combo_id as number)
-    const cb = comboBetRows.find((c) => c.id === b.combo_id)
-    if (!cb) continue
-    const cur = userPnl.get(cb.user_id) ?? { staked: 0, payout: 0 }
-    cur.staked += Number(cb.stake ?? 0)
-    if (cb.status === 'won') cur.payout += Number(cb.payout ?? 0)
-    userPnl.set(cb.user_id, cur)
+  if (comboIds.length > 0) {
+    const { data: allLegsRaw } = await supabase
+      .from('bets')
+      .select('combo_id, match_id')
+      .in('combo_id', comboIds)
+    const matchIdToRecapMd = new Map<number, number | null>(
+      seasonMatchesForRecap.map((m) => [m.id, recapMatchdayOf(m, mdIndex)])
+    )
+    const comboOwnerMatchday = new Map<number, number>()
+    for (const leg of allLegsRaw ?? []) {
+      const legMd = matchIdToRecapMd.get(leg.match_id)
+      if (legMd == null) continue
+      const cid = leg.combo_id as number
+      const cur = comboOwnerMatchday.get(cid)
+      if (cur == null || legMd < cur) comboOwnerMatchday.set(cid, legMd)
+    }
+    for (const cb of comboBetRows) {
+      if (processedCombos.has(cb.id)) continue
+      processedCombos.add(cb.id)
+      if (comboOwnerMatchday.get(cb.id) !== matchday) continue
+      const cur = userPnl.get(cb.user_id) ?? { staked: 0, payout: 0 }
+      cur.staked += Number(cb.stake ?? 0)
+      if (cb.status === 'won') cur.payout += Number(cb.payout ?? 0)
+      userPnl.set(cb.user_id, cur)
+    }
   }
 
   // Pokale des Spieltags from user_awards

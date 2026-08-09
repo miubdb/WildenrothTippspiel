@@ -612,9 +612,12 @@ export default async function TippsPage({
   // Build match label map for social section
   const matchMap = new Map(matchdayMatches.map(m => [m.id, m]))
 
-  // Spieltags-Recap: complete when all non-postponed matches are finished (≥1 must be finished)
+  // Spieltags-Recap: complete when all non-postponed matches are finished (≥1 must be finished).
+  // Matchday 999 is the reserved test matchday — excluded here too, matching
+  // settle/route.ts and lib/awards.ts, so test-bet results/usernames never
+  // surface as a "real" recap preview during a pre-season test run.
   const nonPostponedMatches = matchdayMatches.filter(m => m.status !== 'postponed')
-  const isMatchdayComplete = nonPostponedMatches.length > 0 &&
+  const isMatchdayComplete = currentMatchday !== 999 && nonPostponedMatches.length > 0 &&
     nonPostponedMatches.every(m => m.status === 'finished')
 
   let recapData: RecapData | null = null
@@ -760,19 +763,19 @@ export default async function TippsPage({
         ? { name: pMap[exactWon[0].user_id] ?? 'Unbekannt', score: exactWon[0].selection, stake: exactWon[0].stake }
         : null
 
-      // 5. Griff ins Klo — highest lost stake
-      const lostSingles = singleBets.filter(b => b.status === 'lost').sort((a, b) => b.stake - a.stake)
-      const lostCombos = recapCombos.filter(c => c.status === 'lost').sort((a, b) => b.stake - a.stake)
-      let griffInsKlo: RecapData['griffInsKlo'] = null
-      {
-        const sSt = lostSingles[0]?.stake ?? 0
-        const cSt = lostCombos[0]?.stake ?? 0
-        if (sSt >= cSt && lostSingles[0]) {
-          griffInsKlo = { name: pMap[lostSingles[0].user_id] ?? 'Unbekannt', loss: sSt, isCombo: false }
-        } else if (lostCombos[0]) {
-          griffInsKlo = { name: pMap[lostCombos[0].user_id] ?? 'Unbekannt', loss: cSt, isCombo: true }
-        }
-      }
+      // 5. Griff ins Klo — highest lost stake, tiebreak: higher potential payout
+      // (stake × odds). Merged into one list and sorted exactly like
+      // lib/awards.ts's persisted computation, so a stake tie can't make this
+      // live preview disagree with the eventual persisted award.
+      const lostSingles = singleBets.filter(b => b.status === 'lost')
+      const lostCombos = recapCombos.filter(c => c.status === 'lost')
+      const lostAll = [
+        ...lostSingles.map(b => ({ user_id: b.user_id, stake: b.stake, potential: b.stake * b.odds_value, isCombo: false })),
+        ...lostCombos.map(c => ({ user_id: c.user_id, stake: c.stake, potential: c.stake * c.total_odds, isCombo: true })),
+      ].sort((a, b) => b.stake - a.stake || b.potential - a.potential)
+      const griffInsKlo: RecapData['griffInsKlo'] = lostAll[0]
+        ? { name: pMap[lostAll[0].user_id] ?? 'Unbekannt', loss: lostAll[0].stake, isCombo: lostAll[0].isCombo }
+        : null
 
       // 6. Betonmischer — lowest odds among won bets, tiebreak: higher stake
       const allWonForBeton = [

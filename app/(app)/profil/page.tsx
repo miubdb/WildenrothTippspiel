@@ -74,6 +74,12 @@ export default async function ProfilPage({
     .from('user_awards')
     .select('award_type, award_title, award_icon, award_description, matchday, season, value, value_text')
     .eq('user_id', user.id)
+    // Season first, then matchday — matchday numbers reset every season, so
+    // ordering by matchday alone can rank a higher-numbered Spieltag from a
+    // PRIOR season ahead of a lower-numbered one from the current season,
+    // making the Pokalschrank's "latest" badge season-wrong. Season strings
+    // sort correctly lexically ("25/26" < "26/27").
+    .order('season', { ascending: false })
     .order('matchday', { ascending: false })
   const awards = awardsRaw ?? []
 

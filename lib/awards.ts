@@ -1,5 +1,9 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { wildiLabel } from '@/components/WildiIcon'
+import { buildEffectiveMatchdayIndex, recapMatchdayOf } from '@/lib/season'
+import type { Match } from '@/types'
+
+const SEASON_START = '2026-08-01'
 
 // Monthly awards (not implemented yet — conceptual note only, per release-scope
 // decision to not build this before launch):
@@ -116,9 +120,41 @@ export async function computeAndPersistMatchdayAwards(
     comboBets = (cbData ?? []) as CB[]
     const { data: legData } = await admin
       .from('bets')
-      .select('combo_id, status')
+      .select('combo_id, status, match_id')
       .in('combo_id', comboIds)
     allLegs = (legData ?? []).map((l: { combo_id: unknown; status: string }) => ({ combo_id: Number(l.combo_id), status: l.status }))
+
+    // A combo whose legs span two Spieltage must be counted toward exactly
+    // ONE of them — this function runs once per Spieltag as it settles, so
+    // without this a cross-Spieltag combo's full stake/payout would be
+    // awarded toward Spieltagskönig (and every other combo-eligible award)
+    // on EVERY Spieltag it touches. Canonical owner = the earliest
+    // recap-Spieltag among all its legs (mirrors the equivalent fix in
+    // app/(app)/recap/[matchday]/page.tsx's own per-user P&L display).
+    const legMatchIds = [...new Set((legData ?? []).map((l) => l.match_id as number))]
+    const { data: legMatchesRaw } = await admin
+      .from('matches')
+      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+      .in('id', legMatchIds)
+    const { data: seasonMatchesRaw } = await admin
+      .from('matches')
+      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+      .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
+    const mdIndex = buildEffectiveMatchdayIndex((seasonMatchesRaw ?? []) as Match[])
+    const matchIdToRecapMd = new Map<number, number | null>(
+      ((legMatchesRaw ?? []) as Match[]).map((m) => [m.id, recapMatchdayOf(m, mdIndex)])
+    )
+    const comboOwnerMatchday = new Map<number, number>()
+    for (const l of legData ?? []) {
+      const legMd = matchIdToRecapMd.get(l.match_id as number)
+      if (legMd == null) continue
+      const cid = Number(l.combo_id)
+      const cur = comboOwnerMatchday.get(cid)
+      if (cur == null || legMd < cur) comboOwnerMatchday.set(cid, legMd)
+    }
+    comboBets = comboBets.filter((c) => comboOwnerMatchday.get(c.id) === matchday)
+    const ownedComboIds = new Set(comboBets.map((c) => c.id))
+    allLegs = allLegs.filter((l) => ownedComboIds.has(l.combo_id))
   }
 
   const wonSingles = singleBets.filter((b: { status: string }) => b.status === 'won')

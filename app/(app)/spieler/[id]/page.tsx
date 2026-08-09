@@ -114,6 +114,8 @@ export default async function SpielerPage({
     .from('user_awards')
     .select('award_type, award_title, award_icon, award_description, matchday, season, value_text')
     .eq('user_id', id)
+    // Season first — see the identical fix/comment in app/(app)/profil/page.tsx.
+    .order('season', { ascending: false })
     .order('matchday', { ascending: false })
   const awards = awardsRaw ?? []
 
