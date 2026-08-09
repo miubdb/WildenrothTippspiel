@@ -139,6 +139,12 @@ export default async function LeaderboardPage({
 
   // Always compute ALL pending stakes across all matches so balance+pending = true ranking value.
   // This prevents reducing balances from leaking bet sizes before reveal.
+  //
+  // betCountsPerUser, by contrast, drives the "N Wettscheine platziert" placeholder
+  // shown under the currently selected Spieltag — it must count only bets that
+  // touch THIS Spieltag's matches, not a user's pending bets for the whole
+  // season, or a user with bets open on two Spieltage at once (e.g. one held
+  // open by a postponed match) gets a combined, misleading count shown here.
   const pendingStakesPerUser: Record<string, number> = {}
   const betCountsPerUser: Record<string, number> = {}
   {
@@ -148,13 +154,16 @@ export default async function LeaderboardPage({
       .select('id, user_id, stake, combo_id, match_id')
       .eq('status', 'pending')
     const seenComboIds = new Set<number>()
+    const comboTouchesMatchday = new Set<number>()
     for (const b of pendingBetRows ?? []) {
       if (!b.combo_id) {
         pendingStakesPerUser[b.user_id] = (pendingStakesPerUser[b.user_id] ?? 0) + (b.stake ?? 0)
-        betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
-      } else if (!seenComboIds.has(Number(b.combo_id))) {
+        if (matchdayMatchIds.has(b.match_id)) {
+          betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
+        }
+      } else {
+        if (matchdayMatchIds.has(b.match_id)) comboTouchesMatchday.add(Number(b.combo_id))
         seenComboIds.add(Number(b.combo_id))
-        betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
       }
     }
     if (seenComboIds.size > 0) {
@@ -164,6 +173,9 @@ export default async function LeaderboardPage({
         .in('id', [...seenComboIds])
       for (const c of comboPendingRows ?? []) {
         pendingStakesPerUser[c.user_id] = (pendingStakesPerUser[c.user_id] ?? 0) + c.stake
+        if (comboTouchesMatchday.has(c.id)) {
+          betCountsPerUser[c.user_id] = (betCountsPerUser[c.user_id] ?? 0) + 1
+        }
       }
     }
   }
