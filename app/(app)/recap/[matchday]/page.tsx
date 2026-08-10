@@ -42,7 +42,7 @@ export default async function RecapPage({
   const { data: matchRowsRaw } = await supabase
     .from('matches')
     .select(
-      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel,
+      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday,
        home_team:teams!matches_home_team_id_fkey(name),
        away_team:teams!matches_away_team_id_fkey(name)`
     )

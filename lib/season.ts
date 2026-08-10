@@ -182,10 +182,20 @@ const EFFECTIVE_OUTLIER_DAYS = 7
  * Use this for everything: which tab a match/bet appears under, the
  * per-matchday bet limit, awards/recap grouping, leaderboard P&L, inactivity
  * timing — there is only one Spieltag grouping now.
+ *
+ * `m.tippspiel_matchday`, when set, is an explicit, hand-pinned override that
+ * wins over the dynamic computation below — used for the small set of BFV
+ * Nachholspiele and the full B-Klasse date-block assignment the club fixed
+ * ahead of go-live (see the go-live migration). It is checked from INSIDE
+ * each branch (after the Kreisliga/Wildenroth-II/Topspiel category gate), not
+ * at the top of the function, so a non-Topspiel B-Klasse match with a
+ * pre-assigned override still correctly returns null today — it only takes
+ * effect once an admin actually flags that match as this week's Topspiel.
  */
 export function effectiveMatchdayOf(m: Match, index: EffectiveMatchdayIndex): number | null {
   if (m.matchday === 999) return 999
   if (isKreisligaMatch(m)) {
+    if (m.tippspiel_matchday != null) return m.tippspiel_matchday
     const anchor = index.matchdayAnchorDate.get(m.matchday)
     const t = new Date(m.match_date).getTime()
     if (anchor != null && Math.abs(t - anchor) > EFFECTIVE_OUTLIER_DAYS * 86400000) {
@@ -197,6 +207,7 @@ export function effectiveMatchdayOf(m: Match, index: EffectiveMatchdayIndex): nu
   const isWildenrothII = m.match_category === 'wildenroth_ii'
   const isTopspiel = m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel)
   if (!isWildenrothII && !isTopspiel) return null
+  if (m.tippspiel_matchday != null) return m.tippspiel_matchday
   const t = new Date(m.match_date).getTime()
   return nearestMatchdayByDate(t, index)
 }

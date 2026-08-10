@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     // needs the whole season's kickoff dates to compute each Spieltag's anchor.
     const { data: seasonMatchesRaw } = await admin
       .from('matches')
-      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
       .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
       .order('match_date', { ascending: true })
 

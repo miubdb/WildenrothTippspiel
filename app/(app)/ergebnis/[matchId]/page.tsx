@@ -54,7 +54,7 @@ export default async function ErgebnisPage({
   const { data: matchRaw } = await supabase
     .from('matches')
     .select(`
-      id, matchday, match_date, home_score, away_score, status, match_category, is_topspiel,
+      id, matchday, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday,
       home_team:teams!matches_home_team_id_fkey(name),
       away_team:teams!matches_away_team_id_fkey(name)
     `)
@@ -75,7 +75,7 @@ export default async function ErgebnisPage({
   // linking to the raw number would land on a tab that doesn't contain it.
   const { data: seasonMatchesRaw } = await supabase
     .from('matches')
-    .select('id, matchday, match_date, match_category, is_topspiel')
+    .select('id, matchday, match_date, match_category, is_topspiel, tippspiel_matchday')
     .gte('match_date', SEASON_START)
   const mdIndex = buildEffectiveMatchdayIndex((seasonMatchesRaw ?? []) as Match[])
   const backMatchday = effectiveMatchdayOf(match as Match, mdIndex) ?? match.matchday

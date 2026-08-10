@@ -134,11 +134,11 @@ export async function computeAndPersistMatchdayAwards(
     const legMatchIds = [...new Set((legData ?? []).map((l) => l.match_id as number))]
     const { data: legMatchesRaw } = await admin
       .from('matches')
-      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
       .in('id', legMatchIds)
     const { data: seasonMatchesRaw } = await admin
       .from('matches')
-      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
       .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
     const mdIndex = buildEffectiveMatchdayIndex((seasonMatchesRaw ?? []) as Match[])
     const matchIdToRecapMd = new Map<number, number | null>(

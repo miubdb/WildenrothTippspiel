@@ -31,14 +31,14 @@ const INACTIVITY_PENALTY = 50
 export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: number): Promise<void> {
   const { data: matchInfo } = await admin
     .from('matches')
-    .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+    .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
     .eq('id', matchId)
     .single()
   if (!matchInfo) return
 
   const { data: seasonMatchesRaw } = await admin
     .from('matches')
-    .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+    .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
     .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
   const seasonMatchesForMd = (seasonMatchesRaw ?? []) as Match[]
   const mdIndex = buildEffectiveMatchdayIndex(seasonMatchesForMd)

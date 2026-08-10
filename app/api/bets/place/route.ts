@@ -174,7 +174,7 @@ export async function POST(request: NextRequest) {
   const matchIds = [...new Set(selections.map((s) => s.matchId))]
   const { data: matches } = await supabase
     .from('matches')
-    .select('id, match_number, match_date, status, matchday, home_team_id, away_team_id, match_category, is_topspiel')
+    .select('id, match_number, match_date, status, matchday, home_team_id, away_team_id, match_category, is_topspiel, tippspiel_matchday')
     .in('id', matchIds)
 
   if (!matches || matches.length !== matchIds.length) {
@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
   // column or it disagrees with what tipps/page.tsx displayed and let the user bet.
   const { data: seasonMatchesRaw } = await supabase
     .from('matches')
-    .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel')
+    .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
     .or(`match_date.gte.${SEASON_START},matchday.eq.${TEST_MATCHDAY}`)
   const seasonMatchesForRequest = (seasonMatchesRaw ?? []) as Match[]
   const mdIndex = buildEffectiveMatchdayIndex(seasonMatchesForRequest)

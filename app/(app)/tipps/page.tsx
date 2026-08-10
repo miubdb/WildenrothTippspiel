@@ -54,13 +54,13 @@ export default async function TippsPage({
     { data: leaguePlayersRaw },
     { data: lineupEntriesRaw },
     seasonStarted,
-    { data: earlyOpenSetting },
+    { data: appSettingsRaw },
     { data: { user } },
   ] = await Promise.all([
     supabase
       .from('matches')
       .select(
-        `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel,
+        `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday,
          home_team:teams!matches_home_team_id_fkey(id, name, short_name),
          away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
       )
@@ -85,9 +85,22 @@ export default async function TippsPage({
       .range(from, to)
     ).then((data) => ({ data })),
     isSeasonStarted(supabase),
-    supabase.from('app_settings').select('value').eq('key', 'early_betting_open').single(),
+    supabase.from('app_settings').select('key, value'),
     supabase.auth.getUser(),
   ])
+
+  const appSettings = new Map((appSettingsRaw ?? []).map((s) => [s.key, s.value]))
+  // Explicit, hand-fixed betting-open time per Tippspiel-Spieltag, set once
+  // ahead of go-live (app_settings key `betting_open_md_<N>`) — overrides both
+  // the Monday-noon formula (bettingOpenTime) and the "not before the previous
+  // Spieltag's last kickoff" clamp below, since the explicit times already
+  // account for that by hand. A Spieltag without an explicit entry falls back
+  // to the dynamic computation unchanged.
+  const explicitBettingOpens = new Map<number, Date>()
+  for (const [key, value] of appSettings) {
+    const m = /^betting_open_md_(\d+)$/.exec(key)
+    if (m) explicitBettingOpens.set(Number(m[1]), new Date(value))
+  }
 
   const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
     ...m,
@@ -202,7 +215,7 @@ export default async function TippsPage({
   const isDeadlinePassed = deadline ? deadline <= new Date() : false
 
   // Betting window: opens Monday 12:00 of match week (unless early_betting_open override is set)
-  const earlyBettingOpen = earlyOpenSetting?.value === 'true'
+  const earlyBettingOpen = appSettings.get('early_betting_open') === 'true'
   const ownBettingOpens = deadline ? bettingOpenTime(deadline) : null
   // Prevent two matchdays being open for betting at once: a matchday can never open
   // before the immediately preceding (chronological) matchday's last match has kicked
@@ -223,9 +236,16 @@ export default async function TippsPage({
           return latest === null || t > latest ? t : latest
         }, null)
     : null
-  const bettingOpens = ownBettingOpens && prevMatchdayLastKickoff != null && prevMatchdayLastKickoff > ownBettingOpens.getTime()
+  const dynamicBettingOpens = ownBettingOpens && prevMatchdayLastKickoff != null && prevMatchdayLastKickoff > ownBettingOpens.getTime()
     ? new Date(prevMatchdayLastKickoff)
     : ownBettingOpens
+  // Explicit, hand-fixed opening time (see explicitBettingOpens above) wins
+  // outright over the dynamic formula+clamp above — it was set to already
+  // account for the previous Spieltag's timing by hand, so re-clamping it here
+  // would risk pushing it later than the intended, exact value.
+  const bettingOpens = currentMatchday != null && explicitBettingOpens.has(currentMatchday)
+    ? explicitBettingOpens.get(currentMatchday)!
+    : dynamicBettingOpens
   // earlyBettingOpen only applies to the chronologically first upcoming matchday
   const isBettingOpen = (earlyBettingOpen && currentMatchday === firstScheduled) || !bettingOpens || new Date() >= bettingOpens
 

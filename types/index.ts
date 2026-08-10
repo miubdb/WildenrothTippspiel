@@ -26,6 +26,7 @@ export interface Match {
   away_team?: Team
   match_category?: 'kreisliga' | 'wildenroth_ii' | 'bklasse_topspiel' | 'b-klasse'
   is_topspiel?: boolean
+  tippspiel_matchday?: number | null
 }
 
 
