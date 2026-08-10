@@ -127,10 +127,16 @@ for odds and standings — this constant is duplicated per-file, not shared conf
 
 The BFV (district football association) sometimes schedules a matchday's actual kickoff well out
 of numeric order — e.g. Spieltag 2 played as a midweek catch-up *after* Spieltag 7. The displayed
-matchday **number** always stays the official one, but any "current/default/completed matchday"
-logic must order by actual kickoff date, not the number. See `matchdayMinDate` in `tipps/page.tsx`
-and the equivalent in `leaderboard/page.tsx` — this has been fixed inconsistently across files
-before, so grep for `matchdayMinDate` to catch all sites if you touch matchday ordering.
+matchday **number** never changes, but the Spieltag **overview/picker** (tipps, leaderboard) is
+sorted chronologically by actual kickoff, not by number — `kreisligaMatchdaysDisplayOrder`
+(`lib/season.ts#buildEffectiveMatchdayIndex`), ordered by the outlier-robust median
+`matchdayAnchorDate` (tie-broken by Spieltag number) so a single rescheduled match can't drag its
+whole Spieltag's position around the way a raw earliest-date sort would. The internal
+betting-window sequencing gate ("never two Spieltage open at once", `tipps/page.tsx`) deliberately
+uses a *separate* list — `kreisligaMatchdaysSorted` (raw earliest-kickoff per official Spieltag) —
+do not merge the two, or betting-open times shift. This has been fixed inconsistently across files
+before, so grep for `kreisligaMatchdaysDisplayOrder` to catch all user-facing picker sites if you
+touch matchday ordering.
 
 `lib/season.ts`'s `bettingOpenTime()` is the single source of truth for "Monday 12:00 Europe/Berlin
 of match week" — it used to be duplicated across 4 files with a month-boundary bug in each; don't

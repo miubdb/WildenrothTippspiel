@@ -61,7 +61,7 @@ export default async function LeaderboardPage({
   // column — otherwise a bet placed on such a match (shown under a specific
   // Tippspiel-Spieltag tab on /tipps) lands under the wrong Spieltag here.
   const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
-  const { matchdayMinDate, kreisligaMatchdaysNumeric } = mdIndex
+  const { matchdayMinDate, kreisligaMatchdaysDisplayOrder } = mdIndex
   const effectiveMatchdayOf = (m: Match) => effectiveMatchdayOfShared(m, mdIndex)
   // Recap grouping (awards/streaks/Wochentippkönig/"is this Spieltag's story
   // done" timing) differs from the display grouping above for a Kreisliga
@@ -76,12 +76,12 @@ export default async function LeaderboardPage({
   const hasTestMatchday = seasonMatches.some(m => m.matchday === 999)
 
   // Fall back to 1-28 placeholder when no real season matches exist yet (ignore test matchday).
-  // Numeric order: this array is only ever rendered as the Spieltag picker and
-  // filtered/`.includes`-checked — every date-dependent decision below goes
-  // through the explicit `byKickoff` comparator instead, so plain numeric order
-  // is both what users expect and safe here.
-  const allMatchdays = kreisligaMatchdaysNumeric.length > 0
-    ? [...(hasTestMatchday ? [999] : []), ...kreisligaMatchdaysNumeric]
+  // Chronological order by actual kickoff (outlier-robust median anchor, see
+  // lib/season.ts) — mirrors the same picker order used on tipps/page.tsx.
+  // Every date-dependent decision below goes through the explicit `byKickoff`
+  // comparator instead of this array's own order, so reordering it here is safe.
+  const allMatchdays = kreisligaMatchdaysDisplayOrder.length > 0
+    ? [...(hasTestMatchday ? [999] : []), ...kreisligaMatchdaysDisplayOrder]
     : [...(hasTestMatchday ? [999] : []), ...Array.from({ length: 28 }, (_, i) => i + 1)]
   const allMatches = allMatchesRaw2
   const allBets = (allBetsRaw ?? []).filter(b => !b.season || b.season === CURRENT_SEASON)

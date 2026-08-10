@@ -151,12 +151,16 @@ export default async function TippsPage({
   const allMatchdays = isPreSeason
     ? [...(hasTestMatchday ? [999] : []), ...Array.from({ length: 28 }, (_, i) => i + 1)]
     : [...(hasTestMatchday ? [999] : []), ...kreisligaMatchdaysSorted]
-  // DISPLAY list for the Spieltag picker: plain numeric order, because users
-  // look for "Spieltag 7" by its number. Kept separate from `allMatchdays` on
-  // purpose — never use this one for chronological reasoning.
+  // DISPLAY list for the Spieltag picker: chronological order by actual
+  // kickoff date (outlier-robust median anchor), not by official Spieltag
+  // number — product decision: the overview shows Spieltage in the order
+  // they're actually played. Deliberately a SEPARATE list from `allMatchdays`
+  // above (which drives the betting-window sequencing gate and stays on the
+  // raw earliest-kickoff order) — reordering the picker must not shift when
+  // any Spieltag opens for betting.
   const displayMatchdays = isPreSeason
     ? allMatchdays
-    : [...(hasTestMatchday ? [999] : []), ...mdIndex.kreisligaMatchdaysNumeric]
+    : [...(hasTestMatchday ? [999] : []), ...mdIndex.kreisligaMatchdaysDisplayOrder]
 
   const firstScheduled = [...new Set(kreisligaMatches.filter((m) => m.status === 'scheduled').map((m) => m.matchday))]
     .sort((a, b) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0))[0]

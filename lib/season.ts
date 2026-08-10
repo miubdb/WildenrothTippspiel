@@ -70,24 +70,31 @@ const isKreisligaMatch = (m: Pick<Match, 'match_category'>) =>
   !m.match_category || m.match_category === 'kreisliga'
 
 export interface EffectiveMatchdayIndex {
-  /** Spieltag numbers ordered by earliest kickoff. This is CHRONOLOGICAL order,
-   *  not numeric — the BFV plays Spieltage out of numeric sequence, so this is
-   *  what "the Spieltag before this one" means. Used by the betting-window gate
-   *  ("never two Spieltage open at once") and for tie-breaks in
-   *  `nearestMatchdayByDate`. Do NOT render this to users — use
-   *  `kreisligaMatchdaysNumeric` for any Spieltag picker. */
+  /** Spieltag numbers ordered by each Spieltag's own RAW earliest kickoff
+   *  (`matchdayMinDate`) — not outlier-robust, and NOT for display. This
+   *  feeds only the betting-window sequencing gate ("never two Spieltage
+   *  open at once" in tipps/page.tsx), which must keep comparing Spieltage
+   *  by their own original schedule so opening times stay exactly as they
+   *  are today. A single Kreisliga match rescheduled weeks away distorts
+   *  this list's position for its whole Spieltag (see
+   *  `kreisligaMatchdaysDisplayOrder` for the fix used everywhere else). */
   kreisligaMatchdaysSorted: number[]
-  /** Spieltag numbers in plain numeric ascending order (1, 2, 3, …). This is
-   *  what every user-facing Spieltag selector must render: users look for
-   *  "Spieltag 7" by its number, not by where it happens to fall in the
-   *  calendar. */
-  kreisligaMatchdaysNumeric: number[]
+  /** Spieltag numbers ordered chronologically by the outlier-robust MEDIAN
+   *  kickoff (`matchdayAnchorDate`), tie-broken by the official Spieltag
+   *  number. This is what every user-facing Spieltag overview/picker must
+   *  render (tipps, leaderboard): Spieltage appear in the order they are
+   *  actually played, not by their official number — but unlike a
+   *  min()-based order, a single match rescheduled far outside its own
+   *  Spieltag's week doesn't drag that whole Spieltag's position around,
+   *  since the median stays put as long as most of its matches didn't move. */
+  kreisligaMatchdaysDisplayOrder: number[]
   matchdayMinDate: Map<number, number>
   /** Median kickoff timestamp per Kreisliga Spieltag — used (not min/max) to
    *  place a Wildenroth-II/Topspiel match, specifically because it stays
    *  stable when a single Kreisliga match of that Spieltag gets postponed and
    *  later rescheduled far out (a min/max window would balloon to cover that
-   *  outlier date and could then wrongly "claim" a later Spieltag's matches). */
+   *  outlier date and could then wrongly "claim" a later Spieltag's matches).
+   *  Also drives `kreisligaMatchdaysDisplayOrder` above for the same reason. */
   matchdayAnchorDate: Map<number, number>
 }
 
@@ -127,8 +134,11 @@ export function buildEffectiveMatchdayIndex(seasonMatches: Match[]): EffectiveMa
   const kreisligaMatchdaysSorted = [...matchdayMinDate.keys()].sort(
     (a, b) => matchdayMinDate.get(a)! - matchdayMinDate.get(b)!
   )
-  const kreisligaMatchdaysNumeric = [...matchdayMinDate.keys()].sort((a, b) => a - b)
-  return { kreisligaMatchdaysSorted, kreisligaMatchdaysNumeric, matchdayMinDate, matchdayAnchorDate }
+  const kreisligaMatchdaysDisplayOrder = [...matchdayAnchorDate.keys()].sort((a, b) => {
+    const diff = matchdayAnchorDate.get(a)! - matchdayAnchorDate.get(b)!
+    return diff !== 0 ? diff : a - b
+  })
+  return { kreisligaMatchdaysSorted, kreisligaMatchdaysDisplayOrder, matchdayMinDate, matchdayAnchorDate }
 }
 
 function nearestMatchdayByDate(t: number, index: EffectiveMatchdayIndex): number | null {
