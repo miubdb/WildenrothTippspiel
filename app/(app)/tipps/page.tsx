@@ -376,7 +376,7 @@ export default async function TippsPage({
       // Always fetch active players (needed for name map at display time).
       const { data: playersRaw } = await supabase
         .from('wildenroth_players')
-        .select('id, name, position, games, minutes, goals, assists, prev_games, prev_minutes, prev_goals, is_goalkeeper, is_penalty_taker, is_freekick_taker, active')
+        .select('id, name, position, games, minutes, goals, assists, prev_games, prev_minutes, prev_goals, friendly_goals, is_goalkeeper, is_penalty_taker, is_freekick_taker, active')
         .eq('active', true).in('squad', side.squads)
       const players = (playersRaw ?? []) as WildenrothPlayer[]
       for (const p of players) playerNameMap[p.id] = p.name

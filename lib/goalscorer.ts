@@ -30,6 +30,16 @@ const MIN_PROB_SCORE_2PLUS = 0.05
 const PENALTY_TAKER_BUMP = 0.06
 const FREEKICK_TAKER_BUMP = 0.03
 
+// Preseason ("Vorbereitung") friendly-match goals — a minor secondary signal,
+// hand-entered from match reports (wildenroth_players.friendly_goals). Applied
+// as a small additive bump, same pattern as the set-piece bumps above, and
+// capped so a hot preseason can only nudge the odds, never override the real
+// prior-season sample that dominates bayesianGoalsPer90. There is no way to
+// tell from match reports which players played a friendly and did NOT score,
+// so this only ever adds — it cannot penalize a player for a quiet preseason.
+const FRIENDLY_GOAL_BUMP = 0.02
+const FRIENDLY_BUMP_CAP = 0.15
+
 export type WildenrothPlayer = {
   id: number
   name: string
@@ -48,6 +58,7 @@ export type WildenrothPlayer = {
   prev_games?: number | null
   prev_minutes?: number | null
   prev_goals?: number | null
+  friendly_goals?: number | null
 }
 
 /** Which sample to judge a player on: the current season once they have actually
@@ -144,6 +155,9 @@ export function computePlayerOdds(
   // Set-piece bumps (additive, small).
   if (player.is_penalty_taker) playerXG += PENALTY_TAKER_BUMP
   if (player.is_freekick_taker) playerXG += FREEKICK_TAKER_BUMP
+
+  // Preseason form bump (additive, small, capped — see FRIENDLY_GOAL_BUMP above).
+  playerXG += Math.min(FRIENDLY_BUMP_CAP, (player.friendly_goals ?? 0) * FRIENDLY_GOAL_BUMP)
 
   // Poisson: P(0 goals) = e^-λ; P(≥1) = 1 - e^-λ; P(≥2) = 1 - e^-λ(1+λ).
   const probScore = 1 - Math.exp(-playerXG)
