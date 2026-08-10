@@ -562,14 +562,18 @@ export default async function TippsPage({
         }))
       }
 
-      // Compute counts dynamically: risky = the single bet/combo with the highest
-      // effective odds (if > 20); all others are normal.
-      const singleOdds = userSingles.map(b => b.odds_value)
-      const comboOdds = userCombos.map(c => c.legs.reduce((acc, l) => acc * l.odds_value, 1))
-      const allOdds = [...singleOdds, ...comboOdds]
-      const maxOdds = allOdds.length > 0 ? Math.max(...allOdds) : 0
-      riskyBetCount = maxOdds > 20 ? 1 : 0
-      normalBetCount = allOdds.length - riskyBetCount
+      // Counts come from the actually stored is_risky flag (set once, server-side,
+      // at placement — see /api/bets/place) rather than re-derived from odds here.
+      // A combo's legs all share one is_risky value, so any leg reflects the
+      // whole combo's slot. Only PENDING bets occupy a slot — a settled bet no
+      // longer counts toward the limit (cancellation deletes the row outright,
+      // so it's already excluded either way).
+      const pendingSingles = userSingles.filter(b => b.status === 'pending')
+      const pendingCombos = userCombos.filter(c => c.status === 'pending')
+      const riskySingles = pendingSingles.filter(b => b.is_risky).length
+      const riskyCombos = pendingCombos.filter(c => c.legs[0]?.is_risky).length
+      riskyBetCount = riskySingles + riskyCombos
+      normalBetCount = (pendingSingles.length - riskySingles) + (pendingCombos.length - riskyCombos)
     }
   }
 

@@ -76,16 +76,10 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
 
   if (singles.length === 0 && combos.length === 0) return null
 
-  // Determine risky unit (single bet or combo with highest effective odds > 20)
+  // Risky comes from the actually stored is_risky flag (set once, server-side,
+  // at placement — see /api/bets/place), not re-derived from odds here. A
+  // combo's legs all share one is_risky value.
   const comboEffOdds = new Map(combos.map(c => [c.id, c.legs.reduce((acc, l) => acc * l.odds_value, 1)]))
-  const allUnits = [
-    ...singles.map(b => ({ kind: 'single' as const, id: b.id, odds: b.odds_value })),
-    ...combos.map(c => ({ kind: 'combo' as const, id: c.id, odds: comboEffOdds.get(c.id) ?? 0 })),
-  ]
-  const maxOdds = allUnits.reduce((m, u) => Math.max(m, u.odds), 0)
-  const riskyUnit = maxOdds > 20 ? (allUnits.find(u => u.odds === maxOdds) ?? null) : null
-  const riskyBetId = riskyUnit?.kind === 'single' ? riskyUnit.id : null
-  const riskyComboId = riskyUnit?.kind === 'combo' ? riskyUnit.id : null
 
   async function cancelBet(betId?: number, comboId?: number) {
     const key = betId ? `bet-${betId}` : `combo-${comboId}`
@@ -120,7 +114,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
     ...singles.map(leg => ({
       id: `bet-${leg.id}`,
       type: 'single' as const,
-      isRisky: leg.id === riskyBetId,
+      isRisky: leg.is_risky,
       totalOdds: leg.odds_value,
       stake: leg.stake ?? 0,
       status: leg.status as WetteStatus,
@@ -139,7 +133,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
       return {
         id: `combo-${combo.id}`,
         type: 'combo' as const,
-        isRisky: combo.id === riskyComboId,
+        isRisky: combo.legs[0]?.is_risky ?? false,
         totalOdds: comboEffOdds.get(combo.id) ?? 1,
         stake: combo.stake,
         status: effectiveSt,

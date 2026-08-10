@@ -5,14 +5,23 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
-// Escape LIKE/ILIKE wildcards ('%', '_') and the escape character itself so a
-// display name containing them is matched literally, not as a pattern — an
-// unescaped name could otherwise false-positive against unrelated rows (e.g.
-// "a_b" matching "axb") and, if the pattern matches more than one existing
-// profile, silently pass the uniqueness check entirely (maybeSingle() errors
-// on multiple rows, and that error was never being checked).
-function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (c) => `\\${c}`)
+// Server-side availability check — see app/api/auth/check-display-name/route.ts.
+// A client-only SELECT can't be trusted as the uniqueness check: it's racy
+// (two simultaneous registrations could both see "available") and the actual
+// boundary is the DB's trimmed/lowercased UNIQUE index, enforced at signUp().
+async function checkDisplayNameAvailable(name: string): Promise<{ available: boolean } | { error: string }> {
+  try {
+    const res = await fetch('/api/auth/check-display-name', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName: name }),
+    })
+    const data = await res.json()
+    if (!res.ok) return { error: data.error ?? 'Name konnte nicht geprüft werden.' }
+    return { available: !!data.available }
+  } catch {
+    return { error: 'Netzwerkfehler. Bitte erneut versuchen.' }
+  }
 }
 
 function generateUsername(displayName: string): string {
@@ -105,18 +114,13 @@ export default function RegisterPage() {
         return
       }
       setCheckingName(true)
-      const supabase = createClient()
-      const { data: existing, error: checkError } = await supabase
-        .from('profiles')
-        .select('id')
-        .ilike('display_name', escapeLike(trimmed))
-        .maybeSingle()
+      const result = await checkDisplayNameAvailable(trimmed)
       setCheckingName(false)
-      if (checkError) {
-        setError('Name konnte nicht geprüft werden. Bitte erneut versuchen.')
+      if ('error' in result) {
+        setError(result.error)
         return
       }
-      if (existing) {
+      if (!result.available) {
         setError('Dieser Name ist leider schon vergeben.')
         return
       }
@@ -155,6 +159,22 @@ export default function RegisterPage() {
 
     setLoading(true)
 
+    // Re-check right before signUp() to shrink the race window (still not a
+    // full guarantee — the DB's unique index is the actual boundary).
+    const nameTrimmed = form.displayName.trim()
+    const recheck = await checkDisplayNameAvailable(nameTrimmed)
+    if ('error' in recheck) {
+      setError(recheck.error)
+      setLoading(false)
+      return
+    }
+    if (!recheck.available) {
+      setError('Dieser Name ist leider schon vergeben.')
+      setLoading(false)
+      setStep('name')
+      return
+    }
+
     const supabase = createClient()
     const username = generateUsername(form.displayName)
 
@@ -165,13 +185,22 @@ export default function RegisterPage() {
       options: {
         data: {
           username,
-          display_name: form.displayName.trim(),
+          display_name: nameTrimmed,
         },
       },
     })
 
     if (signUpError) {
-      setError(signUpError.message)
+      const msg = signUpError.message?.toLowerCase() ?? ''
+      const isNameConflict = msg.includes('duplicate') || msg.includes('unique') || msg.includes('display_name')
+      if (isNameConflict) {
+        setError('Dieser Name ist leider schon vergeben.')
+        setStep('name')
+      } else if (msg.includes('already registered') || msg.includes('already exists') || msg.includes('user already')) {
+        setError('Für diese E-Mail-Adresse existiert bereits ein Konto.')
+      } else {
+        setError('Registrierung fehlgeschlagen. Bitte versuche es erneut.')
+      }
       setLoading(false)
       return
     }

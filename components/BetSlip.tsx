@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useBetSlip, bsKey } from '@/context/BetSlipContext'
 import { WildiIcon, fmtWildi, wildiLabel } from '@/components/WildiIcon'
 
 const STAKE_PRESETS = [10, 15, 50, 100, 200, 250]
+const MIN_STAKE = 1
+const MAX_STAKE = 250
 import type { MarketType } from '@/types'
 import { crestPath } from '@/lib/teams'
 
@@ -44,10 +46,21 @@ export function BetSlip() {
 
   const [inputValues, setInputValues] = useState<Record<string, string>>({})
   const [comboInputValue, setComboInputValue] = useState('10')
+  const [stakeHints, setStakeHints] = useState<Record<string, string>>({})
+  const [comboStakeHint, setComboStakeHint] = useState<string | null>(null)
 
   const count = selections.length
 
-  if (count === 0) return null
+  // Auto-dismiss the success toast after a few seconds — no further click
+  // needed, and it must not depend on the slip UI (below) still being
+  // rendered, since clearSlip() on success drops count to 0.
+  useEffect(() => {
+    if (!success) return
+    const t = setTimeout(() => setSuccess(null), 4000)
+    return () => clearTimeout(t)
+  }, [success])
+
+  if (count === 0 && !success) return null
 
   function key(matchId: number, marketType: MarketType, selection: string) {
     return bsKey(matchId, marketType, selection)
@@ -64,6 +77,7 @@ export function BetSlip() {
   function handleStakeButton(matchId: number, marketType: MarketType, selection: string, amt: number) {
     setStake(matchId, marketType, amt, selection)
     setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(amt) }))
+    setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection)]: '' }))
   }
 
   // Accepts both "9.80" and the German "9,80" — comma is the natural decimal
@@ -72,36 +86,89 @@ export function BetSlip() {
     return parseFloat(raw.replace(',', '.'))
   }
 
+  // Rounds to 2 decimal places — "more than 2 decimals" isn't its own error,
+  // it's just normalized away silently (matches the server's own rounding check).
+  function round2(n: number): number {
+    return Math.round(n * 100) / 100
+  }
+
   function handleStakeChange(matchId: number, marketType: MarketType, selection: string, raw: string) {
     setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: raw }))
     const n = parseStakeInput(raw)
-    if (!isNaN(n) && n >= 1) setStake(matchId, marketType, n, selection)
+    if (isNaN(n)) {
+      // Empty/partial input while typing — allowed transiently, no clamp yet.
+      setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection)]: '' }))
+      return
+    }
+    if (n > MAX_STAKE) {
+      // Clamp immediately, don't wait for blur.
+      setStake(matchId, marketType, MAX_STAKE, selection)
+      setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(MAX_STAKE) }))
+      setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection)]: `Maximal ${MAX_STAKE} Wildis Einsatz pro Wette.` }))
+      return
+    }
+    setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection)]: '' }))
+    if (n >= MIN_STAKE) setStake(matchId, marketType, round2(n), selection)
   }
 
   function handleStakeBlur(matchId: number, marketType: MarketType, selection: string) {
     const raw = inputValues[key(matchId, marketType, selection)] ?? ''
     const n = parseStakeInput(raw)
-    const validated = !isNaN(n) && n >= 1 ? n : (getStake(matchId, marketType, selection) || 10)
+    let validated: number
+    let hint = ''
+    if (isNaN(n) || n < MIN_STAKE) {
+      validated = MIN_STAKE
+      hint = `Mindestens ${MIN_STAKE} Wildi Einsatz pro Wette.`
+    } else if (n > MAX_STAKE) {
+      validated = MAX_STAKE
+      hint = `Maximal ${MAX_STAKE} Wildis Einsatz pro Wette.`
+    } else {
+      validated = round2(n)
+    }
     setStake(matchId, marketType, validated, selection)
     setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(validated).replace('.', ',') }))
+    setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection)]: hint }))
   }
 
   function handleComboStakeChange(raw: string) {
     setComboInputValue(raw)
     const n = parseStakeInput(raw)
-    if (!isNaN(n) && n >= 1) setComboStake(n)
+    if (isNaN(n)) {
+      setComboStakeHint(null)
+      return
+    }
+    if (n > MAX_STAKE) {
+      setComboStake(MAX_STAKE)
+      setComboInputValue(String(MAX_STAKE))
+      setComboStakeHint(`Maximal ${MAX_STAKE} Wildis Einsatz pro Wette.`)
+      return
+    }
+    setComboStakeHint(null)
+    if (n >= MIN_STAKE) setComboStake(round2(n))
   }
 
   function handleComboStakeBlur() {
     const n = parseStakeInput(comboInputValue)
-    const validated = !isNaN(n) && n >= 1 ? n : (comboStake || 10)
+    let validated: number
+    let hint: string | null = null
+    if (isNaN(n) || n < MIN_STAKE) {
+      validated = MIN_STAKE
+      hint = `Mindestens ${MIN_STAKE} Wildi Einsatz pro Wette.`
+    } else if (n > MAX_STAKE) {
+      validated = MAX_STAKE
+      hint = `Maximal ${MAX_STAKE} Wildis Einsatz pro Wette.`
+    } else {
+      validated = round2(n)
+    }
     setComboStake(validated)
     setComboInputValue(String(validated).replace('.', ','))
+    setComboStakeHint(hint)
   }
 
   function handleComboButton(amt: number) {
     setComboStake(amt)
     setComboInputValue(String(amt))
+    setComboStakeHint(null)
   }
 
   // Clear all: reset local input state, close sheet, then clear context
@@ -109,6 +176,8 @@ export function BetSlip() {
     setOpen(false)
     setInputValues({})
     setComboInputValue('10')
+    setStakeHints({})
+    setComboStakeHint(null)
     setError(null)
     clearSlip()
   }
@@ -205,7 +274,7 @@ export function BetSlip() {
       )}
 
       {/* Collapsed Bottom Bar */}
-      {!open && (
+      {count > 0 && !open && (
         <button
           onClick={() => setOpen(true)}
           className="fixed bottom-20 left-3 right-3 z-40 bg-gradient-to-r from-red-700 to-red-800 text-white rounded-2xl shadow-2xl flex items-center gap-3 px-4 py-3 active:scale-[0.985] transition-transform"
@@ -224,7 +293,7 @@ export function BetSlip() {
       )}
 
       {/* Expanded Bottom Sheet */}
-      {open && (
+      {count > 0 && open && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end">
           {/* Backdrop — closes sheet only */}
           <div
@@ -383,6 +452,11 @@ export function BetSlip() {
                       </span>
                     </div>
                   )}
+                  {mode === 'single' && stakeHints[key(s.matchId, s.marketType, s.selection)] && (
+                    <div className="mt-1 text-[11px] text-orange-600 font-medium">
+                      {stakeHints[key(s.matchId, s.marketType, s.selection)]}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -424,6 +498,11 @@ export function BetSlip() {
                       />
                     </div>
                   </div>
+                  {comboStakeHint && (
+                    <div className="-mt-2 mb-3 text-[11px] text-orange-600 font-medium">
+                      {comboStakeHint}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-gray-600">Möglicher Gewinn</span>
                     <span className="font-bold text-green-600 text-lg flex items-center gap-1">

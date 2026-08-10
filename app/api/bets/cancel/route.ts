@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -25,13 +26,20 @@ export async function POST(request: NextRequest) {
 
   if (comboId) {
     // Combo cancellation
-    const { data: combo } = await supabase
+    // Service-role read, explicitly scoped to this user's own id in the query
+    // itself (not just checked afterwards) — this is a security boundary, so
+    // it must not depend on the session-scoped RLS policy currently allowing
+    // (or, via a future regression, disallowing) the caller to see this row.
+    // Scoping by user_id in the query also means a foreign combo id can never
+    // resolve to a row here, regardless of RLS state.
+    const { data: combo } = await admin
       .from('combo_bets')
       .select('id, user_id, stake, status')
       .eq('id', comboId)
-      .single()
+      .eq('user_id', user.id)
+      .maybeSingle()
 
-    if (!combo || combo.user_id !== user.id) {
+    if (!combo) {
       return NextResponse.json({ error: 'Wette nicht gefunden.' }, { status: 404 })
     }
     if (combo.status !== 'pending') {
@@ -39,7 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Find all legs to determine if any match has actually started
-    const { data: allLegs } = await supabase
+    const { data: allLegs } = await admin
       .from('bets')
       .select('match_id')
       .eq('combo_id', comboId)
@@ -49,7 +57,7 @@ export async function POST(request: NextRequest) {
     }
 
     const allMatchIds = allLegs.map((l) => l.match_id)
-    const { data: comboMatches } = await supabase
+    const { data: comboMatches } = await admin
       .from('matches')
       .select('match_date, status')
       .in('id', allMatchIds)
@@ -103,16 +111,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Fehler bei der Rückerstattung.' }, { status: 500 })
     }
 
+    revalidatePath('/tipps')
+    revalidatePath('/leaderboard')
     return NextResponse.json({ success: true, newBalance })
   } else {
     // Single bet cancellation
-    const { data: bet } = await supabase
+    // Service-role read, explicitly scoped to user_id in the query itself —
+    // same rationale as the combo branch above.
+    const { data: bet } = await admin
       .from('bets')
       .select('id, user_id, match_id, stake, status, combo_id')
       .eq('id', betId!)
-      .single()
+      .eq('user_id', user.id)
+      .maybeSingle()
 
-    if (!bet || bet.user_id !== user.id) {
+    if (!bet) {
       return NextResponse.json({ error: 'Wette nicht gefunden.' }, { status: 404 })
     }
     if (bet.status !== 'pending') {
@@ -126,7 +139,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check that this specific match has not yet kicked off
-    const { data: betMatch } = await supabase
+    const { data: betMatch } = await admin
       .from('matches')
       .select('match_date, status')
       .eq('id', bet.match_id)
@@ -168,6 +181,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Fehler bei der Rückerstattung.' }, { status: 500 })
     }
 
+    revalidatePath('/tipps')
+    revalidatePath('/leaderboard')
     return NextResponse.json({ success: true, newBalance })
   }
 }

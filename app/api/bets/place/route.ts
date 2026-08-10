@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isAgainstWildenroth } from '@/lib/wildenroth'
@@ -402,7 +403,10 @@ export async function POST(request: NextRequest) {
   // only closes the direct-API path. (Cross-market hedges like 1X2 + Doppelte
   // Chance stay allowed; the odds floor in lib/odds.ts keeps those books > 1.)
   {
-    const { data: sameMarket } = await supabase
+    // Service-role read: this check is a security boundary (blocks hedging/
+    // arbitrage), so it must not depend on whatever the session-scoped RLS
+    // policy happens to currently allow the caller to see of their own rows.
+    const { data: sameMarket } = await admin
       .from('bets')
       .select('match_id, market_type, selection')
       .eq('user_id', user.id)
@@ -436,33 +440,42 @@ export async function POST(request: NextRequest) {
 
     if (allMatchdayIds.length === 0) continue
 
+    // Service-role reads: this is the actual security boundary for the
+    // per-matchday bet limit, so it must never depend on the caller's own
+    // session-scoped RLS visibility into their own rows — a future RLS
+    // change (or bug) must not be able to silently disable this limit.
+    // status='pending' also means a cancelled bet (cancellation deletes the
+    // row entirely — see /api/bets/cancel) never occupies a slot here.
     // Count existing normal single bets for this matchday
-    const { count: singleCount } = await supabase
+    const { count: singleCount } = await admin
       .from('bets')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id)
       .eq('is_risky', false)
       .is('combo_id', null)
+      .eq('status', 'pending')
       .in('match_id', allMatchdayIds)
 
     // Count distinct normal combo bets for this matchday via their legs
-    const { data: comboLegs } = await supabase
+    const { data: comboLegs } = await admin
       .from('bets')
       .select('combo_id')
       .eq('user_id', user.id)
       .eq('is_risky', false)
       .not('combo_id', 'is', null)
+      .eq('status', 'pending')
       .in('match_id', allMatchdayIds)
 
     const distinctCombos = new Set((comboLegs ?? []).map((b) => b.combo_id)).size
     const existingNormalCount = (singleCount ?? 0) + distinctCombos
 
     // Count existing risky bets (singles + combos) for this matchday
-    const { data: riskyLegs } = await supabase
+    const { data: riskyLegs } = await admin
       .from('bets')
       .select('combo_id')
       .eq('user_id', user.id)
       .eq('is_risky', true)
+      .eq('status', 'pending')
       .in('match_id', allMatchdayIds)
 
     const riskySingles = (riskyLegs ?? []).filter((b) => !b.combo_id).length
@@ -600,6 +613,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Fehler beim Speichern der Wetten.' }, { status: 500 })
     }
   }
+
+  // /tipps and /leaderboard use time-based revalidation (revalidate = 60);
+  // without an explicit purge here, the next request within that window
+  // (including the client's own router.refresh() right after this call)
+  // could still be served a stale full-route-cache entry that predates this
+  // bet — up to 60s of the user not seeing their own just-placed bet.
+  revalidatePath('/tipps')
+  revalidatePath('/leaderboard')
 
   return NextResponse.json({ success: true, newBalance: newBalanceAfterDeduct })
 }
