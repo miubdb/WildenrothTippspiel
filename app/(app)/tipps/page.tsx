@@ -10,7 +10,7 @@ import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
-import { isSeasonStarted, bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
+import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
 import { TeamLogo } from '@/components/TeamLogo'
@@ -96,11 +96,7 @@ export default async function TippsPage({
   // Spieltag's last kickoff" clamp below, since the explicit times already
   // account for that by hand. A Spieltag without an explicit entry falls back
   // to the dynamic computation unchanged.
-  const explicitBettingOpens = new Map<number, Date>()
-  for (const [key, value] of appSettings) {
-    const m = /^betting_open_md_(\d+)$/.exec(key)
-    if (m) explicitBettingOpens.set(Number(m[1]), new Date(value))
-  }
+  const explicitBettingOpens = parseBettingOpenOverrides(appSettings)
 
   const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
     ...m,

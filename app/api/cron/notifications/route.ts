@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser, sendPushToAll } from '@/lib/push'
-import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import type { Match } from '@/types'
 
 const SEASON_START = '2026-08-01'
@@ -44,6 +44,17 @@ export async function GET(request: NextRequest) {
     const seasonMatches = seasonMatchesRaw as Match[]
     const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
 
+    // Hand-set, final betting-open time per Spieltag (app_settings key
+    // betting_open_md_<N>) — this is what /tipps actually unlocks betting
+    // at, not the dynamic Monday-noon formula below (that stays only as a
+    // fallback for a Spieltag with no explicit entry, e.g. the test
+    // matchday). The "Spieltag offen" push must fire at the exact same
+    // instant /tipps uses, or users get notified at the wrong time.
+    const { data: appSettingsRaw } = await admin.from('app_settings').select('key, value')
+    const explicitBettingOpens = parseBettingOpenOverrides(
+      (appSettingsRaw ?? []).map((s) => [s.key, s.value] as const)
+    )
+
     // Group by the EFFECTIVE Spieltag (lib/season.ts), not the raw `matchday`
     // column — a Kreisliga match rescheduled far outside its own Spieltag's
     // window, or a Wildenroth-II/B-Klasse-Topspiel match whose independent BFV
@@ -70,7 +81,7 @@ export async function GET(request: NextRequest) {
       // Skip test matchday (999) — no real-user pushes during test runs
       if (matchday >= 900) continue
 
-      const opensAt = bettingOpenTime(firstDate)
+      const opensAt = explicitBettingOpens.get(matchday) ?? bettingOpenTime(firstDate)
       const minutesSinceOpens = (now.getTime() - opensAt.getTime()) / 60000
 
       // Send "betting open" push within first 15 min of opening
@@ -115,11 +126,19 @@ export async function GET(request: NextRequest) {
         if (!eligibleUsers || matchdayMatchIds.length === 0) continue
 
         // Get user bet counts for this matchday
+        // is_risky is read directly rather than re-derived from odds — it's
+        // kept correctly up to date for every pending slip by
+        // recomputeRiskyForUserMatchday() after each placement/cancellation
+        // (see lib/risky.ts), so counting "normal slips < 2" / "risky slips
+        // < 1" from it is equivalent to evaluating the dynamic Risky rule
+        // fresh. status='pending' also means a cancelled bet (row deleted
+        // outright) never occupies a slot here.
         const { data: betLegs } = await admin
           .from('bets')
           .select('user_id, combo_id, is_risky')
           .in('match_id', matchdayMatchIds)
           .eq('season', '26/27')
+          .eq('status', 'pending')
 
         // Track normal singles/combos (max 2 slots) and risky singles/combos (max 1 slot)
         const userNormalSingles = new Map<string, number>()

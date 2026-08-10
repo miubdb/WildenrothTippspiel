@@ -11,7 +11,7 @@ export default function AnleitungPage() {
         <div className="text-red-200 text-sm mt-1">Tippe auf einen Abschnitt für Details</div>
       </div>
 
-      {/* Das Wichtigste — offen */}
+      {/* 1. Das Ziel */}
       <HelpAccordion title="Das Ziel" emoji="🏆" defaultOpen>
         <p>
           Du startest mit <strong>1.000 Wildis</strong> und versuchst, durch clevere Tipps
@@ -26,10 +26,10 @@ export default function AnleitungPage() {
         </p>
       </HelpAccordion>
 
-      {/* App installieren — offen, neue User brauchen das zuerst */}
+      {/* 2. App installieren */}
       <HelpAccordion title="App installieren" emoji="📱" defaultOpen>
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          Installiere die App auf dem Home-Bildschirm, damit du Push-Benachrichtigungen erhalten kannst und sie sich wie eine echte App anfühlt.
+          Installiere die App auf dem Home-Bildschirm, damit sie sich wie eine echte App anfühlt.
         </p>
         <div className="space-y-3 mt-2">
           <div className="border border-gray-100 dark:border-gray-700 rounded-xl p-3 space-y-1.5">
@@ -41,9 +41,6 @@ export default function AnleitungPage() {
               <li>„Zum Home-Bildschirm" auswählen</li>
               <li>Namen eingeben und „Hinzufügen" tippen</li>
             </ol>
-            <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-              Hinweis: Push-Benachrichtigungen funktionieren auf dem iPhone <strong>nur</strong>, wenn die App über Safari zum Home-Bildschirm hinzugefügt wurde.
-            </div>
           </div>
           <div className="border border-gray-100 dark:border-gray-700 rounded-xl p-3 space-y-1.5">
             <div className="font-semibold text-gray-700 dark:text-gray-200 text-xs">🤖 Android mit Chrome</div>
@@ -55,120 +52,51 @@ export default function AnleitungPage() {
             </ol>
           </div>
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
-            💡 Aktiviere danach unter <strong>Profil</strong> die Benachrichtigungen, damit du Reminder, Ergebnisse und den Spieltags-Recap nicht verpasst.
+            💡 Aktiviere anschließend unter <strong>Profil</strong> die Benachrichtigungen, damit du wichtige Infos zum Spieltag nicht verpasst.
           </div>
         </div>
       </HelpAccordion>
 
-      {/* Push-Benachrichtigungen — NEU */}
-      <HelpAccordion title="Benachrichtigungen" emoji="🔔">
-        <p>
-          Wenn du Push-Benachrichtigungen aktiviert hast (unter <strong>Profil</strong>), bekommst du automatisch Bescheid:
-        </p>
-        <div className="mt-2 space-y-2">
-          <NotifItem emoji="🏟️" title="Spieltag offen" desc="Sobald ein neuer Spieltag wettbar ist." />
-          <NotifItem emoji="👀" title="Tipp-Erinnerung" desc="Ca. 2,5 Stunden vor dem ersten Spiel, falls du noch nicht alle Wettscheine genutzt hast." />
-          <NotifItem emoji="🎉" title="Wette gewonnen" desc="Direkt nach der Abrechnung — mit einem Tipp auf die Benachrichtigung springst du zur gewonnenen Wette." />
-          <NotifItem emoji="😬" title="Wette verloren" desc="Auch das erfährst du sofort, fair ist fair." />
-          <NotifItem emoji="📊" title="Spieltags-Recap" desc="Wenn alle Spiele eines Spieltags abgerechnet sind." />
-        </div>
-      </HelpAccordion>
-
-      {/* Spieltags-Recap — NEU */}
-      <HelpAccordion title="Spieltags-Recap" emoji="📊">
-        <p>
-          Nach jedem abgeschlossenen Spieltag gibt es eine Übersicht: alle Ergebnisse, dein persönlicher
-          Spieltags-Gewinn oder -Verlust und die Rangliste, wer an diesem Spieltag am meisten herausgeholt hat.
-        </p>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Du erreichst den Recap über die Push-Benachrichtigung oder direkt in der App.
-        </p>
-      </HelpAccordion>
-
-      {/* Wetten platzieren & stornieren */}
+      {/* 3. Wetten platzieren & stornieren */}
       <HelpAccordion title="Wetten platzieren & stornieren" emoji="⏰">
-        <div className="mb-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-800 dark:text-blue-300">
-          Jeder Spieltag wird zu einem festgelegten Zeitpunkt zur Tippabgabe geöffnet. Den genauen Zeitpunkt siehst du in der App. Jedes Spiel schließt einzeln bei seinem Anpfiff — andere Spiele des Spieltags bleiben weiterhin tippbar.
-        </div>
         <div className="space-y-1.5 text-sm">
           <Row label="Öffnet:" value="Individuell je Spieltag — Zeitpunkt siehst du in der App" />
-          <Row label="Schluss:" value={<><strong>Einzelwetten:</strong> bis zum Anpfiff des jeweiligen Spiels</>} />
-          <Row label="" value={<><strong>Kombiwetten:</strong> nur wenn alle enthaltenen Spiele noch nicht begonnen haben</>} />
-          <Row label="Wettscheine:" value={<>Maximal <strong>3 Wettscheine</strong> pro Spieltag (2 normale + 1 Risky)</>} />
+          <Row label="Schluss:" value={<>Jedes Spiel einzeln zu seinem <strong>Anpfiff</strong></>} />
+          <Row label="Kombi:" value="Nur solange alle enthaltenen Spiele noch nicht begonnen haben" />
+          <Row label="Wettscheine:" value={<>Normal <strong>2</strong>, mit einer Quote über 20,00 bis zu <strong>3</strong> pro Spieltag</>} />
           <Row label="Einsatz:" value={<><strong>1 bis 250 Wildis</strong> pro Wettschein</>} />
-          <Row label="Inaktiv:" labelColor="text-orange-600" value={<>Wer in einem Spieltag <strong>keine einzige Wette</strong> platziert, zahlt automatisch <strong>50 Wildis Strafe</strong> — wird nach Spieltagsabrechnung abgezogen</>} />
-          <Row label="Storno:" labelColor="text-blue-700 dark:text-blue-400" value="Einzelwette: bis zum Anpfiff des Spiels. Kombiwette: bis der erste enthaltene Anpfiff beginnt. Der Einsatz wird sofort zurückgebucht." />
+          <Row label="Storno:" labelColor="text-blue-700 dark:text-blue-400" value="Bis zum Anpfiff möglich — der Einsatz wird sofort zurückgebucht" />
+          <Row label="Inaktiv:" labelColor="text-orange-600" value={<>Keine einzige Wette an einem Spieltag → automatisch <strong>50 Wildis Strafe</strong></>} />
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-          Ein neuer Spieltag öffnet nie, bevor das letzte Spiel des vorherigen Spieltags angepfiffen wurde —
-          es ist also nie gleichzeitig auf zwei Spieltage wettbar.
-        </p>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-          Auf ein Spiel, für das du im selben Markt schon eine offene Wette hast (z.B. bereits „Heimsieg" getippt),
-          kannst du keine zweite, widersprechende Wette platzieren (z.B. „Unentschieden") — storniere zuerst die bestehende.
+          Mehrere unterschiedliche Wettmärkte auf dasselbe Spiel sind erlaubt (z.B. Heimsieg + Ergebnis 2:1)
+          — nur im exakt selben Markt geht nicht gleichzeitig ein widersprüchlicher Tipp.
         </p>
       </HelpAccordion>
 
-      {/* Verschobene Spiele — NEU */}
-      <HelpAccordion title="Verschobene Spiele" emoji="🔁">
+      {/* 4. Risky-Wette */}
+      <HelpAccordion title="Risky-Wette" emoji="🎲">
         <p>
-          Wird ein Spiel verschoben, bleibt deine Wette darauf bestehen und weiterhin <strong>stornierbar</strong> —
-          der Annahmeschluss greift erst wieder, sobald ein neuer Termin feststeht und das Spiel tatsächlich angepfiffen wird.
-        </p>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-          Verschiebt sich ein Kreisliga-Spiel um mehr als 7 Tage vom üblichen Termin seines Spieltags, wird es automatisch
-          bei dem Spieltag angezeigt (und dort gewettet, abgerechnet und für Pokale gewertet), zu dem es zeitlich tatsächlich passt —
-          nicht mehr bei seiner offiziellen Spieltag-Nummer. Auf der Spielkarte steht dann ein kleiner Hinweis
-          „eigentlich Spieltag X", damit klar bleibt, warum das Spiel woanders auftaucht.
-        </p>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-          Bei einer sehr langen Verschiebung ohne neuen Termin entscheidet der Admin im Einzelfall — z.B. durch manuelle
-          Stornierung oder nachträgliche Ergebniseingabe, sobald das Spiel nachgeholt wurde.
-        </p>
-      </HelpAccordion>
-
-      {/* Sichtbarkeit fremder Tipps — NEU */}
-      <HelpAccordion title="Tipps anderer Nutzer" emoji="🔒">
-        <p>
-          Bis zum Anpfiff bleiben fremde Wetten geheim — du siehst nur, wie viele Wettscheine für ein Spiel
-          platziert wurden (z.B. „3 Wettscheine platziert – sichtbar ab Anpfiff"), aber weder Teams, Markt, Quote noch Tipp.
-        </p>
-        <div className="mt-2 space-y-1">
-          <div className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1">
-            <strong>Einzelwette:</strong> wird sichtbar, sobald das jeweilige Spiel angepfiffen ist.
-          </div>
-          <div className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1">
-            <strong>Kombiwette:</strong> wird sichtbar, sobald mindestens eines der enthaltenen Spiele angepfiffen ist.
-          </div>
-        </div>
-      </HelpAccordion>
-
-      {/* Risky Wette — geschärft */}
-      <HelpAccordion title="Risky Wette" emoji="🎲">
-        <p>
-          Normal sind maximal <strong>2 Wettscheine</strong> pro Spieltag möglich. Hast du mindestens einen
-          Wettschein mit einer <strong>Quote über 20,00</strong> (Einzel- oder Kombiwette), zählt der Wettschein
-          mit der <strong>höchsten Quote</strong> als Risky — dann kannst du insgesamt bis zu 3 Wettscheine abgeben.
+          Normal kannst du pro Spieltag <strong>2 Wettscheine</strong> abgeben. Hat mindestens einer deiner
+          Wettscheine eine <strong>Quote über 20,00</strong>, bekommst du einen dritten Platz dazu. Der
+          Wettschein mit der <strong>höchsten Quote</strong> wird automatisch als Risky markiert — auch wenn
+          mehrere deiner Wettscheine über 20,00 liegen.
         </p>
         <div className="mt-2 text-xs bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-600 dark:text-gray-300">
-          Beispiel: Du hast 2 normale Wettscheine genutzt und legst zusätzlich eine Kombiwette mit Quote 23,50 — diese läuft als Risky und füllt deinen 3. Slot.
+          Beispiel: 2,00 / 3,00 / 25,00 → die 25,00 läuft als Risky, die anderen beiden ganz normal.
         </div>
-        <div className="mt-1.5 text-xs bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2 text-amber-800 dark:text-amber-300">
-          Wichtig: Es dürfen auch <strong>mehrere</strong> deiner Wettscheine eine Quote über 20,00 haben — nur ist
-          eben immer der mit der <strong>aktuell höchsten Quote</strong> der Risky-Wettschein, die anderen zählen ganz
-          normal mit. Kommt ein neuer Wettschein mit noch höherer Quote dazu (oder stornierst du den bisherigen
-          Risky-Wettschein), wechselt die Einstufung automatisch.
-        </div>
-        <div className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
-          Ein Bonus auf die Quote gibt es nicht — die Auszahlung ist wie immer Einsatz × Quote. Der Risky-Slot ist einfach dein dritter Wettschein für die hohen Quoten.
-        </div>
+        <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+          Eine Extra-Auszahlung gibt es dafür nicht — es bleibt immer Einsatz × Quote. Die Einstufung
+          übernimmt die App automatisch.
+        </p>
       </HelpAccordion>
 
-      {/* Kombiwetten */}
+      {/* 5. Kombiwetten */}
       <HelpAccordion title="Kombiwetten" emoji="🔗">
         <p>
-          Wenn du mehrere Tipps aus verschiedenen Spielen zusammenstellst, entsteht automatisch eine Kombiwette.
-          Die Quoten werden miteinander multipliziert — das erhöht den möglichen Gewinn erheblich.
+          Mehrere Tipps aus verschiedenen Spielen ergeben zusammen eine Kombiwette — die Quoten werden
+          multipliziert, das erhöht den möglichen Gewinn deutlich. Ein falscher Tipp lässt die gesamte
+          Kombi verlieren. Aus demselben Spiel darf nur ein Tipp in eine Kombi.
         </p>
         <div className="mt-2 bg-gray-50 dark:bg-gray-700/40 rounded-xl px-4 py-3 text-sm">
           <div className="text-gray-600 dark:text-gray-300">Sieg Heimteam <span className="font-bold text-red-700 dark:text-red-400">@1,45</span> × Über 3,5 <span className="font-bold text-red-700 dark:text-red-400">@1,80</span></div>
@@ -177,30 +105,13 @@ export default function AnleitungPage() {
             <span className="font-bold text-green-600">52,20 Wildis Auszahlung</span>
           </div>
         </div>
-        <div className="mt-2 space-y-1">
-          <div className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1">
-            ⚠️ Ein falscher Tipp macht die gesamte Kombiwette verloren.
-          </div>
-          <div className="text-xs text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/20 rounded px-2 py-1">
-            🚫 Aus demselben Spiel darf nur ein Tipp in eine Kombiwette — z.B. nicht gleichzeitig Auswärtssieg und Doppelte Chance X2.
-          </div>
-        </div>
       </HelpAccordion>
 
-      {/* Quoten */}
-      <HelpAccordion title="Quoten" emoji="📈">
-        <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">Auszahlung = Einsatz × Quote</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Beispiel: 20 Wildis × 2,50 = <strong>50 Wildis Auszahlung</strong></p>
-        <div className="mt-2 space-y-1.5">
-          <QuoteExample odds={1.20} explanation="Klarer Favorit" />
-          <QuoteExample odds={2.50} explanation="Ausgeglichenes Duell" />
-          <QuoteExample odds={6.00} explanation="Außenseiter" />
-          <QuoteExample odds={20.00} explanation="Sehr unwahrscheinlich" />
-        </div>
-      </HelpAccordion>
-
-      {/* Wettmärkte */}
+      {/* 6. Wettmärkte */}
       <HelpAccordion title="Wettmärkte" emoji="📋">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+          Auszahlung = Einsatz × Quote. Beispiel: 20 Wildis × 2,50 = <strong>50 Wildis</strong>.
+        </p>
         <MarketCard
           title="1X2 — Spielausgang"
           items={[
@@ -236,22 +147,22 @@ export default function AnleitungPage() {
         />
         <MarketCard
           title="Handicap"
-          description="Das Ergebnis wird um eine Vorgabe verschoben. Praktisch erklärt:"
+          description="Einer Mannschaft wird für die Wette ein virtueller Vor- oder Nachteil gegeben."
           items={[
-            { label: 'Heim –1,5', desc: 'Heim muss mit mind. 2 Toren gewinnen' },
-            { label: 'Gast +1,5', desc: 'Gast darf nicht mit 2 oder mehr Toren verlieren' },
-            { label: 'Heim –2,5', desc: 'Heim muss mit mind. 3 Toren gewinnen' },
-            { label: 'Gast +2,5', desc: 'Gast darf nicht mit 3 oder mehr Toren verlieren' },
+            { label: 'Heim –1,5', desc: 'Gewinnt nur, wenn Heim mit mind. 2 Toren Unterschied gewinnt' },
+            { label: 'Gast +1,5', desc: 'Gewinnt, wenn der Gast gewinnt, unentschieden spielt oder mit höchstens 1 Tor verliert' },
+            { label: 'Heim –2,5', desc: 'Gewinnt nur, wenn Heim mit mind. 3 Toren Unterschied gewinnt' },
+            { label: 'Gast +2,5', desc: 'Gewinnt, wenn der Gast gewinnt, unentschieden spielt oder mit höchstens 2 Toren verliert' },
           ]}
         />
         <MarketCard
           title="Genaues Ergebnis"
-          description="Tippe das exakte Endergebnis. Je unwahrscheinlicher, desto höher die Quote. Sehr unwahrscheinliche Ergebnisse werden ausgeblendet."
+          description="Tippe das exakte Endergebnis. Je unwahrscheinlicher, desto höher die Quote."
           items={[]}
         />
         <MarketCard
-          title="Torschützen (nur Wildenroth-Spiele)"
-          description="Wette auf einen Wildenroth-Spieler — gibt es nur bei Wildenroth-Spielen."
+          title="Torschütze (nur Wildenroth-Spiele)"
+          description="Wette auf einen Wildenroth-Spieler."
           items={[
             { label: 'Trifft', desc: 'Der Spieler erzielt mindestens 1 Tor' },
             { label: 'Mind. 2 Tore', desc: 'Der Spieler erzielt mindestens 2 Tore (nur bei ausgewählten Spielern)' },
@@ -259,88 +170,82 @@ export default function AnleitungPage() {
         />
         <div className="text-xs text-gray-500 dark:text-gray-400 mt-2 space-y-1">
           <p>• Eigentore zählen nicht.</p>
-          <p>• Sollte ein Spieler kurzfristig aus dem Kader fallen, wird deine Wette automatisch storniert und der Einsatz zurückgebucht. Bei einer Kombi mit dem betroffenen Tipp wird der gesamte Kombi-Einsatz erstattet.</p>
+          <p>• Fällt ein Spieler kurzfristig aus dem Kader, wird deine Wette (bzw. bei einer Kombi der gesamte Einsatz) automatisch storniert und zurückgebucht.</p>
         </div>
       </HelpAccordion>
 
-      {/* Wildenroth-Spieler & Trainer */}
+      {/* 7. Tipps anderer Nutzer */}
+      <HelpAccordion title="Tipps anderer Nutzer" emoji="🔒">
+        <p>
+          Vor dem Anpfiff siehst du in der Rangliste bereits, <strong>wie viele</strong> Wettscheine ein
+          Teilnehmer für den Spieltag abgegeben hat — was er konkret getippt hat, bleibt geheim. Sobald
+          das jeweilige Spiel angepfiffen ist (bei einer Kombi: sobald eines der enthaltenen Spiele
+          angepfiffen ist), wird der Tipp sichtbar.
+        </p>
+      </HelpAccordion>
+
+      {/* 8. Wildenroth-Spieler & Trainer */}
       <HelpAccordion title="Wildenroth-Spieler & Trainer" emoji="⚽">
         <p>
-          Als aktiver Spieler, Trainer oder Torwarttrainer der <strong>1. oder 2. Mannschaft</strong> von
-          SpVgg Wildenroth darfst du bei Spielen deines Teams <strong>nicht gegen dein eigenes Team wetten</strong>.
-          Die beiden Flags sind unabhängig — bist du bei beiden Teams aktiv, gilt die Sperre für beide.
+          Als Spieler, Trainer oder Torwarttrainer darfst du nicht gegen dein eigenes Team wetten:
         </p>
-        <div className="mt-2 space-y-1">
-          <div className="text-xs text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 rounded px-2 py-1">
-            ✅ Erlaubt: Sieg des eigenen Teams (1X2), genaues Ergebnis mit eigenem Sieg,
-            neutrale Tormärkte (Über/Unter, Beide treffen), Handicap „Heim −X,5" wenn das eigene Team Heim ist
-          </div>
-          <div className="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1">
-            🚫 Gesperrt: Niederlage oder Unentschieden des eigenen Teams, alle Doppelte-Chance-Picks dagegen,
-            genaue Ergebnisse mit Unentschieden oder eigener Niederlage, Handicap „Gast +X,5" immer (verhindert nie
-            eine Niederlage des eigenen Teams) sowie „Heim −X,5" wenn das eigene Team nicht Heim ist
-          </div>
+        <div className="mt-2 space-y-1 text-xs text-gray-600 dark:text-gray-300">
+          <div className="bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1"><strong>1. Mannschaft:</strong> darf nicht gegen Wildenroth I wetten</div>
+          <div className="bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1"><strong>2. Mannschaft:</strong> darf nicht gegen Wildenroth II wetten</div>
+          <div className="bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1"><strong>Beide Mannschaften:</strong> darf gegen keine der beiden wetten</div>
+          <div className="bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1"><strong>Fan:</strong> keine Einschränkung</div>
         </div>
       </HelpAccordion>
 
-      {/* B-Klasse, Wildenroth II & Topspiel — NEU */}
+      {/* 9. Wildenroth II & B-Klasse-Topspiel */}
       <HelpAccordion title="Wildenroth II & B-Klasse-Topspiel" emoji="🥈">
         <p>
-          Neben den Spielen der 1. Mannschaft (Kreisliga) sind pro Tippspiel-Spieltag auch die Spiele der
-          <strong> Wildenroth II</strong> (B-Klasse) wettbar, sowie ein vom Admin ausgewähltes
-          <strong> B-Klasse-Topspiel der Woche</strong>. Alle übrigen B-Klasse-Spiele sind reine Ergebnis-Information
-          und nicht wettbar.
-        </p>
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-          Da die B-Klasse ihre eigene Spieltag-Nummerierung hat, wird jedes Wildenroth-II- oder Topspiel-Match
-          automatisch dem Tippspiel-Spieltag zugeordnet, dessen Termin zeitlich am nächsten liegt — nicht der
-          gleichlautenden B-Klasse-Spieltagnummer.
+          Neben den Spielen der 1. Mannschaft (Kreisliga) kannst du pro Spieltag auch auf die Spiele der
+          <strong> Wildenroth II</strong> tippen, sobald sie dem jeweiligen Spieltag zugeordnet sind, sowie
+          auf ein ausgewähltes <strong>B-Klasse-Topspiel der Woche</strong>.
         </p>
       </HelpAccordion>
 
-      {/* Rangliste & Auszeichnungen — NEU */}
-      <HelpAccordion title="Rangliste & Auszeichnungen" emoji="🏅">
+      {/* 10. Rangliste */}
+      <HelpAccordion title="Rangliste" emoji="📊">
         <p>
-          Die <strong>Saison-Rangliste</strong> sortiert nach Guthaben (inkl. offener Wetten) — dein Profit
-          gegenüber dem Startguthaben ist die angezeigte +/- Zahl. Zusätzlich gibt es eine
-          <strong> Spieltags-Rangliste</strong>, die nur den Gewinn/Verlust des jeweils einzelnen Spieltags zeigt.
+          Ziel ist das höchste Guthaben am Saisonende — offene Einsätze werden für eine faire Rangfolge
+          mitgerechnet. Im Spieltag-Tab siehst du die Wettaktivität aller Teilnehmer: vor Anpfiff nur die
+          Anzahl fremder Wettscheine, danach deren Tipps.
         </p>
         <div className="mt-2 space-y-1">
           <div className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1">
             🔥 <strong>Streak:</strong> mindestens 2 Spieltage in Folge mit positivem Saldo.
           </div>
           <div className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1">
-            🏅 <strong>Spieltagsbester:</strong> bester (positiver) Saldo an einem Spieltag — die Zahl zeigt, wie oft du das schon warst.
+            🏅 <strong>Spieltagsbester:</strong> bester Saldo an einem Spieltag — die Zahl zeigt, wie oft du das schon warst.
           </div>
-        </div>
-        <p className="mt-2 text-sm">
-          Nach jedem abgerechneten Spieltag werden automatisch bis zu <strong>7 Auszeichnungen</strong> vergeben,
-          sichtbar auf deinem Profil und auf jedem Spielerprofil:
-        </p>
-        <div className="mt-1.5 grid grid-cols-1 gap-1">
-          <AwardRow emoji="🏆" title="Spieltagskönig" desc="Bester Gesamtsaldo an diesem Spieltag" />
-          <AwardRow emoji="🥚" title="Eier aus Stahl" desc="Gewonnene Wette (Einzel oder Kombi) mit der höchsten Quote" />
-          <AwardRow emoji="😭" title="Unlucky Bastard" desc="Kombiwette, die nur an einem einzigen Tipp gescheitert ist" />
-          <AwardRow emoji="🔮" title="Ergebnis-Orakel" desc="Genaues Endergebnis richtig getippt" />
-          <AwardRow emoji="🚽" title="Griff ins Klo" desc="Höchster verlorener Einsatz an diesem Spieltag" />
-          <AwardRow emoji="🧱" title="Betonmischer" desc="Sicherste gewonnene Wette (niedrigste Quote)" />
-          <AwardRow emoji="🔥" title="On Fire" desc="Die meisten gewonnenen Wettscheine an einem Spieltag (mind. 2)" />
         </div>
       </HelpAccordion>
 
-      {/* Saisonstart & Einstieg */}
-      <HelpAccordion title="Saisonstart & Einstieg" emoji="📅">
+      {/* 11. Verschobene Spiele */}
+      <HelpAccordion title="Verschobene Spiele" emoji="🔁">
         <p>
-          Die reguläre Teilnahme an der Saisonwertung ist nur vor Saisonstart möglich.
-          Nach dem ersten Spieltag ist kein automatischer Einstieg mehr möglich.
+          Wird ein Spiel verschoben, bleibt deine Wette grundsätzlich bestehen und kann bis zum
+          tatsächlichen Anpfiff storniert werden. Den neuen Termin bzw. die Zuordnung siehst du
+          automatisch in der App.
         </p>
-        <div className="mt-2 space-y-1.5 text-xs">
-          <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 text-gray-600 dark:text-gray-300">
-            In begründeten Ausnahmefällen kann ein Admin Nutzer nachträglich freischalten und das Startguthaben manuell festlegen.
-          </div>
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2 text-amber-800 dark:text-amber-300">
-            Wer sich nach Saisonstart registriert, sieht eine Meldung und muss auf die Freischaltung durch den Admin warten.
-          </div>
+      </HelpAccordion>
+
+      {/* 12. Spieltags-Recap */}
+      <HelpAccordion title="Spieltags-Recap" emoji="🎉">
+        <p>
+          Nach Abschluss eines Spieltags gibt es eine Übersicht: alle Ergebnisse, deine persönliche
+          Spieltagsbilanz, Highlights und die Rangfolge dieses Spieltags — plus bis zu 7 Spaß-Pokale:
+        </p>
+        <div className="mt-1.5 grid grid-cols-1 gap-1">
+          <AwardRow emoji="🏆" title="Spieltagskönig" desc="Bester Netto-Saldo des Spieltags" />
+          <AwardRow emoji="🥚" title="Eier aus Stahl" desc="Höchste gewonnene Quote" />
+          <AwardRow emoji="😭" title="Unlucky Bastard" desc="Kombiwette, bei der nur ein Tipp danebenlag" />
+          <AwardRow emoji="🔮" title="Ergebnis-Orakel" desc="Exaktes Ergebnis richtig getippt" />
+          <AwardRow emoji="🚽" title="Griff ins Klo" desc="Höchster verlorener Einsatz" />
+          <AwardRow emoji="🧱" title="Betonmischer" desc="Gewonnener Tipp mit der niedrigsten Quote" />
+          <AwardRow emoji="🔥" title="On Fire" desc="Die meisten gewonnenen Wettscheine (mind. 2)" />
         </div>
       </HelpAccordion>
 
@@ -375,18 +280,6 @@ function AwardRow({ emoji, title, desc }: { emoji: string; title: string; desc: 
   )
 }
 
-function NotifItem({ emoji, title, desc }: { emoji: string; title: string; desc: string }) {
-  return (
-    <div className="flex gap-2.5 items-start">
-      <span className="text-base flex-shrink-0">{emoji}</span>
-      <div>
-        <div className="font-semibold text-gray-800 dark:text-gray-200 text-sm">{title}</div>
-        <div className="text-xs text-gray-500 dark:text-gray-400">{desc}</div>
-      </div>
-    </div>
-  )
-}
-
 function MarketCard({
   title, description, items,
 }: {
@@ -408,17 +301,6 @@ function MarketCard({
           ))}
         </div>
       )}
-    </div>
-  )
-}
-
-function QuoteExample({ odds, explanation }: { odds: number; explanation: string }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="w-12 text-center font-black text-base text-gray-900 dark:text-gray-100 bg-gray-100 dark:bg-gray-700 rounded-lg py-1 flex-shrink-0">
-        {odds.toFixed(2).replace('.', ',')}
-      </div>
-      <div className="text-gray-500 dark:text-gray-400 text-xs flex-1">{explanation}</div>
     </div>
   )
 }

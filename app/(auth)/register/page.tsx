@@ -24,6 +24,24 @@ async function checkDisplayNameAvailable(name: string): Promise<{ available: boo
   }
 }
 
+// Server-side availability check — see app/api/auth/check-email/route.ts.
+async function checkEmailAvailable(email: string): Promise<{ available: boolean } | { error: string }> {
+  try {
+    const res = await fetch('/api/auth/check-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    })
+    const data = await res.json()
+    if (!res.ok) return { error: data.error ?? 'E-Mail konnte nicht geprüft werden.' }
+    return { available: !!data.available }
+  } catch {
+    return { error: 'Netzwerkfehler. Bitte erneut versuchen.' }
+  }
+}
+
+const EMAIL_TAKEN_MESSAGE = 'Diese E-Mail-Adresse wird bereits verwendet. Bitte melde dich an oder verwende eine andere E-Mail-Adresse.'
+
 function generateUsername(displayName: string): string {
   const base = displayName
     .toLowerCase()
@@ -100,6 +118,7 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [checkingName, setCheckingName] = useState(false)
+  const [checkingEmail, setCheckingEmail] = useState(false)
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }))
@@ -126,12 +145,24 @@ export default function RegisterPage() {
       }
       setStep('email')
     } else if (step === 'email') {
-      if (!form.email.trim()) {
+      const emailTrimmed = form.email.trim()
+      if (!emailTrimmed) {
         setError('Bitte gib deine E-Mail-Adresse ein.')
         return
       }
       if (!playerRole) {
         setError('Bitte wähle eine der vier Optionen aus.')
+        return
+      }
+      setCheckingEmail(true)
+      const result = await checkEmailAvailable(emailTrimmed)
+      setCheckingEmail(false)
+      if ('error' in result) {
+        setError(result.error)
+        return
+      }
+      if (!result.available) {
+        setError(EMAIL_TAKEN_MESSAGE)
         return
       }
       setStep('password')
@@ -162,6 +193,7 @@ export default function RegisterPage() {
     // Re-check right before signUp() to shrink the race window (still not a
     // full guarantee — the DB's unique index is the actual boundary).
     const nameTrimmed = form.displayName.trim()
+    const emailTrimmed = form.email.trim()
     const recheck = await checkDisplayNameAvailable(nameTrimmed)
     if ('error' in recheck) {
       setError(recheck.error)
@@ -174,13 +206,25 @@ export default function RegisterPage() {
       setStep('name')
       return
     }
+    const emailRecheck = await checkEmailAvailable(emailTrimmed)
+    if ('error' in emailRecheck) {
+      setError(emailRecheck.error)
+      setLoading(false)
+      return
+    }
+    if (!emailRecheck.available) {
+      setError(EMAIL_TAKEN_MESSAGE)
+      setLoading(false)
+      setStep('email')
+      return
+    }
 
     const supabase = createClient()
     const username = generateUsername(form.displayName)
 
     // Register user
-    const { error: signUpError } = await supabase.auth.signUp({
-      email: form.email,
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email: emailTrimmed,
       password: form.password,
       options: {
         data: {
@@ -193,14 +237,29 @@ export default function RegisterPage() {
     if (signUpError) {
       const msg = signUpError.message?.toLowerCase() ?? ''
       const isNameConflict = msg.includes('duplicate') || msg.includes('unique') || msg.includes('display_name')
+      const isEmailConflict = msg.includes('already registered') || msg.includes('already exists') || msg.includes('user already') || msg.includes('profiles_email')
       if (isNameConflict) {
         setError('Dieser Name ist leider schon vergeben.')
         setStep('name')
-      } else if (msg.includes('already registered') || msg.includes('already exists') || msg.includes('user already')) {
-        setError('Für diese E-Mail-Adresse existiert bereits ein Konto.')
+      } else if (isEmailConflict) {
+        setError(EMAIL_TAKEN_MESSAGE)
+        setStep('email')
       } else {
         setError('Registrierung fehlgeschlagen. Bitte versuche es erneut.')
       }
+      setLoading(false)
+      return
+    }
+
+    // Anti-enumeration: for an email that's already registered and confirmed,
+    // Supabase can return success with no error but an empty identities array
+    // (no new identity was actually created) instead of a clear duplicate
+    // error. The checks above already catch this in the vast majority of
+    // cases, but treat it as a duplicate too rather than silently proceeding
+    // to /willkommen without a real new account.
+    if (signUpData?.user && signUpData.user.identities?.length === 0) {
+      setError(EMAIL_TAKEN_MESSAGE)
+      setStep('email')
       setLoading(false)
       return
     }
@@ -337,9 +396,10 @@ export default function RegisterPage() {
                 <button
                   type="button"
                   onClick={goNext}
-                  className="flex-1 py-3 px-4 bg-red-700 hover:bg-red-800 text-white font-semibold rounded-xl transition-colors"
+                  disabled={checkingEmail}
+                  className="flex-1 py-3 px-4 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-xl transition-colors"
                 >
-                  Weiter
+                  {checkingEmail ? 'Prüfe E-Mail…' : 'Weiter'}
                 </button>
               </div>
             </div>

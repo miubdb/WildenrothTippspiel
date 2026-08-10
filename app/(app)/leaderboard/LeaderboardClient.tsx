@@ -325,7 +325,7 @@ export function LeaderboardClient({
           {!isDeadlinePassed && matchdayNumber && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <div className="font-semibold mb-0.5">Stand vor Spieltag {matchdayNumber}</div>
-              <div className="text-blue-600 dark:text-blue-400">Einzelwetten werden je Spiel nach dessen Anpfiff sichtbar. Kombiwetten sobald mindestens ein Leg angepfiffen wurde. Die Rangliste zählt Guthaben + offene (noch nicht abgerechnete) Einsätze — dein Guthaben, das du sonst in der App siehst, ist während laufender Wetten entsprechend niedriger.</div>
+              <div className="text-blue-600 dark:text-blue-400">Offene Einsätze werden für die Rangfolge mitgerechnet. Fremde Tipps siehst du ab dem jeweiligen Anpfiff.</div>
             </div>
           )}
 
@@ -347,24 +347,15 @@ export function LeaderboardClient({
               const userBets = matchdayBets.filter(b => b.user_id === profile.id)
               const now = new Date()
               const visibleBets = isMe ? userBets : userBets.filter(b => isBetVisible(b, matchdayBets, now))
-              const hiddenBetCount = isMe ? 0 : (() => {
-                const seenCombos = new Set<number>()
-                let count = 0
-                for (const b of userBets) {
-                  if (b.status === 'cancelled') continue
-                  if (!b.combo_id) {
-                    if (!b.match || new Date(b.match.match_date) > now) count++
-                  } else {
-                    if (seenCombos.has(b.combo_id)) continue
-                    const legs = userBets.filter(x => x.combo_id === b.combo_id)
-                    if (!legs.some(l => l.match && new Date(l.match.match_date) <= now)) {
-                      count++
-                      seenCombos.add(b.combo_id)
-                    }
-                  }
-                }
-                return count
-              })()
+              // Not derived from userBets/matchdayBets: those come from the
+              // session-scoped client, so for a non-admin viewer RLS already
+              // filters out other users' not-yet-started bets server-side —
+              // a count computed from that would silently read 0 regardless
+              // of how many bets that user actually has. betCountsPerUser is
+              // computed server-side via the service-role client (see
+              // leaderboard/page.tsx) specifically so this count is reliable
+              // and identical for every viewer, admin or not.
+              const hiddenBetCount = isMe ? 0 : (betCountsPerUser[profile.id] ?? 0)
               const streak = streaks[profile.id] ?? 0
               const wWins = weeklyWinCounts[profile.id] ?? 0
               const currentMdPnl = mdStats[profile.id]
@@ -442,7 +433,7 @@ export function LeaderboardClient({
           {!isDeadlinePassed && matchdayNumber && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <div className="font-semibold mb-0.5">Rangliste: Stand vor Spieltag {matchdayNumber}</div>
-              <div className="text-blue-600 dark:text-blue-400">Einzelwetten werden je Spiel nach dessen Anpfiff sichtbar. Kombiwetten sobald mindestens ein Leg angepfiffen wurde. Die Rangliste zählt Guthaben + offene (noch nicht abgerechnete) Einsätze — dein Guthaben, das du sonst in der App siehst, ist während laufender Wetten entsprechend niedriger.</div>
+              <div className="text-blue-600 dark:text-blue-400">Offene Einsätze werden für die Rangfolge mitgerechnet. Fremde Tipps siehst du ab dem jeweiligen Anpfiff.</div>
             </div>
           )}
 
@@ -568,9 +559,13 @@ export function LeaderboardClient({
                       if (!b.combo_id) { slipCount++ }
                       else if (!seenCombos.has(b.combo_id)) { seenCombos.add(b.combo_id); slipCount++ }
                     }
-                    const displayCount = !isDeadlinePassed && isMe
-                      ? (betCountsPerUser[profile.id] ?? slipCount)
-                      : slipCount
+                    // betCountsPerUser (service-role, see leaderboard/page.tsx)
+                    // is reliable for every viewer; slipCount from userBets is
+                    // only a fallback — for a non-admin viewer, RLS can hide
+                    // some of another user's not-yet-started bets from
+                    // matchdayBets even once this matchday has partially
+                    // started, which would otherwise undercount them here.
+                    const displayCount = betCountsPerUser[profile.id] ?? slipCount
                     return (
                       <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
                         {!isDeadlinePassed && isMe && (

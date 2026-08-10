@@ -24,6 +24,27 @@ export function bettingOpenTime(refDate: Date): Date {
   return new Date(`${mondayStr}T${String(utcHour).padStart(2, '0')}:00:00Z`)
 }
 
+/**
+ * Parses the hand-set, final betting-open overrides from app_settings rows
+ * (key `betting_open_md_<N>`) into a Spieltag → instant map. These were set
+ * once ahead of go-live for every real Tippspiel-Spieltag and are the actual
+ * source of truth for "when does this Spieltag's betting window open" —
+ * they win over bettingOpenTime()'s dynamic Monday-noon formula (which
+ * remains only as a fallback for a Spieltag with no explicit entry, e.g. the
+ * test matchday). Single source of truth for this lookup — every place that
+ * gates on "has betting opened for Spieltag N" (the /tipps page itself, the
+ * "Spieltag offen" push, admin odds preview) must resolve through this, or
+ * they can silently disagree about the exact same instant.
+ */
+export function parseBettingOpenOverrides(appSettings: Iterable<readonly [string, string]>): Map<number, Date> {
+  const overrides = new Map<number, Date>()
+  for (const [key, value] of appSettings) {
+    const m = /^betting_open_md_(\d+)$/.exec(key)
+    if (m) overrides.set(Number(m[1]), new Date(value))
+  }
+  return overrides
+}
+
 /** Returns true if the current season has started.
  *  Priority: app_settings.season_started=true  OR  first matchday-1 match has kicked off */
 export async function isSeasonStarted(supabase: SupabaseClient): Promise<boolean> {
