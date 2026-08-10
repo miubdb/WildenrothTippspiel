@@ -146,12 +146,18 @@ export default function AnleitungPage() {
       {/* Risky Wette — geschärft */}
       <HelpAccordion title="Risky Wette" emoji="🎲">
         <p>
-          Neben den 2 normalen Wettscheinen hast du <strong>einen zusätzlichen Risky-Slot</strong> pro Spieltag.
-          Diesen darfst du nur mit einem Wettschein belegen, dessen <strong>Quote über 20,00</strong> liegt
-          (Einzel- oder Kombiwette). So kannst du einen dritten, mutigen Tipp setzen.
+          Normal sind maximal <strong>2 Wettscheine</strong> pro Spieltag möglich. Hast du mindestens einen
+          Wettschein mit einer <strong>Quote über 20,00</strong> (Einzel- oder Kombiwette), zählt der Wettschein
+          mit der <strong>höchsten Quote</strong> als Risky — dann kannst du insgesamt bis zu 3 Wettscheine abgeben.
         </p>
         <div className="mt-2 text-xs bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-gray-600 dark:text-gray-300">
           Beispiel: Du hast 2 normale Wettscheine genutzt und legst zusätzlich eine Kombiwette mit Quote 23,50 — diese läuft als Risky und füllt deinen 3. Slot.
+        </div>
+        <div className="mt-1.5 text-xs bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2 text-amber-800 dark:text-amber-300">
+          Wichtig: Es dürfen auch <strong>mehrere</strong> deiner Wettscheine eine Quote über 20,00 haben — nur ist
+          eben immer der mit der <strong>aktuell höchsten Quote</strong> der Risky-Wettschein, die anderen zählen ganz
+          normal mit. Kommt ein neuer Wettschein mit noch höherer Quote dazu (oder stornierst du den bisherigen
+          Risky-Wettschein), wechselt die Einstufung automatisch.
         </div>
         <div className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
           Ein Bonus auf die Quote gibt es nicht — die Auszahlung ist wie immer Einsatz × Quote. Der Risky-Slot ist einfach dein dritter Wettschein für die hohen Quoten.

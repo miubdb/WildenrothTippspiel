@@ -6,6 +6,7 @@ import { isAgainstWildenroth } from '@/lib/wildenroth'
 import { isSeasonStarted, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import { ODDS_COLUMN } from '@/lib/oddsMarkets'
 import { getExactScoreOdds } from '@/lib/odds'
+import { RISKY_ODDS_THRESHOLD, evaluateSlips, recomputeRiskyForUserMatchday, type RiskySlip } from '@/lib/risky'
 import type { Match } from '@/types'
 
 const MAX_STAKE = 250
@@ -22,6 +23,23 @@ const EXACT_SCORE_CEILING_ADD = 2
 /** Markets that are no longer offered. Kept out of the betting UI and rejected
  *  here, but still handled by settlement so historical bets grade correctly. */
 const RETIRED_MARKETS = new Set(['over_under_7_5'])
+
+/** German display labels for the same-market-conflict error message below —
+ *  kept local to this route (display labels are duplicated per-file
+ *  throughout the codebase, not shared config). */
+const MARKET_LABELS: Record<string, string> = {
+  '1x2': '1X2',
+  double_chance: 'Doppelte Chance',
+  over_under: 'Über/Unter 2,5',
+  over_under_3_5: 'Über/Unter 3,5',
+  over_under_5_5: 'Über/Unter 5,5',
+  over_under_7_5: 'Über/Unter 7,5',
+  btts: 'Beide Teams treffen',
+  handicap: 'Handicap',
+  exact_score: 'Genaues Ergebnis',
+  goalscorer: 'Torschütze',
+  goalscorer_2plus: 'Torschütze (mind. 2 Tore)',
+}
 
 interface PlaceBetSelection {
   matchId: number
@@ -316,15 +334,17 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Derive the "risky" flag from the now-validated odds instead of trusting the
-  // client's `isRisky` field — otherwise a bet with real odds > 20 could be
-  // submitted as `isRisky: false` and consume a normal-bucket slot instead of
-  // the single risky slot, bypassing the per-matchday limit below entirely.
+  // This new slip's own odds, from the now-validated values (never trust the
+  // client's `isRisky` field). Whether it actually ends up Risky depends on
+  // the user's WHOLE active slip set for the Spieltag, not on this value in
+  // isolation — see lib/risky.ts. This is only used as the initial DB value
+  // at insert time; recomputeRiskyForUserMatchday() below is authoritative
+  // and corrects it (and every other affected slip) right after insertion.
   const effectiveTotalOdds =
     mode === 'combo'
       ? selections.reduce((acc, s) => acc * s.oddsValue, 1)
       : selections[0]?.oddsValue ?? 0
-  const effectiveRisky = effectiveTotalOdds > 20
+  const effectiveRisky = effectiveTotalOdds > RISKY_ODDS_THRESHOLD
 
   // Wildenroth conflict-of-interest check (mirrors the frontend guard).
   // Team 1 and Team 2 flags are independent — a user can be flagged for either or both.
@@ -417,21 +437,39 @@ export async function POST(request: NextRequest) {
         (b) => b.match_id === s.matchId && b.market_type === s.marketType && b.selection !== s.selection
       )
       if (conflict) {
+        // Name the actual match + market so the user knows exactly which
+        // existing bet to cancel first, instead of a generic "this game".
+        const { data: cm } = await supabase
+          .from('matches')
+          .select('home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
+          .eq('id', conflict.match_id)
+          .single() as { data: { home_team: { name: string } | { name: string }[] | null; away_team: { name: string } | { name: string }[] | null } | null }
+        const home = Array.isArray(cm?.home_team) ? cm.home_team[0]?.name : cm?.home_team?.name
+        const away = Array.isArray(cm?.away_team) ? cm.away_team[0]?.name : cm?.away_team?.name
+        const matchLabel = home && away ? `${home} – ${away}` : 'diesem Spiel'
+        const marketLabel = MARKET_LABELS[conflict.market_type] ?? conflict.market_type
         return NextResponse.json(
-          { error: 'Du hast für dieses Spiel bereits eine Wette im selben Markt platziert. Bitte storniere sie zuerst.' },
+          { error: `Für ${matchLabel} hast du im Markt ${marketLabel} bereits eine Wette platziert. Storniere diese zuerst, wenn du deine Auswahl ändern möchtest.` },
           { status: 400 }
         )
       }
     }
   }
 
-  // Enforce bet limit per matchday: max 3 total, max 2 with odds <= 20.
+  // Enforce bet limit per matchday: max 2 normal slips; a 3rd is only allowed
+  // once at least one of the user's active slips for that Spieltag has odds
+  // > RISKY_ODDS_THRESHOLD — and then it is always the single highest-odds
+  // slip that counts as Risky, never every slip whose own odds exceed the
+  // threshold (see lib/risky.ts). A combo counts as ONE slip, not per leg.
   // Grouped by EFFECTIVE Spieltag (lib/season.ts), not the raw `matchday` column —
   // a Wildenroth-II/Topspiel match keeps its own independent BFV matchday number,
   // and the limit must apply to the Spieltag the user actually bet under on /tipps.
   const matchdayIds = [...new Set(
     matches.map((m) => effectiveMatchdayOf(m as Match, mdIndex)).filter((md): md is number => md !== null)
   )]
+  // Captured here so the recompute pass after insertion (below) doesn't have
+  // to redo this lookup — same set of match ids used for both.
+  const matchdayAllIds = new Map<number, number[]>()
   for (const matchday of matchdayIds) {
     // All matches sharing this effective Spieltag (not just current selection)
     const allMatchdayIds = seasonMatchesForRequest
@@ -439,75 +477,56 @@ export async function POST(request: NextRequest) {
       .map((m) => m.id)
 
     if (allMatchdayIds.length === 0) continue
+    matchdayAllIds.set(matchday, allMatchdayIds)
 
-    // Service-role reads: this is the actual security boundary for the
+    // Service-role read: this is the actual security boundary for the
     // per-matchday bet limit, so it must never depend on the caller's own
     // session-scoped RLS visibility into their own rows — a future RLS
     // change (or bug) must not be able to silently disable this limit.
     // status='pending' also means a cancelled bet (cancellation deletes the
     // row entirely — see /api/bets/cancel) never occupies a slot here.
-    // Count existing normal single bets for this matchday
-    const { count: singleCount } = await admin
+    const { data: existingLegs } = await admin
       .from('bets')
-      .select('id', { count: 'exact', head: true })
+      .select('id, combo_id, odds_value')
       .eq('user_id', user.id)
-      .eq('is_risky', false)
-      .is('combo_id', null)
       .eq('status', 'pending')
       .in('match_id', allMatchdayIds)
 
-    // Count distinct normal combo bets for this matchday via their legs
-    const { data: comboLegs } = await admin
-      .from('bets')
-      .select('combo_id')
-      .eq('user_id', user.id)
-      .eq('is_risky', false)
-      .not('combo_id', 'is', null)
-      .eq('status', 'pending')
-      .in('match_id', allMatchdayIds)
-
-    const distinctCombos = new Set((comboLegs ?? []).map((b) => b.combo_id)).size
-    const existingNormalCount = (singleCount ?? 0) + distinctCombos
-
-    // Count existing risky bets (singles + combos) for this matchday
-    const { data: riskyLegs } = await admin
-      .from('bets')
-      .select('combo_id')
-      .eq('user_id', user.id)
-      .eq('is_risky', true)
-      .eq('status', 'pending')
-      .in('match_id', allMatchdayIds)
-
-    const riskySingles = (riskyLegs ?? []).filter((b) => !b.combo_id).length
-    const riskyCombos = new Set((riskyLegs ?? []).filter((b) => b.combo_id).map((b) => b.combo_id)).size
-    const existingRiskyCount = riskySingles + riskyCombos
-
-    const existingTotalCount = existingNormalCount + existingRiskyCount
-    const newBetCount = mode === 'combo' ? 1 : selections.filter((s) => {
-      const m = matches.find((match) => match.id === s.matchId)
-      return m && effectiveMatchdayOf(m as Match, mdIndex) === matchday
-    }).length
-
-    // Max 3 bets per matchday (total)
-    if (existingTotalCount + newBetCount > 3) {
-      return NextResponse.json(
-        { error: `Maximal 3 Wetten pro Spieltag erlaubt. Du hast bereits ${existingTotalCount} Wette(n) für Spieltag ${matchday} platziert.` },
-        { status: 400 }
-      )
+    const existingComboIds = [...new Set((existingLegs ?? []).filter((b) => b.combo_id != null).map((b) => b.combo_id as number))]
+    let existingCombos: { id: number; total_odds: number }[] = []
+    if (existingComboIds.length > 0) {
+      const { data } = await admin.from('combo_bets').select('id, total_odds').in('id', existingComboIds).eq('status', 'pending')
+      existingCombos = data ?? []
     }
 
-    // Max 2 bets with odds <= 20 per matchday
-    if (!effectiveRisky && existingNormalCount + newBetCount > 2) {
-      return NextResponse.json(
-        { error: `Maximal 2 Wetten mit Quote ≤ 20,0 pro Spieltag. Du hast bereits ${existingNormalCount} solche Wette(n) für Spieltag ${matchday} platziert.` },
-        { status: 400 }
-      )
-    }
+    const existingSlips: RiskySlip[] = [
+      ...(existingLegs ?? []).filter((b) => b.combo_id == null).map((b) => ({ id: `bet-${b.id}`, odds: Number(b.odds_value) })),
+      ...existingCombos.map((c) => ({ id: `combo-${c.id}`, odds: Number(c.total_odds) })),
+    ]
 
-    // Max 1 risky bet (odds > 20) per matchday
-    if (effectiveRisky && existingRiskyCount + newBetCount > 1) {
+    // Simulate the user's slip set for this Spieltag AFTER this request's new
+    // slip(s) were added — a combo is one new slip regardless of matchday (it
+    // can't span matches from different Spieltage in practice, since the bet
+    // slip only ever holds one Spieltag's matches at a time); single mode may
+    // submit several selections at once, each its own slip.
+    const newSlipsHere: RiskySlip[] = mode === 'combo'
+      ? [{ id: 'new-combo', odds: effectiveTotalOdds }]
+      : selections
+          .filter((s) => {
+            const m = matches.find((match) => match.id === s.matchId)
+            return m && effectiveMatchdayOf(m as Match, mdIndex) === matchday
+          })
+          .map((s, i) => ({ id: `new-${i}`, odds: s.oddsValue }))
+
+    const { valid, riskyId } = evaluateSlips([...existingSlips, ...newSlipsHere])
+    if (!valid) {
+      const hasRisky = riskyId !== null
       return NextResponse.json(
-        { error: `Maximal 1 Risky-Wette pro Spieltag erlaubt. Du hast bereits eine Risky-Wette für Spieltag ${matchday} platziert.` },
+        {
+          error: hasRisky
+            ? `Maximal 3 Wettscheine pro Spieltag erlaubt (davon höchstens einer mit Quote über 20,00). Du hast für Spieltag ${matchday} bereits ${existingSlips.length} Wettschein(e).`
+            : `Maximal 2 Wettscheine pro Spieltag erlaubt, solange keine Quote über 20,00 liegt. Du hast für Spieltag ${matchday} bereits ${existingSlips.length} Wettschein(e).`,
+        },
         { status: 400 }
       )
     }
@@ -612,6 +631,17 @@ export async function POST(request: NextRequest) {
       await admin.rpc('increment_balance', { p_user_id: user.id, p_amount: totalCost })
       return NextResponse.json({ error: 'Fehler beim Speichern der Wetten.' }, { status: 500 })
     }
+  }
+
+  // Authoritative Risky reclassification: the row(s) just inserted used
+  // `effectiveRisky` as a provisional value, which only reflects this new
+  // slip's own odds. The actual classification depends on the user's WHOLE
+  // active slip set for each affected Spieltag (see lib/risky.ts) — e.g. this
+  // new slip's odds might now be the highest, bumping a previously-Risky
+  // slip back to normal. Runs once per affected Spieltag, using the same
+  // match-id sets already gathered above.
+  for (const allMatchdayIds of matchdayAllIds.values()) {
+    await recomputeRiskyForUserMatchday(admin, user.id, allMatchdayIds)
   }
 
   // /tipps and /leaderboard use time-based revalidation (revalidate = 60);

@@ -54,16 +54,28 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
 
   const addSelection = useCallback((item: BetSlipItem) => {
     setSelections((prev) => {
-      // One selection per match across all market types.
-      // Toggle off if exact same selection; otherwise replace all from same match.
+      const newKey = bsKey(item.matchId, item.marketType, item.selection)
+      // Toggle off on an exact repeat pick.
       const wasSelected = prev.some(
         (s) => s.matchId === item.matchId && s.marketType === item.marketType && s.selection === item.selection
       )
-      const withoutThisMatch = prev.filter((s) => s.matchId !== item.matchId)
-      if (wasSelected) return withoutThisMatch
-      return [...withoutThisMatch, item]
+      if (wasSelected) {
+        return prev.filter((s) => bsKey(s.matchId, s.marketType, s.selection) !== newKey)
+      }
+      // Combo mode: a same-game combo is never valid (see isComboValid below),
+      // so a new pick for a match already represented in the combo replaces
+      // it outright — two legs from the same match would just be rejected.
+      // Single mode: different markets on the same match (or, for Torschütze,
+      // different players) are independent slips and coexist; only a
+      // different selection within the SAME market/slot on the same match
+      // replaces the previous choice there (changing your mind, e.g.
+      // Heimsieg → Unentschieden).
+      const withoutConflicting = mode === 'combo'
+        ? prev.filter((s) => s.matchId !== item.matchId)
+        : prev.filter((s) => bsKey(s.matchId, s.marketType, s.selection) !== newKey)
+      return [...withoutConflicting, item]
     })
-  }, [])
+  }, [mode])
 
   const removeSelection = useCallback((matchId: number, marketType: MarketType, selection?: string) => {
     setSelections((prev) =>

@@ -166,7 +166,12 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
       if (!res.ok) setCancelError(data.error ?? 'Stornierung fehlgeschlagen.')
       else router.refresh()
     } catch {
-      setCancelError('Netzwerkfehler.')
+      // See components/MyBets.tsx's identical cancelBet for why: an unclear
+      // network outcome must never trigger a blind retry of a financial
+      // mutation, and must reload real state instead of leaving a
+      // possibly-already-cancelled bet looking untouched.
+      setCancelError('Verbindung fehlgeschlagen. Bitte versuche die Stornierung noch einmal.')
+      router.refresh()
     } finally {
       setCancellingId(null)
     }

@@ -60,6 +60,16 @@ export function BetSlip() {
     return () => clearTimeout(t)
   }, [success])
 
+  // A placement error always describes the slip contents at the time it was
+  // returned. Any change to those contents — a selection added/removed/
+  // changed (BettingMatchCard calls context's addSelection/removeSelection
+  // directly, not through this component) or single/combo mode switched —
+  // invalidates it; otherwise it can keep showing after the user has already
+  // fixed or replaced what triggered it.
+  useEffect(() => {
+    setError(null)
+  }, [selections, mode])
+
   if (count === 0 && !success) return null
 
   function key(matchId: number, marketType: MarketType, selection: string) {
@@ -252,7 +262,13 @@ export function BetSlip() {
       setOpen(false)
       router.refresh()
     } catch {
-      setError('Netzwerkfehler. Bitte erneut versuchen.')
+      // Same principle as cancellation (see MyBets.tsx): a failed fetch()/
+      // res.json() here doesn't tell us whether the server actually placed
+      // the bet and debited the balance before the response was lost — never
+      // blindly retry, and refresh so an already-placed bet/deducted balance
+      // becomes visible instead of silently disagreeing with what's shown.
+      setError('Verbindung fehlgeschlagen. Bitte prüfe dein Guthaben und deine Wetten, bevor du es erneut versuchst.')
+      router.refresh()
     } finally {
       setLoading(false)
     }

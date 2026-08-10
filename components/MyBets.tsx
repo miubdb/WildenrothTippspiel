@@ -95,7 +95,15 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
       if (!res.ok) setError(data.error ?? 'Stornierung fehlgeschlagen.')
       else router.refresh()
     } catch {
-      setError('Netzwerkfehler.')
+      // fetch()/res.json() failed before we could learn whether the server
+      // actually processed the cancellation (e.g. a transient mobile network
+      // drop) — never blindly retry a financial mutation on an unclear
+      // outcome. Instead reload the real state: if it went through
+      // server-side despite the failed response, the bet disappearing (and
+      // the balance updating) here makes that visible, rather than leaving a
+      // stale, possibly-already-cancelled bet looking like it's still open.
+      setError('Verbindung fehlgeschlagen. Bitte versuche die Stornierung noch einmal.')
+      router.refresh()
     } finally {
       setCancellingId(null)
     }

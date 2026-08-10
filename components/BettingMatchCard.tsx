@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import type { Match } from '@/types'
+import type { Match, MarketType } from '@/types'
 import type { OddsData } from '@/types'
-import { useBetSlip } from '@/context/BetSlipContext'
+import { useBetSlip, bsKey } from '@/context/BetSlipContext'
 import { getExactScoreOdds, getForm, getTeamRecord } from '@/lib/odds'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
 import { TeamLogo } from '@/components/TeamLogo'
@@ -46,7 +46,7 @@ interface BettingMatchCardProps {
 type Tab = '1x2' | 'goals' | 'exact' | 'handicap' | 'goalscorer'
 
 export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, originalMatchday, exactScoreOverrides }: BettingMatchCardProps) {
-  const { selections, addSelection } = useBetSlip()
+  const { selections, addSelection, mode } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
   const [wildenrothBlockMsg, setWildenrothBlockMsg] = useState(false)
@@ -117,10 +117,15 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       setTimeout(() => setWildenrothBlockMsg(false), 8000)
       return
     }
-    // Detect if any existing selection for this match will be replaced
-    const existingForMatch = selections.find(s => s.matchId === match.id)
-    const willReplace = existingForMatch != null &&
-      !(existingForMatch.marketType === marketType && existingForMatch.selection === selection)
+    // Detect if this pick will replace something already in the slip — mirrors
+    // BetSlipContext's addSelection eviction rule exactly (see there for why):
+    // combo mode evicts any existing pick for this match (same-game combos are
+    // never valid); single mode only evicts a pick in the SAME market/slot on
+    // this match (a different market, or a different Torschütze, coexists).
+    const newKey = bsKey(match.id, marketType as MarketType, selection)
+    const willReplace = mode === 'combo'
+      ? selections.some(s => s.matchId === match.id && bsKey(s.matchId, s.marketType, s.selection) !== newKey)
+      : selections.some(s => bsKey(s.matchId, s.marketType, s.selection) === newKey && s.selection !== selection)
     addSelection({ matchId: match.id, matchLabel, marketType: marketType as never, marketLabel, selection, selectionLabel, oddsValue, homeTeam: homeName, awayTeam: awayName })
     if (willReplace) {
       setReplacedMsg(true)

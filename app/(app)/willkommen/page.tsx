@@ -75,11 +75,13 @@ export default async function WillkommenPage() {
         <div className="divide-y divide-gray-50 dark:divide-gray-700">
           {[
             { icon: '💰', title: 'Startkapital: 1.000 Wildis', text: 'Du bekommst virtuell 1.000 Wildis zum Tippen — die offizielle Währung des Wildenroth Tippspiels.' },
-            { icon: '🎯', title: 'Pro Spieltag 3 Wetten', text: 'Davon 2 normale Wetten und 1 Risiko-Wette (Quote über 20,00). Einzelwetten oder Kombiwette — du entscheidest.' },
+            { icon: '🎯', title: 'Pro Spieltag maximal 3 Wettscheine', text: 'Normal sind maximal 2 Wettscheine möglich. Hast du mindestens einen Wettschein mit einer Quote über 20,00, zählt der Wettschein mit der höchsten Quote als Risky und du kannst insgesamt bis zu 3 Wettscheine abgeben.' },
+            { icon: '💵', title: 'Einsatz', text: 'Pro Wettschein kannst du zwischen 1 und 250 Wildis setzen.' },
             { icon: '🔗', title: 'Kombiwetten möglich', text: 'Mehrere Tipps aus verschiedenen Spielen können zu einer Kombiwette verbunden werden.' },
             { icon: '📊', title: 'Rangliste', text: 'Wer am Ende der Saison das höchste Guthaben hat, gewinnt.' },
             { icon: '⏰', title: 'Wettfenster', text: 'Wetten werden vor dem jeweiligen Spieltag freigeschaltet. Den genauen Start siehst du in der App. Jedes Spiel schließt einzeln mit dem Anpfiff.' },
             { icon: '⚠️', title: 'Aktiv bleiben', text: 'Wer an einem Spieltag keine Wette abgibt, zahlt 50 Wildis Strafe.' },
+            { icon: '📱', title: 'App & Benachrichtigungen', text: <>Tipp: Speichere das Tippspiel als App auf deinem Homescreen und aktiviere anschließend die Benachrichtigungen. Wie das geht, findest du in der <Link href="/anleitung" className="underline font-medium">Hilfe</Link>.</> },
           ].map(({ icon, title, text }) => (
             <div key={title} className="flex items-start gap-3 px-5 py-3">
               <span className="text-xl flex-shrink-0">{icon}</span>

@@ -86,7 +86,7 @@ export default async function ProfilPage({
   const { data: betsRaw } = await supabase
     .from('bets')
     .select(
-      `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id, season,
+      `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id, season, is_risky,
        match:matches(id, matchday, match_date, home_score, away_score, status,
          home_team:teams!matches_home_team_id_fkey(name, short_name),
          away_team:teams!matches_away_team_id_fkey(name, short_name)
@@ -245,11 +245,20 @@ export default async function ProfilPage({
   const comboCount = [...comboBetsMap.values()].filter(cb => cb.status !== 'pending').length
   const comboRate = settledCount + comboCount > 0 ? Math.round((comboCount / (settledCount + comboCount)) * 100) : null
 
-  // Risky bets (odds > 20 for singles, total_odds > 20 for combos)
-  const riskyWon = singleBets.filter(b => b.odds_value > 20 && b.status === 'won').length +
-    [...comboBetsMap.values()].filter(cb => (cb.total_odds ?? 0) > 20 && cb.status === 'won').length
-  const riskyLost = singleBets.filter(b => b.odds_value > 20 && b.status === 'lost').length +
-    [...comboBetsMap.values()].filter(cb => (cb.total_odds ?? 0) > 20 && cb.status === 'lost').length
+  // Risky bets — reads the actually stored is_risky flag (set at placement,
+  // dynamically reclassified while pending — see lib/risky.ts) rather than
+  // re-deriving from odds > 20: two settled bets can both have odds > 20 for
+  // the same Spieltag while only one of them was ever the Risky slot. A
+  // combo's is_risky isn't its own column; any one leg reflects it (all legs
+  // of one combo share the same value).
+  const comboIsRiskyMap = new Map<string, boolean>()
+  for (const b of bets) {
+    if (b.combo_id != null && !comboIsRiskyMap.has(b.combo_id)) comboIsRiskyMap.set(b.combo_id, b.is_risky)
+  }
+  const riskyWon = singleBets.filter(b => b.is_risky && b.status === 'won').length +
+    [...comboBetsMap.values()].filter(cb => comboIsRiskyMap.get(cb.id) && cb.status === 'won').length
+  const riskyLost = singleBets.filter(b => b.is_risky && b.status === 'lost').length +
+    [...comboBetsMap.values()].filter(cb => comboIsRiskyMap.get(cb.id) && cb.status === 'lost').length
   const riskyTotal = riskyWon + riskyLost
 
   // Balance history: reconstruct from settled bets ordered by match date

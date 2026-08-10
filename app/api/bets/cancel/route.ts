@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { recomputeRiskyForUserMatchday } from '@/lib/risky'
+import type { Match } from '@/types'
+
+const SEASON_START = '2026-08-01'
+const TEST_MATCHDAY = 999
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -12,6 +18,29 @@ export async function POST(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 })
+  const userId = user.id
+
+  // Recomputes and persists Risky classification for every Spieltag touched
+  // by `matchIds` — cancelling a slip can change which of the user's
+  // remaining slips (if any) is now Risky (see lib/risky.ts).
+  async function recomputeAffectedMatchdays(matchIds: number[]) {
+    const { data: seasonMatchesRaw } = await supabase
+      .from('matches')
+      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
+      .or(`match_date.gte.${SEASON_START},matchday.eq.${TEST_MATCHDAY}`)
+    const seasonMatches = (seasonMatchesRaw ?? []) as Match[]
+    const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
+    const affectedMatchdays = new Set(
+      seasonMatches
+        .filter((m) => matchIds.includes(m.id))
+        .map((m) => effectiveMatchdayOf(m, mdIndex))
+        .filter((md): md is number => md !== null)
+    )
+    for (const md of affectedMatchdays) {
+      const allMatchdayIds = seasonMatches.filter((m) => effectiveMatchdayOf(m, mdIndex) === md).map((m) => m.id)
+      await recomputeRiskyForUserMatchday(admin, userId, allMatchdayIds)
+    }
+  }
 
   let body: { betId?: number; comboId?: number }
   try { body = await request.json() } catch {
@@ -111,6 +140,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Fehler bei der Rückerstattung.' }, { status: 500 })
     }
 
+    await recomputeAffectedMatchdays(allMatchIds)
+
     revalidatePath('/tipps')
     revalidatePath('/leaderboard')
     return NextResponse.json({ success: true, newBalance })
@@ -180,6 +211,8 @@ export async function POST(request: NextRequest) {
       console.error('single bet refund error:', refundError)
       return NextResponse.json({ error: 'Fehler bei der Rückerstattung.' }, { status: 500 })
     }
+
+    await recomputeAffectedMatchdays([bet.match_id])
 
     revalidatePath('/tipps')
     revalidatePath('/leaderboard')
