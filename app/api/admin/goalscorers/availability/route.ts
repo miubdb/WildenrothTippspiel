@@ -3,10 +3,17 @@ import { createClient } from '@/lib/supabase/server'
 
 /**
  * POST /api/admin/goalscorers/availability
- * Body: { matchId, playerId, status?, is_offered?, is_offered_2plus? }
+ * Body: { matchId, playerId, status?, is_offered?, is_offered_2plus?, odds_score?, odds_score_2plus? }
  *
- * Updates a single player's per-match availability/offers. Does NOT cancel
- * existing bets — use cancel-player for that.
+ * Updates a single player's per-match availability/offers, and optionally a
+ * manual odds override. Unlike the main markets (match_odds_overrides),
+ * match_goalscorer_odds has no separate auto-vs-override pair of columns —
+ * odds_score/odds_score_2plus are already the single frozen value everything
+ * else reads (bet placement, the tipps page). A manual edit here overwrites
+ * that value directly, exactly like "Quoten neu berechnen" already does when
+ * it recomputes it from the model — clicking that button is the "reset to
+ * auto" path for a manually-edited row. Does NOT cancel existing bets — use
+ * cancel-player for that.
  */
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -15,7 +22,11 @@ export async function POST(request: NextRequest) {
   const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
   if (!profile?.is_admin) return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 })
 
-  let body: { matchId: number; playerId: number; status?: string; is_offered?: boolean; is_offered_2plus?: boolean }
+  let body: {
+    matchId: number; playerId: number; status?: string
+    is_offered?: boolean; is_offered_2plus?: boolean
+    odds_score?: number; odds_score_2plus?: number
+  }
   try { body = await request.json() } catch {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
@@ -29,6 +40,14 @@ export async function POST(request: NextRequest) {
   if (body.status !== undefined) updates.status = body.status
   if (body.is_offered !== undefined) updates.is_offered = body.is_offered
   if (body.is_offered_2plus !== undefined) updates.is_offered_2plus = body.is_offered_2plus
+  for (const col of ['odds_score', 'odds_score_2plus'] as const) {
+    const v = body[col]
+    if (v === undefined) continue
+    if (typeof v !== 'number' || !Number.isFinite(v) || v <= 1.0 || v > 999) {
+      return NextResponse.json({ error: `Ungültiger Wert für ${col}.` }, { status: 400 })
+    }
+    updates[col] = v
+  }
 
   const { error } = await supabase
     .from('match_goalscorer_odds')

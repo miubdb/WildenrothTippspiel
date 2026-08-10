@@ -2177,6 +2177,20 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
   const [loading, setLoading] = useState(false)
   const [freezing, setFreezing] = useState(false)
   const [savingScorers, setSavingScorers] = useState(false)
+  const [oddsDraft, setOddsDraft] = useState<Record<number, { score: string; score2plus: string }>>({})
+
+  // Re-sync the editable odds drafts whenever the rows are (re)loaded — e.g.
+  // after "Quoten neu berechnen" recomputes them from the model.
+  useEffect(() => {
+    const next: Record<number, { score: string; score2plus: string }> = {}
+    for (const r of rows) {
+      next[r.player_id] = {
+        score: r.odds_score != null ? String(r.odds_score) : '',
+        score2plus: r.odds_score_2plus != null ? String(r.odds_score_2plus) : '',
+      }
+    }
+    setOddsDraft(next)
+  }, [rows])
 
   const reload = useCallback(async () => {
     if (selectedMatchId == null) return
@@ -2207,7 +2221,7 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
     else onMessage(`Fehler: ${data.error}`)
   }
 
-  async function updateAvailability(playerId: number, patch: Partial<{ status: string; is_offered: boolean; is_offered_2plus: boolean }>) {
+  async function updateAvailability(playerId: number, patch: Partial<{ status: string; is_offered: boolean; is_offered_2plus: boolean; odds_score: number; odds_score_2plus: number }>) {
     if (selectedMatchId == null) return
     const res = await fetch('/api/admin/goalscorers/availability', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2218,6 +2232,21 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
       const data = await res.json()
       onMessage(`Fehler: ${data.error}`)
     }
+  }
+
+  // Manual odds edit (Trifft/2+) — saved on blur, mirroring "leer = kein Wert
+  // gesetzt": an empty/unparseable field is silently ignored rather than
+  // erroring, since the row's odds_score can legitimately be null (e.g. a
+  // player not yet offered) before the first "Quoten neu berechnen".
+  async function saveOddsField(playerId: number, field: 'odds_score' | 'odds_score_2plus', raw: string) {
+    const trimmed = raw.trim().replace(',', '.')
+    if (trimmed === '') return
+    const n = parseFloat(trimmed)
+    if (isNaN(n) || n <= 1.0 || n > 999) {
+      onMessage('Ungültiger Quotenwert (muss >1,00 sein).')
+      return
+    }
+    await updateAvailability(playerId, { [field]: n })
   }
 
   async function cancelPlayer(playerId: number, playerName: string) {
@@ -2293,7 +2322,7 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
                 {selectedMatch.home_team?.name} – {selectedMatch.away_team?.name}
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
-                {allFrozen ? 'Quoten gefroren' : 'Quoten noch nicht berechnet'}
+                {allFrozen ? 'Quoten gefroren' : 'Quoten noch nicht berechnet'} · Trifft/2+ manuell bearbeitbar (Feld verlassen = speichern)
               </p>
             </div>
             <button onClick={freezeOrRefresh} disabled={freezing}
@@ -2326,15 +2355,28 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
                     </div>
                     <div className="flex items-center gap-1">
                       <span className="text-[10px] text-gray-500">Trifft</span>
-                      <span className="font-bold text-red-700 tabular-nums">
-                        {r.odds_score != null ? Number(r.odds_score).toFixed(2).replace('.', ',') : '–'}
-                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={oddsDraft[r.player_id]?.score ?? ''}
+                        placeholder="–"
+                        onChange={e => setOddsDraft(prev => ({ ...prev, [r.player_id]: { ...prev[r.player_id], score: e.target.value, score2plus: prev[r.player_id]?.score2plus ?? '' } }))}
+                        onBlur={e => saveOddsField(r.player_id, 'odds_score', e.target.value)}
+                        className="w-14 text-center font-bold text-red-700 tabular-nums border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-red-400"
+                      />
                     </div>
                     <div className="flex items-center gap-1">
                       <span className="text-[10px] text-gray-500">2+</span>
-                      <span className="font-bold text-red-700 tabular-nums">
-                        {r.is_offered_2plus && r.odds_score_2plus != null ? Number(r.odds_score_2plus).toFixed(2).replace('.', ',') : '–'}
-                      </span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={oddsDraft[r.player_id]?.score2plus ?? ''}
+                        placeholder="–"
+                        disabled={!r.is_offered_2plus}
+                        onChange={e => setOddsDraft(prev => ({ ...prev, [r.player_id]: { ...prev[r.player_id], score2plus: e.target.value, score: prev[r.player_id]?.score ?? '' } }))}
+                        onBlur={e => saveOddsField(r.player_id, 'odds_score_2plus', e.target.value)}
+                        className="w-14 text-center font-bold text-red-700 tabular-nums border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-red-400 disabled:bg-gray-50 disabled:text-gray-300"
+                      />
                     </div>
                   </div>
                   <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
