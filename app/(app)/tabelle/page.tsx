@@ -349,10 +349,10 @@ export default async function TabellePage({
       .slice(0, 10)
   })()
 
-  // Neutral (unfilled) zones before any current-season result exists — the
-  // alphabetical pre-season order carries no promotion/relegation information,
-  // so colouring rank badges by it would be misleading.
-  const zones = hasCurrentSeasonData ? getZones(standings.length, isB) : { promo: null, promoRelegation: null, relegation: null, drop: null }
+  // Zones are shown regardless of whether a season match has been played yet
+  // — they mark fixed table POSITIONS (1, 2, etc.), not results, so they're
+  // just as meaningful against the pre-season alphabetical order.
+  const zones = getZones(standings.length, isB)
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -385,7 +385,7 @@ export default async function TabellePage({
               : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
           }`}
         >
-          1. Mannschaft
+          Kreisliga 2
         </Link>
         <Link
           href="/tabelle?liga=b-klasse"
@@ -395,7 +395,7 @@ export default async function TabellePage({
               : 'bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
           }`}
         >
-          2. Mannschaft
+          B-Klasse 2
         </Link>
       </div>
 
@@ -476,8 +476,7 @@ export default async function TabellePage({
         })}
       </div>
 
-      {/* Legend — only meaningful once the table reflects real results */}
-      {hasCurrentSeasonData && (
+      {/* Legend */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3">
         <div className="flex flex-wrap gap-3 text-xs text-gray-500 dark:text-gray-400">
           {zones.promo && (
@@ -506,7 +505,6 @@ export default async function TabellePage({
           )}
         </div>
       </div>
-      )}
 
       {/* Team Stats */}
       {!hasCurrentSeasonData && ourPriorStandings.length > 0 ? (

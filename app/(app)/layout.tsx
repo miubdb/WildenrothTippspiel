@@ -33,7 +33,17 @@ export default async function AppLayout({
 
   return (
     <BetSlipProvider>
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
+      {/* h-dvh (a hard cap, not min-h-screen's minimum) plus main's min-h-0 below
+          is required together for #app-main's overflow-y-auto to actually bound
+          and scroll internally — a flex item defaults to min-height:auto, which
+          lets it grow past its flex-1 share to fit long content (a long table
+          page) regardless of the parent's height. Without both, that growth
+          pushes this wrapper (and so the document) taller than the viewport, the
+          window ends up as the real scroll container instead of #app-main, and
+          BottomNav's position:fixed — anchored to the viewport — visually drifts
+          with that window scroll on some mobile engines, sometimes only settling
+          back down after a full reload. */}
+      <div className="h-dvh bg-gray-50 dark:bg-gray-900 flex flex-col">
         {/* Top Header */}
         <header className="bg-gradient-to-r from-red-700 to-red-800 text-white sticky top-0 z-40 safe-top shadow-lg">
           <div className="flex items-center justify-between px-4 py-3 max-w-lg mx-auto">
@@ -54,7 +64,7 @@ export default async function AppLayout({
         </header>
 
         {/* Main Content */}
-        <main id="app-main" className="flex-1 overflow-y-auto pb-20 max-w-lg mx-auto w-full">
+        <main id="app-main" className="flex-1 min-h-0 overflow-y-auto pb-20 max-w-lg mx-auto w-full">
           {children}
         </main>
 

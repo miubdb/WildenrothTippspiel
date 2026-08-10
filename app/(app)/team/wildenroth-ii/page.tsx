@@ -88,13 +88,10 @@ function PlayerAvatar({ player, size = 36 }: { player: PlayerRow; size?: number 
 export default async function WildenrothIITeamPage() {
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
-  const { data: profile } = user
-    ? await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
-    : { data: null }
-  // Same rationale as the 1st-team page: squad/player detail is unfinished
-  // and stays hidden from normal users, visible to admins who maintain it.
-  const showSquad = !!profile?.is_admin
+  // Kader list hidden for everyone (including admins) ahead of go-live — same
+  // as the 1st-team page. Squad data, /kader/[id] pages and admin tooling
+  // stay fully intact, this only gates rendering.
+  const showSquad = false
 
   const [{ data: rawPlayers }, { data: rawMatches }] = await Promise.all([
     supabase
@@ -241,7 +238,7 @@ export default async function WildenrothIITeamPage() {
         </div>
       )}
 
-      {/* Squad — hidden from normal users until photos/history are complete */}
+      {/* Squad — hidden for everyone ahead of go-live, see showSquad above */}
       {showSquad && (
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
