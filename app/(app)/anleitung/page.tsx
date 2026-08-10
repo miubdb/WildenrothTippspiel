@@ -66,7 +66,7 @@ export default function AnleitungPage() {
           Wenn du Push-Benachrichtigungen aktiviert hast (unter <strong>Profil</strong>), bekommst du automatisch Bescheid:
         </p>
         <div className="mt-2 space-y-2">
-          <NotifItem emoji="🏟️" title="Spieltag offen" desc="Sobald ein neuer Spieltag wettbar ist (Montag 12:00 Uhr)." />
+          <NotifItem emoji="🏟️" title="Spieltag offen" desc="Sobald ein neuer Spieltag wettbar ist." />
           <NotifItem emoji="👀" title="Tipp-Erinnerung" desc="Ca. 2,5 Stunden vor dem ersten Spiel, falls du noch nicht alle Wettscheine genutzt hast." />
           <NotifItem emoji="🎉" title="Wette gewonnen" desc="Direkt nach der Abrechnung — mit einem Tipp auf die Benachrichtigung springst du zur gewonnenen Wette." />
           <NotifItem emoji="😬" title="Wette verloren" desc="Auch das erfährst du sofort, fair ist fair." />
@@ -88,10 +88,10 @@ export default function AnleitungPage() {
       {/* Wetten platzieren & stornieren */}
       <HelpAccordion title="Wetten platzieren & stornieren" emoji="⏰">
         <div className="mb-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg px-3 py-2 text-xs text-blue-800 dark:text-blue-300">
-          Das Wettfenster öffnet <strong>montags um 12:00 Uhr</strong>. Jedes Spiel schließt einzeln bei seinem Anpfiff — andere Spiele des Spieltags bleiben weiterhin tippbar.
+          Jeder Spieltag wird zu einem festgelegten Zeitpunkt zur Tippabgabe geöffnet. Den genauen Zeitpunkt siehst du in der App. Jedes Spiel schließt einzeln bei seinem Anpfiff — andere Spiele des Spieltags bleiben weiterhin tippbar.
         </div>
         <div className="space-y-1.5 text-sm">
-          <Row label="Öffnet:" value="Montag 12:00 Uhr der Spielwoche" />
+          <Row label="Öffnet:" value="Individuell je Spieltag — Zeitpunkt siehst du in der App" />
           <Row label="Schluss:" value={<><strong>Einzelwetten:</strong> bis zum Anpfiff des jeweiligen Spiels</>} />
           <Row label="" value={<><strong>Kombiwetten:</strong> nur wenn alle enthaltenen Spiele noch nicht begonnen haben</>} />
           <Row label="Wettscheine:" value={<>Maximal <strong>3 Wettscheine</strong> pro Spieltag (2 normale + 1 Risky)</>} />

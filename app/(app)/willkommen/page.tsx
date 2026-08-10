@@ -9,13 +9,22 @@ export default async function WillkommenPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('display_name, username, eligible_for_current_season, is_wildenroth')
+    .select('display_name, username, eligible_for_current_season, is_wildenroth, is_wildenroth_ii')
     .eq('id', user.id)
     .single()
 
   const name = profile?.display_name || profile?.username || 'du'
   const eligible = profile?.eligible_for_current_season ?? true
   const isWildenroth = profile?.is_wildenroth ?? false
+  const isWildenrothII = profile?.is_wildenroth_ii ?? false
+
+  const playerHint = isWildenroth && isWildenrothII
+    ? 'Da du aktuell für beide Mannschaften aktiv bist, darfst du weder gegen Wildenroth I noch gegen Wildenroth II tippen.'
+    : isWildenroth
+      ? 'Als Spieler/Trainer der 1. Mannschaft darfst du nicht gegen Wildenroth I tippen. Spiele von Wildenroth II sind für dich normal wettbar.'
+      : isWildenrothII
+        ? 'Als Spieler/Trainer der 2. Mannschaft darfst du nicht gegen Wildenroth II tippen. Spiele der 1. Mannschaft sind für dich normal wettbar.'
+        : null
 
   return (
     <div className="px-4 py-6 space-y-5 max-w-lg mx-auto">
@@ -44,14 +53,14 @@ export default async function WillkommenPage() {
       )}
 
       {/* Wildenroth-Hinweis */}
-      {isWildenroth && (
+      {playerHint && (
         <div className="bg-blue-50 border border-blue-200 rounded-2xl px-5 py-4">
           <div className="flex items-start gap-3">
             <span className="text-2xl">⚽</span>
             <div>
               <h2 className="font-bold text-gray-900">Wildenroth-Spieler</h2>
               <p className="text-sm text-gray-600 mt-1">
-                Als aktiver Spieler/Trainer darfst du nicht gegen Wildenroth tippen — alle anderen Wetten sind erlaubt.
+                {playerHint}
               </p>
             </div>
           </div>
@@ -66,10 +75,11 @@ export default async function WillkommenPage() {
         <div className="divide-y divide-gray-50 dark:divide-gray-700">
           {[
             { icon: '💰', title: 'Startkapital: 1.000 Wildis', text: 'Du bekommst virtuell 1.000 Wildis zum Tippen — die offizielle Währung des Wildenroth Tippspiels.' },
-            { icon: '🎯', title: 'Pro Spieltag 3 Wetten', text: 'Davon 2 normale Wetten und 1 Risiko-Wette (mind. Gesamtquote 20). Einzelwetten oder Kombiwette — du entscheidest.' },
-            { icon: '🔗', title: 'Kombiwetten möglich', text: 'Mehrere Spiele lassen sich zu einer Kombiwette verknüpfen. Pro Spiel gilt nur ein Tipp.' },
+            { icon: '🎯', title: 'Pro Spieltag 3 Wetten', text: 'Davon 2 normale Wetten und 1 Risiko-Wette (Quote über 20,00). Einzelwetten oder Kombiwette — du entscheidest.' },
+            { icon: '🔗', title: 'Kombiwetten möglich', text: 'Mehrere Tipps aus verschiedenen Spielen können zu einer Kombiwette verbunden werden.' },
             { icon: '📊', title: 'Rangliste', text: 'Wer am Ende der Saison das höchste Guthaben hat, gewinnt.' },
-            { icon: '⏰', title: 'Wettfenster', text: 'Tipps sind ab Montag 12:00 Uhr möglich. Jedes Spiel schließt individuell beim Anpfiff — andere Spiele des gleichen Spieltags bleiben länger offen.' },
+            { icon: '⏰', title: 'Wettfenster', text: 'Wetten werden vor dem jeweiligen Spieltag freigeschaltet. Den genauen Start siehst du in der App. Jedes Spiel schließt einzeln mit dem Anpfiff.' },
+            { icon: '⚠️', title: 'Aktiv bleiben', text: 'Wer an einem Spieltag keine Wette abgibt, zahlt 50 Wildis Strafe.' },
           ].map(({ icon, title, text }) => (
             <div key={title} className="flex items-start gap-3 px-5 py-3">
               <span className="text-xl flex-shrink-0">{icon}</span>

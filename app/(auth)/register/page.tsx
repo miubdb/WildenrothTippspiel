@@ -34,6 +34,15 @@ const STEPS = [
 
 type StepKey = typeof STEPS[number]['key']
 
+type PlayerRole = 'team1' | 'team2' | 'both' | 'fan'
+
+const ROLE_OPTIONS: { value: PlayerRole; label: string }[] = [
+  { value: 'team1', label: 'Ich bin Spieler/Trainer der 1. Mannschaft' },
+  { value: 'team2', label: 'Ich bin Spieler/Trainer der 2. Mannschaft' },
+  { value: 'both', label: 'Ich bin aktuell in beiden Mannschaften aktiv' },
+  { value: 'fan', label: 'Ich bin nur Fan 🙂' },
+]
+
 function StepIndicator({ current }: { current: StepKey }) {
   const currentIdx = STEPS.findIndex(s => s.key === current)
   return (
@@ -78,7 +87,7 @@ export default function RegisterPage() {
     password: '',
     passwordConfirm: '',
   })
-  const [isWildenroth, setIsWildenroth] = useState(false)
+  const [playerRole, setPlayerRole] = useState<PlayerRole | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [checkingName, setCheckingName] = useState(false)
@@ -115,6 +124,10 @@ export default function RegisterPage() {
     } else if (step === 'email') {
       if (!form.email.trim()) {
         setError('Bitte gib deine E-Mail-Adresse ein.')
+        return
+      }
+      if (!playerRole) {
+        setError('Bitte wähle eine der vier Optionen aus.')
         return
       }
       setStep('password')
@@ -168,7 +181,7 @@ export default function RegisterPage() {
       await fetch('/api/auth/register-eligibility', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isWildenroth }),
+        body: JSON.stringify({ role: playerRole }),
       })
     } catch {
       // best-effort; Admin kann Berechtigung manuell setzen
@@ -199,7 +212,7 @@ export default function RegisterPage() {
           {step === 'name' && (
             <div onKeyDown={handleStepKeyDown}>
               <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 mb-1">
-                Wie heißt du?
+                Wie heißt du? (eindeutiger Nutzername)
               </label>
               <input
                 id="displayName"
@@ -246,20 +259,37 @@ export default function RegisterPage() {
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-gray-900 placeholder-gray-400 transition"
                 placeholder="deine@email.de"
               />
+              <p className="text-xs text-gray-400 mt-1.5">
+                Die Adresse muss nicht erreichbar sein. Wichtig: Merke sie dir – du brauchst sie später zum Login.
+              </p>
 
-              {/* Wildenroth-Spieler */}
-              <label className="flex items-start gap-3 cursor-pointer bg-gray-50 rounded-xl px-4 py-3 border border-gray-200 hover:border-red-300 transition-colors mt-4">
-                <input
-                  type="checkbox"
-                  checked={isWildenroth}
-                  onChange={e => setIsWildenroth(e.target.checked)}
-                  className="mt-0.5 w-4 h-4 rounded accent-red-700 flex-shrink-0"
-                />
-                <div>
-                  <div className="text-sm font-semibold text-gray-800">Ich bin aktiver Spieler, Trainer oder Torwarttrainer der 1. Mannschaft von SpVgg Wildenroth</div>
-                  <div className="text-xs text-gray-500 mt-0.5">Wildenroth-Spieler dürfen nicht gegen die eigene Mannschaft tippen.</div>
+              {/* Spieler/Fan-Auswahl — single-choice, genau eine Option Pflicht */}
+              <fieldset className="mt-4">
+                <legend className="text-sm font-medium text-gray-700 mb-1.5">Das trifft auf dich zu:</legend>
+                <div className="space-y-2">
+                  {ROLE_OPTIONS.map(({ value, label }) => (
+                    <label
+                      key={value}
+                      className={`flex items-center gap-3 cursor-pointer rounded-xl px-4 py-3 border transition-colors ${
+                        playerRole === value
+                          ? 'bg-red-50 border-red-400'
+                          : 'bg-gray-50 border-gray-200 hover:border-red-300'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="playerRole"
+                        value={value}
+                        checked={playerRole === value}
+                        onChange={() => setPlayerRole(value)}
+                        required
+                        className="w-4 h-4 accent-red-700 flex-shrink-0"
+                      />
+                      <span className="text-sm font-semibold text-gray-800">{label}</span>
+                    </label>
+                  ))}
                 </div>
-              </label>
+              </fieldset>
 
               {error && (
                 <div className="bg-red-50 text-red-700 text-sm px-4 py-3 rounded-xl border border-red-100 mt-4">
