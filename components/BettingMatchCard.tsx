@@ -38,11 +38,14 @@ interface BettingMatchCardProps {
    *  its own official BFV number (see `isRescheduledMatch` in lib/season.ts)
    *  — shows a "eigentlich Spieltag X" hint so it doesn't look like a mistake. */
   originalMatchday?: number | null
+  /** Admin-set manual exact-score odds (match_odds_overrides.exact_score_overrides),
+   *  keyed by "H:A" score string — wins over the auto-computed value for that score. */
+  exactScoreOverrides?: Record<string, number> | null
 }
 
 type Tab = '1x2' | 'goals' | 'exact' | 'handicap' | 'goalscorer'
 
-export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, originalMatchday }: BettingMatchCardProps) {
+export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, originalMatchday, exactScoreOverrides }: BettingMatchCardProps) {
   const { selections, addSelection } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
@@ -125,9 +128,14 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     }
   }
 
-  // Exact score grid (calculated client-side)
+  // Exact score grid (calculated client-side) — an admin-set manual override
+  // for a specific score wins over the auto-computed value, same principle as
+  // every other market's match_odds_overrides merge in tipps/page.tsx.
   const exactScores = isScheduled && odds
-    ? getExactScoreOdds(allMatches, match.home_team_id, match.away_team_id)
+    ? getExactScoreOdds(allMatches, match.home_team_id, match.away_team_id).map((row) => {
+        const ov = exactScoreOverrides?.[row.score]
+        return ov != null ? { ...row, odds: ov } : row
+      })
     : []
 
   // Detail stats

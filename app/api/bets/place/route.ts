@@ -249,12 +249,14 @@ export async function POST(request: NextRequest) {
       .from('match_odds_overrides')
       .select('*')
       .in('match_id', matchIds)
+    const exactOverrideMap = new Map<number, Record<string, number>>()
     for (const ov of overrideRows ?? []) {
+      if (ov.exact_score_overrides) exactOverrideMap.set(ov.match_id, ov.exact_score_overrides)
       const existing = oddsMap.get(ov.match_id)
       if (!existing) continue
       const merged = { ...existing }
       for (const col of Object.keys(ov)) {
-        if (col === 'match_id' || col === 'updated_by' || col === 'updated_at') continue
+        if (col === 'match_id' || col === 'updated_by' || col === 'updated_at' || col === 'exact_score_overrides') continue
         if (ov[col] != null) merged[col] = ov[col]
       }
       oddsMap.set(ov.match_id, merged)
@@ -287,6 +289,20 @@ export async function POST(request: NextRequest) {
       if (!Number.isFinite(hg) || !Number.isFinite(ag)) {
         return NextResponse.json({ error: 'Ungültiger Ergebnis-Tipp.' }, { status: 400 })
       }
+
+      // A manual admin override for this exact match+score is the binding
+      // quote — validate against it directly (same tight tolerance as the
+      // other markets above) instead of the auto-model ceiling check, since
+      // the whole point of an override is that it may legitimately differ
+      // from what the model would compute.
+      const exactOverride = exactOverrideMap.get(s.matchId)?.[s.selection]
+      if (exactOverride != null) {
+        if (Math.abs(Number(exactOverride) - s.oddsValue) > 0.02) {
+          return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })
+        }
+        continue
+      }
+
       const directionOdds = hg > ag ? Number(row.home_win) : hg < ag ? Number(row.away_win) : Number(row.draw)
       if (s.oddsValue < directionOdds - 0.02 || s.oddsValue > 60.02) {
         return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })

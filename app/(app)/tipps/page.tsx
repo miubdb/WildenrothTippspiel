@@ -457,6 +457,7 @@ export default async function TippsPage({
   }
 
   // Apply admin odds overrides (override any market value if set)
+  const exactScoreOverrideMap: Record<number, Record<string, number>> = {}
   if (isBettingOpen && matchdayMatches.some(m => m.status === 'scheduled')) {
     const scheduledIds = matchdayMatches.filter(m => m.status === 'scheduled').map(m => m.id)
     if (scheduledIds.length > 0) {
@@ -466,6 +467,7 @@ export default async function TippsPage({
         .select('*')
         .in('match_id', scheduledIds)
       for (const ov of overrideRows ?? []) {
+        if (ov.exact_score_overrides) exactScoreOverrideMap[ov.match_id] = ov.exact_score_overrides
         const existing = oddsMap[ov.match_id]
         if (!existing) continue
         const merged = { ...existing }
@@ -984,6 +986,7 @@ export default async function TippsPage({
                     wildenrothIiTeamId={wildenrothIiTeamId}
                     goalscorers={goalscorerOffersByMatch[match.id] ?? null}
                     originalMatchday={isRescheduledMatch(match, mdIndex) ? match.matchday : null}
+                    exactScoreOverrides={exactScoreOverrideMap[match.id] ?? null}
                   />
                 ))}
                 {bklasse.length > 0 && (
@@ -1006,6 +1009,7 @@ export default async function TippsPage({
                         isWildenrothIiPlayer={isWildenrothIiPlayer}
                         wildenrothIiTeamId={wildenrothIiTeamId}
                         goalscorers={goalscorerOffersByMatch[match.id] ?? null}
+                        exactScoreOverrides={exactScoreOverrideMap[match.id] ?? null}
                       />
                     ))}
                   </>

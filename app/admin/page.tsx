@@ -103,25 +103,14 @@ export default function AdminPage() {
     else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
   }
 
-  async function toggleUserWildenroth(userId: string, value: boolean) {
+  async function setUserWildenrothRole(userId: string, role: 'fan' | 'team1' | 'team2' | 'both') {
     setMessage(null)
     const res = await fetch('/api/admin/season', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set_user_wildenroth', userId, value }),
+      body: JSON.stringify({ action: 'set_user_wildenroth_role', userId, role }),
     })
-    if (res.ok) { setMessage('Wildenroth-Flag aktualisiert.'); fetchSeasonData() }
-    else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
-  }
-
-  async function toggleUserWildenrothII(userId: string, value: boolean) {
-    setMessage(null)
-    const res = await fetch('/api/admin/season', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set_user_wildenroth_ii', userId, value }),
-    })
-    if (res.ok) { setMessage('Wildenroth-II-Flag aktualisiert.'); fetchSeasonData() }
+    if (res.ok) { setMessage('Rolle aktualisiert.'); fetchSeasonData() }
     else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
   }
 
@@ -624,27 +613,25 @@ export default function AdminPage() {
                       <div className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1 flex-wrap">
                         {u.display_name || u.username}
                         {u.is_admin && <span className="text-[10px] text-red-600 font-bold">ADMIN</span>}
-                        {u.is_wildenroth && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽ 1</span>}
-                        {u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ 2</span>}
+                        {u.is_wildenroth && u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ Beide</span>}
+                        {u.is_wildenroth && !u.is_wildenroth_ii && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽ 1</span>}
+                        {!u.is_wildenroth && u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ 2</span>}
                       </div>
                       <div className="text-[11px] text-gray-400">
                         {u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} {wl(u.balance)} · {u.eligible_for_current_season ? <span className="text-green-600">berechtigt</span> : <span className="text-amber-600">nicht berechtigt</span>}
                       </div>
                     </div>
-                    <button
-                      onClick={() => toggleUserWildenroth(u.id, !u.is_wildenroth)}
-                      className={`px-2 py-1.5 rounded-lg text-xs font-bold border ${u.is_wildenroth ? 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-100'}`}
-                      title="Wildenroth-Spieler/Trainer (1. Mannschaft)"
+                    <select
+                      value={u.is_wildenroth && u.is_wildenroth_ii ? 'both' : u.is_wildenroth ? 'team1' : u.is_wildenroth_ii ? 'team2' : 'fan'}
+                      onChange={(e) => setUserWildenrothRole(u.id, e.target.value as 'fan' | 'team1' | 'team2' | 'both')}
+                      className="text-xs font-semibold py-1.5 px-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                      title="Spieler/Fan-Rolle"
                     >
-                      ⚽ 1
-                    </button>
-                    <button
-                      onClick={() => toggleUserWildenrothII(u.id, !u.is_wildenroth_ii)}
-                      className={`px-2 py-1.5 rounded-lg text-xs font-bold border ${u.is_wildenroth_ii ? 'bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-200' : 'bg-white text-gray-400 border-gray-200 hover:bg-gray-100'}`}
-                      title="Wildenroth-Spieler/Trainer (2. Mannschaft)"
-                    >
-                      ⚽ 2
-                    </button>
+                      <option value="fan">Fan</option>
+                      <option value="team1">1. Mannschaft</option>
+                      <option value="team2">2. Mannschaft</option>
+                      <option value="both">Beide Mannschaften</option>
+                    </select>
                     <input
                       type="number"
                       placeholder="Guthaben"
@@ -903,7 +890,11 @@ function wl(n: number): string {
   return Math.abs(n) === 1 ? 'Wildi' : 'Wildis'
 }
 
-type OverrideRow = { match_id: number } & Record<string, number | null>
+type OverrideRow = {
+  match_id: number
+  exact_score_overrides?: Record<string, number> | null
+} & Record<string, number | null | Record<string, number> | undefined>
+type OverrideValues = Record<string, number | null> & { exact_score_overrides?: Record<string, number> | null }
 
 function OddsPreviewSection({
   preview, loading, selectedMd, onSelectMd, onReload,
@@ -931,7 +922,7 @@ function OddsPreviewSection({
       })
   }, [matchday])
 
-  async function saveOverride(matchId: number, values: Record<string, number | null>) {
+  async function saveOverride(matchId: number, values: OverrideValues) {
     const res = await fetch('/api/admin/odds/overrides', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1087,7 +1078,7 @@ function OddsPreviewMatchCard({
 }: {
   match: OddsPreviewMatch
   override: OverrideRow | null
-  onSave: (values: Record<string, number | null>) => Promise<void>
+  onSave: (values: OverrideValues) => Promise<void>
   onReset: () => Promise<void>
 }) {
   const o = match.odds
@@ -1098,16 +1089,24 @@ function OddsPreviewMatchCard({
     allFields.map(f => [f.col, override?.[f.col] != null ? String(override[f.col]) : ''])
   )
   const [draft, setDraft] = useState<Record<string, string>>(initDraft)
+  const initExactDraft = () => Object.fromEntries(
+    match.exact_scores.map(es => [es.score, override?.exact_score_overrides?.[es.score] != null ? String(override.exact_score_overrides[es.score]) : ''])
+  )
+  const [exactDraft, setExactDraft] = useState<Record<string, string>>(initExactDraft)
 
-  const hasOverride = override != null && allFields.some(f => override[f.col] != null)
+  const hasOverride = override != null && (
+    allFields.some(f => override[f.col] != null) ||
+    (override.exact_score_overrides != null && Object.keys(override.exact_score_overrides).length > 0)
+  )
 
   function openEdit() {
     setDraft(initDraft())
+    setExactDraft(initExactDraft())
     setEditing(true)
   }
 
   async function handleSave() {
-    const values: Record<string, number | null> = {}
+    const values: OverrideValues = {}
     for (const { col } of allFields) {
       const raw = draft[col].trim().replace(',', '.')
       if (raw === '') {
@@ -1121,6 +1120,18 @@ function OddsPreviewMatchCard({
         values[col] = n
       }
     }
+    const exactValues: Record<string, number> = {}
+    for (const es of match.exact_scores) {
+      const raw = (exactDraft[es.score] ?? '').trim().replace(',', '.')
+      if (raw === '') continue
+      const n = parseFloat(raw)
+      if (isNaN(n) || n <= 1.0 || n > 999) {
+        alert(`Ungültiger Wert für Ergebnis ${es.score}: muss >1,00 sein.`)
+        return
+      }
+      exactValues[es.score] = n
+    }
+    values.exact_score_overrides = Object.keys(exactValues).length > 0 ? exactValues : null
     setSaving(true)
     await onSave(values)
     setSaving(false)
@@ -1141,6 +1152,15 @@ function OddsPreviewMatchCard({
 
   function displayOdds(col: string, autoVal: number): string {
     const ov = override?.[col]
+    return ov != null ? fmt(Number(ov)) : fmt(autoVal)
+  }
+
+  function isExactOverridden(score: string): boolean {
+    return override?.exact_score_overrides?.[score] != null
+  }
+
+  function displayExactOdds(score: string, autoVal: number): string {
+    const ov = override?.exact_score_overrides?.[score]
     return ov != null ? fmt(Number(ov)) : fmt(autoVal)
   }
 
@@ -1197,6 +1217,30 @@ function OddsPreviewMatchCard({
               ))}
             </div>
           ))}
+          {match.exact_scores.length > 0 && (
+            <div className="pt-1">
+              <div className="text-[10px] font-semibold text-amber-800 mb-1">Ergebnis (Genaues Ergebnis)</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                {match.exact_scores.map(({ score, odds }) => (
+                  <div key={score} className="flex items-center gap-1">
+                    <span className={`text-[10px] font-medium w-8 text-right ${exactDraft[score] ? 'text-amber-700' : 'text-gray-500'}`}>
+                      {score}
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={exactDraft[score] ?? ''}
+                      placeholder={fmt(odds)}
+                      onChange={e => setExactDraft(prev => ({ ...prev, [score]: e.target.value }))}
+                      className={`w-16 text-center text-xs py-1 border rounded focus:outline-none focus:ring-1 focus:ring-amber-400 ${
+                        exactDraft[score] ? 'border-amber-400 bg-amber-50' : 'border-gray-200 bg-white'
+                      }`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleSave}
@@ -1253,12 +1297,12 @@ function OddsPreviewMatchCard({
         ]} />
         {match.exact_scores.length > 0 && (
           <div className="pt-1">
-            <div className="text-gray-400 font-medium mb-1">Top Ergebnisse</div>
+            <div className="text-gray-400 font-medium mb-1">Ergebnisse</div>
             <div className="grid grid-cols-4 gap-1">
               {match.exact_scores.map(({ score, odds }) => (
-                <div key={score} className="bg-gray-50 rounded px-1.5 py-1 flex items-center justify-between">
-                  <span className="font-semibold text-gray-700">{score}</span>
-                  <span className="text-red-700 font-bold">{fmt(odds)}</span>
+                <div key={score} className={`rounded px-1.5 py-1 flex items-center justify-between ${isExactOverridden(score) ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'}`}>
+                  <span className={`font-semibold ${isExactOverridden(score) ? 'text-amber-700' : 'text-gray-700'}`}>{score}</span>
+                  <span className="text-red-700 font-bold">{displayExactOdds(score, odds)}</span>
                 </div>
               ))}
             </div>

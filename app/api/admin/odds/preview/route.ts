@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getMatchXG, oddsFromXG, getExactScoreOdds, buildPriorContext } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
-import { bettingOpenTime } from '@/lib/season'
+import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 
@@ -24,10 +24,13 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const requestedMd = url.searchParams.get('matchday')
 
+  // `matchday` here (both the query param and the response's `matchdays`
+  // list) means the effective TIPPSPIEL-Spieltag, exactly as tipps/page.tsx
+  // shows it — not the raw matches.matchday column. See lib/season.ts.
   const { data: allMatchesRaw } = await supabase
     .from('matches')
     .select(
-      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status,
+      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday,
        home_team:teams!matches_home_team_id_fkey(id, name, short_name),
        away_team:teams!matches_away_team_id_fkey(id, name, short_name)`,
     )
@@ -88,29 +91,55 @@ export async function GET(request: Request) {
   }
   const priorCtx = buildPriorContext(priorMatches, teamNames, leaguePlayers, lineupEntries)
 
-  const matchdays = [...new Set(allMatches.map((m) => m.matchday))].sort((a, b) => a - b)
+  // Same effective-Spieltag index as tipps/page.tsx. effectiveMatchdayOf()
+  // already returns null for a plain (non-Topspiel) B-Klasse match — exactly
+  // the "not part of any bettable Tippspiel-Spieltag" rule the user-facing
+  // page applies — so filtering on a non-null result below reproduces the
+  // real bettable match set with no separate category filter needed.
+  const mdIndex = buildEffectiveMatchdayIndex(allMatches)
+  const effMd = (m: Match) => effectiveMatchdayOf(m, mdIndex)
+  const hasTestMatchday = allMatches.some((m) => m.matchday === 999)
+  const matchdays = [
+    ...(hasTestMatchday ? [999] : []),
+    ...mdIndex.kreisligaMatchdaysDisplayOrder,
+  ]
 
-  // Default: first matchday that still has at least one scheduled match
-  const defaultMd = allMatches
-    .filter((m) => m.status === 'scheduled')
-    .map((m) => m.matchday)
-    .sort((a, b) => a - b)[0]
+  const bettableMatches = allMatches.filter((m) => effMd(m) != null)
+
+  // Default: chronologically-first Tippspiel-Spieltag that still has at
+  // least one scheduled bettable match.
+  const defaultMd = matchdays.find((md) =>
+    bettableMatches.some((m) => effMd(m) === md && m.status === 'scheduled')
+  ) ?? matchdays[0] ?? null
 
   const targetMd = requestedMd ? parseInt(requestedMd, 10) : defaultMd
   if (targetMd == null) {
     return NextResponse.json({ matchday: null, matches: [], matchdays: [] })
   }
 
-  const matchdayMatches = allMatches
-    .filter((m) => m.matchday === targetMd)
+  const matchdayMatches = bettableMatches
+    .filter((m) => effMd(m) === targetMd)
     .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
 
+  // Final, hand-set opening time for this Tippspiel-Spieltag (app_settings
+  // key betting_open_md_<N>) — the single source of truth tipps/page.tsx
+  // uses. Falls back to the Monday-noon formula only for a Spieltag with no
+  // explicit entry (e.g. the test matchday), never for a real one.
+  const { data: settingRow } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', `betting_open_md_${targetMd}`)
+    .maybeSingle()
   const firstMatch = matchdayMatches[0]
-  const bettingOpensAt = firstMatch ? bettingOpenTime(new Date(firstMatch.match_date)).toISOString() : null
+  const bettingOpensAt = settingRow?.value
+    ? settingRow.value
+    : firstMatch
+      ? bettingOpenTime(new Date(firstMatch.match_date)).toISOString()
+      : null
   const isBettingOpen = bettingOpensAt ? new Date() >= new Date(bettingOpensAt) : false
 
   // Replicate the snapshot cutoff that the live page uses, so the preview matches
-  // exactly what would be frozen at Monday 12:00.
+  // exactly what would be frozen at the Spieltag's opening time.
   const seasonMatches = allMatches.filter((m) => m.match_date >= SEASON_START)
   const cutoff = bettingOpensAt ? new Date(bettingOpensAt) : null
   const oddsMatches = cutoff
@@ -128,7 +157,9 @@ export async function GET(request: Request) {
   for (const m of matchdayMatches) {
     const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
     const odds = oddsFromXG(homeXG, awayXG)
-    const exact = getExactScoreOdds(oddsMatches, m.home_team_id, m.away_team_id, priorCtx).slice(0, 12)
+    // Every offered score (already capped by MAX_EXACT_ODDS in lib/odds.ts) —
+    // the admin needs to be able to override any of them, not just a "top 12".
+    const exact = getExactScoreOdds(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
     await persistOddsDiagnostics(supabase, m.id, 'admin_preview', diagnostics)
     previews.push({
       match_id: m.id,

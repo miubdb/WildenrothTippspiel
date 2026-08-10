@@ -25,13 +25,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true })
   }
 
-  if (body.action === 'set_user_wildenroth') {
-    await admin.from('profiles').update({ is_wildenroth: body.value }).eq('id', body.userId)
-    return NextResponse.json({ ok: true })
-  }
-
-  if (body.action === 'set_user_wildenroth_ii') {
-    await admin.from('profiles').update({ is_wildenroth_ii: body.value }).eq('id', body.userId)
+  // Sets both team flags in a single atomic update, mirroring the four
+  // registration categories 1:1 (see app/(auth)/register/page.tsx) — a role
+  // switch (e.g. team1 -> team2) can never leave a stale flag from a
+  // separate, previous update the way two independent toggle calls could.
+  if (body.action === 'set_user_wildenroth_role') {
+    const ROLE_FLAGS: Record<string, { is_wildenroth: boolean; is_wildenroth_ii: boolean }> = {
+      fan: { is_wildenroth: false, is_wildenroth_ii: false },
+      team1: { is_wildenroth: true, is_wildenroth_ii: false },
+      team2: { is_wildenroth: false, is_wildenroth_ii: true },
+      both: { is_wildenroth: true, is_wildenroth_ii: true },
+    }
+    const flags = ROLE_FLAGS[body.role]
+    if (!flags) return NextResponse.json({ error: 'Unbekannte Rolle.' }, { status: 400 })
+    if (!body.userId) return NextResponse.json({ error: 'userId fehlt.' }, { status: 400 })
+    await admin.from('profiles').update(flags).eq('id', body.userId)
     return NextResponse.json({ ok: true })
   }
 
