@@ -3,11 +3,12 @@
 import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-type Field = 'password'
+type Field = 'password' | 'email'
 
 interface Props {
   userId: string
   displayName: string
+  email: string
   avatarUrl: string | null
   bio: string | null
   favoriteTeam: string | null
@@ -16,6 +17,7 @@ interface Props {
 export function ProfileEditForm({
   userId,
   displayName: initialDisplayName,
+  email: initialEmail,
   avatarUrl: initialAvatarUrl,
   bio: initialBio,
   favoriteTeam: initialFavoriteTeam,
@@ -36,11 +38,13 @@ export function ProfileEditForm({
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null)
   const [profileError, setProfileError] = useState<string | null>(null)
 
-  // ── Password (kept via existing API route) ──
+  // ── Password / email (kept via existing API route — both are security-
+  // sensitive, so both require the current password as confirmation) ──
   const [activeField, setActiveField] = useState<Field | null>(null)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [email, setEmail] = useState(initialEmail)
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -82,13 +86,16 @@ export function ProfileEditForm({
       }
 
       if (trimmedName.toLowerCase() !== initialDisplayName.toLowerCase()) {
-        const { data: existing } = await supabase
-          .from('profiles')
-          .select('id')
-          .ilike('display_name', trimmedName)
-          .neq('id', userId)
-          .maybeSingle()
-        if (existing) {
+        // Server-side check (same one used at registration) — not just
+        // race-safer, but also correctly escapes '%'/'_' before matching,
+        // which a raw client-side .ilike() here did not.
+        const checkRes = await fetch('/api/auth/check-display-name', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ displayName: trimmedName }),
+        })
+        const checkData = await checkRes.json()
+        if (!checkRes.ok || !checkData.available) {
           setProfileError('Dieser Name ist leider schon vergeben.')
           setSaving(false)
           return
@@ -136,12 +143,24 @@ export function ProfileEditForm({
     setError(null)
     setSuccess(null)
 
-    if (newPassword !== confirmPassword) {
-      setError('Passwörter stimmen nicht überein')
-      setLoading(false)
-      return
+    let value: string
+    if (field === 'password') {
+      if (newPassword !== confirmPassword) {
+        setError('Passwörter stimmen nicht überein')
+        setLoading(false)
+        return
+      }
+      value = newPassword
+    } else {
+      const trimmedEmail = email.trim()
+      if (!trimmedEmail.includes('@')) {
+        setError('Bitte gib eine gültige E-Mail-Adresse ein.')
+        setLoading(false)
+        return
+      }
+      value = trimmedEmail
     }
-    const body: Record<string, string> = { field, value: newPassword, currentPassword }
+    const body: Record<string, string> = { field, value, currentPassword }
 
     const res = await fetch('/api/profiles/update', {
       method: 'PATCH',
@@ -160,7 +179,12 @@ export function ProfileEditForm({
     setNewPassword('')
     setConfirmPassword('')
 
-    setSuccess('Passwort geändert')
+    if (field === 'password') {
+      setSuccess('Passwort geändert')
+    } else {
+      setEmail(data.newValue ?? value)
+      setSuccess(data.pending ? 'Bitte bestätige die Änderung über den Link, den wir an die neue Adresse geschickt haben.' : 'E-Mail-Adresse geändert')
+    }
     setActiveField(null)
   }
 
@@ -266,6 +290,32 @@ export function ProfileEditForm({
               </button>
             </div>
           </div>
+
+          {/* E-Mail */}
+          <FieldRow
+            label="E-Mail"
+            currentValue={email}
+            active={activeField === 'email'}
+            onEdit={() => openField('email')}
+            onCancel={() => { setActiveField(null); setError(null); setSuccess(null); setEmail(initialEmail); setCurrentPassword('') }}
+          >
+            <input
+              className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600 mb-2"
+              type="password"
+              value={currentPassword}
+              onChange={e => setCurrentPassword(e.target.value)}
+              placeholder="Aktuelles Passwort"
+              autoFocus
+            />
+            <input
+              className="w-full border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-600"
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="Neue E-Mail-Adresse"
+            />
+            <SaveRow loading={loading} onSave={() => save('email')} error={error} success={success} />
+          </FieldRow>
 
           {/* Password */}
           <FieldRow

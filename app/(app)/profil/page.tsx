@@ -562,6 +562,7 @@ export default async function ProfilPage({
       <ProfileEditForm
         userId={user.id}
         displayName={profile.display_name}
+        email={user.email ?? ''}
         avatarUrl={profile.avatar_url ?? null}
         bio={profile.bio ?? null}
         favoriteTeam={profile.favorite_team ?? null}
