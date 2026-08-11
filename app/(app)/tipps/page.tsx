@@ -1197,17 +1197,17 @@ export default async function TippsPage({
       )}
 
       {/* External recommendation — unrelated to the Wildenroth Tippspiel itself,
-          kept as a single small, low-key card so it doesn't compete with the
-          actual betting UI above. */}
-      <div className="bg-gray-50 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-700 rounded-2xl px-4 py-3 text-center">
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          Jetzt Lust bekommen, auch die Bundesliga mit Freunden zu tippen — ganz ohne echtes Geld, aber mit echten Quoten?
+          but shown as a proper CTA card in the app's own colors rather than a
+          small text link, so it doesn't get overlooked. */}
+      <div className="bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded-2xl px-5 py-4 text-center shadow-sm">
+        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          Jetzt Lust bekommen, auch die Bundesliga mit Freunden zu tippen — ganz ohne echtes Geld, aber mit dynamischen Quoten wie bei einem echten Wettanbieter?
         </p>
         <a
           href="https://www.freebet-pro.de"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-block mt-1.5 text-xs font-semibold text-red-700 dark:text-red-400 hover:underline"
+          className="block w-full mt-3 py-3 bg-red-700 hover:bg-red-800 text-white font-bold rounded-xl transition-colors"
         >
           Jetzt auf FreeBet-Pro.de registrieren →
         </a>

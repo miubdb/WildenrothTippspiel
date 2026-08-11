@@ -210,9 +210,11 @@ export default function AnleitungPage() {
       {/* 10. Rangliste */}
       <HelpAccordion title="Rangliste" emoji="📊">
         <p>
-          Ziel ist das höchste Guthaben am Saisonende — offene Einsätze werden für eine faire Rangfolge
-          mitgerechnet. Im Spieltag-Tab siehst du die Wettaktivität aller Teilnehmer: vor Anpfiff nur die
-          Anzahl fremder Wettscheine, danach deren Tipps.
+          Ziel ist das höchste Guthaben am Saisonende. Solange eine Wette offen ist, verändert sie dein
+          angezeigtes Guthaben in der Rangliste noch nicht — das siehst du erst nach der Auswertung, damit
+          niemand vorher am Guthaben ablesen kann, wie hoch ein Einsatz war. Im Spieltag-Tab siehst du die
+          Wettaktivität aller Teilnehmer: vor Anpfiff nur die Anzahl fremder Wettscheine, danach deren
+          Tipps.
         </p>
         <div className="mt-2 space-y-1">
           <div className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/40 rounded px-2 py-1">

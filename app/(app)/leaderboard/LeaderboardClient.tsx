@@ -325,7 +325,7 @@ export function LeaderboardClient({
           {!isDeadlinePassed && matchdayNumber && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <div className="font-semibold mb-0.5">Stand vor Spieltag {matchdayNumber}</div>
-              <div className="text-blue-600 dark:text-blue-400">Offene Einsätze werden für die Rangfolge mitgerechnet. Fremde Tipps siehst du ab dem jeweiligen Anpfiff.</div>
+              <div className="text-blue-600 dark:text-blue-400">Ein offener Einsatz verändert dein hier angezeigtes Guthaben noch nicht — das siehst du erst nach der Auswertung. Fremde Tipps siehst du ab dem jeweiligen Anpfiff.</div>
             </div>
           )}
 
@@ -433,7 +433,7 @@ export function LeaderboardClient({
           {!isDeadlinePassed && matchdayNumber && (
             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-3 text-xs text-blue-800 dark:text-blue-300">
               <div className="font-semibold mb-0.5">Rangliste: Stand vor Spieltag {matchdayNumber}</div>
-              <div className="text-blue-600 dark:text-blue-400">Offene Einsätze werden für die Rangfolge mitgerechnet. Fremde Tipps siehst du ab dem jeweiligen Anpfiff.</div>
+              <div className="text-blue-600 dark:text-blue-400">Ein offener Einsatz verändert dein hier angezeigtes Guthaben noch nicht — das siehst du erst nach der Auswertung. Fremde Tipps siehst du ab dem jeweiligen Anpfiff.</div>
             </div>
           )}
 
