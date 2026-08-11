@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { HelpAccordion } from '@/components/HelpAccordion'
 
 export const revalidate = 86400
@@ -270,7 +271,10 @@ export default function AnleitungPage() {
 
       <div className="pb-4 text-center text-xs text-gray-400 dark:text-gray-500">
         SpVgg Wildenroth Tippspiel · Saison 26/27<br />
-        Nur mit Spielgeld — keine echten Einsätze
+        Nur mit Spielgeld — keine echten Einsätze<br />
+        <Link href="/impressum" className="hover:underline">Impressum</Link>
+        {' · '}
+        <Link href="/datenschutz" className="hover:underline">Datenschutz</Link>
       </div>
     </div>
   )

@@ -1,3 +1,5 @@
+import Link from 'next/link'
+
 export default function AuthLayout({
   children,
 }: {
@@ -29,6 +31,11 @@ export default function AuthLayout({
 
       <p className="mt-6 text-red-200 text-xs">
         SpVgg Wildenroth &copy; {new Date().getFullYear()}
+      </p>
+      <p className="mt-1 text-red-200/80 text-xs">
+        <Link href="/impressum" className="hover:text-white hover:underline">Impressum</Link>
+        {' · '}
+        <Link href="/datenschutz" className="hover:text-white hover:underline">Datenschutz</Link>
       </p>
     </div>
   )

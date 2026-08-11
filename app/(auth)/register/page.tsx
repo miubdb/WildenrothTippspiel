@@ -466,6 +466,11 @@ export default function RegisterPage() {
                   )}
                 </button>
               </div>
+
+              <p className="text-center text-[11px] text-gray-400 mt-3">
+                Mit der Registrierung akzeptierst du unsere{' '}
+                <Link href="/datenschutz" className="underline hover:text-gray-600">Datenschutzerklärung</Link>.
+              </p>
             </div>
           )}
         </form>
