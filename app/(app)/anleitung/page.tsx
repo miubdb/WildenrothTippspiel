@@ -249,11 +249,38 @@ export default function AnleitungPage() {
         </div>
       </HelpAccordion>
 
+      {/* Support — direct WhatsApp contact for bugs/questions not covered above */}
+      <a
+        href="https://wa.me/491632928105?text=Hallo!%20Ich%20habe%20eine%20Frage%20%2F%20einen%20Fehler%20zum%20Wildenroth%20Tippspiel%20gefunden%3A%20"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-3 bg-[#25D366]/10 hover:bg-[#25D366]/15 border border-[#25D366]/30 rounded-2xl px-4 py-3 transition-colors"
+      >
+        <span className="w-9 h-9 rounded-full bg-[#25D366] flex items-center justify-center flex-shrink-0">
+          <WhatsAppIcon className="w-5 h-5 text-white" />
+        </span>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold text-sm text-gray-900 dark:text-gray-100">Fehler gefunden oder Fragen?</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Schreib uns direkt per WhatsApp</div>
+        </div>
+        <svg className="w-4 h-4 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 5l7 7-7 7" />
+        </svg>
+      </a>
+
       <div className="pb-4 text-center text-xs text-gray-400 dark:text-gray-500">
         SpVgg Wildenroth Tippspiel · Saison 26/27<br />
         Nur mit Spielgeld — keine echten Einsätze
       </div>
     </div>
+  )
+}
+
+function WhatsAppIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.29-1.39a9.9 9.9 0 004.75 1.21h.01c5.46 0 9.9-4.45 9.9-9.91C21.96 6.45 17.5 2 12.04 2zm0 18.11h-.01a8.2 8.2 0 01-4.19-1.15l-.3-.18-3.14.82.84-3.06-.2-.32a8.18 8.18 0 01-1.26-4.4c0-4.54 3.7-8.24 8.26-8.24 2.2 0 4.27.86 5.83 2.42a8.18 8.18 0 012.42 5.82c0 4.54-3.7 8.24-8.25 8.24zm4.52-6.18c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.17.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.04-.38-1.98-1.22-.73-.65-1.23-1.46-1.37-1.7-.14-.25-.02-.38.11-.5.11-.11.25-.29.37-.43.12-.15.16-.25.25-.42.08-.17.04-.31-.02-.43-.06-.13-.56-1.36-.77-1.86-.2-.49-.41-.42-.56-.43-.14-.01-.31-.01-.48-.01a.92.92 0 00-.67.31c-.23.25-.87.86-.87 2.09 0 1.23.9 2.42 1.02 2.59.12.17 1.76 2.7 4.27 3.78.6.26 1.06.41 1.43.53.6.19 1.14.16 1.57.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.11-.23-.17-.48-.29z" />
+    </svg>
   )
 }
 
