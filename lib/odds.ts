@@ -925,15 +925,22 @@ export function getFullExactScoreMatrix(homeXG: number, awayXG: number, maxGoals
  * otherwise-offered score over it (making it not offered); filtering before
  * the merge would silently break both directions. Single source of truth for
  * "what exact scores are actually offered for this match", used identically
- * for display (tipps/page.tsx) and server-side bet validation
- * (app/api/bets/place/route.ts) so they can never disagree.
+ * for display (tipps/page.tsx), the admin preview, and server-side bet
+ * validation (app/api/bets/place/route.ts) so they can never disagree.
+ *
+ * Ordering: ascending by FINAL odds (most likely first) — a manual override
+ * moves a score's position too, since it changes the value being sorted on.
+ * Deterministic tie-break for equal final odds: fewer total goals, then
+ * fewer home goals, then fewer away goals. Sorting lives here (not in each
+ * caller/column) so display, admin preview and any future consumer can never
+ * disagree on order.
  */
 export function mergeExactScoreOffers(
   autoOdds: Record<string, number> | null | undefined,
   overrides: Record<string, number> | null | undefined,
 ): { score: string; odds: number }[] {
   const scores = new Set([...Object.keys(autoOdds ?? {}), ...Object.keys(overrides ?? {})])
-  const results: { score: string; odds: number; total: number; homeGoals: number }[] = []
+  const results: { score: string; odds: number; total: number; homeGoals: number; awayGoals: number }[] = []
   for (const score of scores) {
     const overrideVal = overrides?.[score]
     const autoVal = autoOdds?.[score]
@@ -941,8 +948,10 @@ export function mergeExactScoreOffers(
     if (finalOdds == null || finalOdds > MAX_EXACT_ODDS) continue
     const [hg, ag] = score.split(':').map(Number)
     if (!Number.isFinite(hg) || !Number.isFinite(ag)) continue
-    results.push({ score, odds: finalOdds, total: hg + ag, homeGoals: hg })
+    results.push({ score, odds: finalOdds, total: hg + ag, homeGoals: hg, awayGoals: ag })
   }
-  results.sort((a, b) => a.total - b.total || b.homeGoals - a.homeGoals)
+  results.sort((a, b) =>
+    a.odds - b.odds || a.total - b.total || a.homeGoals - b.homeGoals || a.awayGoals - b.awayGoals
+  )
   return results.map(({ score, odds }) => ({ score, odds }))
 }

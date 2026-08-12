@@ -42,7 +42,9 @@ interface BettingMatchCardProps {
    *  with any admin override, already filtered to MAX_EXACT_ODDS) — computed
    *  once server-side (tipps/page.tsx) via the same lib/odds.ts helpers used
    *  to validate a submitted bet, so display and validation can never
-   *  disagree. Empty/undefined when odds aren't available yet (match not
+   *  disagree. Already sorted ascending by final odds (mergeExactScoreOffers)
+   *  — the column split below must filter, not re-sort, to preserve that
+   *  order. Empty/undefined when odds aren't available yet (match not
    *  scheduled or betting not open). */
   exactScores?: { score: string; odds: number }[]
 }
@@ -451,11 +453,12 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   </div>
                 </div>
                 {(() => {
-                  // Three columns by outcome — sorted ascending by total goals
-                  // (inherited from exactScores' own order), so within each
-                  // column the closest/most likely results come first.
-                  // Columns are independent stacks and may end up different
-                  // lengths; that's expected, not a layout bug.
+                  // Three columns by outcome — ascending by FINAL odds
+                  // (inherited from exactScores' own order, set centrally in
+                  // mergeExactScoreOffers), so the most likely result in each
+                  // column comes first. filter() preserves that order; do not
+                  // re-sort here. Columns are independent stacks and may end
+                  // up different lengths; that's expected, not a layout bug.
                   const homeWins = exactScores.filter(({ score }) => {
                     const [h, a] = score.split(':').map(Number)
                     return h > a
