@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { Match, MarketType } from '@/types'
 import type { OddsData } from '@/types'
 import { useBetSlip, bsKey } from '@/context/BetSlipContext'
-import { getExactScoreOdds, getForm, getTeamRecord } from '@/lib/odds'
+import { getForm, getTeamRecord } from '@/lib/odds'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
 import { TeamLogo } from '@/components/TeamLogo'
 
@@ -38,14 +38,18 @@ interface BettingMatchCardProps {
    *  its own official BFV number (see `isRescheduledMatch` in lib/season.ts)
    *  — shows a "eigentlich Spieltag X" hint so it doesn't look like a mistake. */
   originalMatchday?: number | null
-  /** Admin-set manual exact-score odds (match_odds_overrides.exact_score_overrides),
-   *  keyed by "H:A" score string — wins over the auto-computed value for that score. */
-  exactScoreOverrides?: Record<string, number> | null
+  /** Final offered exact scores for this match (persisted auto grid merged
+   *  with any admin override, already filtered to MAX_EXACT_ODDS) — computed
+   *  once server-side (tipps/page.tsx) via the same lib/odds.ts helpers used
+   *  to validate a submitted bet, so display and validation can never
+   *  disagree. Empty/undefined when odds aren't available yet (match not
+   *  scheduled or betting not open). */
+  exactScores?: { score: string; odds: number }[]
 }
 
 type Tab = '1x2' | 'goals' | 'exact' | 'handicap' | 'goalscorer'
 
-export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, originalMatchday, exactScoreOverrides }: BettingMatchCardProps) {
+export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, originalMatchday, exactScores: exactScoresProp }: BettingMatchCardProps) {
   const { selections, addSelection, mode } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
@@ -133,15 +137,10 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     }
   }
 
-  // Exact score grid (calculated client-side) — an admin-set manual override
-  // for a specific score wins over the auto-computed value, same principle as
-  // every other market's match_odds_overrides merge in tipps/page.tsx.
-  const exactScores = isScheduled && odds
-    ? getExactScoreOdds(allMatches, match.home_team_id, match.away_team_id).map((row) => {
-        const ov = exactScoreOverrides?.[row.score]
-        return ov != null ? { ...row, odds: ov } : row
-      })
-    : []
+  // Final offered exact scores — passed down ready-made from tipps/page.tsx
+  // (persisted auto grid + admin override already merged and filtered, see
+  // exactScores prop doc above). Not recomputed here.
+  const exactScores = isScheduled && odds ? (exactScoresProp ?? []) : []
 
   // Detail stats
   const homeForm = getForm(allMatches, match.home_team_id, 5)
@@ -451,24 +450,60 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                     <span className="text-gray-500 dark:text-gray-400">{match.away_team?.short_name ?? awayName.split(' ').slice(-1)[0]}</span>
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {exactScores.map(({ score, odds: o }) => (
-                    <button
-                      key={score}
-                      onClick={() => add('exact_score', 'Genaues Ergebnis', score, score, o)}
-                      className={`flex flex-col items-center py-2 px-1 rounded-lg border text-xs transition-all active:scale-95 ${
-                        isSelected('exact_score', score)
-                          ? 'bg-red-700 border-red-700 text-white'
-                          : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:border-red-300'
-                      }`}
-                    >
-                      <span className="font-bold">{score}</span>
-                      <span className={`text-xs mt-0.5 font-semibold ${isSelected('exact_score', score) ? 'text-red-100' : 'text-red-600'}`}>
-                        {o.toFixed(1).replace('.', ',')}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+                {(() => {
+                  // Three columns by outcome — sorted ascending by total goals
+                  // (inherited from exactScores' own order), so within each
+                  // column the closest/most likely results come first.
+                  // Columns are independent stacks and may end up different
+                  // lengths; that's expected, not a layout bug.
+                  const homeWins = exactScores.filter(({ score }) => {
+                    const [h, a] = score.split(':').map(Number)
+                    return h > a
+                  })
+                  const draws = exactScores.filter(({ score }) => {
+                    const [h, a] = score.split(':').map(Number)
+                    return h === a
+                  })
+                  const awayWins = exactScores.filter(({ score }) => {
+                    const [h, a] = score.split(':').map(Number)
+                    return a > h
+                  })
+                  const columns: [string, typeof exactScores][] = [
+                    ['Heim', homeWins],
+                    ['X', draws],
+                    ['Auswärts', awayWins],
+                  ]
+                  return (
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {columns.map(([label, scores]) => (
+                        <div key={label} className="space-y-1 min-w-0">
+                          <div className="text-[10px] font-bold text-gray-400 dark:text-gray-500 text-center uppercase tracking-wide truncate">{label}</div>
+                          <div className="space-y-1">
+                            {scores.map(({ score, odds: o }) => (
+                              <button
+                                key={score}
+                                onClick={() => add('exact_score', 'Genaues Ergebnis', score, score, o)}
+                                className={`w-full flex flex-col items-center py-1.5 px-1 rounded-lg border text-xs transition-all active:scale-95 ${
+                                  isSelected('exact_score', score)
+                                    ? 'bg-red-700 border-red-700 text-white'
+                                    : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:border-red-300'
+                                }`}
+                              >
+                                <span className="font-bold">{score}</span>
+                                <span className={`text-xs mt-0.5 font-semibold ${isSelected('exact_score', score) ? 'text-red-100' : 'text-red-600'}`}>
+                                  {o.toFixed(1).replace('.', ',')}
+                                </span>
+                              </button>
+                            ))}
+                            {scores.length === 0 && (
+                              <div className="text-[10px] text-gray-300 dark:text-gray-600 text-center py-2">—</div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
                 <div className="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 text-center">
                   Nur Ergebnisse mit Quote ≤ 60 werden angezeigt
                 </div>

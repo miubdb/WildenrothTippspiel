@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { isAgainstWildenroth } from '@/lib/wildenroth'
 import { isSeasonStarted, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import { ODDS_COLUMN } from '@/lib/oddsMarkets'
-import { getExactScoreOdds } from '@/lib/odds'
+import { mergeExactScoreOffers } from '@/lib/odds'
 import { RISKY_ODDS_THRESHOLD, evaluateSlips, recomputeRiskyForUserMatchday, type RiskySlip } from '@/lib/risky'
 import type { Match } from '@/types'
 
@@ -13,12 +13,6 @@ const MAX_STAKE = 250
 const CURRENT_SEASON = '26/27'
 const TEST_MATCHDAY = 999
 const SEASON_START = '2026-08-01'
-// Server-side ceiling for exact-score odds is recomputed without prior-season
-// blending (unlike the frozen model), so it won't match the true value exactly —
-// this multiplicative+additive margin absorbs that gap while still catching a
-// wildly inflated client-supplied odds value (see lib/odds.ts MAX_EXACT_ODDS).
-const EXACT_SCORE_CEILING_MULT = 1.3
-const EXACT_SCORE_CEILING_ADD = 2
 
 /** Markets that are no longer offered. Kept out of the betting UI and rejected
  *  here, but still handled by settlement so historical bets grade correctly. */
@@ -292,12 +286,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Exact score odds aren't frozen in a dedicated column (computed on the fly).
-    // First a cheap sanity bound: a specific score can never be more likely
-    // (i.e. never have lower odds) than the broad 1X2 outcome it belongs to.
-    // Then a real bound: recompute the model's own odds for that scoreline and
-    // reject anything far above it — otherwise any score up to the flat 60.02
-    // ceiling would be accepted regardless of how likely it actually is.
+    // Exact score odds are validated against the persisted per-match auto grid
+    // (odds.exact_score_odds, frozen alongside the standard markets) merged with
+    // any admin override — the same source of truth tipps/page.tsx used to show
+    // the score to the user — never a live recompute here (see lib/odds.ts
+    // mergeExactScoreOffers). A score not present in the merged, ≤60-filtered
+    // list is not currently offered and is rejected outright.
     for (const s of exactScoreSels) {
       const row = oddsMap.get(s.matchId)
       const match = matches.find((m) => m.id === s.matchId)
@@ -309,26 +303,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Ungültiger Ergebnis-Tipp.' }, { status: 400 })
       }
 
-      // A manual admin override for this exact match+score is the binding
-      // quote — validate against it directly (same tight tolerance as the
-      // other markets above) instead of the auto-model ceiling check, since
-      // the whole point of an override is that it may legitimately differ
-      // from what the model would compute.
-      const exactOverride = exactOverrideMap.get(s.matchId)?.[s.selection]
-      if (exactOverride != null) {
-        if (Math.abs(Number(exactOverride) - s.oddsValue) > 0.02) {
-          return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })
-        }
-        continue
-      }
-
-      const directionOdds = hg > ag ? Number(row.home_win) : hg < ag ? Number(row.away_win) : Number(row.draw)
-      if (s.oddsValue < directionOdds - 0.02 || s.oddsValue > 60.02) {
-        return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })
-      }
-      const exactRows = getExactScoreOdds(seasonMatchesForRequest, match.home_team_id, match.away_team_id)
-      const exactRow = exactRows.find((r) => r.score === s.selection)
-      if (!exactRow || s.oddsValue > exactRow.odds * EXACT_SCORE_CEILING_MULT + EXACT_SCORE_CEILING_ADD) {
+      const offers = mergeExactScoreOffers(row.exact_score_odds, exactOverrideMap.get(s.matchId))
+      const offer = offers.find((o) => o.score === s.selection)
+      if (!offer || Math.abs(offer.odds - s.oddsValue) > 0.02) {
         return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })
       }
     }

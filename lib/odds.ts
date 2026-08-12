@@ -848,17 +848,21 @@ export function calculateOdds(
  * Consistent with 1X2: the house margin factor is identical for every score,
  * so the sum of exact-score implied probabilities for any subset is always ≤
  * the corresponding 1X2 implied probability. No arbitrage across markets is possible.
+ *
+ * Exported: the same threshold is the binding "is this score offered at all"
+ * cutoff used when validating a bet server-side and when persisting the
+ * frozen exact-score set — must not be duplicated as a second magic number.
  */
-const MAX_EXACT_ODDS = 60
+export const MAX_EXACT_ODDS = 60
 
-export function getExactScoreOdds(
-  matches: Match[],
-  homeTeamId: number,
-  awayTeamId: number,
-  priorCtx?: PriorContext
-): { score: string; odds: number }[] {
-  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
-
+/**
+ * Exact-score odds from an already-computed (homeXG, awayXG) pair — the exact
+ * same relationship oddsFromXG() has to calculateOdds(). Callers that already
+ * have xG on hand (the odds-freeze loop, which computes it once per match for
+ * every market) should use this directly instead of getExactScoreOdds(),
+ * which would silently recompute xG a second time.
+ */
+export function exactScoreOddsFromXG(homeXG: number, awayXG: number): { score: string; odds: number }[] {
   const results: { score: string; odds: number; total: number; homeGoals: number }[] = []
 
   // Derive from the same normalised matrix every other market uses, so the
@@ -877,5 +881,68 @@ export function getExactScoreOdds(
   // Sort: fewest total goals first; within same total, more home goals first
   results.sort((a, b) => a.total - b.total || b.homeGoals - a.homeGoals)
 
+  return results.map(({ score, odds }) => ({ score, odds }))
+}
+
+export function getExactScoreOdds(
+  matches: Match[],
+  homeTeamId: number,
+  awayTeamId: number,
+  priorCtx?: PriorContext
+): { score: string; odds: number }[] {
+  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
+  return exactScoreOddsFromXG(homeXG, awayXG)
+}
+
+/**
+ * Every score from 0:0 to maxGoals:maxGoals with its model odds, regardless
+ * of the MAX_EXACT_ODDS cutoff. This — not exactScoreOddsFromXG's already-
+ * filtered list — is what gets persisted as the match's auto exact-score
+ * grid (odds.exact_score_odds): an admin override must be able to pull a
+ * score that's currently >60 (and therefore normally hidden) under the
+ * threshold, and reverting an override needs a real auto value to fall back
+ * to even for a score nobody would otherwise be offered. Defaults to the
+ * same 0..10 range every other score-matrix computation in this file uses,
+ * so nothing that could naturally be ≤ MAX_EXACT_ODDS is ever left out.
+ */
+export function getFullExactScoreMatrix(homeXG: number, awayXG: number, maxGoals = SCORE_MATRIX_MAX_GOALS): { score: string; odds: number }[] {
+  const matrix = buildScoreMatrix(homeXG, awayXG, maxGoals)
+  const results: { score: string; odds: number; total: number; homeGoals: number }[] = []
+  for (let h = 0; h <= maxGoals; h++) {
+    for (let a = 0; a <= maxGoals; a++) {
+      results.push({ score: `${h}:${a}`, odds: toOdds(matrix[h][a]), total: h + a, homeGoals: h })
+    }
+  }
+  results.sort((a, b) => a.total - b.total || b.homeGoals - a.homeGoals)
+  return results.map(({ score, odds }) => ({ score, odds }))
+}
+
+/**
+ * Merges the persisted auto-computed exact-score grid with any admin
+ * override, THEN applies the MAX_EXACT_ODDS cutoff to the merged value —
+ * never to the raw auto value first. An override can pull an otherwise
+ * too-long score under the threshold (making it offered) or push an
+ * otherwise-offered score over it (making it not offered); filtering before
+ * the merge would silently break both directions. Single source of truth for
+ * "what exact scores are actually offered for this match", used identically
+ * for display (tipps/page.tsx) and server-side bet validation
+ * (app/api/bets/place/route.ts) so they can never disagree.
+ */
+export function mergeExactScoreOffers(
+  autoOdds: Record<string, number> | null | undefined,
+  overrides: Record<string, number> | null | undefined,
+): { score: string; odds: number }[] {
+  const scores = new Set([...Object.keys(autoOdds ?? {}), ...Object.keys(overrides ?? {})])
+  const results: { score: string; odds: number; total: number; homeGoals: number }[] = []
+  for (const score of scores) {
+    const overrideVal = overrides?.[score]
+    const autoVal = autoOdds?.[score]
+    const finalOdds = overrideVal != null ? Number(overrideVal) : (autoVal != null ? Number(autoVal) : null)
+    if (finalOdds == null || finalOdds > MAX_EXACT_ODDS) continue
+    const [hg, ag] = score.split(':').map(Number)
+    if (!Number.isFinite(hg) || !Number.isFinite(ag)) continue
+    results.push({ score, odds: finalOdds, total: hg + ag, homeGoals: hg })
+  }
+  results.sort((a, b) => a.total - b.total || b.homeGoals - a.homeGoals)
   return results.map(({ score, odds }) => ({ score, odds }))
 }

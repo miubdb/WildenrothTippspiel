@@ -8,7 +8,7 @@ import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { MatchdayRecap } from '@/components/MatchdayRecap'
 import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
-import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext } from '@/lib/odds'
+import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext, getFullExactScoreMatrix, mergeExactScoreOffers } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
@@ -259,6 +259,14 @@ export default async function TippsPage({
   // Odds: computed live until Monday 12:00, then frozen in DB forever.
   // First request at/after bettingOpens writes frozen_at; subsequent reads use DB values.
   const oddsMap: Record<number, ReturnType<typeof calculateOdds>> = {}
+  // Auto-computed exact-score grid per match (odds.exact_score_odds) — the
+  // full 0..10-goals-per-side model output, unfiltered by MAX_EXACT_ODDS (see
+  // getFullExactScoreMatrix). This is the persisted source of truth the
+  // exact-score market now reads from everywhere, instead of every caller
+  // recomputing it live — which is exactly how it silently ended up being
+  // computed WITHOUT priorCtx in two places (BettingMatchCard, bets/place)
+  // and producing near-identical score lists for every match pre-season.
+  const exactScoreAutoMap: Record<number, Record<string, number>> = {}
   if (isBettingOpen) {
     const scheduledMatchIds = matchdayMatches.filter(m => m.status === 'scheduled').map(m => m.id)
 
@@ -272,6 +280,11 @@ export default async function TippsPage({
     // (Number(null)→0); treat those as incomplete so they get recomputed+updated.
     const completeFrozenRows = (frozenRows ?? []).filter(r => r.over_5_5 !== null)
     const frozenSet = new Set(completeFrozenRows.map(r => r.match_id))
+
+    // Freezing must succeed regardless of which user's page load triggers it (the
+    // `odds` table only grants write access to admins under RLS) — use the
+    // service-role client, same as the other system-level writes in this file.
+    const adminSupaOdds = createAdminClient()
 
     for (const row of completeFrozenRows) {
       oddsMap[row.match_id] = {
@@ -296,20 +309,33 @@ export default async function TippsPage({
         hdp_home_minus_2_5: Number(row.hdp_home_minus_2_5),
         hdp_away_plus_2_5:  Number(row.hdp_away_plus_2_5),
       }
+      if (row.exact_score_odds) {
+        exactScoreAutoMap[row.match_id] = row.exact_score_odds as Record<string, number>
+      } else {
+        // Already frozen (standard markets correct and must stay untouched),
+        // but predates the exact_score_odds column — backfill ONLY that one
+        // column from today's full model, exactly once. Never rewrites any
+        // of the standard-market columns already frozen above.
+        const m = matchdayMatches.find(x => x.id === row.match_id)
+        if (m) {
+          const { homeXG, awayXG } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+          const grid = Object.fromEntries(getFullExactScoreMatrix(homeXG, awayXG).map(r => [r.score, r.odds]))
+          exactScoreAutoMap[row.match_id] = grid
+          await adminSupaOdds.from('odds').update({ exact_score_odds: grid, updated_at: new Date().toISOString() }).eq('match_id', row.match_id)
+        }
+      }
     }
 
     // Compute + persist odds for any scheduled match not yet frozen
     const toFreeze = matchdayMatches.filter(m => m.status === 'scheduled' && !frozenSet.has(m.id))
     if (toFreeze.length > 0) {
       const now = new Date().toISOString()
-      // Freezing must succeed regardless of which user's page load triggers it (the
-      // `odds` table only grants write access to admins under RLS) — use the
-      // service-role client, same as the other system-level writes in this file.
-      const adminSupaOdds = createAdminClient()
       for (const m of toFreeze) {
         const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
         const odds = oddsFromXG(homeXG, awayXG)
         oddsMap[m.id] = odds
+        const exactGrid = Object.fromEntries(getFullExactScoreMatrix(homeXG, awayXG).map(r => [r.score, r.odds]))
+        exactScoreAutoMap[m.id] = exactGrid
         // Upsert: safe to call concurrently — snapshot cutoff is deterministic,
         // so any two simultaneous requests produce identical values.
         await adminSupaOdds.from('odds').upsert({
@@ -337,6 +363,7 @@ export default async function TippsPage({
           hdp_away_plus_1_5:  odds.hdp_away_plus_1_5,
           hdp_home_minus_2_5: odds.hdp_home_minus_2_5,
           hdp_away_plus_2_5:  odds.hdp_away_plus_2_5,
+          exact_score_odds: exactGrid,
         }, { onConflict: 'match_id' })
         await persistOddsDiagnostics(adminSupaOdds, m.id, 'freeze', diagnostics)
       }
@@ -489,6 +516,17 @@ export default async function TippsPage({
         if (ov.hdp_away_plus_2_5 != null) merged.hdp_away_plus_2_5 = Number(ov.hdp_away_plus_2_5)
         oddsMap[ov.match_id] = merged
       }
+    }
+  }
+
+  // Final offered exact scores per match: persisted auto grid + admin
+  // override, filtered to MAX_EXACT_ODDS only AFTER merging (see
+  // mergeExactScoreOffers) — the single source of truth also used to
+  // validate a submitted exact-score bet server-side.
+  const exactScoreOffersMap: Record<number, { score: string; odds: number }[]> = {}
+  for (const m of matchdayMatches) {
+    if (exactScoreAutoMap[m.id]) {
+      exactScoreOffersMap[m.id] = mergeExactScoreOffers(exactScoreAutoMap[m.id], exactScoreOverrideMap[m.id])
     }
   }
 
@@ -986,7 +1024,7 @@ export default async function TippsPage({
                     wildenrothIiTeamId={wildenrothIiTeamId}
                     goalscorers={goalscorerOffersByMatch[match.id] ?? null}
                     originalMatchday={isRescheduledMatch(match, mdIndex) ? match.matchday : null}
-                    exactScoreOverrides={exactScoreOverrideMap[match.id] ?? null}
+                    exactScores={exactScoreOffersMap[match.id] ?? []}
                   />
                 ))}
                 {bklasse.length > 0 && (
@@ -1009,7 +1047,7 @@ export default async function TippsPage({
                         isWildenrothIiPlayer={isWildenrothIiPlayer}
                         wildenrothIiTeamId={wildenrothIiTeamId}
                         goalscorers={goalscorerOffersByMatch[match.id] ?? null}
-                        exactScoreOverrides={exactScoreOverrideMap[match.id] ?? null}
+                        exactScores={exactScoreOffersMap[match.id] ?? []}
                       />
                     ))}
                   </>

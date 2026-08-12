@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { mergeExactScoreOffers } from '@/lib/odds'
 
 // Matchday numbers repeat across seasons — without this filter the admin
 // match list (and everything fed by it: "Abgerechnete Spiele", the Spieltag
@@ -871,6 +872,9 @@ interface OddsPreviewMatch {
   away_team: string
   frozen_at: string | null
   odds: OddsValues
+  // Full 0-6 per side AUTO grid (unfiltered by the ≤60 offer cutoff) — lets the
+  // editor override any relevant score. What's actually offered to bettors is
+  // derived client-side via mergeExactScoreOffers (auto + override, ≤60 only).
   exact_scores: { score: string; odds: number }[]
 }
 
@@ -1159,10 +1163,13 @@ function OddsPreviewMatchCard({
     return override?.exact_score_overrides?.[score] != null
   }
 
-  function displayExactOdds(score: string, autoVal: number): string {
-    const ov = override?.exact_score_overrides?.[score]
-    return ov != null ? fmt(Number(ov)) : fmt(autoVal)
-  }
+  // What's actually offered to bettors: auto grid (full 0-6, incl. > MAX_EXACT_ODDS
+  // entries) merged with any override, ≤60 filter applied AFTER the merge — same
+  // rule as tipps/page.tsx and /api/bets/place (lib/odds.ts mergeExactScoreOffers).
+  const offeredScores = mergeExactScoreOffers(
+    Object.fromEntries(match.exact_scores.map((es) => [es.score, es.odds])),
+    override?.exact_score_overrides
+  )
 
   return (
     <div className={`border rounded-xl overflow-hidden ${hasOverride ? 'border-amber-300' : 'border-gray-100'}`}>
@@ -1219,7 +1226,7 @@ function OddsPreviewMatchCard({
           ))}
           {match.exact_scores.length > 0 && (
             <div className="pt-1">
-              <div className="text-[10px] font-semibold text-amber-800 mb-1">Ergebnis (Genaues Ergebnis)</div>
+              <div className="text-[10px] font-semibold text-amber-800 mb-1">Ergebnis (Genaues Ergebnis) · 0-6 pro Team, auch Auto-Quoten &gt; 60 überschreibbar</div>
               <div className="grid grid-cols-3 gap-1.5">
                 {match.exact_scores.map(({ score, odds }) => (
                   <div key={score} className="flex items-center gap-1">
@@ -1295,14 +1302,14 @@ function OddsPreviewMatchCard({
           ['H -2,5', displayOdds('hdp_home_minus_2_5', o.hdp_home_minus_2_5), isOverridden('hdp_home_minus_2_5')],
           ['G +2,5', displayOdds('hdp_away_plus_2_5', o.hdp_away_plus_2_5), isOverridden('hdp_away_plus_2_5')],
         ]} />
-        {match.exact_scores.length > 0 && (
+        {offeredScores.length > 0 && (
           <div className="pt-1">
-            <div className="text-gray-400 font-medium mb-1">Ergebnisse</div>
+            <div className="text-gray-400 font-medium mb-1">Ergebnisse (angeboten, Quote ≤ 60,00)</div>
             <div className="grid grid-cols-4 gap-1">
-              {match.exact_scores.map(({ score, odds }) => (
+              {offeredScores.map(({ score, odds }) => (
                 <div key={score} className={`rounded px-1.5 py-1 flex items-center justify-between ${isExactOverridden(score) ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'}`}>
                   <span className={`font-semibold ${isExactOverridden(score) ? 'text-amber-700' : 'text-gray-700'}`}>{score}</span>
-                  <span className="text-red-700 font-bold">{displayExactOdds(score, odds)}</span>
+                  <span className="text-red-700 font-bold">{fmt(odds)}</span>
                 </div>
               ))}
             </div>

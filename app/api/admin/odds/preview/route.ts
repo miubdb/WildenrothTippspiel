@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { getMatchXG, oddsFromXG, getExactScoreOdds, buildPriorContext } from '@/lib/odds'
+import { getMatchXG, oddsFromXG, getFullExactScoreMatrix, buildPriorContext } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
@@ -146,21 +146,37 @@ export async function GET(request: Request) {
     ? seasonMatches.filter((m) => m.status !== 'finished' || new Date(m.match_date) < cutoff)
     : seasonMatches
 
-  // Existing frozen rows (if any)
+  // Existing frozen rows (if any) — exact_score_odds is the persisted auto grid;
+  // once a match is frozen this is the binding source of truth and must NOT be
+  // recomputed live here (that would let the admin view drift from what was
+  // actually frozen and shown to bettors). Only a not-yet-frozen match computes
+  // live, matching what tipps/page.tsx will freeze soon.
   const matchIds = matchdayMatches.map((m) => m.id)
   const { data: frozenRows } = matchIds.length > 0
-    ? await supabase.from('odds').select('match_id, frozen_at').in('match_id', matchIds)
+    ? await supabase.from('odds').select('match_id, frozen_at, exact_score_odds').in('match_id', matchIds)
     : { data: [] }
   const frozenMap = new Map((frozenRows ?? []).map((r) => [r.match_id, r.frozen_at]))
+  const exactAutoMap = new Map((frozenRows ?? []).map((r) => [r.match_id, r.exact_score_odds as Record<string, number> | null]))
 
   const previews = []
   for (const m of matchdayMatches) {
     const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
     const odds = oddsFromXG(homeXG, awayXG)
-    // Every offered score (already capped by MAX_EXACT_ODDS in lib/odds.ts) —
-    // the admin needs to be able to override any of them, not just a "top 12".
-    const exact = getExactScoreOdds(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
     await persistOddsDiagnostics(supabase, m.id, 'admin_preview', diagnostics)
+
+    // Full 0-6 per side grid of AUTO odds (unfiltered by MAX_EXACT_ODDS) — the
+    // admin editor needs to be able to override any "relevant" score, including
+    // ones currently > MAX_EXACT_ODDS and thus not offered to bettors.
+    const persistedGrid = exactAutoMap.get(m.id)
+    const fullGrid: Record<string, number> = persistedGrid
+      ?? Object.fromEntries(getFullExactScoreMatrix(homeXG, awayXG).map((r) => [r.score, r.odds]))
+    const exact: { score: string; odds: number }[] = []
+    for (let h = 0; h <= 6; h++) {
+      for (let a = 0; a <= 6; a++) {
+        const score = `${h}:${a}`
+        if (fullGrid[score] != null) exact.push({ score, odds: fullGrid[score] })
+      }
+    }
     previews.push({
       match_id: m.id,
       match_number: m.match_number,
