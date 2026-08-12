@@ -872,9 +872,10 @@ interface OddsPreviewMatch {
   away_team: string
   frozen_at: string | null
   odds: OddsValues
-  // Full 0-6 per side AUTO grid (unfiltered by the ≤60 offer cutoff) — lets the
-  // editor override any relevant score. What's actually offered to bettors is
-  // derived client-side via mergeExactScoreOffers (auto + override, ≤60 only).
+  // Full 0-6 per side AUTO grid (unfiltered by the MAX_EXACT_ODDS offer cutoff)
+  // — lets the editor override any relevant score. What's actually offered to
+  // bettors is derived client-side via mergeExactScoreOffers (auto + override,
+  // filtered to MAX_EXACT_ODDS only).
   exact_scores: { score: string; odds: number }[]
 }
 
@@ -1164,8 +1165,9 @@ function OddsPreviewMatchCard({
   }
 
   // What's actually offered to bettors: auto grid (full 0-6, incl. > MAX_EXACT_ODDS
-  // entries) merged with any override, ≤60 filter applied AFTER the merge — same
-  // rule as tipps/page.tsx and /api/bets/place (lib/odds.ts mergeExactScoreOffers).
+  // entries) merged with any override, MAX_EXACT_ODDS filter applied AFTER the
+  // merge — same rule as tipps/page.tsx and /api/bets/place (lib/odds.ts
+  // mergeExactScoreOffers).
   const offeredScores = mergeExactScoreOffers(
     Object.fromEntries(match.exact_scores.map((es) => [es.score, es.odds])),
     override?.exact_score_overrides
@@ -1226,7 +1228,7 @@ function OddsPreviewMatchCard({
           ))}
           {match.exact_scores.length > 0 && (
             <div className="pt-1">
-              <div className="text-[10px] font-semibold text-amber-800 mb-1">Ergebnis (Genaues Ergebnis) · 0-6 pro Team, auch Auto-Quoten &gt; 60 überschreibbar</div>
+              <div className="text-[10px] font-semibold text-amber-800 mb-1">Ergebnis (Genaues Ergebnis) · 0-6 pro Team, auch Auto-Quoten &gt; 50 überschreibbar</div>
               <div className="grid grid-cols-3 gap-1.5">
                 {match.exact_scores.map(({ score, odds }) => (
                   <div key={score} className="flex items-center gap-1">
@@ -1304,7 +1306,7 @@ function OddsPreviewMatchCard({
         ]} />
         {offeredScores.length > 0 && (
           <div className="pt-1">
-            <div className="text-gray-400 font-medium mb-1">Ergebnisse (angeboten, Quote ≤ 60,00)</div>
+            <div className="text-gray-400 font-medium mb-1">Ergebnisse (angeboten, Quote ≤ 50,00)</div>
             <div className="grid grid-cols-4 gap-1">
               {offeredScores.map(({ score, odds }) => (
                 <div key={score} className={`rounded px-1.5 py-1 flex items-center justify-between ${isExactOverridden(score) ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'}`}>

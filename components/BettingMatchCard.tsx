@@ -508,7 +508,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                   )
                 })()}
                 <div className="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 text-center">
-                  Nur Ergebnisse mit Quote ≤ 60 werden angezeigt
+                  Nur Ergebnisse mit Quote ≤ 50 werden angezeigt
                 </div>
               </div>
             )}

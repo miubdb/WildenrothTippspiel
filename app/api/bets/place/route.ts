@@ -290,8 +290,8 @@ export async function POST(request: NextRequest) {
     // (odds.exact_score_odds, frozen alongside the standard markets) merged with
     // any admin override — the same source of truth tipps/page.tsx used to show
     // the score to the user — never a live recompute here (see lib/odds.ts
-    // mergeExactScoreOffers). A score not present in the merged, ≤60-filtered
-    // list is not currently offered and is rejected outright.
+    // mergeExactScoreOffers). A score not present in the merged, MAX_EXACT_ODDS-
+    // filtered list is not currently offered and is rejected outright.
     for (const s of exactScoreSels) {
       const row = oddsMap.get(s.matchId)
       const match = matches.find((m) => m.id === s.matchId)

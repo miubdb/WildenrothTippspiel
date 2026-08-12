@@ -270,6 +270,29 @@ export default async function TippsPage({
   if (isBettingOpen) {
     const scheduledMatchIds = matchdayMatches.filter(m => m.status === 'scheduled').map(m => m.id)
 
+    // Match-specific model xG override (match_odds_overrides.model_home/away_xg_override)
+    // — a rare, explicit correction for a single match whose statistically-derived
+    // xG conflicts with a deliberately set manual 1X2 (see SpVgg Wildenroth – TSV
+    // 1882 Landsberg II). When present, it is the basis for that match's EXACT-SCORE
+    // matrix only — never for the standard markets (oddsFromXG below still always
+    // uses the model's own getMatchXG output), and never for other matches' team
+    // data (this is a per-match override, not a global stat correction).
+    const exactScoreXgOverrideMap = new Map<number, { homeXG: number; awayXG: number }>()
+    if (scheduledMatchIds.length > 0) {
+      const { data: xgOverrideRows } = await createAdminClient()
+        .from('match_odds_overrides')
+        .select('match_id, model_home_xg_override, model_away_xg_override')
+        .in('match_id', scheduledMatchIds)
+      for (const row of xgOverrideRows ?? []) {
+        if (row.model_home_xg_override != null && row.model_away_xg_override != null) {
+          exactScoreXgOverrideMap.set(row.match_id, {
+            homeXG: Number(row.model_home_xg_override),
+            awayXG: Number(row.model_away_xg_override),
+          })
+        }
+      }
+    }
+
     // Load any already-frozen rows from DB
     const { data: frozenRows } = scheduledMatchIds.length > 0
       ? await supabase.from('odds').select('*').in('match_id', scheduledMatchIds).not('frozen_at', 'is', null)
@@ -318,7 +341,8 @@ export default async function TippsPage({
         // of the standard-market columns already frozen above.
         const m = matchdayMatches.find(x => x.id === row.match_id)
         if (m) {
-          const { homeXG, awayXG } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+          const modelXg = exactScoreXgOverrideMap.get(row.match_id)
+          const { homeXG, awayXG } = modelXg ?? getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
           const grid = Object.fromEntries(getFullExactScoreMatrix(homeXG, awayXG).map(r => [r.score, r.odds]))
           exactScoreAutoMap[row.match_id] = grid
           await adminSupaOdds.from('odds').update({ exact_score_odds: grid, updated_at: new Date().toISOString() }).eq('match_id', row.match_id)
@@ -334,7 +358,12 @@ export default async function TippsPage({
         const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
         const odds = oddsFromXG(homeXG, awayXG)
         oddsMap[m.id] = odds
-        const exactGrid = Object.fromEntries(getFullExactScoreMatrix(homeXG, awayXG).map(r => [r.score, r.odds]))
+        // Standard markets above always use the model's own xG. The exact-score
+        // grid uses the match-specific override when one exists (see comment above).
+        const modelXg = exactScoreXgOverrideMap.get(m.id)
+        const exactGrid = Object.fromEntries(
+          getFullExactScoreMatrix(modelXg?.homeXG ?? homeXG, modelXg?.awayXG ?? awayXG).map(r => [r.score, r.odds])
+        )
         exactScoreAutoMap[m.id] = exactGrid
         // Upsert: safe to call concurrently — snapshot cutoff is deterministic,
         // so any two simultaneous requests produce identical values.

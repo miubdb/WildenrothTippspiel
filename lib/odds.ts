@@ -844,7 +844,10 @@ export function calculateOdds(
 /**
  * Exact-score odds derived from the same Poisson model as calculateOdds.
  * Only scores with odds ≤ MAX_EXACT_ODDS are offered — scores above that
- * threshold are so unlikely (P < ~1.8%) they add noise without meaningful value.
+ * threshold are so unlikely they add noise without meaningful value. This is
+ * purely an offer/visibility cutoff, NOT a cap: a score's odds are never
+ * clamped down to this value, they're just hidden above it (see MAX_ODDS for
+ * the actual technical odds ceiling, which is unrelated and unaffected).
  * Consistent with 1X2: the house margin factor is identical for every score,
  * so the sum of exact-score implied probabilities for any subset is always ≤
  * the corresponding 1X2 implied probability. No arbitrage across markets is possible.
@@ -853,7 +856,7 @@ export function calculateOdds(
  * cutoff used when validating a bet server-side and when persisting the
  * frozen exact-score set — must not be duplicated as a second magic number.
  */
-export const MAX_EXACT_ODDS = 60
+export const MAX_EXACT_ODDS = 50
 
 /**
  * Exact-score odds from an already-computed (homeXG, awayXG) pair — the exact
@@ -899,7 +902,7 @@ export function getExactScoreOdds(
  * of the MAX_EXACT_ODDS cutoff. This — not exactScoreOddsFromXG's already-
  * filtered list — is what gets persisted as the match's auto exact-score
  * grid (odds.exact_score_odds): an admin override must be able to pull a
- * score that's currently >60 (and therefore normally hidden) under the
+ * score that's currently > MAX_EXACT_ODDS (and therefore normally hidden) under the
  * threshold, and reverting an override needs a real auto value to fall back
  * to even for a score nobody would otherwise be offered. Defaults to the
  * same 0..10 range every other score-matrix computation in this file uses,

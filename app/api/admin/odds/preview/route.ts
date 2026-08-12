@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getMatchXG, oddsFromXG, getFullExactScoreMatrix, buildPriorContext } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
@@ -158,6 +159,26 @@ export async function GET(request: Request) {
   const frozenMap = new Map((frozenRows ?? []).map((r) => [r.match_id, r.frozen_at]))
   const exactAutoMap = new Map((frozenRows ?? []).map((r) => [r.match_id, r.exact_score_odds as Record<string, number> | null]))
 
+  // Match-specific model xG override — same mechanism tipps/page.tsx's freeze
+  // pipeline uses (see there for the full rationale). Only affects the
+  // exact-score grid for a not-yet-frozen match's preview; standard markets
+  // (oddsFromXG below) always use the model's own getMatchXG output.
+  const exactScoreXgOverrideMap = new Map<number, { homeXG: number; awayXG: number }>()
+  if (matchIds.length > 0) {
+    const { data: xgOverrideRows } = await createAdminClient()
+      .from('match_odds_overrides')
+      .select('match_id, model_home_xg_override, model_away_xg_override')
+      .in('match_id', matchIds)
+    for (const row of xgOverrideRows ?? []) {
+      if (row.model_home_xg_override != null && row.model_away_xg_override != null) {
+        exactScoreXgOverrideMap.set(row.match_id, {
+          homeXG: Number(row.model_home_xg_override),
+          awayXG: Number(row.model_away_xg_override),
+        })
+      }
+    }
+  }
+
   const previews = []
   for (const m of matchdayMatches) {
     const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
@@ -168,8 +189,9 @@ export async function GET(request: Request) {
     // admin editor needs to be able to override any "relevant" score, including
     // ones currently > MAX_EXACT_ODDS and thus not offered to bettors.
     const persistedGrid = exactAutoMap.get(m.id)
+    const modelXg = exactScoreXgOverrideMap.get(m.id)
     const fullGrid: Record<string, number> = persistedGrid
-      ?? Object.fromEntries(getFullExactScoreMatrix(homeXG, awayXG).map((r) => [r.score, r.odds]))
+      ?? Object.fromEntries(getFullExactScoreMatrix(modelXg?.homeXG ?? homeXG, modelXg?.awayXG ?? awayXG).map((r) => [r.score, r.odds]))
     const exact: { score: string; odds: number }[] = []
     for (let h = 0; h <= 6; h++) {
       for (let a = 0; a <= 6; a++) {
