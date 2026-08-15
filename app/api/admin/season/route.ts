@@ -2,6 +2,26 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
+// profiles.email isn't RLS/GRANT-exposed to a normal session-scoped read (see
+// CLAUDE.md) — the admin Verwaltung tab needs it, so this route reads the
+// user list via the service-role client instead of the page querying
+// `profiles` directly (which never gets email back regardless of is_admin).
+export async function GET() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+  if (!profile?.is_admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const admin = createAdminClient()
+  const { data: users } = await admin
+    .from('profiles')
+    .select('id, username, display_name, email, balance, eligible_for_current_season, is_admin, is_wildenroth, is_wildenroth_ii')
+    .order('username')
+
+  return NextResponse.json({ users: users ?? [] })
+}
+
 export async function POST(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

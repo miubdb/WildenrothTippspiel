@@ -28,6 +28,7 @@ interface AdminUser {
   id: string
   username: string
   display_name: string | null
+  email: string | null
   balance: number
   eligible_for_current_season: boolean
   is_admin: boolean
@@ -61,12 +62,17 @@ export default function AdminPage() {
   const supabase = createClient()
 
   const fetchSeasonData = useCallback(async () => {
-    const [{ data: setting }, { data: profs }] = await Promise.all([
+    // Users go through /api/admin/users (service-role) — profiles.email isn't
+    // readable via the session-scoped client at all, see CLAUDE.md.
+    const [{ data: setting }, usersRes] = await Promise.all([
       supabase.from('app_settings').select('value').eq('key', 'season_started').single(),
-      supabase.from('profiles').select('id, username, display_name, balance, eligible_for_current_season, is_admin, is_wildenroth, is_wildenroth_ii').order('username'),
+      fetch('/api/admin/season'),
     ])
     setSeasonStarted(setting?.value === 'true')
-    setUsers((profs ?? []) as AdminUser[])
+    if (usersRes.ok) {
+      const { users: fetchedUsers } = await usersRes.json()
+      setUsers((fetchedUsers ?? []) as AdminUser[])
+    }
   }, [supabase])
 
   const fetchPendingCounts = useCallback(async () => {
@@ -611,13 +617,16 @@ export default function AdminPage() {
                 {users.map((u) => (
                   <div key={u.id} className="flex items-center gap-2 flex-wrap bg-gray-50 rounded-xl px-3 py-2.5">
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1 flex-wrap">
+                      <div className="text-sm font-semibold text-gray-900 flex items-center gap-1 flex-wrap">
                         {u.display_name || u.username}
                         {u.is_admin && <span className="text-[10px] text-red-600 font-bold">ADMIN</span>}
                         {u.is_wildenroth && u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ Beide</span>}
                         {u.is_wildenroth && !u.is_wildenroth_ii && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽ 1</span>}
                         {!u.is_wildenroth && u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ 2</span>}
                       </div>
+                      {u.email && (
+                        <div className="text-[11px] text-gray-500 break-all">{u.email}</div>
+                      )}
                       <div className="text-[11px] text-gray-400">
                         {u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} {wl(u.balance)} · {u.eligible_for_current_season ? <span className="text-green-600">berechtigt</span> : <span className="text-amber-600">nicht berechtigt</span>}
                       </div>

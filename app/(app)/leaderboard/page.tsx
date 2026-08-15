@@ -167,10 +167,19 @@ export default async function LeaderboardPage({
       }
     }
     if (seenComboIds.size > 0) {
+      // seenComboIds includes any combo with at least one still-open leg (e.g.
+      // a leg on a match that hasn't kicked off yet) — but the combo as a whole
+      // may already be settled 'lost' if a DIFFERENT leg already lost (a combo
+      // loses on its first losing leg, independent of its other legs' status).
+      // Without this filter that already-lost stake kept counting as "pending"
+      // here, inflating displayBalance and hiding the loss from the Rangliste
+      // until every leg had been played — while a lost single bet's stake
+      // already dropped out immediately via the status='pending' filter above.
       const { data: comboPendingRows } = await adminSupa
         .from('combo_bets')
         .select('id, user_id, stake')
         .in('id', [...seenComboIds])
+        .eq('status', 'pending')
       for (const c of comboPendingRows ?? []) {
         pendingStakesPerUser[c.user_id] = (pendingStakesPerUser[c.user_id] ?? 0) + c.stake
         if (comboTouchesMatchday.has(c.id)) {

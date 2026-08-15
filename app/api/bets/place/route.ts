@@ -460,19 +460,24 @@ export async function POST(request: NextRequest) {
     // per-matchday bet limit, so it must never depend on the caller's own
     // session-scoped RLS visibility into their own rows — a future RLS
     // change (or bug) must not be able to silently disable this limit.
-    // status='pending' also means a cancelled bet (cancellation deletes the
-    // row entirely — see /api/bets/cancel) never occupies a slot here.
+    // Counts 'pending' AND already-settled ('won'/'lost') slips: the limit is
+    // on how many slips a user placed for this Spieltag, not on how many are
+    // still open — settlement runs per match, so one match in a Spieltag can
+    // finish (freeing nothing) while others are still scheduled, and a slip
+    // settling early must not hand back a slot to bet again. A cancelled bet
+    // (cancellation deletes the row entirely — see /api/bets/cancel) never
+    // occupies a slot here, since there's no row left to match either filter.
     const { data: existingLegs } = await admin
       .from('bets')
       .select('id, combo_id, odds_value')
       .eq('user_id', user.id)
-      .eq('status', 'pending')
+      .in('status', ['pending', 'won', 'lost'])
       .in('match_id', allMatchdayIds)
 
     const existingComboIds = [...new Set((existingLegs ?? []).filter((b) => b.combo_id != null).map((b) => b.combo_id as number))]
     let existingCombos: { id: number; total_odds: number }[] = []
     if (existingComboIds.length > 0) {
-      const { data } = await admin.from('combo_bets').select('id, total_odds').in('id', existingComboIds).eq('status', 'pending')
+      const { data } = await admin.from('combo_bets').select('id, total_odds').in('id', existingComboIds).in('status', ['pending', 'won', 'lost'])
       existingCombos = data ?? []
     }
 
