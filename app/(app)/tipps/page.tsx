@@ -909,7 +909,7 @@ export default async function TippsPage({
         <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-5 text-center">
           <h2 className="font-black text-lg text-gray-900 mb-2">Freischaltung ausstehend</h2>
           <p className="text-sm text-gray-600">
-            Du hast dich nach Saisonstart registriert. Jani schaltet dich in Kürze für die aktuelle Saison frei.
+            Dein Account ist noch nicht freigeschaltet. Jani schaltet dich in Kürze für die aktuelle Saison frei.
           </p>
         </div>
         <div className="bg-white border border-gray-100 rounded-2xl px-5 py-4 space-y-2">

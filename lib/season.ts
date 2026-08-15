@@ -69,23 +69,9 @@ export async function isSeasonStarted(supabase: SupabaseClient): Promise<boolean
   return new Date(firstMatch.match_date) <= new Date()
 }
 
-/** Returns true iff the real first matchday-1 match of the current season has
- *  actually kicked off. Unlike isSeasonStarted(), this ignores the admin-togglable
- *  app_settings.season_started display flag — use this wherever "has the season
- *  truly begun" gates something consequential (registration eligibility, payouts),
- *  since that flag can be set early purely to display the real schedule. */
-export async function hasFirstMatchdayKickedOff(supabase: SupabaseClient): Promise<boolean> {
-  const { data: firstMatch } = await supabase
-    .from('matches')
-    .select('match_date')
-    .eq('matchday', 1)
-    .gte('match_date', '2026-08-01')
-    .order('match_date', { ascending: true })
-    .limit(1)
-    .single()
-  if (!firstMatch) return false
-  return new Date(firstMatch.match_date) <= new Date()
-}
+/** Flat starting balance for anyone who registers before the last match of
+ *  Spieltag 1 has kicked off — see `startingBalanceForRegistration` below. */
+export const STARTING_BALANCE = 1000
 
 const isKreisligaMatch = (m: Pick<Match, 'match_category'>) =>
   !m.match_category || m.match_category === 'kreisliga'
@@ -250,4 +236,54 @@ export function isRescheduledMatch(m: Match, index: EffectiveMatchdayIndex): boo
  */
 export function recapMatchdayOf(m: Match, index: EffectiveMatchdayIndex): number | null {
   return effectiveMatchdayOf(m, index)
+}
+
+/** Last kickoff among every match (Kreisliga + Wildenroth-II/Topspiel) that
+ *  effectively belongs to `matchday` — i.e. the moment that whole Spieltag is
+ *  definitively underway, not just its first game. Unlike matchdayMinDate/
+ *  matchdayAnchorDate (Kreisliga-only, used for ordering/anchoring), this
+ *  must account for every match actually shown/bettable under that Spieltag.
+ *  Returns null if no match is currently assigned to that Spieltag. */
+export function lastKickoffOfEffectiveMatchday(
+  matchday: number,
+  seasonMatches: Match[],
+  index: EffectiveMatchdayIndex,
+): number | null {
+  let max: number | null = null
+  for (const m of seasonMatches) {
+    if (effectiveMatchdayOf(m, index) !== matchday) continue
+    const t = new Date(m.match_date).getTime()
+    if (max === null || t > max) max = t
+  }
+  return max
+}
+
+/**
+ * Graduated starting balance for a new registration, based on how many
+ * Tippspiel-Spieltage had ALREADY fully kicked off (their own last match) at
+ * registration time — a product decision to reward early sign-ups without
+ * blocking late ones outright:
+ *   - before Spieltag 1's last kickoff: 1000 (STARTING_BALANCE)
+ *   - after Spieltag 1's last kickoff:   950
+ *   - after Spieltag 2's last kickoff:   900
+ *   - after each further Spieltag's last kickoff: -20 more (880, 860, ...)
+ * Never goes below 0. Counts every Spieltag whose last kickoff has already
+ * passed, not just consecutive ones from the start, so a lone rescheduled
+ * Spieltag can't stall the count for everyone registering after it.
+ */
+export function startingBalanceForRegistration(
+  registeredAt: Date,
+  seasonMatches: Match[],
+  index: EffectiveMatchdayIndex,
+): number {
+  const t = registeredAt.getTime()
+  let kickedOffCount = 0
+  for (const md of index.kreisligaMatchdaysDisplayOrder) {
+    const last = lastKickoffOfEffectiveMatchday(md, seasonMatches, index)
+    if (last != null && last <= t) kickedOffCount++
+  }
+  if (kickedOffCount === 0) return STARTING_BALANCE
+  if (kickedOffCount === 1) return 950
+  if (kickedOffCount === 2) return 900
+  return Math.max(0, 900 - (kickedOffCount - 2) * 20)
 }

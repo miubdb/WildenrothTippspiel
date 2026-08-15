@@ -45,7 +45,7 @@ export default async function WillkommenPage() {
             <div>
               <h2 className="font-bold text-gray-900">Freischaltung ausstehend</h2>
               <p className="text-sm text-gray-600 mt-1">
-                Du hast dich nach Saisonstart registriert. Melde dich kurz per WhatsApp bei Jani — er schaltet dich dann frei.
+                Dein Account ist noch nicht freigeschaltet. Melde dich kurz per WhatsApp bei Jani — er schaltet dich dann frei.
               </p>
             </div>
           </div>
