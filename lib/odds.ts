@@ -21,19 +21,38 @@ const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
 // (getMatchXG) — which, with zero current-season games played, means the xG of
 // every match is exactly these values times the roster factor.
 //
-// Measured from `prior_season_matches`, Kreisliga Zugspitze 25/26, both groups,
-// 364 matches: 2.173 goals/game at home, 1.497 away (3.670 total).
-// A single Poisson with that mean reproduces the observed over/under
-// frequencies almost exactly (modelled vs. empirical: O2.5 .709/.703,
-// O3.5 .500/.508, O5.5 .166/.159), so the distribution assumption is sound and
-// only the mean needed to be right.
+// Total-goal level measured from `prior_season_matches`, Kreisliga Zugspitze
+// 25/26, both groups, 364 matches: 2.173 goals/game at home, 1.497 away
+// (3.670 total). A single Poisson with that TOTAL reproduces the observed
+// over/under frequencies almost exactly (modelled vs. empirical: O2.5
+// .709/.703, O3.5 .500/.508, O5.5 .166/.159), so the distribution assumption
+// is sound and this total must not be changed without re-validating those —
+// see below for why the HOME/AWAY split of that same total was adjusted.
 //
 // These were previously 1.22/1.13 (2.35 total) — a guess, and ~36% below the
 // real level, which is why every Over market was priced far too long
-// (Über 3,5 came out around 4.99 instead of ~1.8). Do not "tune" these by
-// hand: re-measure them from prior_season_matches for the league in question.
-const LEAGUE_HOME_XG = 2.17
-const LEAGUE_AWAY_XG = 1.50
+// (Über 3,5 came out around 4.99 instead of ~1.8). Do not "tune" the TOTAL by
+// hand: re-measure it from prior_season_matches for the league in question.
+//
+// Home/away SPLIT of that total was revisited separately: the raw Kreisliga-only
+// split above implies a 45% home scoring advantage (2.173 vs 1.497), which
+// made an average matchup's home side an almost unbeatable near-lock in
+// exact-score/1X2 terms regardless of real team quality — every match's xG
+// collapses to close to these two numbers whenever a team has little
+// current-season data (see getMatchXG), so this split alone was doing most of
+// the work. Cross-checked against the other two leagues in the same prior-season
+// dataset, the Kreisliga-only split is an outlier: Bezirksliga shows only an 8%
+// home edge (240 matches), Kreisklasse 25% (364 matches) — a single season of
+// 364 Kreisliga matches alone is not enough to trust a 45% edge over those.
+// Fix: blend the Kreisliga-only home SHARE (2.173/3.670 = 59.2%) with the
+// all-three-leagues home SHARE (968 matches: 2.244/4.014 = 55.9%) via a simple
+// average (57.6%), then re-apply that softened share to the SAME validated
+// 3.670 total — this changes only the home/away split, not the total goal
+// level the O/U markets above were tuned against. Result: 33% home edge
+// instead of 45%. Re-derive this the same way if prior_season_matches is
+// ever refreshed with more seasons of data.
+const LEAGUE_HOME_XG = 2.11
+const LEAGUE_AWAY_XG = 1.56
 
 /** Expected goals of an average team in an average fixture (mean of the home and
  *  away baselines). Exported so the goalscorer model can express "how attacking
