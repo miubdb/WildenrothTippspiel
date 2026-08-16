@@ -507,21 +507,23 @@ export default function AdminPage() {
                     {(currentTopspiel && !bklasseUpcoming.some(m => m.id === currentTopspiel.id) ? [currentTopspiel, ...bklasseUpcoming] : bklasseUpcoming).map((match) => (
                       <label
                         key={match.id}
-                        className={`flex items-center gap-2 rounded-xl px-3 py-2 border cursor-pointer ${match.is_topspiel ? 'bg-yellow-50 border-yellow-300' : 'bg-white border-gray-200'}`}
+                        className={`flex items-start gap-2 rounded-xl px-3 py-2 border cursor-pointer ${match.is_topspiel ? 'bg-yellow-50 border-yellow-300' : 'bg-white border-gray-200'}`}
                       >
                         <input
                           type="checkbox"
                           checked={match.is_topspiel}
                           onChange={(e) => toggleTopspiel(match.id, e.target.checked)}
-                          className="w-4 h-4 accent-yellow-500 flex-shrink-0"
+                          className="w-4 h-4 accent-yellow-500 flex-shrink-0 mt-0.5"
                         />
-                        <span className="flex-1 text-sm text-gray-800 truncate">
-                          {match.home_team?.name ?? '?'} – {match.away_team?.name ?? '?'}
-                        </span>
-                        <span className="text-xs text-gray-400 flex-shrink-0">
-                          {new Date(match.match_date).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                        </span>
-                        {match.is_topspiel && <span className="text-xs">⭐</span>}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-gray-800">
+                            {match.home_team?.name ?? '?'} – {match.away_team?.name ?? '?'}
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            {new Date(match.match_date).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                          </div>
+                        </div>
+                        {match.is_topspiel && <span className="text-xs flex-shrink-0">⭐</span>}
                       </label>
                     ))}
                   </div>
@@ -1282,28 +1284,32 @@ function OddsPreviewMatchCard({
 
   return (
     <div className={`border rounded-xl overflow-hidden ${hasOverride ? 'border-amber-300' : 'border-gray-100'}`}>
-      <div className="bg-gray-50 px-3 py-2 flex items-center gap-2">
-        <div className="text-sm font-semibold text-gray-800 flex-1 min-w-0 truncate">
-          {match.home_team} – {match.away_team}
+      <div className="bg-gray-50 px-3 py-2 space-y-1">
+        <div className="flex items-start gap-2">
+          <div className="text-sm font-semibold text-gray-800 flex-1 min-w-0">
+            {match.home_team} – {match.away_team}
+          </div>
+          <button
+            onClick={editing ? () => setEditing(false) : openEdit}
+            className="text-[10px] px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 flex-shrink-0"
+          >
+            {editing ? 'Schließen' : 'Bearbeiten'}
+          </button>
         </div>
-        {hasOverride && (
-          <span className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded flex-shrink-0">
-            Überschrieben
-          </span>
-        )}
-        <div className="text-[10px] text-gray-500 flex-shrink-0">
-          {new Date(match.match_date).toLocaleString('de-DE', {
-            timeZone: 'Europe/Berlin',
-            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-          })}
-          {match.frozen_at && <span className="ml-1 text-amber-700 font-semibold">· eingefroren</span>}
+        <div className="flex items-center gap-2 flex-wrap">
+          {hasOverride && (
+            <span className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded flex-shrink-0">
+              Überschrieben
+            </span>
+          )}
+          <div className="text-[10px] text-gray-500">
+            {new Date(match.match_date).toLocaleString('de-DE', {
+              timeZone: 'Europe/Berlin',
+              day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+            })}
+            {match.frozen_at && <span className="ml-1 text-amber-700 font-semibold">· eingefroren</span>}
+          </div>
         </div>
-        <button
-          onClick={editing ? () => setEditing(false) : openEdit}
-          className="text-[10px] px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 flex-shrink-0"
-        >
-          {editing ? 'Schließen' : 'Bearbeiten'}
-        </button>
       </div>
 
       {/* Override edit form */}
@@ -1565,7 +1571,7 @@ function ExplainCard({ match }: { match: ExplainMatch }) {
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
-          <div className="font-bold text-gray-900 text-sm truncate">
+          <div className="font-bold text-gray-900 text-sm">
             {match.home_team} vs {match.away_team}
           </div>
           <div className="text-[11px] text-gray-400 mt-0.5">
@@ -2528,7 +2534,7 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <div className="min-w-0 flex-1">
-              <h3 className="font-bold text-gray-900 truncate">
+              <h3 className="font-bold text-gray-900">
                 {selectedMatch.home_team?.name} – {selectedMatch.away_team?.name}
               </h3>
               <p className="text-xs text-gray-500 mt-0.5">
