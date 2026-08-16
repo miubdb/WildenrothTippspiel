@@ -426,7 +426,7 @@ export async function POST(request: NextRequest) {
         const matchLabel = home && away ? `${home} – ${away}` : 'diesem Spiel'
         const marketLabel = MARKET_LABELS[conflict.market_type] ?? conflict.market_type
         return NextResponse.json(
-          { error: `Für ${matchLabel} hast du im Markt ${marketLabel} bereits eine Wette platziert. Storniere diese zuerst, wenn du deine Auswahl ändern möchtest.` },
+          { error: `Für ${matchLabel} hast du im Markt ${marketLabel} bereits eine Wette auf einen anderen Ausgang platziert. Du kannst nicht gleichzeitig auf entgegengesetzte Ausgänge desselben Markts wetten — storniere die bestehende Wette zuerst, wenn du deine Auswahl ändern möchtest.` },
           { status: 400 }
         )
       }
@@ -506,8 +506,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           error: hasRisky
-            ? `Maximal 3 Wettscheine pro Spieltag erlaubt (davon höchstens einer mit Quote über 20,00). Du hast für Spieltag ${matchday} bereits ${existingSlips.length} Wettschein(e).`
-            : `Maximal 2 Wettscheine pro Spieltag erlaubt, solange keine Quote über 20,00 liegt. Du hast für Spieltag ${matchday} bereits ${existingSlips.length} Wettschein(e).`,
+            ? `Maximal 3 Wettscheine pro Spieltag erlaubt. Ein 3. Schein ist nur erlaubt, wenn mindestens einer deiner Scheine eine Quote über 20,00 hat. Du hast für Spieltag ${matchday} bereits ${existingSlips.length} Wettschein(e).`
+            : `Maximal 2 Wettscheine pro Spieltag erlaubt, solange keiner deiner Scheine eine Quote über 20,00 hat. Du hast für Spieltag ${matchday} bereits ${existingSlips.length} Wettschein(e).`,
         },
         { status: 400 }
       )
