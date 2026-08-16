@@ -1196,7 +1196,11 @@ export default async function TippsPage({
                       )
                     })}
 
-                    {/* Combos assigned to this match (shown only once, not under every leg's match) */}
+                    {/* Combos assigned to this match (shown only once, not under every leg's match).
+                        Only the leg belonging to THIS match is shown inline — with several
+                        multi-leg combos per matchday this section got very long otherwise; the
+                        other legs (on different matches) collapse behind a <details> toggle,
+                        which needs no client-side state since this stays a server component. */}
                     {comboIdsHere.map(comboId => {
                       const legs = activeSocial.filter(b => b.combo_id === comboId)
                       if (legs.length === 0) return null
@@ -1211,35 +1215,51 @@ export default async function TippsPage({
                         : legs.every(l => l.status === 'won') ? 'won'
                         : 'pending'
                       const borderCls = comboStatus === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : comboStatus === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-blue-100 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10'
+                      const ownLeg = legs.find(l => l.match_id === match.id) ?? legs[0]
+                      const otherLegs = legs.filter(l => l.id !== ownLeg.id)
+                      const renderLeg = (leg: typeof ownLeg) => {
+                        const lm = matchMap.get(leg.match_id)
+                        return (
+                          <div key={leg.id} className="flex items-start gap-1.5 text-xs py-0.5">
+                            <StatusDot status={leg.status} />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-gray-400 dark:text-gray-500 text-[10px] block truncate">{lm?.home_team?.name ?? '?'} – {lm?.away_team?.name ?? '?'}</span>
+                              <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
+                            </div>
+                            <span className="text-red-600 dark:text-red-400 font-bold flex-shrink-0">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                        )
+                      }
                       return (
                         <div key={comboId} className={`rounded-xl border overflow-hidden ${borderCls}`}>
-                          <div className="flex items-center gap-2 px-3 py-2 border-b border-black/5 dark:border-white/5">
+                          <div className="flex items-center gap-2 px-3 pt-2">
                             <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
                               <span className="text-blue-700 dark:text-blue-400 font-bold text-[10px]">{initialOf(owner)}</span>
                             </div>
                             <StatusDot status={comboStatus} />
-                            <span className="text-[10px] font-bold bg-blue-600 text-white rounded px-1.5 py-0.5">KOMBI</span>
-                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-0.5 truncate">{nameOf(owner)} · {legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
-                            <div className="ml-auto text-right text-xs flex-shrink-0">
+                            <span className="text-[10px] font-bold bg-blue-600 text-white rounded px-1.5 py-0.5 flex-shrink-0">KOMBI</span>
+                            <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0 flex-1">{nameOf(owner)}</span>
+                          </div>
+                          <div className="flex items-center gap-2 px-3 pb-2 pt-0.5 text-[11px]">
+                            <span className="text-gray-500 dark:text-gray-400">{legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                            <div className="ml-auto text-right flex-shrink-0">
                               {stake > 0 && comboStatus === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                               {comboStatus === 'won' && cb?.payout != null && <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span>}
                               {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
                             </div>
                           </div>
-                          <div className="px-3 py-1.5 space-y-1">
-                            {legs.map(leg => {
-                              const lm = matchMap.get(leg.match_id)
-                              return (
-                                <div key={leg.id} className="flex items-start gap-1.5 text-xs py-0.5">
-                                  <StatusDot status={leg.status} />
-                                  <div className="flex-1 min-w-0">
-                                    <span className="text-gray-400 dark:text-gray-500 text-[10px] block truncate">{lm?.home_team?.name ?? '?'} – {lm?.away_team?.name ?? '?'}</span>
-                                    <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
-                                  </div>
-                                  <span className="text-red-600 dark:text-red-400 font-bold flex-shrink-0">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                          <div className="border-t border-black/5 dark:border-white/5 px-3 py-1.5">
+                            {renderLeg(ownLeg)}
+                            {otherLegs.length > 0 && (
+                              <details className="mt-0.5">
+                                <summary className="text-[10px] text-blue-700 dark:text-blue-400 font-semibold cursor-pointer py-1 select-none">
+                                  +{otherLegs.length} weitere{otherLegs.length === 1 ? 'r' : ''} Tipp{otherLegs.length !== 1 ? 'e' : ''} in dieser Kombi
+                                </summary>
+                                <div className="space-y-1 pt-0.5">
+                                  {otherLegs.map(renderLeg)}
                                 </div>
-                              )
-                            })}
+                              </details>
+                            )}
                           </div>
                         </div>
                       )
