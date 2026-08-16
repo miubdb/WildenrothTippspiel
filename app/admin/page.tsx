@@ -34,6 +34,7 @@ interface AdminUser {
   is_admin: boolean
   is_wildenroth: boolean
   is_wildenroth_ii: boolean
+  deleted_at: string | null
 }
 
 type Tab = 'spieltag' | 'quoten' | 'erklaerung' | 'verwaltung'
@@ -118,6 +119,33 @@ export default function AdminPage() {
       body: JSON.stringify({ action: 'set_user_wildenroth_role', userId, role }),
     })
     if (res.ok) { setMessage('Rolle aktualisiert.'); fetchSeasonData() }
+    else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
+  }
+
+  // Soft-delete: account/profile stay intact (historische Wetten bleiben mit
+  // Namen verknüpft), Login wird gesperrt, Nutzer verschwindet aus Rangliste
+  // & Co. — bleibt aber hier in der Verwaltung sichtbar (mit Badge), damit
+  // er jederzeit reaktiviert werden kann.
+  async function deleteUser(userId: string, username: string) {
+    if (!confirm(`${username} wirklich löschen? Login wird gesperrt, er verschwindet aus Rangliste & Kader. Historische Wetten bleiben erhalten, Reaktivieren ist jederzeit möglich.`)) return
+    setMessage(null)
+    const res = await fetch('/api/admin/season', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'soft_delete_user', userId }),
+    })
+    if (res.ok) { setMessage(`${username} gelöscht.`); fetchSeasonData() }
+    else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
+  }
+
+  async function restoreUser(userId: string, username: string) {
+    setMessage(null)
+    const res = await fetch('/api/admin/season', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'restore_user', userId }),
+    })
+    if (res.ok) { setMessage(`${username} reaktiviert.`); fetchSeasonData() }
     else { const d = await res.json(); setMessage(`Fehler: ${d.error}`) }
   }
 
@@ -615,10 +643,11 @@ export default function AdminPage() {
               </p>
               <div className="space-y-2">
                 {users.map((u) => (
-                  <div key={u.id} className="flex items-center gap-2 flex-wrap bg-gray-50 rounded-xl px-3 py-2.5">
+                  <div key={u.id} className={`flex items-center gap-2 flex-wrap rounded-xl px-3 py-2.5 ${u.deleted_at ? 'bg-red-50 opacity-70' : 'bg-gray-50'}`}>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold text-gray-900 flex items-center gap-1 flex-wrap">
                         {u.display_name || u.username}
+                        {u.deleted_at && <span className="text-[10px] text-red-600 font-bold bg-red-100 px-1 rounded">GELÖSCHT</span>}
                         {u.is_admin && <span className="text-[10px] text-red-600 font-bold">ADMIN</span>}
                         {u.is_wildenroth && u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ Beide</span>}
                         {u.is_wildenroth && !u.is_wildenroth_ii && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽ 1</span>}
@@ -658,6 +687,13 @@ export default function AdminPage() {
                       className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white ${u.eligible_for_current_season ? 'bg-gray-500 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'}`}
                     >
                       {u.eligible_for_current_season ? 'Sperren' : 'Freischalten'}
+                    </button>
+                    <button
+                      onClick={() => u.deleted_at ? restoreUser(u.id, u.display_name || u.username) : deleteUser(u.id, u.display_name || u.username)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white ${u.deleted_at ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-700 hover:bg-red-800'}`}
+                      title={u.deleted_at ? 'Account reaktivieren' : 'Account löschen (Login sperren, aus Rangliste ausblenden, historische Daten bleiben)'}
+                    >
+                      {u.deleted_at ? 'Reaktivieren' : 'Löschen'}
                     </button>
                   </div>
                 ))}

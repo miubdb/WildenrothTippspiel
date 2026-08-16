@@ -16,7 +16,7 @@ export async function GET() {
   const admin = createAdminClient()
   const { data: users } = await admin
     .from('profiles')
-    .select('id, username, display_name, email, balance, eligible_for_current_season, is_admin, is_wildenroth, is_wildenroth_ii')
+    .select('id, username, display_name, email, balance, eligible_for_current_season, is_admin, is_wildenroth, is_wildenroth_ii, deleted_at')
     .order('username')
 
   return NextResponse.json({ users: users ?? [] })
@@ -60,6 +60,30 @@ export async function POST(req: Request) {
     if (!flags) return NextResponse.json({ error: 'Unbekannte Rolle.' }, { status: 400 })
     if (!body.userId) return NextResponse.json({ error: 'userId fehlt.' }, { status: 400 })
     await admin.from('profiles').update(flags).eq('id', body.userId)
+    return NextResponse.json({ ok: true })
+  }
+
+  // Soft-delete: keeps the profiles row (and auth account) intact so a
+  // user's already-placed bets/combos stay correctly attributed with their
+  // name everywhere historical data is shown (recap, awards, admin bets
+  // viewer, "Tipps der anderen" for bets they already placed) — bets/combo_bets
+  // have no FK to profiles, so a hard delete would silently orphan that
+  // history instead of preserving it. Also bans login (10y — GoTrue has no
+  // "forever", see restore below) so a deactivated user can't place new bets.
+  // Current-user listings (Rangliste, Admin-Verwaltung) filter on deleted_at;
+  // Verwaltung deliberately still lists them (with a badge) so this is
+  // reversible.
+  if (body.action === 'soft_delete_user') {
+    if (!body.userId) return NextResponse.json({ error: 'userId fehlt.' }, { status: 400 })
+    await admin.auth.admin.updateUserById(body.userId, { ban_duration: '87600h' })
+    await admin.from('profiles').update({ deleted_at: new Date().toISOString() }).eq('id', body.userId)
+    return NextResponse.json({ ok: true })
+  }
+
+  if (body.action === 'restore_user') {
+    if (!body.userId) return NextResponse.json({ error: 'userId fehlt.' }, { status: 400 })
+    await admin.auth.admin.updateUserById(body.userId, { ban_duration: 'none' })
+    await admin.from('profiles').update({ deleted_at: null }).eq('id', body.userId)
     return NextResponse.json({ ok: true })
   }
 
