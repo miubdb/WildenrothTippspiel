@@ -24,6 +24,14 @@ interface MatchRow {
   is_topspiel: boolean
 }
 
+/** Draft row for the inline Spieltag-tab scorer entry — mirrors the shape
+ *  `/api/admin/goalscorers/scorers` expects, minus the DB-only `id`. */
+interface ScorerDraft {
+  playerId: number
+  goals: number
+  isOwnGoal: boolean
+}
+
 interface AdminUser {
   id: string
   username: string
@@ -58,7 +66,12 @@ export default function AdminPage() {
   const [eligBalance, setEligBalance] = useState<Record<string, string>>({})
   const [pendingBetsByMatch, setPendingBetsByMatch] = useState<Record<number, number>>({})
   const [compFilter, setCompFilter] = useState<'all' | 'kreisliga' | 'wildenroth_ii' | 'b-klasse'>('all')
+  const [mdFilter, setMdFilter] = useState<number | 'all'>('all')
   const [settledShown, setSettledShown] = useState(10)
+  // Scorer drafts for the inline "Ergebnis + Torschützen" entry on Wildenroth
+  // matches in the Spieltag tab — keyed by matchId, mirrors the `scores` state
+  // pattern below so both submit together from the same "Ergebnis & abrechnen".
+  const [scorers, setScorers] = useState<Record<number, ScorerDraft[]>>({})
 
   const supabase = createClient()
 
@@ -211,6 +224,10 @@ export default function AdminPage() {
     }
   }
 
+  function handleScorersChange(matchId: number, draft: ScorerDraft[]) {
+    setScorers((prev) => ({ ...prev, [matchId]: draft }))
+  }
+
   async function settleMatch(matchId: number) {
     const score = scores[matchId]
     if (!score || score.home === '' || score.away === '') {
@@ -234,16 +251,38 @@ export default function AdminPage() {
     })
 
     const data = await res.json()
-    setSettleLoading(null)
 
-    if (res.ok) {
-      setMessage(
-        `Spiel abgerechnet! ${data.settled} Wette(n) bearbeitet, ${data.combosChecked} Kombi(s) geprüft.`
-      )
-      fetchMatches()
-    } else {
+    if (!res.ok) {
+      setSettleLoading(null)
       setMessage(`Fehler: ${data.error}`)
+      return
     }
+
+    let msg = `Spiel abgerechnet! ${data.settled} Wette(n) bearbeitet, ${data.combosChecked} Kombi(s) geprüft.`
+
+    // Wildenroth match with scorers entered inline: submit them right after
+    // settlement, in the same click — see ScorerDraft/handleScorersChange
+    // above. Skips silently if none were entered (own-goal-only 0:0 etc. is
+    // valid; the admin just leaves the list empty).
+    const draft = (scorers[matchId] ?? []).filter(s => s.playerId)
+    if (draft.length > 0) {
+      const gsRes = await fetch('/api/admin/goalscorers/scorers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId, scorers: draft }),
+      })
+      const gsData = await gsRes.json()
+      if (gsRes.ok) {
+        msg += ` Torschützen gespeichert · ${gsData.settled} Wette(n) abgerechnet, ${gsData.combosChecked} Kombi(s) geprüft.`
+        setScorers((prev) => { const n = { ...prev }; delete n[matchId]; return n })
+      } else {
+        msg += ` Fehler bei Torschützen: ${gsData.error}`
+      }
+    }
+
+    setSettleLoading(null)
+    setMessage(msg)
+    fetchMatches()
   }
 
   async function handleCategoryChange(matchId: number, category: string) {
@@ -317,7 +356,11 @@ export default function AdminPage() {
     // 'b-klasse' filter covers plain B-Klasse matches and the flagged Topspiel/bklasse_topspiel category
     return m.match_category === 'b-klasse' || m.match_category === 'bklasse_topspiel'
   }
-  const filteredMatches = matches.filter(matchesCompFilter)
+  // Raw `matchday` column, not the effective Tippspiel-Spieltag — this is a
+  // pure admin data-entry filter over the fixture list as BFV numbers it, not
+  // the bettor-facing grouping (see lib/season.ts for why those two differ).
+  const availableMatchdays = [...new Set(matches.map(m => m.matchday))].sort((a, b) => a - b)
+  const filteredMatches = matches.filter(m => matchesCompFilter(m) && (mdFilter === 'all' || m.matchday === mdFilter))
 
   const settledMatchesAll = filteredMatches.filter((m) => m.status === 'finished')
   const settledMatches = [...settledMatchesAll].reverse() // most recent first
@@ -402,6 +445,21 @@ export default function AdminPage() {
                   {label}
                 </button>
               ))}
+            </div>
+
+            {/* Spieltag filter */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 flex-shrink-0">Spieltag:</span>
+              <select
+                value={mdFilter}
+                onChange={(e) => { setMdFilter(e.target.value === 'all' ? 'all' : Number(e.target.value)); setSettledShown(10) }}
+                className="text-xs font-semibold py-1.5 px-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+              >
+                <option value="all">Alle</option>
+                {availableMatchdays.map(md => (
+                  <option key={md} value={md}>{md === 999 ? 'Test' : `Spieltag ${md}`}</option>
+                ))}
+              </select>
             </div>
 
             {/* Status overview */}
@@ -489,6 +547,8 @@ export default function AdminPage() {
                       loading={settleLoading === match.id}
                       pendingBets={pendingBetsByMatch[match.id]}
                       onCategoryChange={handleCategoryChange}
+                      scorerDraft={scorers[match.id]}
+                      onScorersChange={(draft) => handleScorersChange(match.id, draft)}
                     />
                   ))}
                 </div>
@@ -539,6 +599,8 @@ export default function AdminPage() {
                       isUpcoming
                       pendingBets={pendingBetsByMatch[match.id]}
                       onCategoryChange={handleCategoryChange}
+                      scorerDraft={scorers[match.id]}
+                      onScorersChange={(draft) => handleScorersChange(match.id, draft)}
                     />
                   ))}
                 </div>
@@ -1766,6 +1828,8 @@ function MatchSettleCard({
   isUpcoming,
   pendingBets,
   onCategoryChange,
+  scorerDraft,
+  onScorersChange,
 }: {
   match: MatchRow
   score: { home: string; away: string }
@@ -1776,6 +1840,8 @@ function MatchSettleCard({
   isUpcoming?: boolean
   pendingBets?: number
   onCategoryChange?: (matchId: number, category: string) => void
+  scorerDraft?: ScorerDraft[]
+  onScorersChange?: (draft: ScorerDraft[]) => void
 }) {
   const matchDate = new Date(match.match_date)
   const dateStr = matchDate.toLocaleDateString('de-DE', {
@@ -1798,10 +1864,12 @@ function MatchSettleCard({
         </div>
       </div>
 
-      <div className="flex items-center gap-3 mb-3">
-        <div className="flex-1 text-right text-sm font-semibold text-gray-900">
-          {match.home_team?.name ?? '?'}
-        </div>
+      {/* Team names get their own full-width lines — squeezing long names
+          (e.g. "[SG] TSV Herrsching/SF Breitbrunn 2") into narrow flex
+          columns next to the score inputs made them wrap unpredictably and
+          fight the centered inputs for space. */}
+      <div className="mb-3 space-y-1.5">
+        <div className="text-sm font-semibold text-gray-900">{match.home_team?.name ?? '?'}</div>
         <div className="flex items-center gap-1.5">
           <input
             type="number"
@@ -1823,13 +1891,11 @@ function MatchSettleCard({
             placeholder="0"
           />
         </div>
-        <div className="flex-1 text-left text-sm font-semibold text-gray-900">
-          {match.away_team?.name ?? '?'}
-        </div>
+        <div className="text-sm font-semibold text-gray-900">{match.away_team?.name ?? '?'}</div>
       </div>
 
       {onCategoryChange && (
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-3 flex-wrap">
           <span className="text-xs text-gray-400 flex-shrink-0">Wettbewerb:</span>
           <select
             value={match.match_category ?? 'kreisliga'}
@@ -1841,12 +1907,15 @@ function MatchSettleCard({
             <option value="b-klasse">B-Klasse</option>
             <option value="bklasse_topspiel">B-Klasse-Topspiel</option>
           </select>
-          {isWildenrothMatch(match) && (
-            <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium ml-auto">
-              ⚽ Torschützen im Tab &quot;Quoten&quot; erfassen
-            </span>
-          )}
         </div>
+      )}
+
+      {/* Wildenroth match: enter goalscorers right here — they get submitted
+          together with the score by the same "Ergebnis & abrechnen" click
+          below (see settleMatch/ScorerDraft in the parent), so there's no
+          need to switch to the Quoten tab for this anymore. */}
+      {isWildenrothMatch(match) && onScorersChange && (
+        <InlineScorerEntry matchId={match.id} draft={scorerDraft ?? []} onChange={onScorersChange} />
       )}
 
       <div className="flex gap-2">
@@ -1874,6 +1943,93 @@ function MatchSettleCard({
           </button>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Inline "Torschützen eintragen" widget for a single Wildenroth match in the
+ *  Spieltag tab. Deliberately independent of match_goalscorer_odds/whether
+ *  odds were ever frozen for this match — fetches the active squad directly
+ *  (/api/admin/goalscorers/roster) so it works even for a match nobody
+ *  visited the Quoten tab for. Purely a draft editor; the parent submits
+ *  `draft` to /api/admin/goalscorers/scorers alongside the score. */
+function InlineScorerEntry({
+  matchId, draft, onChange,
+}: {
+  matchId: number
+  draft: ScorerDraft[]
+  onChange: (draft: ScorerDraft[]) => void
+}) {
+  const [expanded, setExpanded] = useState(draft.length > 0)
+  const [players, setPlayers] = useState<{ id: number; name: string }[] | null>(null)
+
+  useEffect(() => {
+    if (!expanded || players !== null) return
+    fetch(`/api/admin/goalscorers/roster?matchId=${matchId}`)
+      .then(r => r.json())
+      .then(data => setPlayers(data.players ?? []))
+  }, [expanded, players, matchId])
+
+  function addRow() {
+    onChange([...draft, { playerId: players?.[0]?.id ?? 0, goals: 1, isOwnGoal: false }])
+  }
+  function updateRow(i: number, patch: Partial<ScorerDraft>) {
+    onChange(draft.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  }
+  function removeRow(i: number) {
+    onChange(draft.filter((_, idx) => idx !== i))
+  }
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded font-medium mb-3"
+      >
+        ⚽ Torschützen eintragen
+      </button>
+    )
+  }
+
+  return (
+    <div className="mb-3 bg-blue-50/60 border border-blue-100 rounded-lg p-2.5 space-y-1.5">
+      <div className="text-[10px] font-semibold text-blue-700">⚽ Torschützen (wird mit abgeschickt)</div>
+      {players === null ? (
+        <div className="text-[11px] text-gray-400">Lade Kader…</div>
+      ) : (
+        <>
+          {draft.map((row, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <select
+                value={row.playerId}
+                onChange={(e) => updateRow(i, { playerId: Number(e.target.value) })}
+                className="flex-1 min-w-0 text-xs py-1 px-1.5 border border-gray-200 rounded bg-white"
+              >
+                {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <input
+                type="number"
+                min="1"
+                max="20"
+                value={row.goals}
+                onChange={(e) => updateRow(i, { goals: parseInt(e.target.value) || 1 })}
+                className="w-12 text-center text-xs py-1 border border-gray-200 rounded flex-shrink-0"
+              />
+              <label className="flex items-center gap-1 text-[10px] text-gray-500 flex-shrink-0 whitespace-nowrap">
+                <input type="checkbox" checked={row.isOwnGoal} onChange={(e) => updateRow(i, { isOwnGoal: e.target.checked })} />
+                Eigentor
+              </label>
+              <button type="button" onClick={() => removeRow(i)} className="text-red-500 text-xs flex-shrink-0 px-1">✕</button>
+            </div>
+          ))}
+          {players.length === 0 ? (
+            <div className="text-[11px] text-gray-400">Kein aktiver Kader gefunden.</div>
+          ) : (
+            <button type="button" onClick={addRow} className="text-[10px] text-blue-700 font-semibold">+ Torschütze</button>
+          )}
+        </>
+      )}
     </div>
   )
 }
