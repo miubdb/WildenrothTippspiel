@@ -4,6 +4,7 @@ import { PushSubscribeButton } from '@/components/PushSubscribeButton'
 import { ProfileEditForm } from '@/components/ProfileEditForm'
 import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
 import { ThemeToggle } from '@/components/ThemeToggle'
+import { DeleteAccountButton } from '@/components/DeleteAccountButton'
 import { WildiIcon, fmtWildi } from '@/components/WildiIcon'
 
 export const revalidate = 60
@@ -601,6 +602,7 @@ export default async function ProfilPage({
       )}
 
       <SignOutButton />
+      <DeleteAccountButton />
     </div>
   )
 }
