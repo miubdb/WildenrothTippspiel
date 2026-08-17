@@ -21,6 +21,18 @@ const MAX_ODDS = 30.0
 // Bayesian shrinkage of per-90 goal rate toward a position-based prior.
 const PRIOR_GAMES = 5
 
+// How much weight last season's sample keeps once current-season data exists,
+// as a fraction of last season's own game count — mirrors lib/odds.ts's team-level
+// PRIOR_WEIGHT/augmentStat pattern. Was previously a hard cutover (sampleOf picked
+// EITHER this season OR last season, never both), which meant a single quiet
+// substitute appearance could wipe out a strong prior season overnight (e.g. a
+// proven 29-goal striker cameo'ing for 19 scoreless minutes would crash straight
+// to the position-prior floor), while a player with zero current-season minutes
+// kept 100% of last season's credibility with no discount at all for currently
+// not featuring. Blending avoids both: a small current sample only nudges the
+// season-long rate, and an unplayed player's prior season counts at half weight.
+const PRIOR_SEASON_WEIGHT = 0.5
+
 // Baseline xG per match used to scale player rates by fixture difficulty.
 // Tracks the main model's league baselines instead of being hand-set, so a
 // recalibration there can't silently inflate every player's goal expectation.
@@ -66,19 +78,19 @@ export type WildenrothPlayer = {
   friendly_goals?: number | null
 }
 
-/** Which sample to judge a player on: the current season once they have actually
- *  played, otherwise last season. Returning zeros for a genuinely unknown player
- *  (new signing, no history) is deliberate — they stay unoffered until there is
- *  something to price them on. */
-function sampleOf(p: WildenrothPlayer): { games: number; minutes: number; goals: number } {
-  if (p.games > 0 && p.minutes > 0) {
-    return { games: p.games, minutes: p.minutes, goals: p.goals }
-  }
-  return {
-    games: p.prev_games ?? 0,
-    minutes: p.prev_minutes ?? 0,
-    goals: p.prev_goals ?? 0,
-  }
+/** Weighted average of a current-season stat with a down-weighted prior-season
+ *  stat — same shape as lib/odds.ts's augmentStat, kept local here since neither
+ *  file imports internals from the other. `priorN` should already have
+ *  PRIOR_SEASON_WEIGHT applied by the caller. */
+function blendWithPrior(
+  current: { avg: number; n: number },
+  priorAvg: number,
+  priorN: number
+): { avg: number; n: number } {
+  if (priorN === 0) return current
+  if (current.n === 0) return { avg: priorAvg, n: priorN }
+  const totalN = current.n + priorN
+  return { avg: (current.n * current.avg + priorN * priorAvg) / totalN, n: totalN }
 }
 
 export type GoalscorerOffer = {
@@ -112,19 +124,33 @@ function positionPrior(position: string | null): number {
 }
 
 function bayesianGoalsPer90(player: WildenrothPlayer): number {
-  const prior = positionPrior(player.position)
-  const s = sampleOf(player)
-  if (s.minutes <= 0) return prior
-  const observedPer90 = (s.goals / s.minutes) * 90
-  const observedGames = s.minutes / 90
-  return (observedGames * observedPer90 + PRIOR_GAMES * prior) / (observedGames + PRIOR_GAMES)
+  const positionPriorRate = positionPrior(player.position)
+
+  const currentMinutes = player.minutes ?? 0
+  const currentN = currentMinutes / 90
+  const currentPer90 = currentMinutes > 0 ? (player.goals / currentMinutes) * 90 : 0
+
+  const prevMinutes = player.prev_minutes ?? 0
+  const prevN = (prevMinutes / 90) * PRIOR_SEASON_WEIGHT
+  const prevPer90 = prevMinutes > 0 ? ((player.prev_goals ?? 0) / prevMinutes) * 90 : 0
+
+  const blended = blendWithPrior({ avg: currentPer90, n: currentN }, prevPer90, prevN)
+  if (blended.n === 0) return positionPriorRate
+
+  return (blended.n * blended.avg + PRIOR_GAMES * positionPriorRate) / (blended.n + PRIOR_GAMES)
 }
 
 function projectedMinutes(player: WildenrothPlayer): number {
-  const s = sampleOf(player)
-  if (s.games <= 0 || s.minutes <= 0) return 0
-  const avg = s.minutes / s.games
-  return Math.min(90, avg)
+  const currentGames = player.games ?? 0
+  const currentAvg = currentGames > 0 ? (player.minutes ?? 0) / currentGames : 0
+
+  const prevGames = player.prev_games ?? 0
+  const prevAvg = prevGames > 0 ? (player.prev_minutes ?? 0) / prevGames : 0
+  const prevN = prevGames * PRIOR_SEASON_WEIGHT
+
+  const blended = blendWithPrior({ avg: currentAvg, n: currentGames }, prevAvg, prevN)
+  if (blended.n === 0) return 0
+  return Math.min(90, blended.avg)
 }
 
 /**
