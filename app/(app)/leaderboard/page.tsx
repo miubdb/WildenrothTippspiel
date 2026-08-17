@@ -101,8 +101,18 @@ export default async function LeaderboardPage({
 
   // Current matchday for Spieltag tab — driven by the Kreisliga schedule only,
   // matching tipps/page.tsx's `firstScheduled`/`completedMatchdays`.
-  const firstScheduledMd = [...new Set(kreisligaMatches.filter(m => m.status === 'scheduled').map(m => m.matchday))]
-    .sort(byKickoff)[0]
+  // Must resolve through effectiveMatchdayOf, not the raw `matchday` column —
+  // see the identical comment/fix in tipps/page.tsx. A single Kreisliga match
+  // rescheduled far out of its own Spieltag's window (raw matchday=1, actually
+  // played weeks later) would otherwise keep this resolving to the already-
+  // finished Spieltag 1 forever, since that outlier match still carries
+  // matchday=1 and its Spieltag's OTHER matches give it the earliest kickoff.
+  const firstScheduledMd = [...new Set(
+    kreisligaMatches
+      .filter(m => m.status === 'scheduled')
+      .map(m => effectiveMatchdayOf(m))
+      .filter((md): md is number => md != null)
+  )].sort(byKickoff)[0]
 
   // Before the next Spieltag's betting window opens → show last completed
   // matchday; after it opens → show the upcoming matchday. Resolves through

@@ -171,8 +171,23 @@ export default async function TippsPage({
     ? allMatchdays
     : [...(hasTestMatchday ? [999] : []), ...mdIndex.kreisligaMatchdaysDisplayOrder]
 
-  const firstScheduled = [...new Set(kreisligaMatches.filter((m) => m.status === 'scheduled').map((m) => m.matchday))]
-    .sort((a, b) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0))[0]
+  // Must resolve through effectiveMatchdayOf, not the raw `matchday` column —
+  // a single Kreisliga match rescheduled far out of its own Spieltag's window
+  // (e.g. a postponed Spieltag-1 makeup match played weeks later) still
+  // carries raw matchday=1, so a raw-matchday scan would keep treating
+  // Spieltag 1 as "still has a scheduled match" (and, since its OTHER matches
+  // give it the earliest matchdayMinDate, would keep it sorted first) even
+  // though that outlier match has already been effectively reassigned to a
+  // much later Spieltag by effectiveMatchdayOf — see the "matchday scheduling
+  // quirk" note in CLAUDE.md. completedMatchdays/lastCompletedMd below already
+  // gets this right via effective grouping; firstScheduled must match or the
+  // default-Spieltag switch parks on an already-finished Spieltag forever.
+  const firstScheduled = [...new Set(
+    kreisligaMatches
+      .filter((m) => m.status === 'scheduled')
+      .map((m) => effectiveMatchdayOf(m))
+      .filter((md): md is number => md != null)
+  )].sort((a, b) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0))[0]
 
   // Before the next Spieltag's betting window opens → default to last completed
   // matchday (Sunday games just ended). After it opens → default to the next
