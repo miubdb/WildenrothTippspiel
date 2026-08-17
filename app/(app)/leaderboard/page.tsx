@@ -543,24 +543,8 @@ export default async function LeaderboardPage({
         pnl: netGain[onFireEntry[0]] ?? 0,
       } : null
 
-      // Spieltags-Statistik — aggregate numbers for the manual WhatsApp recap.
-      const totalStaked = recapSingles.reduce((s, b) => s + (b.stake ?? 0), 0) + recapCombos.reduce((s, c) => s + c.stake, 0)
-      const totalLost = lostSingles.reduce((s, b) => s + (b.stake ?? 0), 0) + lostCombos.reduce((s, c) => s + c.stake, 0)
-      const totalWon = wonSingles.reduce((s, b) => s + (b.payout ?? 0), 0) + wonCombos.reduce((s, c) => s + c.payout, 0)
-      const wonOddsList = [...wonSingles.map(b => b.odds_value), ...wonCombos.map(c => c.total_odds)]
-      const avgWonOdds = wonOddsList.length > 0 ? wonOddsList.reduce((s, o) => s + o, 0) / wonOddsList.length : null
-      const stats: RecapData['stats'] = {
-        singleCount: recapSingles.length,
-        comboCount: recapCombos.length,
-        totalStaked,
-        totalLost,
-        totalWon,
-        activeBettors: recapUserIds.length,
-        avgWonOdds,
-      }
-
       if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire) {
-        leaderboardRecapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, stats }
+        leaderboardRecapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire }
       }
     }
   }
