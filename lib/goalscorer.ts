@@ -9,7 +9,12 @@ import { getMatchXG, LEAGUE_AVG_TEAM_XG, type PriorContext } from '@/lib/odds'
  * (read-only). All player-specific math is local to this file.
  */
 
-const HOUSE_MARGIN = 0.12
+// Raising this lowers every offered goalscorer odds by the SAME proportional
+// factor (toOdds = 1/(p*(1+margin))) — ratios between players are completely
+// unaffected, only the overall price level. Was 0.12 (same as the main
+// odds model); bumped slightly on request to bring the whole market down a
+// bit without touching the underlying scoring-probability estimate itself.
+const HOUSE_MARGIN = 0.15
 const MIN_ODDS = 1.20
 const MAX_ODDS = 30.0
 
