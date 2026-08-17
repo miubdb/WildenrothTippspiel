@@ -2195,9 +2195,16 @@ type LineupEntryRow = {
   match_id: number
   team_name: string
   player_name: string
+  player_id: number | null
   minutes_played: number
   goals: number
   assists: number
+  is_starter: boolean | null
+  penalty_missed: boolean
+}
+
+function isWildenrothTeamName(name: string) {
+  return name.includes('Wildenroth')
 }
 
 function LineupsSection({
@@ -2215,11 +2222,20 @@ function LineupsSection({
   const [loading, setLoading] = useState(true)
   const [addingTeam, setAddingTeam] = useState<string | null>(null)
   const [newPlayer, setNewPlayer] = useState('')
+  const [newPlayerId, setNewPlayerId] = useState<number | null>(null)
   const [newMinutes, setNewMinutes] = useState('90')
   const [newGoals, setNewGoals] = useState('0')
   const [newAssists, setNewAssists] = useState('0')
+  const [newStarter, setNewStarter] = useState(true)
+  const [newPenaltyMissed, setNewPenaltyMissed] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Wildenroth's own squad, for a real dropdown instead of free text — the
+  // opponent has no roster data in this app, so they keep the old free-text
+  // input. Fetched once; the roster endpoint 400s for a non-Wildenroth match,
+  // which just means neither side gets a dropdown (silently, not an error
+  // worth surfacing here).
+  const [roster, setRoster] = useState<{ id: number; name: string }[]>([])
   const datalistId = `players-${matchId}`
 
   const reload = useCallback(async () => {
@@ -2230,6 +2246,19 @@ function LineupsSection({
   }, [matchId])
 
   useEffect(() => { reload() }, [reload])
+
+  useEffect(() => {
+    if (!isWildenrothTeamName(homeTeam) && !isWildenrothTeamName(awayTeam)) return
+    fetch(`/api/admin/goalscorers/roster?matchId=${matchId}`)
+      .then(r => r.json())
+      .then(data => setRoster(data.players ?? []))
+      .catch(() => {})
+  }, [matchId, homeTeam, awayTeam])
+
+  function resetForm() {
+    setNewPlayer(''); setNewPlayerId(null); setNewMinutes('90'); setNewGoals('0'); setNewAssists('0')
+    setNewStarter(true); setNewPenaltyMissed(false)
+  }
 
   async function addEntry(teamName: string) {
     if (!newPlayer.trim()) return
@@ -2242,15 +2271,18 @@ function LineupsSection({
         match_id: matchId,
         team_name: teamName,
         player_name: newPlayer.trim(),
+        player_id: newPlayerId,
         minutes_played: parseInt(newMinutes) || 90,
         goals: parseInt(newGoals) || 0,
         assists: parseInt(newAssists) || 0,
+        is_starter: newStarter,
+        penalty_missed: newPenaltyMissed,
       }),
     })
     const data = await res.json()
     setSaving(false)
     if (res.ok) {
-      setNewPlayer(''); setNewMinutes('90'); setNewGoals('0'); setNewAssists('0')
+      resetForm()
       setAddingTeam(null)
       reload()
     } else {
@@ -2277,7 +2309,9 @@ function LineupsSection({
 
       {!loading && (
         <div className="grid grid-cols-2 gap-3">
-          {[{ team: homeTeam, entries: homeLineup }, { team: awayTeam, entries: awayLineup }].map(({ team, entries }) => (
+          {[{ team: homeTeam, entries: homeLineup }, { team: awayTeam, entries: awayLineup }].map(({ team, entries }) => {
+            const hasRoster = isWildenrothTeamName(team) && roster.length > 0
+            return (
             <div key={team}>
               <div className="text-[11px] font-bold text-gray-700 mb-1 truncate">{team}</div>
               <div className="space-y-1 mb-2">
@@ -2287,6 +2321,8 @@ function LineupsSection({
                 {entries.map(e => (
                   <div key={e.id} className="flex items-center gap-1 text-[10px] bg-white border border-gray-100 rounded px-1.5 py-1">
                     <span className="flex-1 font-medium text-gray-800 truncate">{e.player_name}</span>
+                    {e.is_starter === false && <span className="text-gray-400" title="Einwechslung">🔁</span>}
+                    {e.penalty_missed && <span title="Elfer verschossen">❌</span>}
                     <span className="text-gray-400">{e.minutes_played}&apos;</span>
                     {e.goals > 0 && <span className="text-green-700 font-bold">{e.goals}T</span>}
                     {e.assists > 0 && <span className="text-blue-600 font-bold">{e.assists}A</span>}
@@ -2297,13 +2333,28 @@ function LineupsSection({
 
               {addingTeam === team ? (
                 <div className="space-y-1">
-                  <input
-                    list={datalistId}
-                    value={newPlayer}
-                    onChange={e => setNewPlayer(e.target.value)}
-                    placeholder="Spielername"
-                    className="w-full text-[11px] border border-gray-200 rounded px-2 py-1"
-                  />
+                  {hasRoster ? (
+                    <select
+                      value={newPlayerId ?? ''}
+                      onChange={e => {
+                        const id = Number(e.target.value)
+                        setNewPlayerId(id || null)
+                        setNewPlayer(roster.find(p => p.id === id)?.name ?? '')
+                      }}
+                      className="w-full text-[11px] border border-gray-200 rounded px-2 py-1 bg-white"
+                    >
+                      <option value="">Spieler wählen…</option>
+                      {roster.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      list={datalistId}
+                      value={newPlayer}
+                      onChange={e => setNewPlayer(e.target.value)}
+                      placeholder="Spielername"
+                      className="w-full text-[11px] border border-gray-200 rounded px-2 py-1"
+                    />
+                  )}
                   <div className="flex gap-1">
                     <input
                       type="number" min="0" max="120" value={newMinutes}
@@ -2324,6 +2375,16 @@ function LineupsSection({
                       placeholder="A"
                     />
                   </div>
+                  <div className="flex items-center gap-2 text-[10px] text-gray-600">
+                    <label className="flex items-center gap-1">
+                      <input type="checkbox" checked={newStarter} onChange={e => setNewStarter(e.target.checked)} />
+                      Startelf
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input type="checkbox" checked={newPenaltyMissed} onChange={e => setNewPenaltyMissed(e.target.checked)} />
+                      Elfer verschossen
+                    </label>
+                  </div>
                   <div className="flex gap-1">
                     <button
                       onClick={() => addEntry(team)}
@@ -2333,7 +2394,7 @@ function LineupsSection({
                       {saving ? '…' : 'Hinzufügen'}
                     </button>
                     <button
-                      onClick={() => { setAddingTeam(null); setNewPlayer(''); setNewMinutes('90'); setNewGoals('0'); setNewAssists('0') }}
+                      onClick={() => { setAddingTeam(null); resetForm() }}
                       className="px-2 py-1 border border-gray-200 rounded text-[10px] text-gray-600"
                     >
                       Abbrechen
@@ -2342,14 +2403,15 @@ function LineupsSection({
                 </div>
               ) : (
                 <button
-                  onClick={() => { setAddingTeam(team); setNewPlayer(''); setNewMinutes('90'); setNewGoals('0'); setNewAssists('0') }}
+                  onClick={() => { setAddingTeam(team); resetForm() }}
                   className="w-full py-1 border border-dashed border-gray-300 rounded text-[10px] text-gray-500 hover:border-red-300 hover:text-red-600"
                 >
                   + Spieler
                 </button>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
