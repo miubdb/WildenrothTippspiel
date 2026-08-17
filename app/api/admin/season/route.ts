@@ -14,12 +14,15 @@ export async function GET() {
   if (!profile?.is_admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const admin = createAdminClient()
-  const { data: users } = await admin
-    .from('profiles')
-    .select('id, username, display_name, email, balance, eligible_for_current_season, is_admin, is_wildenroth, is_wildenroth_ii, deleted_at')
-    .order('username')
+  const [{ data: users }, { data: seenSetting }] = await Promise.all([
+    admin
+      .from('profiles')
+      .select('id, username, display_name, email, balance, eligible_for_current_season, is_admin, is_wildenroth, is_wildenroth_ii, deleted_at, created_at')
+      .order('username'),
+    admin.from('app_settings').select('value').eq('key', 'admin_new_users_seen_at').single(),
+  ])
 
-  return NextResponse.json({ users: users ?? [] })
+  return NextResponse.json({ users: users ?? [], newUsersSeenAt: seenSetting?.value ?? null })
 }
 
 export async function POST(req: Request) {
@@ -85,6 +88,17 @@ export async function POST(req: Request) {
     await admin.auth.admin.updateUserById(body.userId, { ban_duration: 'none' })
     await admin.from('profiles').update({ deleted_at: null }).eq('id', body.userId)
     return NextResponse.json({ ok: true })
+  }
+
+  // Marks every user registered so far as "seen" — clears the "NEU"
+  // highlighting/tab badge on the next Verwaltung load. Called when the admin
+  // opens the Verwaltung tab; the CURRENT view keeps highlighting them (the
+  // client doesn't overwrite its own already-loaded newUsersSeenAt), only a
+  // later reload picks up the new cutoff.
+  if (body.action === 'mark_new_users_seen') {
+    const now = new Date().toISOString()
+    await admin.from('app_settings').upsert({ key: 'admin_new_users_seen_at', value: now, updated_at: now })
+    return NextResponse.json({ ok: true, seenAt: now })
   }
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })

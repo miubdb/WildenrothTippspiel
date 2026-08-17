@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildEffectiveMatchdayIndex, startingBalanceForRegistration, STARTING_BALANCE } from '@/lib/season'
+import { sendPushToUser } from '@/lib/push'
 import type { Match } from '@/types'
 
 const SEASON_START = '2026-08-01'
@@ -65,6 +66,35 @@ export async function POST(req: Request) {
   }
 
   await admin.from('profiles').update(updates).eq('id', user.id)
+
+  // Notify the admin(s) that a new user registered — best-effort, must never
+  // fail the registration response (sendPushToUser already swallows/logs
+  // missing VAPID keys, no subscription, push_enabled=false, etc.). One
+  // dedupe key per (admin, new user) pair, not just per new user — the same
+  // key across two different admins' calls would make sendPushToUser's
+  // dedupe check (which only looks at dedupe_key + status, not user_id)
+  // wrongly skip every admin after the first.
+  try {
+    const { data: admins } = await admin.from('profiles').select('id').eq('is_admin', true)
+    const name = (user.user_metadata?.display_name as string | undefined)
+      || (user.user_metadata?.username as string | undefined)
+      || user.email
+      || 'Unbekannt'
+    await Promise.all(
+      (admins ?? []).map((a) =>
+        sendPushToUser(
+          a.id,
+          '🆕 Neuer Nutzer',
+          `${name} hat sich registriert.`,
+          '/admin',
+          'new_user',
+          `new-user-${a.id}-${user.id}`
+        )
+      )
+    )
+  } catch {
+    // Never block registration on a notification failure.
+  }
 
   return NextResponse.json({ ok: true, eligible: true, startingBalance })
 }

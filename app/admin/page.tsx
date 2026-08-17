@@ -43,6 +43,7 @@ interface AdminUser {
   is_wildenroth: boolean
   is_wildenroth_ii: boolean
   deleted_at: string | null
+  created_at: string
 }
 
 type Tab = 'spieltag' | 'quoten' | 'erklaerung' | 'verwaltung'
@@ -63,6 +64,11 @@ export default function AdminPage() {
   const [seasonStarted, setSeasonStarted] = useState(false)
   const [seasonToggleLoading, setSeasonToggleLoading] = useState(false)
   const [users, setUsers] = useState<AdminUser[]>([])
+  // Cutoff for the "NEU" highlighting — deliberately NOT updated when the
+  // admin marks users as seen (see markNewUsersSeen below), so the CURRENT
+  // session keeps highlighting them; only a later reload picks up the new
+  // cutoff. null means "never marked" — every non-admin user counts as new.
+  const [newUsersSeenAt, setNewUsersSeenAt] = useState<string | null>(null)
   const [eligBalance, setEligBalance] = useState<Record<string, string>>({})
   const [pendingBetsByMatch, setPendingBetsByMatch] = useState<Record<number, number>>({})
   const [compFilter, setCompFilter] = useState<'all' | 'kreisliga' | 'wildenroth_ii' | 'b-klasse'>('all')
@@ -84,10 +90,27 @@ export default function AdminPage() {
     ])
     setSeasonStarted(setting?.value === 'true')
     if (usersRes.ok) {
-      const { users: fetchedUsers } = await usersRes.json()
+      const { users: fetchedUsers, newUsersSeenAt: seenAt } = await usersRes.json()
       setUsers((fetchedUsers ?? []) as AdminUser[])
+      setNewUsersSeenAt(seenAt ?? null)
     }
   }, [supabase])
+
+  // New-registration count since the admin last opened the Verwaltung tab —
+  // drives the tab badge. Admins themselves never count as "new".
+  const newUserCount = users.filter(u => !u.is_admin && (!newUsersSeenAt || u.created_at > newUsersSeenAt)).length
+
+  // Marks the current moment as "seen" server-side (clears the badge from the
+  // NEXT load onward) without touching `newUsersSeenAt` here, so this session
+  // keeps showing the highlight the admin just opened the tab to look at.
+  const markNewUsersSeen = useCallback(() => {
+    if (newUserCount === 0) return
+    fetch('/api/admin/season', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'mark_new_users_seen' }),
+    }).catch(() => {})
+  }, [newUserCount])
 
   const fetchPendingCounts = useCallback(async () => {
     const { data } = await supabase.from('bets').select('match_id').eq('status', 'pending')
@@ -99,6 +122,8 @@ export default function AdminPage() {
   }, [supabase])
 
   useEffect(() => { fetchSeasonData(); fetchPendingCounts() }, [fetchSeasonData, fetchPendingCounts])
+
+  useEffect(() => { if (tab === 'verwaltung') markNewUsersSeen() }, [tab, markNewUsersSeen])
 
   async function toggleSeasonStarted(value: boolean) {
     setSeasonToggleLoading(true)
@@ -415,11 +440,16 @@ export default function AdminPage() {
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
+              className={`relative flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
                 tab === t ? 'bg-red-700 text-white shadow' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               {t === 'spieltag' ? 'Spieltag' : t === 'quoten' ? 'Quoten' : t === 'erklaerung' ? 'Erklärung' : 'Verwaltung'}
+              {t === 'verwaltung' && newUserCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center">
+                  {newUserCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -711,6 +741,9 @@ export default function AdminPage() {
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold text-gray-900 flex items-center gap-1 flex-wrap">
                         {u.display_name || u.username}
+                        {!u.is_admin && (!newUsersSeenAt || u.created_at > newUsersSeenAt) && (
+                          <span className="text-[10px] text-white font-bold bg-green-500 px-1 rounded">NEU</span>
+                        )}
                         {u.deleted_at && <span className="text-[10px] text-red-600 font-bold bg-red-100 px-1 rounded">GELÖSCHT</span>}
                         {u.is_admin && <span className="text-[10px] text-red-600 font-bold">ADMIN</span>}
                         {u.is_wildenroth && u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ Beide</span>}
