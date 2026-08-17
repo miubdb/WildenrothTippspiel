@@ -29,7 +29,7 @@ export const AWARD_META: Record<AwardType, { title: string; icon: string; descri
   eier_aus_stahl:  { icon: '🥚', title: 'Eier aus Stahl',    description: 'Höchste gewonnene Quote' },
   unlucky_bastard: { icon: '😭', title: 'Unlucky Bastard',   description: 'Nur ein Tipp von einem großen Gewinn entfernt' },
   ergebnis_orakel: { icon: '🔮', title: 'Ergebnis-Orakel',   description: 'Exaktes Ergebnis richtig getippt' },
-  griff_ins_klo:   { icon: '🚽', title: 'Griff ins Klo',     description: 'Höchster verlorener Einsatz' },
+  griff_ins_klo:   { icon: '🚽', title: 'Griff ins Klo',     description: 'Höchster Gesamtverlust am Spieltag' },
   betonmischer:    { icon: '🧱', title: 'Betonmischer',       description: 'Sicherster gewonnener Tipp' },
   on_fire:         { icon: '🔥', title: 'On Fire',            description: 'Meiste gewonnene Wettscheine' },
 }
@@ -213,13 +213,30 @@ export async function computeAndPersistMatchdayAwards(
     awardInputs.push({ user_id: exactWon[0].user_id, award_type: 'ergebnis_orakel', value: exactWon[0].stake, value_text: exactWon[0].selection })
   }
 
-  // 5. Griff ins Klo — highest lost stake; tiebreak: higher potential payout (stake × odds)
-  const lostAll = [
-    ...lostSingles.map((b: { user_id: string; stake: number; odds_value: number }) => ({ user_id: b.user_id, stake: b.stake, potential: b.stake * b.odds_value })),
-    ...lostCombos.map(c => ({ user_id: c.user_id, stake: c.stake, potential: c.stake * c.total_odds })),
-  ].sort((a, b) => b.stake - a.stake || b.potential - a.potential)
-  if (lostAll[0]) {
-    awardInputs.push({ user_id: lostAll[0].user_id, award_type: 'griff_ins_klo', value: lostAll[0].stake, value_text: `${lostAll[0].stake} ${wildiLabel(lostAll[0].stake)} versenkt` })
+  // 5. Griff ins Klo — highest TOTAL lost stake across the whole Spieltag
+  // (all of a user's lost singles + lost combos summed), not the single
+  // biggest lost bet — the max stake is 250, so a "highest single lost
+  // stake" award trivially converges on "whoever lost a 250er", regardless
+  // of how much else they lost that Spieltag. Tiebreak: higher potential
+  // payout summed the same way (stake × odds per lost slip, totalled).
+  const lostTotalsByUser = new Map<string, { total: number; potential: number }>()
+  for (const b of lostSingles as { user_id: string; stake: number; odds_value: number }[]) {
+    const e = lostTotalsByUser.get(b.user_id) ?? { total: 0, potential: 0 }
+    e.total += b.stake
+    e.potential += b.stake * b.odds_value
+    lostTotalsByUser.set(b.user_id, e)
+  }
+  for (const c of lostCombos) {
+    const e = lostTotalsByUser.get(c.user_id) ?? { total: 0, potential: 0 }
+    e.total += c.stake
+    e.potential += c.stake * c.total_odds
+    lostTotalsByUser.set(c.user_id, e)
+  }
+  const griffWinner = [...lostTotalsByUser.entries()]
+    .map(([user_id, e]) => ({ user_id, ...e }))
+    .sort((a, b) => b.total - a.total || b.potential - a.potential)[0]
+  if (griffWinner) {
+    awardInputs.push({ user_id: griffWinner.user_id, award_type: 'griff_ins_klo', value: griffWinner.total, value_text: `${griffWinner.total} ${wildiLabel(griffWinner.total)} versenkt` })
   }
 
   // 6. Betonmischer — lowest odds among won bets (tiebreak: higher stake)

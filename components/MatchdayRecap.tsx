@@ -20,7 +20,7 @@ export type RecapData = {
     legDetails: RecapLegDetail[]
   } | null
   ergebnisOrakel: { name: string; score: string; stake: number } | null
-  griffInsKlo: { name: string; loss: number; isCombo: boolean } | null
+  griffInsKlo: { name: string; loss: number } | null
   betonmischer: { name: string; odds: number; stake: number; payout: number; isCombo: boolean } | null
   onFire: { name: string; count: number; pnl: number } | null
 }

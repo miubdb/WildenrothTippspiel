@@ -856,18 +856,33 @@ export default async function TippsPage({
         ? { name: pMap[exactWon[0].user_id] ?? 'Unbekannt', score: exactWon[0].selection, stake: exactWon[0].stake }
         : null
 
-      // 5. Griff ins Klo — highest lost stake, tiebreak: higher potential payout
-      // (stake × odds). Merged into one list and sorted exactly like
-      // lib/awards.ts's persisted computation, so a stake tie can't make this
-      // live preview disagree with the eventual persisted award.
+      // 5. Griff ins Klo — highest TOTAL lost stake across the whole Spieltag
+      // (all of a user's lost singles + lost combos summed), not the single
+      // biggest lost bet — the max stake is 250, so "highest single lost
+      // stake" trivially converges on "whoever lost a 250er". Tiebreak:
+      // higher potential payout, summed the same way. Kept in exact sync
+      // with lib/awards.ts's persisted computation so this live preview can
+      // never disagree with the eventual persisted award.
       const lostSingles = singleBets.filter(b => b.status === 'lost')
       const lostCombos = recapCombos.filter(c => c.status === 'lost')
-      const lostAll = [
-        ...lostSingles.map(b => ({ user_id: b.user_id, stake: b.stake, potential: b.stake * b.odds_value, isCombo: false })),
-        ...lostCombos.map(c => ({ user_id: c.user_id, stake: c.stake, potential: c.stake * c.total_odds, isCombo: true })),
-      ].sort((a, b) => b.stake - a.stake || b.potential - a.potential)
-      const griffInsKlo: RecapData['griffInsKlo'] = lostAll[0]
-        ? { name: pMap[lostAll[0].user_id] ?? 'Unbekannt', loss: lostAll[0].stake, isCombo: lostAll[0].isCombo }
+      const lostTotalsByUser = new Map<string, { total: number; potential: number }>()
+      for (const b of lostSingles) {
+        const e = lostTotalsByUser.get(b.user_id) ?? { total: 0, potential: 0 }
+        e.total += b.stake
+        e.potential += b.stake * b.odds_value
+        lostTotalsByUser.set(b.user_id, e)
+      }
+      for (const c of lostCombos) {
+        const e = lostTotalsByUser.get(c.user_id) ?? { total: 0, potential: 0 }
+        e.total += c.stake
+        e.potential += c.stake * c.total_odds
+        lostTotalsByUser.set(c.user_id, e)
+      }
+      const griffWinner = [...lostTotalsByUser.entries()]
+        .map(([user_id, e]) => ({ user_id, ...e }))
+        .sort((a, b) => b.total - a.total || b.potential - a.potential)[0]
+      const griffInsKlo: RecapData['griffInsKlo'] = griffWinner
+        ? { name: pMap[griffWinner.user_id] ?? 'Unbekannt', loss: griffWinner.total }
         : null
 
       // 6. Betonmischer — lowest odds among won bets, tiebreak: higher stake
