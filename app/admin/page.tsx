@@ -2495,7 +2495,10 @@ function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage
     })
     const data = await res.json()
     setFreezing(false)
-    if (res.ok) { onMessage('Torschützen-Quoten berechnet.'); reload() }
+    if (res.ok) {
+      onMessage(data.frozen ? 'Torschützen-Quoten berechnet und eingefroren.' : 'Torschützen-Quoten-Vorschau berechnet (noch nicht eingefroren — Wettfenster ist noch nicht offen).')
+      reload()
+    }
     else onMessage(`Fehler: ${data.error}`)
   }
 

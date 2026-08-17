@@ -71,25 +71,26 @@ export async function POST(request: NextRequest) {
     .single()
   if (!match) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 404 })
 
-  // Freezing (setting frozen_at) must happen no earlier than the standard 1X2
-  // market for the same Spieltag — this endpoint has no automatic time gate of
-  // its own (unlike the tipps/page.tsx pipeline, which only freezes once
-  // isBettingOpen), so a manual admin recompute here could otherwise leak
-  // Torschützen odds hours before betting actually opens. `betting_open_md_<N>`
-  // (keyed by the raw `matchday`, same as every other real Spieltag override)
-  // is the authoritative source; bettingOpenTime()'s Monday-noon formula is
-  // only a fallback for Spieltage without one (e.g. the test matchday).
+  // Freezing (setting frozen_at, i.e. making these odds count for real bets)
+  // must happen no earlier than the standard 1X2 market for the same Spieltag
+  // — mirrors the tipps/page.tsx pipeline, which only freezes once
+  // isBettingOpen. Before that instant this endpoint still computes and
+  // upserts the offers (so an admin can preview/adjust them, exactly like the
+  // 1X2 "Quoten neu berechnen" admin route always could), it just leaves
+  // frozen_at unset — those draft rows are never read by any member-facing
+  // page or bet-placement check, both of which only look at frozen odds.
+  // `betting_open_md_<N>` (keyed by the raw `matchday`, same as every other
+  // real Spieltag override) is the authoritative source; bettingOpenTime()'s
+  // Monday-noon formula is only a fallback for Spieltage without one (e.g.
+  // the test matchday).
+  let allowFreeze = true
   if (match.status === 'scheduled') {
     const { data: settingsRows } = await supabase.from('app_settings').select('key, value')
     const appSettings = new Map((settingsRows ?? []).map(r => [r.key, r.value] as const))
     const earlyBettingOpen = appSettings.get('early_betting_open') === 'true'
     const overrides = parseBettingOpenOverrides(appSettings)
     const openTime = overrides.get(match.matchday) ?? bettingOpenTime(new Date(match.match_date))
-    if (!earlyBettingOpen && new Date() < openTime) {
-      return NextResponse.json({
-        error: `Wetten für diesen Spieltag öffnen erst am ${openTime.toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })}. Torschützen-Quoten dürfen nicht früher eingefroren werden als die normalen Quoten.`,
-      }, { status: 400 })
-    }
+    allowFreeze = earlyBettingOpen || new Date() >= openTime
   }
 
   // Resolve which Wildenroth side (if either) is playing, by exact name — an
@@ -192,10 +193,10 @@ export async function POST(request: NextRequest) {
       prob_score_2plus: o.prob_score_2plus,
       odds_score: o.odds_score,
       odds_score_2plus: o.odds_score_2plus,
-      frozen_at: now,
+      frozen_at: allowFreeze ? now : null,
       updated_at: now,
     }, { onConflict: 'match_id,player_id' })
   }
 
-  return NextResponse.json({ success: true, offers: offers.length })
+  return NextResponse.json({ success: true, offers: offers.length, frozen: allowFreeze })
 }

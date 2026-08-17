@@ -214,11 +214,17 @@ export async function POST(request: NextRequest) {
     if (matchPlayerKeys.some(k => !Number.isFinite(k.player_id))) {
       return NextResponse.json({ error: 'Ungültiger Torschützen-Tipp.' }, { status: 400 })
     }
+    // frozen_at must be set — the admin recompute endpoint can now write a
+    // draft preview (frozen_at null) before a Spieltag's betting window opens
+    // so admins can check/adjust Torschützen odds early, and that draft must
+    // never be bettable (same "not open yet" guarantee as the 1X2 markets,
+    // which have no `odds` row at all until frozen).
     const { data: gsOddsRows } = await supabase
       .from('match_goalscorer_odds')
       .select('match_id, player_id, is_offered, is_offered_2plus, odds_score, odds_score_2plus, status')
       .in('match_id', matchPlayerKeys.map(k => k.match_id))
       .in('player_id', matchPlayerKeys.map(k => k.player_id))
+      .not('frozen_at', 'is', null)
 
     const gsMap = new Map(
       (gsOddsRows ?? []).map(r => [`${r.match_id}-${r.player_id}`, r])
