@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer } from '@/lib/goalscorer'
 import { buildPriorContext } from '@/lib/odds'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
+import { bettingOpenTime, parseBettingOpenOverrides } from '@/lib/season'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 
 const SEASON_START = '2026-08-01'
@@ -69,6 +70,27 @@ export async function POST(request: NextRequest) {
     .eq('id', matchId)
     .single()
   if (!match) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 404 })
+
+  // Freezing (setting frozen_at) must happen no earlier than the standard 1X2
+  // market for the same Spieltag — this endpoint has no automatic time gate of
+  // its own (unlike the tipps/page.tsx pipeline, which only freezes once
+  // isBettingOpen), so a manual admin recompute here could otherwise leak
+  // Torschützen odds hours before betting actually opens. `betting_open_md_<N>`
+  // (keyed by the raw `matchday`, same as every other real Spieltag override)
+  // is the authoritative source; bettingOpenTime()'s Monday-noon formula is
+  // only a fallback for Spieltage without one (e.g. the test matchday).
+  if (match.status === 'scheduled') {
+    const { data: settingsRows } = await supabase.from('app_settings').select('key, value')
+    const appSettings = new Map((settingsRows ?? []).map(r => [r.key, r.value] as const))
+    const earlyBettingOpen = appSettings.get('early_betting_open') === 'true'
+    const overrides = parseBettingOpenOverrides(appSettings)
+    const openTime = overrides.get(match.matchday) ?? bettingOpenTime(new Date(match.match_date))
+    if (!earlyBettingOpen && new Date() < openTime) {
+      return NextResponse.json({
+        error: `Wetten für diesen Spieltag öffnen erst am ${openTime.toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })}. Torschützen-Quoten dürfen nicht früher eingefroren werden als die normalen Quoten.`,
+      }, { status: 400 })
+    }
+  }
 
   // Resolve which Wildenroth side (if either) is playing, by exact name — an
   // `ilike('%Wildenroth%')` match with no ORDER BY always resolved to
