@@ -12,6 +12,16 @@ export type RecapLegDetail = {
   status: 'won' | 'lost' | 'pending'
 }
 
+export type RecapStats = {
+  singleCount: number
+  comboCount: number
+  totalStaked: number
+  totalLost: number
+  totalWon: number
+  activeBettors: number
+  avgWonOdds: number | null
+}
+
 export type RecapData = {
   spieltagskoenig: { name: string; profit: number } | null
   eierAusStahl: { name: string; odds: number; stake: number; payout: number; isCombo: boolean; legs?: number } | null
@@ -23,6 +33,7 @@ export type RecapData = {
   griffInsKlo: { name: string; loss: number } | null
   betonmischer: { name: string; odds: number; stake: number; payout: number; isCombo: boolean } | null
   onFire: { name: string; count: number; pnl: number } | null
+  stats: RecapStats | null
 }
 
 function fmtAmt(n: number) { return fmtWildi(n) }
@@ -162,7 +173,7 @@ function ShareModal({ share, onClose }: { share: NonNullable<ShareState>; onClos
 
 export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: number }) {
   const [share, setShare] = useState<ShareState>(null)
-  const { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire } = data
+  const { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, stats } = data
 
   const hasAny = spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire
   if (!hasAny) return null
@@ -269,6 +280,24 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               accentText="text-stone-600"
             />
           )}
+        </div>
+      )}
+
+      {/* Spieltags-Statistik — Zahlen zum Abschreiben für den WhatsApp-Recap */}
+      {stats && (
+        <div className="rounded-2xl border border-gray-200 bg-white dark:bg-gray-800 dark:border-gray-700 px-4 py-3">
+          <div className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wide mb-2">Spieltags-Statistik</div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Wettscheine</span><span className="font-bold text-gray-900 dark:text-gray-100">{stats.singleCount + stats.comboCount}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">davon Kombis</span><span className="font-bold text-gray-900 dark:text-gray-100">{stats.comboCount} / {stats.singleCount} Einzel</span></div>
+            <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Mitspieler aktiv</span><span className="font-bold text-gray-900 dark:text-gray-100">{stats.activeBettors}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Gesamteinsatz</span><span className="font-bold text-gray-900 dark:text-gray-100 flex items-center gap-1">{fmtAmt(stats.totalStaked)} <WildiIcon size={14} /></span></div>
+            <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Wildis verspielt</span><span className="font-bold text-red-600 flex items-center gap-1">-{fmtAmt(stats.totalLost)} <WildiIcon size={14} /></span></div>
+            <div className="flex justify-between"><span className="text-gray-500 dark:text-gray-400">Wildis gewonnen</span><span className="font-bold text-green-600 flex items-center gap-1">+{fmtAmt(stats.totalWon)} <WildiIcon size={14} /></span></div>
+            {stats.avgWonOdds != null && (
+              <div className="flex justify-between col-span-2"><span className="text-gray-500 dark:text-gray-400">Ø Quote gewonnener Tipps</span><span className="font-bold text-gray-900 dark:text-gray-100">@{fmtOdds(stats.avgWonOdds)}</span></div>
+            )}
+          </div>
         </div>
       )}
 
