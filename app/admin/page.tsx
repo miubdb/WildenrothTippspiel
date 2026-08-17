@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { mergeExactScoreOffers } from '@/lib/odds'
+import { homeHandicapFavored } from '@/lib/oddsMarkets'
 
 // Matchday numbers repeat across seasons — without this filter the admin
 // match list (and everything fed by it: "Abgerechnete Spiele", the Spieltag
@@ -1003,6 +1004,8 @@ interface OddsValues {
   btts_yes: number; btts_no: number
   hdp_home_minus_1_5: number; hdp_away_plus_1_5: number
   hdp_home_minus_2_5: number; hdp_away_plus_2_5: number
+  hdp_away_minus_1_5: number; hdp_home_plus_1_5: number
+  hdp_away_minus_2_5: number; hdp_home_plus_2_5: number
 }
 
 interface OddsPreviewMatch {
@@ -1217,6 +1220,13 @@ const OVERRIDE_FIELDS: { col: string; label: string }[][] = [
   [
     { col: 'hdp_home_minus_1_5', label: 'H-1,5' }, { col: 'hdp_away_plus_1_5', label: 'G+1,5' },
     { col: 'hdp_home_minus_2_5', label: 'H-2,5' }, { col: 'hdp_away_plus_2_5', label: 'G+2,5' },
+  ],
+  [
+    // Mirrored (away-favoured) direction — only ONE direction is actually
+    // offered per match (see lib/oddsMarkets.ts#homeHandicapFavored), but
+    // both are always computed/storable so the admin can override either.
+    { col: 'hdp_away_minus_1_5', label: 'G-1,5' }, { col: 'hdp_home_plus_1_5', label: 'H+1,5' },
+    { col: 'hdp_away_minus_2_5', label: 'G-2,5' }, { col: 'hdp_home_plus_2_5', label: 'H+2,5' },
   ],
 ]
 
@@ -1444,11 +1454,17 @@ function OddsPreviewMatchCard({
           ['Ja', displayOdds('btts_yes', o.btts_yes), isOverridden('btts_yes')],
           ['Nein', displayOdds('btts_no', o.btts_no), isOverridden('btts_no')],
         ]} />
-        <OddsRow label="Handicap" cells={[
+        <OddsRow label={`Handicap (Heim favorisiert${homeHandicapFavored(o) ? ' – angeboten' : ''})`} cells={[
           ['H -1,5', displayOdds('hdp_home_minus_1_5', o.hdp_home_minus_1_5), isOverridden('hdp_home_minus_1_5')],
           ['G +1,5', displayOdds('hdp_away_plus_1_5', o.hdp_away_plus_1_5), isOverridden('hdp_away_plus_1_5')],
           ['H -2,5', displayOdds('hdp_home_minus_2_5', o.hdp_home_minus_2_5), isOverridden('hdp_home_minus_2_5')],
           ['G +2,5', displayOdds('hdp_away_plus_2_5', o.hdp_away_plus_2_5), isOverridden('hdp_away_plus_2_5')],
+        ]} />
+        <OddsRow label={`Handicap (Gast favorisiert${!homeHandicapFavored(o) ? ' – angeboten' : ''})`} cells={[
+          ['G -1,5', displayOdds('hdp_away_minus_1_5', o.hdp_away_minus_1_5), isOverridden('hdp_away_minus_1_5')],
+          ['H +1,5', displayOdds('hdp_home_plus_1_5', o.hdp_home_plus_1_5), isOverridden('hdp_home_plus_1_5')],
+          ['G -2,5', displayOdds('hdp_away_minus_2_5', o.hdp_away_minus_2_5), isOverridden('hdp_away_minus_2_5')],
+          ['H +2,5', displayOdds('hdp_home_plus_2_5', o.hdp_home_plus_2_5), isOverridden('hdp_home_plus_2_5')],
         ]} />
         {offeredScores.length > 0 && (
           <div className="pt-1">
@@ -1714,6 +1730,8 @@ const SELECTION_LABELS: Record<string, string> = {
   yes: 'Beide treffen', no: 'Nicht beide',
   home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5',
   home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
+  away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5',
+  away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
 }
 
 function selLabel(marketType: string, selection: string, players?: Record<number, string>): string {

@@ -60,6 +60,11 @@ function settleBet(
       if (selection === 'away_plus_1_5')  return diff <= 1 ? 'won' : 'lost'
       if (selection === 'home_minus_2_5') return diff >= 3 ? 'won' : 'lost'
       if (selection === 'away_plus_2_5')  return diff <= 2 ? 'won' : 'lost'
+      // Mirrored (away-favoured) direction.
+      if (selection === 'away_minus_1_5') return diff <= -2 ? 'won' : 'lost'
+      if (selection === 'home_plus_1_5')  return diff >= -1 ? 'won' : 'lost'
+      if (selection === 'away_minus_2_5') return diff <= -3 ? 'won' : 'lost'
+      if (selection === 'home_plus_2_5')  return diff >= -2 ? 'won' : 'lost'
       return 'lost'
     }
     case 'exact_score': {

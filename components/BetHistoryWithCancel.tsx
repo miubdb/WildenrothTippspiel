@@ -59,6 +59,10 @@ const SELECTION_LABELS: Record<string, string> = {
   away_plus_1_5: 'Gast +1,5',
   home_minus_2_5: 'Heim –2,5',
   away_plus_2_5: 'Gast +2,5',
+  away_minus_1_5: 'Gast –1,5',
+  home_plus_1_5: 'Heim +1,5',
+  away_minus_2_5: 'Gast –2,5',
+  home_plus_2_5: 'Heim +2,5',
 }
 
 function selLabel(marketType: string, sel: string, players?: Record<number, string>): string {

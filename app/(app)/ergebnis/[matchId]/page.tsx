@@ -17,7 +17,10 @@ const SEL_LABEL: Record<string, Record<string, string>> = {
   over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
   over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
   btts: { yes: 'Beide treffen', no: 'Nicht beide' },
-  handicap: { home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5' },
+  handicap: {
+    home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
+    away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5', away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
+  },
 }
 const MKT_LABEL: Record<string, string> = {
   '1x2': '1X2', double_chance: 'Doppelte Chance',

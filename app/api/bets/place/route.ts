@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isAgainstWildenroth } from '@/lib/wildenroth'
 import { isSeasonStarted, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
-import { ODDS_COLUMN } from '@/lib/oddsMarkets'
+import { ODDS_COLUMN, offeredHandicapSelections } from '@/lib/oddsMarkets'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { RISKY_ODDS_THRESHOLD, evaluateSlips, recomputeRiskyForUserMatchday, type RiskySlip } from '@/lib/risky'
 import type { Match } from '@/types'
@@ -170,11 +170,20 @@ export async function POST(request: NextRequest) {
           if (has('handicap', 'away_plus_1_5') && diff >= 2) bad = true
           if (has('handicap', 'home_minus_2_5') && diff < 3) bad = true
           if (has('handicap', 'away_plus_2_5') && diff >= 3) bad = true
+          // Mirrored (away-favoured) direction.
+          if (has('handicap', 'away_minus_1_5') && diff > -2) bad = true
+          if (has('handicap', 'home_plus_1_5') && diff < -1) bad = true
+          if (has('handicap', 'away_minus_2_5') && diff > -3) bad = true
+          if (has('handicap', 'home_plus_2_5') && diff < -2) bad = true
         }
         if (has('handicap', 'home_minus_1_5') && has('1x2', 'draw')) bad = true
         if (has('handicap', 'home_minus_1_5') && has('1x2', 'away')) bad = true
         if (has('handicap', 'home_minus_2_5') && has('1x2', 'draw')) bad = true
         if (has('handicap', 'home_minus_2_5') && has('1x2', 'away')) bad = true
+        if (has('handicap', 'away_minus_1_5') && has('1x2', 'draw')) bad = true
+        if (has('handicap', 'away_minus_1_5') && has('1x2', 'home')) bad = true
+        if (has('handicap', 'away_minus_2_5') && has('1x2', 'draw')) bad = true
+        if (has('handicap', 'away_minus_2_5') && has('1x2', 'home')) bad = true
         if (bad) return NextResponse.json(
           { error: 'Ungültige Kombiwette – widersprüchliche Wetten für dasselbe Spiel.' },
           { status: 400 }
@@ -286,6 +295,14 @@ export async function POST(request: NextRequest) {
       const col = ODDS_COLUMN[s.marketType][s.selection]
       if (!row || !col || row[col] == null) {
         return NextResponse.json({ error: 'Quote nicht verfügbar. Bitte Seite neu laden.' }, { status: 400 })
+      }
+      // Handicap only ever offers ONE direction per match (whichever team is
+      // actually favoured, see lib/oddsMarkets.ts) — both directions' odds
+      // are always computed/stored (an admin can override either), but the
+      // non-offered direction is never a real bettable market and must be
+      // rejected here even though its price validates fine.
+      if (s.marketType === 'handicap' && !offeredHandicapSelections(row as { home_win: number; away_win: number }).includes(s.selection)) {
+        return NextResponse.json({ error: 'Handicap-Richtung nicht verfügbar. Bitte Seite neu laden.' }, { status: 400 })
       }
       if (Math.abs(Number(row[col]) - s.oddsValue) > 0.02) {
         return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })

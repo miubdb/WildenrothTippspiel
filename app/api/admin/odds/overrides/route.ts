@@ -13,6 +13,7 @@ const MARKET_COLS = [
   'over_5_5', 'under_5_5',
   'btts_yes', 'btts_no',
   'hdp_home_minus_1_5', 'hdp_away_plus_1_5', 'hdp_home_minus_2_5', 'hdp_away_plus_2_5',
+  'hdp_away_minus_1_5', 'hdp_home_plus_1_5', 'hdp_away_minus_2_5', 'hdp_home_plus_2_5',
 ] as const
 
 const SCORE_KEY_RE = /^\d{1,2}:\d{1,2}$/

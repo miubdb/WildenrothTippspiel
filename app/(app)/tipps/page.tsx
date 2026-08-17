@@ -26,7 +26,10 @@ const SELECTION_DISPLAY: Record<string, Record<string, string>> = {
   over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
   over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
   btts: { yes: 'Beide treffen', no: 'Nicht beide' },
-  handicap: { home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5' },
+  handicap: {
+    home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
+    away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5', away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
+  },
 }
 
 function socialSelLabel(marketType: string, selection: string, players?: Record<number, string>) {
@@ -355,6 +358,10 @@ export default async function TippsPage({
         hdp_away_plus_1_5:  Number(row.hdp_away_plus_1_5),
         hdp_home_minus_2_5: Number(row.hdp_home_minus_2_5),
         hdp_away_plus_2_5:  Number(row.hdp_away_plus_2_5),
+        hdp_away_minus_1_5: Number(row.hdp_away_minus_1_5),
+        hdp_home_plus_1_5:  Number(row.hdp_home_plus_1_5),
+        hdp_away_minus_2_5: Number(row.hdp_away_minus_2_5),
+        hdp_home_plus_2_5:  Number(row.hdp_home_plus_2_5),
       }
       if (row.exact_score_odds) {
         exactScoreAutoMap[row.match_id] = row.exact_score_odds as Record<string, number>
@@ -370,6 +377,30 @@ export default async function TippsPage({
           const grid = Object.fromEntries(getFullExactScoreMatrix(homeXG, awayXG).map(r => [r.score, r.odds]))
           exactScoreAutoMap[row.match_id] = grid
           await adminSupaOdds.from('odds').update({ exact_score_odds: grid, updated_at: new Date().toISOString() }).eq('match_id', row.match_id)
+        }
+      }
+      if (row.hdp_away_minus_1_5 == null) {
+        // Already frozen (standard markets correct and must stay untouched),
+        // but predates the mirrored away-favoured handicap columns (added
+        // alongside the dynamic-direction Handicap market) — backfill ONLY
+        // those 4 new columns from today's model, exactly once, same pattern
+        // as the exact_score_odds backfill above. Never rewrites any of the
+        // standard-market columns already frozen.
+        const m = matchdayMatches.find(x => x.id === row.match_id)
+        if (m) {
+          const { homeXG, awayXG } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+          const mirrored = oddsFromXG(homeXG, awayXG)
+          oddsMap[row.match_id].hdp_away_minus_1_5 = mirrored.hdp_away_minus_1_5
+          oddsMap[row.match_id].hdp_home_plus_1_5 = mirrored.hdp_home_plus_1_5
+          oddsMap[row.match_id].hdp_away_minus_2_5 = mirrored.hdp_away_minus_2_5
+          oddsMap[row.match_id].hdp_home_plus_2_5 = mirrored.hdp_home_plus_2_5
+          await adminSupaOdds.from('odds').update({
+            hdp_away_minus_1_5: mirrored.hdp_away_minus_1_5,
+            hdp_home_plus_1_5: mirrored.hdp_home_plus_1_5,
+            hdp_away_minus_2_5: mirrored.hdp_away_minus_2_5,
+            hdp_home_plus_2_5: mirrored.hdp_home_plus_2_5,
+            updated_at: new Date().toISOString(),
+          }).eq('match_id', row.match_id)
         }
       }
     }
@@ -416,6 +447,10 @@ export default async function TippsPage({
           hdp_away_plus_1_5:  odds.hdp_away_plus_1_5,
           hdp_home_minus_2_5: odds.hdp_home_minus_2_5,
           hdp_away_plus_2_5:  odds.hdp_away_plus_2_5,
+          hdp_away_minus_1_5: odds.hdp_away_minus_1_5,
+          hdp_home_plus_1_5:  odds.hdp_home_plus_1_5,
+          hdp_away_minus_2_5: odds.hdp_away_minus_2_5,
+          hdp_home_plus_2_5:  odds.hdp_home_plus_2_5,
           exact_score_odds: exactGrid,
         }, { onConflict: 'match_id' })
         await persistOddsDiagnostics(adminSupaOdds, m.id, 'freeze', diagnostics)
@@ -567,6 +602,10 @@ export default async function TippsPage({
         if (ov.hdp_away_plus_1_5 != null) merged.hdp_away_plus_1_5 = Number(ov.hdp_away_plus_1_5)
         if (ov.hdp_home_minus_2_5 != null) merged.hdp_home_minus_2_5 = Number(ov.hdp_home_minus_2_5)
         if (ov.hdp_away_plus_2_5 != null) merged.hdp_away_plus_2_5 = Number(ov.hdp_away_plus_2_5)
+        if (ov.hdp_away_minus_1_5 != null) merged.hdp_away_minus_1_5 = Number(ov.hdp_away_minus_1_5)
+        if (ov.hdp_home_plus_1_5 != null) merged.hdp_home_plus_1_5 = Number(ov.hdp_home_plus_1_5)
+        if (ov.hdp_away_minus_2_5 != null) merged.hdp_away_minus_2_5 = Number(ov.hdp_away_minus_2_5)
+        if (ov.hdp_home_plus_2_5 != null) merged.hdp_home_plus_2_5 = Number(ov.hdp_home_plus_2_5)
         oddsMap[ov.match_id] = merged
       }
     }
@@ -837,7 +876,10 @@ export default async function TippsPage({
         over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
         over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
         btts: { yes: 'Beide treffen', no: 'Nicht beide' },
-        handicap: { home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5' },
+        handicap: {
+          home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
+          away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5', away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
+        },
       }
       let unluckyLegDetails: import('@/components/MatchdayRecap').RecapLegDetail[] = []
       if (unlucky) {

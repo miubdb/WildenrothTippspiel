@@ -18,5 +18,31 @@ export const ODDS_COLUMN: Record<string, Record<string, string>> = {
     away_plus_1_5: 'hdp_away_plus_1_5',
     home_minus_2_5: 'hdp_home_minus_2_5',
     away_plus_2_5: 'hdp_away_plus_2_5',
+    away_minus_1_5: 'hdp_away_minus_1_5',
+    home_plus_1_5: 'hdp_home_plus_1_5',
+    away_minus_2_5: 'hdp_away_minus_2_5',
+    home_plus_2_5: 'hdp_home_plus_2_5',
   },
+}
+
+/**
+ * Both handicap directions (home-favoured and away-favoured) are always
+ * computed and stored, but only one direction per match is actually offered
+ * to bettors — the other one is either a near-certainty or a near-
+ * impossibility, not a meaningful bet. Single source of truth for "which
+ * direction", derived from the match's own 1X2 odds (lower decimal odds =
+ * more likely = favoured) so it can never disagree with the 1X2 market shown
+ * on the same card. Used by both the UI (BettingMatchCard) and bet placement
+ * validation (app/api/bets/place) — must be called with the exact same odds
+ * row in both places.
+ */
+export function homeHandicapFavored(odds: { home_win: number; away_win: number }): boolean {
+  return odds.home_win <= odds.away_win
+}
+
+/** The 4 handicap selection keys actually offered for a match (2 lines × 2 sides). */
+export function offeredHandicapSelections(odds: { home_win: number; away_win: number }): string[] {
+  return homeHandicapFavored(odds)
+    ? ['home_minus_1_5', 'away_plus_1_5', 'home_minus_2_5', 'away_plus_2_5']
+    : ['away_minus_1_5', 'home_plus_1_5', 'away_minus_2_5', 'home_plus_2_5']
 }

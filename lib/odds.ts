@@ -803,6 +803,7 @@ export function oddsFromXG(homeXG: number, awayXG: number): OddsData {
   let pOver25 = 0, pOver35 = 0, pOver55 = 0, pOver75 = 0
   let pBtts = 0
   let pHomeMinus15 = 0, pHomeMinus25 = 0
+  let pAwayMinus15 = 0, pAwayMinus25 = 0
 
   for (let h = 0; h <= SCORE_MATRIX_MAX_GOALS; h++) {
     for (let a = 0; a <= SCORE_MATRIX_MAX_GOALS; a++) {
@@ -817,6 +818,8 @@ export function oddsFromXG(homeXG: number, awayXG: number): OddsData {
       if (h > 0 && a > 0) pBtts += p
       if (h - a >= 2) pHomeMinus15 += p
       if (h - a >= 3) pHomeMinus25 += p
+      if (a - h >= 2) pAwayMinus15 += p
+      if (a - h >= 3) pAwayMinus25 += p
     }
   }
 
@@ -847,6 +850,16 @@ export function oddsFromXG(homeXG: number, awayXG: number): OddsData {
     hdp_away_plus_1_5:  toOdds(1 - pHomeMinus15),
     hdp_home_minus_2_5: toOdds(pHomeMinus25),
     hdp_away_plus_2_5:  toOdds(1 - pHomeMinus25),
+    // Mirrored direction (away favoured to win by 2+/3+) — always computed
+    // alongside the home direction so the DB/admin always has both, but only
+    // ONE direction per line is actually offered to bettors (see
+    // lib/oddsMarkets.ts#homeHandicapFavored) — the unfavoured direction's
+    // odds would otherwise be either a near-certainty or a near-impossibility,
+    // not a meaningful bet.
+    hdp_away_minus_1_5: toOdds(pAwayMinus15),
+    hdp_home_plus_1_5:  toOdds(1 - pAwayMinus15),
+    hdp_away_minus_2_5: toOdds(pAwayMinus25),
+    hdp_home_plus_2_5:  toOdds(1 - pAwayMinus25),
   }
 }
 

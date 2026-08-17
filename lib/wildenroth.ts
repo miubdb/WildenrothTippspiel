@@ -39,17 +39,24 @@ export function isAgainstWildenroth(
   if (marketType === 'handicap') {
     // home_minus_* pays out ONLY when home wins by N+ goals — i.e. it strictly
     // requires a win, so it's blocked exactly when Wildenroth is NOT the home
-    // team (home winning big then means Wildenroth losing big).
+    // team (home winning big then means Wildenroth losing big). away_minus_*
+    // mirrors this for the away side.
     //
-    // away_plus_* pays out when away does NOT lose by N+ goals — that includes
-    // a draw and a narrow loss, not just a win. It never strictly requires a
-    // Wildenroth win, so it's blocked unconditionally whenever the match
-    // involves Wildenroth, regardless of which side Wildenroth is on.
+    // away_plus_*/home_plus_* pay out whenever that side does NOT lose by N+
+    // goals — that includes a draw and a narrow loss, not just a win. Neither
+    // ever strictly requires a Wildenroth win, so both are blocked
+    // unconditionally whenever the match involves Wildenroth, regardless of
+    // which side Wildenroth is on.
     const isHomeMinus = selection.startsWith('home_minus')
+    const isAwayMinus = selection.startsWith('away_minus')
     const isAwayPlus = selection.startsWith('away_plus')
-    if (!isHomeMinus && !isAwayPlus) return false
-    if (isAwayPlus) return true
-    return !ctx.wildenrothIsHome
+    const isHomePlus = selection.startsWith('home_plus')
+    if (!isHomeMinus && !isAwayMinus && !isAwayPlus && !isHomePlus) return false
+    if (isAwayPlus || isHomePlus) return true
+    if (isHomeMinus) return !ctx.wildenrothIsHome
+    // isAwayMinus: strictly requires the away team to win big, so it's
+    // blocked exactly when Wildenroth IS the home team.
+    return ctx.wildenrothIsHome
   }
 
   return false

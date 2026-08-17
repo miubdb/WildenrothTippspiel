@@ -6,6 +6,7 @@ import type { OddsData } from '@/types'
 import { useBetSlip, bsKey } from '@/context/BetSlipContext'
 import { getForm, getTeamRecord } from '@/lib/odds'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
+import { homeHandicapFavored } from '@/lib/oddsMarkets'
 import { TeamLogo } from '@/components/TeamLogo'
 
 function isBKlasseTopspiel(match: Match): boolean {
@@ -513,53 +514,71 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
               </div>
             )}
 
-            {/* Handicap */}
-            {activeTab === 'handicap' && (
-              <div className="space-y-2">
-                <div className="text-[11px] text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-2.5 py-2 leading-snug">
-                  <strong className="text-gray-700 dark:text-gray-300">{homeName} –1,5:</strong> gewinnt nur bei Sieg mit mind. 2 Toren Unterschied.{' '}
-                  <strong className="text-gray-700 dark:text-gray-300">{awayName} +1,5:</strong> gewinnt auch bei Unentschieden oder Niederlage mit 1 Tor. Keine Rückerstattung (kein Unentschieden im Handicap-Markt möglich).
-                </div>
-                <div>
-                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Handicap –1,5 / +1,5</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <OddsButton
-                      label="Heim –1,5"
-                      sublabel="Sieg mit 2+ Toren"
-                      odds={odds.hdp_home_minus_1_5}
-                      selected={isSelected('handicap', 'home_minus_1_5')}
-                      onClick={() => add('handicap', 'Handicap', 'home_minus_1_5', `${homeName} –1,5`, odds.hdp_home_minus_1_5)}
-                    />
-                    <OddsButton
-                      label="Gast +1,5"
-                      sublabel="Verliert nicht mit 2+"
-                      odds={odds.hdp_away_plus_1_5}
-                      selected={isSelected('handicap', 'away_plus_1_5')}
-                      onClick={() => add('handicap', 'Handicap', 'away_plus_1_5', `${awayName} +1,5`, odds.hdp_away_plus_1_5)}
-                    />
+            {/* Handicap — only ONE direction is offered per match (whichever
+                team the model actually favours), never a fixed "home gives
+                the handicap" assumption. Both directions' odds are always
+                computed/frozen (lib/odds.ts), homeHandicapFavored just picks
+                which one is meaningful to show — same decision the server
+                enforces in app/api/bets/place. */}
+            {activeTab === 'handicap' && (() => {
+              const homeFavored = homeHandicapFavored(odds)
+              const minusName = homeFavored ? homeName : awayName
+              const plusName = homeFavored ? awayName : homeName
+              const minusSel15 = homeFavored ? 'home_minus_1_5' : 'away_minus_1_5'
+              const plusSel15 = homeFavored ? 'away_plus_1_5' : 'home_plus_1_5'
+              const minusSel25 = homeFavored ? 'home_minus_2_5' : 'away_minus_2_5'
+              const plusSel25 = homeFavored ? 'away_plus_2_5' : 'home_plus_2_5'
+              const minusOdds15 = homeFavored ? odds.hdp_home_minus_1_5 : odds.hdp_away_minus_1_5
+              const plusOdds15 = homeFavored ? odds.hdp_away_plus_1_5 : odds.hdp_home_plus_1_5
+              const minusOdds25 = homeFavored ? odds.hdp_home_minus_2_5 : odds.hdp_away_minus_2_5
+              const plusOdds25 = homeFavored ? odds.hdp_away_plus_2_5 : odds.hdp_home_plus_2_5
+              return (
+                <div className="space-y-2">
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-2.5 py-2 leading-snug">
+                    <strong className="text-gray-700 dark:text-gray-300">{minusName} –1,5:</strong> gewinnt nur bei Sieg mit mind. 2 Toren Unterschied.{' '}
+                    <strong className="text-gray-700 dark:text-gray-300">{plusName} +1,5:</strong> gewinnt auch bei Unentschieden oder Niederlage mit 1 Tor. Keine Rückerstattung (kein Unentschieden im Handicap-Markt möglich).
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Handicap –1,5 / +1,5</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <OddsButton
+                        label={`${minusName} –1,5`}
+                        sublabel="Sieg mit 2+ Toren"
+                        odds={minusOdds15}
+                        selected={isSelected('handicap', minusSel15)}
+                        onClick={() => add('handicap', 'Handicap', minusSel15, `${minusName} –1,5`, minusOdds15)}
+                      />
+                      <OddsButton
+                        label={`${plusName} +1,5`}
+                        sublabel="Verliert nicht mit 2+"
+                        odds={plusOdds15}
+                        selected={isSelected('handicap', plusSel15)}
+                        onClick={() => add('handicap', 'Handicap', plusSel15, `${plusName} +1,5`, plusOdds15)}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Handicap –2,5 / +2,5</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <OddsButton
+                        label={`${minusName} –2,5`}
+                        sublabel="Sieg mit 3+ Toren"
+                        odds={minusOdds25}
+                        selected={isSelected('handicap', minusSel25)}
+                        onClick={() => add('handicap', 'Handicap', minusSel25, `${minusName} –2,5`, minusOdds25)}
+                      />
+                      <OddsButton
+                        label={`${plusName} +2,5`}
+                        sublabel="Verliert nicht mit 3+"
+                        odds={plusOdds25}
+                        selected={isSelected('handicap', plusSel25)}
+                        onClick={() => add('handicap', 'Handicap', plusSel25, `${plusName} +2,5`, plusOdds25)}
+                      />
+                    </div>
                   </div>
                 </div>
-                <div>
-                  <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Handicap –2,5 / +2,5</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <OddsButton
-                      label="Heim –2,5"
-                      sublabel="Sieg mit 3+ Toren"
-                      odds={odds.hdp_home_minus_2_5}
-                      selected={isSelected('handicap', 'home_minus_2_5')}
-                      onClick={() => add('handicap', 'Handicap', 'home_minus_2_5', `${homeName} –2,5`, odds.hdp_home_minus_2_5)}
-                    />
-                    <OddsButton
-                      label="Gast +2,5"
-                      sublabel="Verliert nicht mit 3+"
-                      odds={odds.hdp_away_plus_2_5}
-                      selected={isSelected('handicap', 'away_plus_2_5')}
-                      onClick={() => add('handicap', 'Handicap', 'away_plus_2_5', `${awayName} +2,5`, odds.hdp_away_plus_2_5)}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
+              )
+            })()}
 
             {/* Goalscorer (Wildenroth only) */}
             {activeTab === 'goalscorer' && goalscorers && (

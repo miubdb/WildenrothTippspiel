@@ -136,6 +136,10 @@ export async function POST() {
           hdp_away_plus_1_5: oddsData.hdp_away_plus_1_5,
           hdp_home_minus_2_5: oddsData.hdp_home_minus_2_5,
           hdp_away_plus_2_5: oddsData.hdp_away_plus_2_5,
+          hdp_away_minus_1_5: oddsData.hdp_away_minus_1_5,
+          hdp_home_plus_1_5: oddsData.hdp_home_plus_1_5,
+          hdp_away_minus_2_5: oddsData.hdp_away_minus_2_5,
+          hdp_home_plus_2_5: oddsData.hdp_home_plus_2_5,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'match_id' }

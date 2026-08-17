@@ -136,4 +136,8 @@ export interface OddsData {
   hdp_away_plus_1_5: number
   hdp_home_minus_2_5: number
   hdp_away_plus_2_5: number
+  hdp_away_minus_1_5: number
+  hdp_home_plus_1_5: number
+  hdp_away_minus_2_5: number
+  hdp_home_plus_2_5: number
 }
