@@ -49,12 +49,20 @@ export async function POST(request: NextRequest) {
     updates[col] = v
   }
 
-  const { error } = await supabase
+  // .select() + row-count check so a target row that doesn't exist (e.g. odds
+  // were never computed for this match/player, or got deleted/reset in
+  // between) surfaces as an error instead of a silent no-op "success" — an
+  // admin editing odds has no other way to notice their change didn't apply.
+  const { data, error } = await supabase
     .from('match_goalscorer_odds')
     .update(updates)
     .eq('match_id', matchId)
     .eq('player_id', playerId)
+    .select('player_id')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: 'Zeile nicht gefunden — wurden die Quoten für dieses Spiel schon berechnet?' }, { status: 404 })
+  }
   return NextResponse.json({ success: true })
 }

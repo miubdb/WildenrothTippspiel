@@ -4,7 +4,7 @@ import { LeaderboardClient } from './LeaderboardClient'
 import type { BetRow, ComboMeta, MatchdayStats } from './LeaderboardClient'
 import type { CommentData } from '@/components/CommentSection'
 import type { RecapData } from '@/components/MatchdayRecap'
-import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, recapMatchdayOf as recapMatchdayOfShared } from '@/lib/season'
+import { bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, recapMatchdayOf as recapMatchdayOfShared } from '@/lib/season'
 import type { Match } from '@/types'
 
 export const revalidate = 60
@@ -25,13 +25,25 @@ export default async function LeaderboardPage({
     { data: allMatchesRaw },
     { data: allBetsRaw },
     { data: allCombosRaw },
+    { data: appSettingsRaw },
   ] = await Promise.all([
     supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url').or('eligible_for_current_season.eq.true,is_admin.eq.true').is('deleted_at', null).order('balance', { ascending: false }),
     supabase.auth.getUser(),
     supabase.from('matches').select('id, match_number, matchday, home_team_id, away_team_id, match_date, status, match_category, is_topspiel, tippspiel_matchday').order('match_date', { ascending: true }),
     supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season'),
     supabase.from('combo_bets').select('id, user_id, stake, total_odds, status, payout, season'),
+    supabase.from('app_settings').select('key, value'),
   ])
+
+  // Explicit, hand-fixed betting-open time per Tippspiel-Spieltag — same
+  // authoritative source tipps/page.tsx resolves the "has this Spieltag opened
+  // yet" question through (app_settings key betting_open_md_<N>). Must be used
+  // here too, or this page's default-Spieltag switch can silently disagree
+  // with tipps/page.tsx's whenever an admin hand-sets an opening time that
+  // differs from the generic Monday-noon formula (e.g. a rescheduled Spieltag).
+  const explicitBettingOpens = parseBettingOpenOverrides(
+    (appSettingsRaw ?? []).map((s) => [s.key, s.value] as const)
+  )
 
   // Current user profile (for name + admin flag)
   const currentProfile = user ? (profiles ?? []).find(p => p.id === user.id) : null
@@ -92,9 +104,14 @@ export default async function LeaderboardPage({
   const firstScheduledMd = [...new Set(kreisligaMatches.filter(m => m.status === 'scheduled').map(m => m.matchday))]
     .sort(byKickoff)[0]
 
-  // Before Monday 12:00 Berlin → show last completed matchday; after → show upcoming matchday
-  const thisWeekMondayNoon = bettingOpenTime(new Date())
-  const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
+  // Before the next Spieltag's betting window opens → show last completed
+  // matchday; after it opens → show the upcoming matchday. Resolves through
+  // explicitBettingOpens first (see comment above) — falls back to the
+  // generic Monday-noon formula only for a Spieltag with no explicit entry.
+  const nextMatchdayOpensAt = firstScheduledMd != null
+    ? (explicitBettingOpens.get(firstScheduledMd) ?? bettingOpenTime(new Date(matchdayMinDate.get(firstScheduledMd) ?? Date.now())))
+    : null
+  const isBeforeMondayNoon = nextMatchdayOpensAt ? new Date() < nextMatchdayOpensAt : true
   const completedMatchdays = allMatchdays.filter((md) => {
     // Effective grouping — same reasoning as tipps/page.tsx: a Spieltag is done
     // when the matches actually shown under it are done, not when an outlier

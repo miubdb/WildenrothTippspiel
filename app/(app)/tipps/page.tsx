@@ -174,10 +174,19 @@ export default async function TippsPage({
   const firstScheduled = [...new Set(kreisligaMatches.filter((m) => m.status === 'scheduled').map((m) => m.matchday))]
     .sort((a, b) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0))[0]
 
-  // Before Monday 12:00 Berlin → default to last completed matchday (Sunday games just ended)
-  // After Monday 12:00 Berlin → default to next upcoming matchday
-  const thisWeekMondayNoon = bettingOpenTime(new Date())
-  const isBeforeMondayNoon = new Date() < thisWeekMondayNoon
+  // Before the next Spieltag's betting window opens → default to last completed
+  // matchday (Sunday games just ended). After it opens → default to the next
+  // upcoming matchday. Must resolve through the same explicitBettingOpens
+  // override used everywhere else on this page (see the comment above it) —
+  // using the generic Monday-noon formula here instead would silently disagree
+  // with the real opening instant whenever an admin hand-sets a Spieltag's
+  // betting_open_md_<N> to something other than the natural Monday noon (e.g.
+  // a rescheduled Spieltag), leaving the app parked on the old Spieltag (or
+  // jumping early) even though betting has actually opened (or hasn't yet).
+  const nextMatchdayOpensAt = firstScheduled != null
+    ? (explicitBettingOpens.get(firstScheduled) ?? bettingOpenTime(new Date(matchdayMinDate.get(firstScheduled) ?? Date.now())))
+    : null
+  const isBeforeMondayNoon = nextMatchdayOpensAt ? new Date() < nextMatchdayOpensAt : true
   const completedMatchdays = allMatchdays.filter((md) => {
     // Group by the EFFECTIVE Spieltag, i.e. the matches actually shown under
     // this tab. Grouping by the raw `matchday` column would keep a Spieltag
