@@ -22,54 +22,6 @@ interface Standing {
   form: ('W' | 'D' | 'L')[]
 }
 
-// Implements BFV Spielordnung §23 "Sondertabelle bei drei oder mehr
-// punktgleichen Mannschaften" exactly, in the documented order:
-//   1. Sondertabelle (mini-table from only the matches among the tied teams)
-//      — Punkte, 2. Tordifferenz, 3. erzielte Tore.
-//   Falls that doesn't separate them, fall back to the Gesamttabelle:
-//      Tordifferenz, dann erzielte Tore, dann Anzahl Siege.
-// (Fairness-Tabelle and Losentscheid are the final two official criteria but
-// aren't reproducible here — no disciplinary data, and a draw can't be
-// deterministic — so ties that reach that point just keep their existing
-// relative order.) Previously used "auswärts erzielte Tore" as the 3rd
-// Sondertabelle criterion and never fell back to Siege — that doesn't match
-// §23 and could rank a team with a far better overall record below a team
-// whose only edge is a single early head-to-head result.
-function sortByBFV(group: Standing[], matches: Match[]): Standing[] {
-  const groupIds = new Set(group.map((s) => s.teamId))
-  const h2hMatches = matches.filter(
-    (m) =>
-      m.status === 'finished' &&
-      groupIds.has(m.home_team_id) &&
-      groupIds.has(m.away_team_id)
-  )
-  type H2H = { pts: number; gf: number; ga: number }
-  const h2h = new Map<number, H2H>()
-  for (const s of group) h2h.set(s.teamId, { pts: 0, gf: 0, ga: 0 })
-
-  for (const m of h2hMatches) {
-    const hs = m.home_score ?? 0; const as_ = m.away_score ?? 0
-    const home = h2h.get(m.home_team_id)!
-    const away = h2h.get(m.away_team_id)!
-    home.gf += hs; home.ga += as_
-    away.gf += as_; away.ga += hs
-    if (hs > as_) home.pts += 3
-    else if (hs === as_) { home.pts++; away.pts++ }
-    else away.pts += 3
-  }
-
-  return [...group].sort((a, b) => {
-    const ah = h2h.get(a.teamId)!; const bh = h2h.get(b.teamId)!
-    if (bh.pts !== ah.pts) return bh.pts - ah.pts
-    const agd = ah.gf - ah.ga; const bgd = bh.gf - bh.ga
-    if (bgd !== agd) return bgd - agd
-    if (bh.gf !== ah.gf) return bh.gf - ah.gf
-    if (b.gd !== a.gd) return b.gd - a.gd
-    if (b.gf !== a.gf) return b.gf - a.gf
-    return b.w - a.w
-  })
-}
-
 function computeStandings(matches: Match[]): Standing[] {
   const teamMap = new Map<number, { name: string }>()
   for (const m of matches) {
@@ -108,17 +60,15 @@ function computeStandings(matches: Match[]): Standing[] {
     return rows.sort((a, b) => a.teamName.localeCompare(b.teamName, 'de'))
   }
 
-  rows.sort((a, b) => b.pts - a.pts)
-  const result: Standing[] = []
-  let i = 0
-  while (i < rows.length) {
-    let j = i + 1
-    while (j < rows.length && rows[j].pts === rows[i].pts) j++
-    const group = rows.slice(i, j)
-    result.push(...(group.length > 1 ? sortByBFV(group, matches) : group))
-    i = j
-  }
-  return result
+  // Punkte, dann Gesamt-Tordifferenz, dann erzielte Tore — verifiziert 1:1
+  // gegen die echte BFV/FuPa-Tabelle (Kreisliga Zugspitze), kein Direktvergleich
+  // während der laufenden Saison. Ein früherer Versuch, stattdessen die
+  // Spielordnungs-Sondertabelle (Direktvergleich zuerst) nachzubilden, sah auf
+  // dem Papier korrekt aus, wich aber tatsächlich von der echten, im Kreis
+  // Zugspitze tatsächlich angezeigten Tabelle ab — reine Tordifferenz ist hier
+  // also nachweislich die richtige Regel, nicht nur eine Vereinfachung.
+  rows.sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
+  return rows
 }
 
 interface PriorStanding {
