@@ -200,7 +200,15 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Handle combo bets
+  // Handle combo bets. A combo can span several matches settled on different
+  // days — once it's decided (lost via one bad leg, or won once the last leg
+  // settles), its OTHER legs still get settled individually as their own
+  // matches finish, which re-adds the same comboId to combosToCheck every
+  // time. Track exactly which combos this call itself newly resolved
+  // (pending -> lost/won) so the push-notification summary below counts each
+  // combo's outcome exactly once — otherwise a lost combo re-fires "verloren"
+  // on every subsequent (already-moot) leg's match settlement.
+  const newlyResolvedCombos = new Map<number, { user_id: string; status: 'won' | 'lost' }>()
   for (const comboId of combosToCheck) {
     // Fetch all legs of this combo
     const { data: comboLegs } = await supabase
@@ -223,7 +231,7 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (!comboBet) continue
-    // Skip if already settled to avoid double-processing
+    // Skip if already settled to avoid double-processing (and double-notifying).
     if (comboBet.status !== 'pending') continue
 
     if (anyLost) {
@@ -231,6 +239,7 @@ export async function POST(request: NextRequest) {
         .from('combo_bets')
         .update({ status: 'lost', payout: 0 })
         .eq('id', comboId)
+      newlyResolvedCombos.set(comboId, { user_id: comboBet.user_id, status: 'lost' })
     } else {
       // All legs won
       const payout = Math.round(comboBet.stake * comboBet.total_odds * 100) / 100
@@ -240,6 +249,7 @@ export async function POST(request: NextRequest) {
         .eq('id', comboId)
 
       userBalanceUpdates[comboBet.user_id] = (userBalanceUpdates[comboBet.user_id] ?? 0) + payout
+      newlyResolvedCombos.set(comboId, { user_id: comboBet.user_id, status: 'won' })
     }
   }
 
@@ -252,12 +262,12 @@ export async function POST(request: NextRequest) {
     if (result === 'won') userWonCount[bet.user_id] = (userWonCount[bet.user_id] ?? 0) + 1
     else userLostCount[bet.user_id] = (userLostCount[bet.user_id] ?? 0) + 1
   }
-  // Include settled combos
-  for (const comboId of combosToCheck) {
-    const { data: cb } = await supabase.from('combo_bets').select('user_id, status').eq('id', comboId).single()
-    if (!cb || cb.status === 'pending') continue
-    if (cb.status === 'won') userWonCount[cb.user_id] = (userWonCount[cb.user_id] ?? 0) + 1
-    else userLostCount[cb.user_id] = (userLostCount[cb.user_id] ?? 0) + 1
+  // Include only combos THIS call actually resolved (see newlyResolvedCombos
+  // comment above) — an already-decided combo's other legs settling later
+  // must not re-count/re-notify.
+  for (const { user_id, status } of newlyResolvedCombos.values()) {
+    if (status === 'won') userWonCount[user_id] = (userWonCount[user_id] ?? 0) + 1
+    else userLostCount[user_id] = (userLostCount[user_id] ?? 0) + 1
   }
 
   // Apply balance updates + send one bundled push per user
