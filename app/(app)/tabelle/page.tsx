@@ -22,6 +22,19 @@ interface Standing {
   form: ('W' | 'D' | 'L')[]
 }
 
+// Implements BFV Spielordnung §23 "Sondertabelle bei drei oder mehr
+// punktgleichen Mannschaften" exactly, in the documented order:
+//   1. Sondertabelle (mini-table from only the matches among the tied teams)
+//      — Punkte, 2. Tordifferenz, 3. erzielte Tore.
+//   Falls that doesn't separate them, fall back to the Gesamttabelle:
+//      Tordifferenz, dann erzielte Tore, dann Anzahl Siege.
+// (Fairness-Tabelle and Losentscheid are the final two official criteria but
+// aren't reproducible here — no disciplinary data, and a draw can't be
+// deterministic — so ties that reach that point just keep their existing
+// relative order.) Previously used "auswärts erzielte Tore" as the 3rd
+// Sondertabelle criterion and never fell back to Siege — that doesn't match
+// §23 and could rank a team with a far better overall record below a team
+// whose only edge is a single early head-to-head result.
 function sortByBFV(group: Standing[], matches: Match[]): Standing[] {
   const groupIds = new Set(group.map((s) => s.teamId))
   const h2hMatches = matches.filter(
@@ -30,9 +43,9 @@ function sortByBFV(group: Standing[], matches: Match[]): Standing[] {
       groupIds.has(m.home_team_id) &&
       groupIds.has(m.away_team_id)
   )
-  type H2H = { pts: number; gf: number; ga: number; awayGF: number }
+  type H2H = { pts: number; gf: number; ga: number }
   const h2h = new Map<number, H2H>()
-  for (const s of group) h2h.set(s.teamId, { pts: 0, gf: 0, ga: 0, awayGF: 0 })
+  for (const s of group) h2h.set(s.teamId, { pts: 0, gf: 0, ga: 0 })
 
   for (const m of h2hMatches) {
     const hs = m.home_score ?? 0; const as_ = m.away_score ?? 0
@@ -40,7 +53,6 @@ function sortByBFV(group: Standing[], matches: Match[]): Standing[] {
     const away = h2h.get(m.away_team_id)!
     home.gf += hs; home.ga += as_
     away.gf += as_; away.ga += hs
-    away.awayGF += as_
     if (hs > as_) home.pts += 3
     else if (hs === as_) { home.pts++; away.pts++ }
     else away.pts += 3
@@ -51,9 +63,10 @@ function sortByBFV(group: Standing[], matches: Match[]): Standing[] {
     if (bh.pts !== ah.pts) return bh.pts - ah.pts
     const agd = ah.gf - ah.ga; const bgd = bh.gf - bh.ga
     if (bgd !== agd) return bgd - agd
-    if (bh.awayGF !== ah.awayGF) return bh.awayGF - ah.awayGF
+    if (bh.gf !== ah.gf) return bh.gf - ah.gf
     if (b.gd !== a.gd) return b.gd - a.gd
-    return b.gf - a.gf
+    if (b.gf !== a.gf) return b.gf - a.gf
+    return b.w - a.w
   })
 }
 
