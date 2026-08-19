@@ -674,7 +674,7 @@ function FormBadges({ form }: { form: ('W' | 'D' | 'L')[] }) {
             r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-yellow-400' : 'bg-red-500'
           }`}
         >
-          {r}
+          {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
         </span>
       ))}
     </div>
