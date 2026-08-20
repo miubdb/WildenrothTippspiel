@@ -376,18 +376,14 @@ export function LeaderboardClient({
                     </Link>
                     {/* Name + badges */}
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex items-center gap-1">
+                      <div className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex items-center gap-1.5">
                         <Link href={`/spieler/${profile.id}`} className="hover:underline truncate">
                           {profile.display_name || profile.username}
                         </Link>
                         {isMe && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium flex-shrink-0">Du</span>}
+                        {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1 py-0.5 rounded font-medium flex-shrink-0">📈{streak}</span>}
+                        {wWins >= 1 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1 py-0.5 rounded font-medium flex-shrink-0">🏅{wWins}×</span>}
                       </div>
-                      {(streak >= 2 || wWins >= 1) && (
-                        <div className="flex items-center gap-1 mt-1 flex-wrap">
-                          {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium" title={`Nicht zu verwechseln mit dem "On Fire"-Pokal für die meisten gewonnenen Wettscheine an einem einzelnen Spieltag`}>📈 {streak}x in Folge im Plus</span>}
-                          {wWins >= 1 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-medium" title={`${wWins}× Spieltagsbester`}>🏅 {wWins}× Spieltagsbester</span>}
-                        </div>
-                      )}
                     </div>
                     {/* Balance */}
                     <div className="text-right flex-shrink-0 mr-1">
@@ -406,6 +402,20 @@ export function LeaderboardClient({
 
                   {isOpen && (
                     <div className="px-4 pb-3 border-t border-gray-100 dark:border-gray-700 pt-2">
+                      {(streak >= 2 || wWins >= 1) && (
+                        <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
+                          {streak >= 2 && (
+                            <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-lg font-medium">
+                              📈 {streak}x in Folge im Plus <span className="opacity-60 font-normal">(nicht der On-Fire-Pokal)</span>
+                            </span>
+                          )}
+                          {wWins >= 1 && (
+                            <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-lg font-medium">
+                              🏅 {wWins}× Spieltagsbester
+                            </span>
+                          )}
+                        </div>
+                      )}
                       <UserBets bets={visibleBets} hiddenCount={hiddenBetCount} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
                     </div>
                   )}
