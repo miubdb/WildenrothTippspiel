@@ -377,13 +377,17 @@ export function LeaderboardClient({
                     {/* Name + badges */}
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex items-center gap-1.5">
-                        <Link href={`/spieler/${profile.id}`} className="hover:underline truncate">
+                        <Link href={`/spieler/${profile.id}`} className="hover:underline truncate min-w-0">
                           {profile.display_name || profile.username}
                         </Link>
                         {isMe && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium flex-shrink-0">Du</span>}
-                        {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1 py-0.5 rounded font-medium flex-shrink-0">📈{streak}</span>}
-                        {wWins >= 1 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1 py-0.5 rounded font-medium flex-shrink-0">🏅{wWins}×</span>}
                       </div>
+                      {(streak >= 2 || wWins >= 1) && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1 py-0.5 rounded font-medium flex-shrink-0">📈{streak}</span>}
+                          {wWins >= 1 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1 py-0.5 rounded font-medium flex-shrink-0">🏅{wWins}×</span>}
+                        </div>
+                      )}
                     </div>
                     {/* Balance */}
                     <div className="text-right flex-shrink-0 mr-1">
@@ -406,7 +410,7 @@ export function LeaderboardClient({
                         <div className="flex items-center gap-1.5 flex-wrap mb-2.5">
                           {streak >= 2 && (
                             <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-lg font-medium">
-                              📈 {streak}x in Folge im Plus <span className="opacity-60 font-normal">(nicht der On-Fire-Pokal)</span>
+                              📈 {streak}x in Folge im Plus
                             </span>
                           )}
                           {wWins >= 1 && (
