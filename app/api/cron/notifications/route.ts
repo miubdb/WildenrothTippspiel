@@ -77,6 +77,20 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // ALL matches per effective Spieltag, regardless of status — needed below to
+    // count a user's already-placed bets for the whole Spieltag. `allMatches`
+    // above is scheduled-only (correct for "is betting still open"), but a
+    // Spieltag reminder must also see matches that already finished earlier in
+    // the same Spieltag, or bets tied to them get missed entirely.
+    const allMatchIdsByMatchday = new Map<number, number[]>()
+    for (const m of seasonMatches) {
+      const matchday = effectiveMatchdayOf(m, mdIndex)
+      if (matchday == null) continue
+      const arr = allMatchIdsByMatchday.get(matchday) ?? []
+      arr.push(m.id)
+      allMatchIdsByMatchday.set(matchday, arr)
+    }
+
     for (const [matchday, { firstDate, allDates }] of matchdayMap.entries()) {
       // Skip test matchday (999) — no real-user pushes during test runs
       if (matchday >= 900) continue
@@ -114,8 +128,7 @@ export async function GET(request: NextRequest) {
 
       // Send "bets remaining" reminder 2.5h before first match (window: 135–165 min)
       if (minutesTillDeadline >= 135 && minutesTillDeadline < 165) {
-        const matchdayMatches = allMatches.filter(m => effectiveMatchdayOf(m, mdIndex) === matchday)
-        const matchdayMatchIds = matchdayMatches.map(m => m.id)
+        const matchdayMatchIds = allMatchIdsByMatchday.get(matchday) ?? []
 
         // Get all eligible users
         const { data: eligibleUsers } = await admin
@@ -131,14 +144,17 @@ export async function GET(request: NextRequest) {
         // recomputeRiskyForUserMatchday() after each placement/cancellation
         // (see lib/risky.ts), so counting "normal slips < 2" / "risky slips
         // < 1" from it is equivalent to evaluating the dynamic Risky rule
-        // fresh. status='pending' also means a cancelled bet (row deleted
-        // outright) never occupies a slot here.
+        // fresh. No status filter — a cancelled bet's row is deleted outright,
+        // so every remaining row (pending, won, or lost) still occupies a slot
+        // for that matchday, exactly like the limit check in bets/place/route.ts.
+        // Filtering to status='pending' here undercounts once early matches in
+        // the Spieltag finish and settle, wrongly telling a user with all 3
+        // slots used that one is still free.
         const { data: betLegs } = await admin
           .from('bets')
           .select('user_id, combo_id, is_risky')
           .in('match_id', matchdayMatchIds)
           .eq('season', '26/27')
-          .eq('status', 'pending')
 
         // Track normal singles/combos (max 2 slots) and risky singles/combos (max 1 slot)
         const userNormalSingles = new Map<string, number>()
