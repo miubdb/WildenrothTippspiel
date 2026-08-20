@@ -1239,11 +1239,11 @@ export default async function TippsPage({
                 return (
                   <div key={match.id} className="px-4 py-3 space-y-2">
                     {/* Match header */}
-                    <div className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-gray-100">
+                    <div className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-gray-100 flex-wrap">
                       <TeamLogo name={match.home_team?.name ?? '?'} size="sm" />
-                      <span className="truncate min-w-0">{match.home_team?.short_name ?? match.home_team?.name ?? '?'}</span>
+                      <span>{match.home_team?.name ?? '?'}</span>
                       <span className="text-gray-400 dark:text-gray-500 text-xs flex-shrink-0">vs</span>
-                      <span className="truncate min-w-0">{match.away_team?.short_name ?? match.away_team?.name ?? '?'}</span>
+                      <span>{match.away_team?.name ?? '?'}</span>
                       <TeamLogo name={match.away_team?.name ?? '?'} size="sm" />
                       {match.status === 'finished' && match.home_score != null && (
                         <span className="ml-auto text-xs font-black text-red-700 dark:text-red-400">{match.home_score}:{match.away_score}</span>
