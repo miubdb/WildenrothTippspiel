@@ -244,7 +244,7 @@ export default async function SpielerPage({
                     <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight">{a.title}</div>
                     <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{a.description}</div>
                     <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
-                      ST {a.latestMatchday} · {a.latestSeason}
+                      Spieltag {a.latestMatchday} · {a.latestSeason}
                       {a.latestValueText && <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">{a.latestValueText}</span>}
                     </div>
                   </div>
