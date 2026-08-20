@@ -518,32 +518,13 @@ export default async function LeaderboardPage({
         stake: orakelBet.stake ?? 0,
       } : null
 
-      // 🚽 Griff ins Klo: highest TOTAL lost stake across the whole Spieltag
-      // (all of a user's lost singles + lost combos summed), not the single
-      // biggest lost bet — kept in sync with lib/awards.ts's persisted
-      // computation (see the comment there for why: max stake is 250, so
-      // "highest single lost stake" trivially converges on "whoever lost a
-      // 250er" regardless of what else they lost that Spieltag).
-      const lostSingles = recapSingles.filter(b => b.status === 'lost')
-      const lostCombos = recapCombos.filter(c => c.status === 'lost')
-      const lostTotalsByUser = new Map<string, { total: number; potential: number }>()
-      for (const b of lostSingles) {
-        const e = lostTotalsByUser.get(b.user_id) ?? { total: 0, potential: 0 }
-        e.total += b.stake ?? 0
-        e.potential += (b.stake ?? 0) * (b.odds_value ?? 0)
-        lostTotalsByUser.set(b.user_id, e)
-      }
-      for (const c of lostCombos) {
-        const e = lostTotalsByUser.get(c.user_id) ?? { total: 0, potential: 0 }
-        e.total += c.stake
-        e.potential += c.stake * c.total_odds
-        lostTotalsByUser.set(c.user_id, e)
-      }
-      const griffWinner = [...lostTotalsByUser.entries()]
-        .map(([user_id, e]) => ({ user_id, ...e }))
-        .sort((a, b) => b.total - a.total || b.potential - a.potential)[0]
-      const griffInsKlo: RecapData['griffInsKlo'] = griffWinner
-        ? { name: pMap[griffWinner.user_id] ?? 'Unbekannt', loss: griffWinner.total }
+      // 🚽 Griff ins Klo: worst NET Spieltag saldo — the mirror image of
+      // Spieltagskönig above, reusing netGain so the two numbers can never
+      // contradict each other (previously this summed only lost stakes,
+      // ignoring any bets the same user won that Spieltag).
+      const griffEntry = Object.entries(netGain).filter(([, g]) => g < 0).sort((a, b) => a[1] - b[1])[0]
+      const griffInsKlo: RecapData['griffInsKlo'] = griffEntry
+        ? { name: pMap[griffEntry[0]] ?? 'Unbekannt', loss: Math.abs(griffEntry[1]) }
         : null
 
       // 🧱 Betonmischer: lowest won odds, tiebreak higher stake

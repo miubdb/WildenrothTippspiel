@@ -922,33 +922,15 @@ export default async function TippsPage({
         ? { name: pMap[exactWon[0].user_id] ?? 'Unbekannt', score: exactWon[0].selection, stake: exactWon[0].stake }
         : null
 
-      // 5. Griff ins Klo — highest TOTAL lost stake across the whole Spieltag
-      // (all of a user's lost singles + lost combos summed), not the single
-      // biggest lost bet — the max stake is 250, so "highest single lost
-      // stake" trivially converges on "whoever lost a 250er". Tiebreak:
-      // higher potential payout, summed the same way. Kept in exact sync
-      // with lib/awards.ts's persisted computation so this live preview can
-      // never disagree with the eventual persisted award.
-      const lostSingles = singleBets.filter(b => b.status === 'lost')
-      const lostCombos = recapCombos.filter(c => c.status === 'lost')
-      const lostTotalsByUser = new Map<string, { total: number; potential: number }>()
-      for (const b of lostSingles) {
-        const e = lostTotalsByUser.get(b.user_id) ?? { total: 0, potential: 0 }
-        e.total += b.stake
-        e.potential += b.stake * b.odds_value
-        lostTotalsByUser.set(b.user_id, e)
-      }
-      for (const c of lostCombos) {
-        const e = lostTotalsByUser.get(c.user_id) ?? { total: 0, potential: 0 }
-        e.total += c.stake
-        e.potential += c.stake * c.total_odds
-        lostTotalsByUser.set(c.user_id, e)
-      }
-      const griffWinner = [...lostTotalsByUser.entries()]
-        .map(([user_id, e]) => ({ user_id, ...e }))
-        .sort((a, b) => b.total - a.total || b.potential - a.potential)[0]
-      const griffInsKlo: RecapData['griffInsKlo'] = griffWinner
-        ? { name: pMap[griffWinner.user_id] ?? 'Unbekannt', loss: griffWinner.total }
+      // 5. Griff ins Klo — worst NET Spieltag saldo — the mirror image of
+      // Spieltagskönig above, reusing netGain so the two numbers can never
+      // contradict each other (previously this summed only lost stakes,
+      // ignoring any bets the same user won that Spieltag). Kept in exact
+      // sync with lib/awards.ts's persisted computation so this live preview
+      // can never disagree with the eventual persisted award.
+      const griffEntry = Object.entries(netGain).filter(([, g]) => g < 0).sort((a, b) => a[1] - b[1])[0]
+      const griffInsKlo: RecapData['griffInsKlo'] = griffEntry
+        ? { name: pMap[griffEntry[0]] ?? 'Unbekannt', loss: Math.abs(griffEntry[1]) }
         : null
 
       // 6. Betonmischer — lowest odds among won bets, tiebreak: higher stake
