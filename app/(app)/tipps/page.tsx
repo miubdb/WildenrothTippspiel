@@ -1269,7 +1269,7 @@ export default async function TippsPage({
                             <div className="text-right text-xs flex-shrink-0">
                               <div className="font-bold text-red-700 dark:text-red-400">@{bet.odds_value.toFixed(2).replace('.', ',')}</div>
                               {stake > 0 && bet.status === 'pending' && <div className="text-gray-400 dark:text-gray-500">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></div>}
-                              {bet.status === 'won' && <div className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</div>}
+                              {stake > 0 && bet.status === 'won' && <div className="text-gray-400 dark:text-gray-500">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></div>}
                               {bet.status === 'lost' && stake > 0 && <div className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</div>}
                             </div>
                           </div>
@@ -1325,7 +1325,7 @@ export default async function TippsPage({
                             <span className="text-gray-500 dark:text-gray-400">{legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
                             <div className="ml-auto text-right flex-shrink-0">
                               {stake > 0 && comboStatus === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
-                              {comboStatus === 'won' && cb?.payout != null && <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span>}
+                              {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
                               {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
                             </div>
                           </div>
