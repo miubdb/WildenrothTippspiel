@@ -391,9 +391,9 @@ export function LeaderboardClient({
                     </div>
                     {/* Balance */}
                     <div className="text-right flex-shrink-0 mr-1">
-                      <div className="font-black text-gray-900 dark:text-gray-100 text-base tabular-nums flex items-center gap-1 justify-end">{fmtAmt(displayBalance)} <WildiIcon size={16} /></div>
-                      <div className={`text-xs font-bold tabular-nums flex items-center gap-1 justify-end ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                        {profit >= 0 ? '+' : ''}{fmtAmt(profit)} <WildiIcon size={13} />
+                      <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums flex items-center gap-1 justify-end">{fmtAmt(displayBalance)} <WildiIcon size={14} /></div>
+                      <div className={`text-[11px] font-bold tabular-nums flex items-center gap-1 justify-end ${profit > 0 ? 'text-green-600' : profit < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                        {profit >= 0 ? '+' : ''}{fmtAmt(profit)} <WildiIcon size={12} />
                       </div>
                     </div>
                     {/* Expand chevron */}
