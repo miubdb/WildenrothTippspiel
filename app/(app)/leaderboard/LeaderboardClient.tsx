@@ -376,13 +376,13 @@ export function LeaderboardClient({
                     </Link>
                     {/* Name + badges */}
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-900 dark:text-gray-100 truncate text-sm flex items-center gap-1 flex-wrap">
-                        <Link href={`/spieler/${profile.id}`} className="hover:underline">
+                      <div className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex items-center gap-1 flex-wrap">
+                        <Link href={`/spieler/${profile.id}`} className="hover:underline truncate max-w-[9rem]">
                           {profile.display_name || profile.username}
                         </Link>
-                        {isMe && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Du</span>}
-                        {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium" title={`${streak} Spieltage in Folge im Plus (nicht zu verwechseln mit dem "On Fire"-Pokal für die meisten gewonnenen Wettscheine an einem einzelnen Spieltag)`}>📈 {streak}x in Folge im Plus</span>}
-                        {wWins >= 1 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-medium" title={`${wWins}× Spieltagsbester`}>🏅 {wWins}×</span>}
+                        {isMe && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium flex-shrink-0">Du</span>}
+                        {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium flex-shrink-0" title={`${streak} Spieltage in Folge im Plus (nicht zu verwechseln mit dem "On Fire"-Pokal für die meisten gewonnenen Wettscheine an einem einzelnen Spieltag)`}>📈 {streak}x Plus</span>}
+                        {wWins >= 1 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-medium flex-shrink-0" title={`${wWins}× Spieltagsbester`}>🏅 {wWins}×</span>}
                       </div>
                     </div>
                     {/* Balance */}
