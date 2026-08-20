@@ -381,7 +381,7 @@ export function LeaderboardClient({
                           {profile.display_name || profile.username}
                         </Link>
                         {isMe && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Du</span>}
-                        {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium" title={`Serie: ${streak} Spieltage in Folge im Plus (nicht zu verwechseln mit dem "On Fire"-Pokal für die meisten gewonnenen Wettscheine an einem einzelnen Spieltag)`}>📈 {streak}er-Serie</span>}
+                        {streak >= 2 && <span className="text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-medium" title={`${streak} Spieltage in Folge im Plus (nicht zu verwechseln mit dem "On Fire"-Pokal für die meisten gewonnenen Wettscheine an einem einzelnen Spieltag)`}>📈 {streak}x in Folge im Plus</span>}
                         {wWins >= 1 && <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded font-medium" title={`${wWins}× Spieltagsbester`}>🏅 {wWins}×</span>}
                       </div>
                     </div>
@@ -617,7 +617,7 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
         <div className="font-black text-gray-900 dark:text-gray-100 text-sm tabular-nums leading-tight">{fmtAmt(displayBalance)} Wildis</div>
         <div className={`text-xs font-semibold tabular-nums leading-tight ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{profit >= 0 ? '+' : ''}{fmtWildi(profit)} Wildis</div>
         <div className="flex items-center justify-center gap-1 mt-0.5">
-          {streak >= 2 && <span className="text-xs" title={`Serie: ${streak} Spieltage in Folge im Plus`}>📈{streak}</span>}
+          {streak >= 2 && <span className="text-xs" title={`${streak} Spieltage in Folge im Plus`}>📈{streak}x Plus</span>}
           {weeklyWins >= 1 && <span className="text-xs">🏅{weeklyWins}×</span>}
         </div>
       </div>
