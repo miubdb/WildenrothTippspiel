@@ -267,10 +267,14 @@ export function lastKickoffOfEffectiveMatchday(
  *   - after Spieltag 1's last kickoff:   950
  *   - after Spieltag 2's last kickoff:   900
  *   - after each further Spieltag's last kickoff: -20 more (880, 860, ...)
- * Never goes below 0. Counts every Spieltag whose last kickoff has already
- * passed, not just consecutive ones from the start, so a lone rescheduled
- * Spieltag can't stall the count for everyone registering after it.
+ *   - never below 800 (MIN_STARTING_BALANCE) — a late joiner still gets a
+ *     meaningful stake, this only rewards being early, not blocks being late
+ * Counts every Spieltag whose last kickoff has already passed, not just
+ * consecutive ones from the start, so a lone rescheduled Spieltag can't
+ * stall the count for everyone registering after it.
  */
+const MIN_STARTING_BALANCE = 800
+
 export function startingBalanceForRegistration(
   registeredAt: Date,
   seasonMatches: Match[],
@@ -285,5 +289,5 @@ export function startingBalanceForRegistration(
   if (kickedOffCount === 0) return STARTING_BALANCE
   if (kickedOffCount === 1) return 950
   if (kickedOffCount === 2) return 900
-  return Math.max(0, 900 - (kickedOffCount - 2) * 20)
+  return Math.max(MIN_STARTING_BALANCE, 900 - (kickedOffCount - 2) * 20)
 }
