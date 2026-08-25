@@ -6,6 +6,7 @@ import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { DeleteAccountButton } from '@/components/DeleteAccountButton'
 import { WildiIcon, fmtWildi } from '@/components/WildiIcon'
+import { AvatarLightbox } from '@/components/AvatarLightbox'
 
 export const revalidate = 60
 
@@ -308,20 +309,11 @@ export default async function ProfilPage({
       {/* Profile Header */}
       <div className="bg-gradient-to-br from-red-700 to-red-900 text-white rounded-2xl px-5 py-5 shadow-sm">
         <div className="flex items-center gap-4">
-          {profile.avatar_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={profile.avatar_url}
-              alt="Avatar"
-              className="w-16 h-16 rounded-full object-cover flex-shrink-0 border-2 border-white/40"
-            />
-          ) : (
-            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center flex-shrink-0">
-              <span className="text-red-700 font-black text-2xl">
-                {(profile.display_name || '?')[0].toUpperCase()}
-              </span>
-            </div>
-          )}
+          <AvatarLightbox
+            avatarUrl={profile.avatar_url}
+            initial={(profile.display_name || '?')[0].toUpperCase()}
+            size={64}
+          />
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-black truncate">
               {profile.display_name}
@@ -505,23 +497,25 @@ export default async function ProfilPage({
             ) : (
               <div className="p-3 grid grid-cols-2 gap-2">
                 {grouped.map((a) => (
-                  <details key={a.award_type} className="relative bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2.5 [&_summary::-webkit-details-marker]:hidden">
+                  <div key={a.award_type} className="relative bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2.5">
                     {a.count > 1 && (
                       <span className="absolute top-1.5 right-1.5 bg-red-600 text-white text-[10px] font-bold leading-none rounded-full px-1.5 py-0.5">
                         {a.count}×
                       </span>
                     )}
-                    <summary className="flex items-center gap-2.5 cursor-pointer list-none">
+                    <div className="flex items-center gap-2.5">
                       <span className="text-2xl flex-shrink-0">{a.icon}</span>
                       <div className="flex-1 min-w-0">
                         <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight">{a.title}</div>
                         <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{a.description}</div>
-                        <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
-                          Spieltag {a.latestMatchday} · {a.latestSeason}
-                          {a.latestValueText && <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">{a.latestValueText}</span>}
-                        </div>
+                        {a.count === 1 && (
+                          <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+                            Spieltag {a.latestMatchday} · {a.latestSeason}
+                            {a.latestValueText && <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">{a.latestValueText}</span>}
+                          </div>
+                        )}
                       </div>
-                    </summary>
+                    </div>
                     {a.count > 1 && (
                       <div className="mt-2 pt-2 border-t border-amber-200 dark:border-amber-800/50 space-y-1">
                         {a.instances.map((inst, i) => (
@@ -532,7 +526,7 @@ export default async function ProfilPage({
                         ))}
                       </div>
                     )}
-                  </details>
+                  </div>
                 ))}
               </div>
             )}
