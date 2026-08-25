@@ -485,7 +485,7 @@ export default async function ProfilPage({
               <div>
                 <h2 className="font-bold text-gray-900 dark:text-gray-100">Pokalschrank</h2>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                  {fmtWildi(totalCount)} Auszeichnung{totalCount !== 1 ? 'en' : ''} · {fmtWildi(uniqueTypes)} verschiedene
+                  {fmtWildi(totalCount)} Auszeichnung{totalCount !== 1 ? 'en' : ''} · {fmtWildi(uniqueTypes)} {uniqueTypes !== 1 ? 'Arten' : 'Art'}
                 </p>
               </div>
             </div>
@@ -505,7 +505,7 @@ export default async function ProfilPage({
                     )}
                     <div className="flex items-center gap-2.5">
                       <span className="text-2xl flex-shrink-0">{a.icon}</span>
-                      <div className="flex-1 min-w-0">
+                      <div className={`flex-1 min-w-0 ${a.count > 1 ? 'pr-7' : ''}`}>
                         <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight">{a.title}</div>
                         <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{a.description}</div>
                         {a.count === 1 && (
