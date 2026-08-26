@@ -22,14 +22,25 @@ export default async function AppLayout({
     redirect('/login')
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('display_name, username, balance, is_admin')
     .eq('id', user.id)
     .single()
 
+  if (profileError) {
+    // A logged-in user always has a profiles row (checked at signup) — a
+    // failed fetch here is a transient error (RLS hiccup, timeout), not a
+    // real "no profile" state. Silently falling back to balance=0 would be
+    // actively misleading: the graduated starting balance never goes below
+    // 800, so a displayed 0 always reads as "your Wildis are gone", not as
+    // a loading glitch. Logging it server-side at least leaves a trail if
+    // this turns out to be recurring rather than a one-off blip.
+    console.error('Failed to load profile for header balance:', user.id, profileError)
+  }
+
   const displayName = profile?.display_name || profile?.username || 'Spieler'
-  const balance = profile?.balance ?? 0
+  const balance = profile?.balance
 
   return (
     <BetSlipProvider>
@@ -57,7 +68,7 @@ export default async function AppLayout({
               </div>
             </div>
             <div className="flex items-center gap-1.5 bg-black/15 rounded-full pl-3 pr-1.5 py-1">
-              <span className="font-bold text-sm tabular-nums">{fmtWildi(balance)}</span>
+              <span className="font-bold text-sm tabular-nums">{balance != null ? fmtWildi(balance) : '—'}</span>
               <WildiIcon size={22} />
             </div>
           </div>
