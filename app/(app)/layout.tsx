@@ -31,11 +31,13 @@ export default async function AppLayout({
   if (profileError) {
     // A logged-in user always has a profiles row (checked at signup) — a
     // failed fetch here is a transient error (RLS hiccup, timeout), not a
-    // real "no profile" state. Silently falling back to balance=0 would be
-    // actively misleading: the graduated starting balance never goes below
-    // 800, so a displayed 0 always reads as "your Wildis are gone", not as
-    // a loading glitch. Logging it server-side at least leaves a trail if
-    // this turns out to be recurring rather than a one-off blip.
+    // real "no profile" state. Balance itself CAN legitimately be low or
+    // even 0 through betting losses (only season_start_balance is floored
+    // at 800, not the running balance) — so silently defaulting to 0 on a
+    // fetch error is indistinguishable from a real low balance, which is
+    // exactly the ambiguity that caused a "my Wildis are gone" report.
+    // Showing an explicit placeholder instead of guessing a number avoids
+    // that. Logging it server-side leaves a trail if this recurs.
     console.error('Failed to load profile for header balance:', user.id, profileError)
   }
 
