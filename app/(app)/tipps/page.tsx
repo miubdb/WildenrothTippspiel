@@ -52,7 +52,7 @@ export default async function TippsPage({
 
   // Fetch all independent data in parallel
   const [
-    { data: allMatchesRaw },
+    { data: allMatchesRaw, error: allMatchesError },
     { data: priorMatchesRaw },
     { data: leaguePlayersRaw },
     { data: lineupEntriesRaw },
@@ -91,6 +91,14 @@ export default async function TippsPage({
     supabase.from('app_settings').select('key, value'),
     supabase.auth.getUser(),
   ])
+
+  if (allMatchesError) {
+    // A failed matches fetch silently becomes an empty array below, which is
+    // indistinguishable from a genuinely empty matchday and renders "Keine
+    // Spiele" — exactly the "Spieltag nicht geladen" report. Logging it
+    // server-side leaves a trail if a transient DB/network hiccup recurs.
+    console.error('Failed to load matches for tipps page:', allMatchesError)
+  }
 
   const appSettings = new Map((appSettingsRaw ?? []).map((s) => [s.key, s.value]))
   // Explicit, hand-fixed betting-open time per Tippspiel-Spieltag, set once
