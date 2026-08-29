@@ -1302,27 +1302,19 @@ export default async function TippsPage({
                         : legs.every(l => l.status === 'won') ? 'won'
                         : 'pending'
                       const borderCls = comboStatus === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : comboStatus === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-blue-100 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10'
+                      // Left-edge accent for the compact rows: reflects the COMBO's overall
+                      // current status, not just this one leg — a combo that already lost an
+                      // earlier leg is dead regardless of what this later, not-yet-played leg
+                      // does, and the edge colour needs to say so at a glance.
+                      const edgeCls = comboStatus === 'won' ? 'border-l-green-500' : comboStatus === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
                       const ownLeg = legs.find(l => l.match_id === match.id) ?? legs[0]
                       const otherLegs = legs.filter(l => l.id !== ownLeg.id)
-
-                      // Only the combo's earliest-kickoff match gets the full card (avatar,
-                      // stake/payout, collapsible other legs). Every other match this combo
-                      // touches gets a single compact line instead — repeating the full card
-                      // once per leg got noisy for combos spanning most of a matchday.
-                      if (comboFirstMatchId.get(comboId) !== match.id) {
-                        return (
-                          <div key={comboId} className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-700/40">
-                            <span className="w-4 h-4 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
-                              <span className="text-blue-700 dark:text-blue-400 font-bold text-[9px]">{initialOf(owner)}</span>
-                            </span>
-                            <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(owner)}</span>
-                            <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
-                            <LegResultMark status={ownLeg.status} />
-                            <span className="text-gray-600 dark:text-gray-300 truncate flex-1 min-w-0">{socialSelLabel(ownLeg.market_type, ownLeg.selection, playerNameMap)}</span>
-                            <span className="text-red-600 dark:text-red-400 font-bold flex-shrink-0">@{ownLeg.odds_value.toFixed(2).replace('.', ',')}</span>
-                          </div>
-                        )
-                      }
+                      // This leg hasn't been decided yet, but the combo is already lost via a
+                      // different leg — still interesting to look at, but no longer relevant to
+                      // the outcome. Marked distinctly (dash, dimmed) instead of the normal
+                      // "still open" yellow dot, which would misleadingly suggest it still
+                      // matters.
+                      const ownLegMoot = ownLeg.status === 'pending' && comboStatus === 'lost'
 
                       // A leg can individually be "won" while the combo as a whole is "lost"
                       // (this pick was right, another leg in the same slip wasn't) — the only
@@ -1334,9 +1326,10 @@ export default async function TippsPage({
                       const legWonButComboLost = ownLeg.status === 'won' && comboStatus === 'lost'
                       const renderLeg = (leg: typeof ownLeg) => {
                         const lm = matchMap.get(leg.match_id)
+                        const moot = leg.status === 'pending' && comboStatus === 'lost'
                         return (
-                          <div key={leg.id} className="flex items-start gap-1.5 text-xs py-0.5">
-                            <LegResultMark status={leg.status} />
+                          <div key={leg.id} className={`flex items-start gap-1.5 text-xs py-0.5 ${moot ? 'opacity-50' : ''}`}>
+                            <LegResultMark status={leg.status} moot={moot} />
                             <div className="flex-1 min-w-0">
                               <span className="text-gray-400 dark:text-gray-500 text-[10px] block truncate">{lm?.home_team?.short_name ?? lm?.home_team?.name ?? '?'} – {lm?.away_team?.short_name ?? lm?.away_team?.name ?? '?'}</span>
                               <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
@@ -1345,6 +1338,49 @@ export default async function TippsPage({
                           </div>
                         )
                       }
+
+                      // Only the combo's earliest-kickoff match gets the full card (avatar,
+                      // stake/payout, collapsible other legs). Every other match this combo
+                      // touches gets a compact, but still expandable, single line instead —
+                      // repeating the full card once per leg got noisy for combos spanning
+                      // most of a matchday. Tapping it opens the same "all legs" detail as the
+                      // full card's own toggle. The left edge colour is the combo's overall
+                      // status (see edgeCls) so an already-dead combo reads as dead here too,
+                      // not just on its primary card.
+                      if (comboFirstMatchId.get(comboId) !== match.id) {
+                        return (
+                          <details key={comboId} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
+                            <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
+                              <span className="w-4 h-4 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
+                                <span className="text-blue-700 dark:text-blue-400 font-bold text-[9px]">{initialOf(owner)}</span>
+                              </span>
+                              <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(owner)}</span>
+                              <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
+                              <LegResultMark status={ownLeg.status} moot={ownLegMoot} />
+                              <span className={`truncate flex-1 min-w-0 ${ownLegMoot ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>{socialSelLabel(ownLeg.market_type, ownLeg.selection, playerNameMap)}</span>
+                              <span className="text-red-600 dark:text-red-400 font-bold flex-shrink-0">@{ownLeg.odds_value.toFixed(2).replace('.', ',')}</span>
+                              <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
+                            </summary>
+                            <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 space-y-1.5">
+                              {ownLegMoot && (
+                                <p className="text-[10px] text-gray-400 dark:text-gray-500 italic">
+                                  Dieser Tipp ist noch offen, aber die Kombi ist bereits an anderer Stelle verloren.
+                                </p>
+                              )}
+                              <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400">
+                                <span>{legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                                {stake > 0 && comboStatus === 'pending' && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
+                                {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
+                                {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
+                              </div>
+                              <div className="space-y-1">
+                                {legs.map(renderLeg)}
+                              </div>
+                            </div>
+                          </details>
+                        )
+                      }
+
                       return (
                         <div key={comboId} className={`rounded-xl border overflow-hidden ${borderCls}`}>
                           {/* Name row: avatar/badge/name get the full row width to themselves so
@@ -1446,7 +1482,11 @@ function StatusDot({ status }: { status: string }) {
 // the whole slip's outcome). Two same-shaped dots in different colors read as
 // contradictory when a leg won but the combo still lost; a check/cross reads
 // unambiguously as "this pick" regardless of the combo's own color above it.
-function LegResultMark({ status }: { status: string }) {
+function LegResultMark({ status, moot }: { status: string; moot?: boolean }) {
+  // "moot" = still pending on its own, but the combo it belongs to is already lost via a
+  // different leg — a plain "still open" yellow dot would misleadingly suggest it still
+  // matters, so this gets its own neutral, dimmed mark instead.
+  if (moot) return <span className="text-gray-400 dark:text-gray-500 font-bold text-[11px] leading-4 flex-shrink-0" aria-label="Nicht mehr relevant">–</span>
   if (status === 'won') return <span className="text-green-600 dark:text-green-400 font-bold text-[11px] leading-4 flex-shrink-0" aria-label="Tipp richtig">✓</span>
   if (status === 'lost') return <span className="text-red-500 dark:text-red-400 font-bold text-[11px] leading-4 flex-shrink-0" aria-label="Tipp falsch">✗</span>
   return <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0 mt-1" aria-label="Tipp offen" />
