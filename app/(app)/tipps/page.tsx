@@ -1252,7 +1252,9 @@ export default async function TippsPage({
                 }
 
                 // Match has kicked off — show actual bet details
-                const singles = activeSocial.filter(b => !b.combo_id && b.match_id === match.id)
+                const singles = activeSocial
+                  .filter(b => !b.combo_id && b.match_id === match.id)
+                  .sort((a, b) => b.odds_value - a.odds_value)
                 // Show a combo under EVERY match it has a (started) leg on — not just its
                 // earliest-kickoff match — so a leg on an already-started match is never
                 // hidden just because an earlier leg of the same combo hasn't shown yet.
