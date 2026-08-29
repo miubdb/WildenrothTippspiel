@@ -750,13 +750,15 @@ export default async function TippsPage({
 
   // RLS enforces per-match/per-combo-leg visibility server-side; this is just a cheap
   // pre-check to skip the query entirely before any match in the matchday has kicked off.
+  // Includes the current user's own bets — the "Tipps der anderen" section below shows
+  // them inline (labelled "Du") alongside everyone else's, for a single complete overview
+  // per match, rather than requiring a separate look at "Own placed bets" for that.
   const anyMatchStarted = matchdayMatches.some((m) => new Date(m.match_date) <= new Date())
   if (anyMatchStarted && matchdayMatchIds.length > 0) {
     const { data: rawSocial } = await supabase
       .from('bets')
       .select('id, market_type, selection, odds_value, status, combo_id, user_id, match_id, stake')
       .in('match_id', matchdayMatchIds)
-      .neq('user_id', user?.id ?? '')
 
     if (rawSocial && rawSocial.length > 0) {
       socialBets = rawSocial
@@ -1158,36 +1160,24 @@ export default async function TippsPage({
         </div>
       )}
 
-      {/* Social Bets — grouped by match; per-match visibility after each game's kickoff */}
+      {/* Social Bets — grouped by match; per-match visibility after each game's kickoff.
+          Includes the current user's own bets (labelled "Du") for one complete overview. */}
       {user && Object.values(betCountByMatch).some(c => c > 0) && (() => {
         const now = new Date()
         const activeSocial = socialBets.filter(b => b.status !== 'cancelled')
         const profileMap = new Map(socialProfiles.map(p => [p.id, p]))
         const nameOf = (uid: string) => {
+          if (uid === user.id) return 'Du'
           const p = profileMap.get(uid)
           return p ? (p.display_name || p.username) : 'Unbekannt'
         }
-        const initialOf = (uid: string) => (nameOf(uid)[0] ?? '?').toUpperCase()
+        const initialOf = (uid: string) => (uid === user.id ? 'D' : (nameOf(uid)[0] ?? '?').toUpperCase())
         const totalTippers = new Set(activeSocial.map(b => b.user_id)).size
-
-        // For combo dedup: assign each combo to the match with the earliest kickoff among its legs
-        const comboFirstMatchId = new Map<string, number>()
-        for (const b of activeSocial) {
-          if (!b.combo_id) continue
-          const cid = String(b.combo_id)
-          if (!comboFirstMatchId.has(cid)) {
-            comboFirstMatchId.set(cid, b.match_id)
-          } else {
-            const curMatchDate = new Date(matchMap.get(comboFirstMatchId.get(cid)!)?.match_date ?? '').getTime()
-            const thisMatchDate = new Date(matchMap.get(b.match_id)?.match_date ?? '').getTime()
-            if (thisMatchDate < curMatchDate) comboFirstMatchId.set(cid, b.match_id)
-          }
-        }
 
         return (
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-              <h2 className="font-bold text-gray-900 dark:text-gray-100">Tipps der anderen</h2>
+              <h2 className="font-bold text-gray-900 dark:text-gray-100">Alle Tipps</h2>
               <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
                 {totalTippers > 0 ? `${totalTippers} Spieler haben getippt` : 'Tipps sichtbar ab Anpfiff'}
               </p>
@@ -1218,10 +1208,13 @@ export default async function TippsPage({
 
                 // Match has kicked off — show actual bet details
                 const singles = activeSocial.filter(b => !b.combo_id && b.match_id === match.id)
-                // Only show combos that are "assigned" to this match (first-leg match)
+                // Show a combo under EVERY match it has a (started) leg on — not just its
+                // earliest-kickoff match — so a leg on an already-started match is never
+                // hidden just because an earlier leg of the same combo hasn't shown yet.
+                // Each occurrence expands its own leg for this match and collapses the rest.
                 const comboIdsHere = [...new Set(
                   activeSocial
-                    .filter(b => b.combo_id && comboFirstMatchId.get(String(b.combo_id)) === match.id)
+                    .filter(b => b.combo_id && b.match_id === match.id)
                     .map(b => b.combo_id as string)
                 )]
                 if (singles.length === 0 && comboIdsHere.length === 0) return null
@@ -1272,11 +1265,12 @@ export default async function TippsPage({
                       )
                     })}
 
-                    {/* Combos assigned to this match (shown only once, not under every leg's match).
-                        Only the leg belonging to THIS match is shown inline — with several
-                        multi-leg combos per matchday this section got very long otherwise; the
-                        other legs (on different matches) collapse behind a <details> toggle,
-                        which needs no client-side state since this stays a server component. */}
+                    {/* Combos with a leg on this match — shown once per match they touch (see
+                        comboIdsHere above). Only the leg belonging to THIS match is shown
+                        inline — with several multi-leg combos per matchday this section got
+                        very long otherwise; the other legs (on different matches) collapse
+                        behind a <details> toggle, which needs no client-side state since this
+                        stays a server component. */}
                     {comboIdsHere.map(comboId => {
                       const legs = activeSocial.filter(b => b.combo_id === comboId)
                       if (legs.length === 0) return null
