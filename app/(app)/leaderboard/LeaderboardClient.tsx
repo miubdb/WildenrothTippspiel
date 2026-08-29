@@ -538,20 +538,31 @@ export function LeaderboardClient({
             const pnl = mdStats[profile.id]
             const displayBalancePre = profile.balance + (pendingStakesPerUser[profile.id] ?? 0)
 
-            // Before any visible bets: show count placeholder for other users
+            // Before any visible bets: same card shape as a user with visible bets
+            // (header + one row per bet slip below it), just with each row's content
+            // masked out — so it reads as "N bets are here, just hidden" rather than
+            // a bare count folded into the header line with nothing to anchor it to.
             if (!isMe && visibleBets.length === 0) {
               const count = betCountsPerUser[profile.id] ?? 0
               if (count === 0) return null
               return (
                 <div key={profile.id} className="rounded-xl border bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700 overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-2.5">
+                  <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 dark:border-gray-700">
                     <Avatar profile={profile} size="sm" isMe={false} />
                     <div className="font-semibold text-sm text-gray-900 dark:text-gray-100">
                       {profile.display_name || profile.username}
                     </div>
                     <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
-                      {count} Wettschein{count !== 1 ? 'e' : ''} platziert
+                      {count} Wettschein{count !== 1 ? 'e' : ''}
                     </div>
+                  </div>
+                  <div className="px-4 py-2 space-y-1.5">
+                    {Array.from({ length: count }).map((_, i) => (
+                      <div key={i} className="rounded-lg border-l-4 border-l-gray-200 dark:border-l-gray-600 bg-gray-50 dark:bg-gray-700/40 px-3 py-2 flex items-center gap-2">
+                        <span className="text-gray-300 dark:text-gray-600 font-bold text-xs tracking-widest select-none" aria-hidden="true">▬▬▬▬▬▬▬▬</span>
+                        <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">🔒 verborgen</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )
