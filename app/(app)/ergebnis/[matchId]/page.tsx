@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { fmtWildi, wildiLabel } from '@/components/WildiIcon'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
-import { oddsColorClass } from '@/components/WetteCard'
+import { oddsColorClass } from '@/lib/betDisplay'
 import type { Match } from '@/types'
 
 export const revalidate = 60

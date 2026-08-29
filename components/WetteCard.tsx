@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ReactionBar } from '@/components/ReactionBar'
 import { CommentSection, type CommentData } from '@/components/CommentSection'
 import { wildiLabel } from '@/components/WildiIcon'
+import { oddsColorClass } from '@/lib/betDisplay'
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -64,16 +65,6 @@ export function fmt(n: number) {
 
 export function fmtOdds(n: number) {
   return n.toFixed(2).replace('.', ',')
-}
-
-/** Shared odds-value color convention, used everywhere an odds value is
- *  rendered: dark/neutral while still open, green once won, red once lost.
- *  Odds used to default to red everywhere regardless of outcome, which read
- *  as "already lost" even for a bet that hadn't been decided yet. */
-export function oddsColorClass(status: WetteStatus | string | null | undefined): string {
-  if (status === 'won') return 'text-green-600 dark:text-green-400'
-  if (status === 'lost') return 'text-red-500 dark:text-red-400'
-  return 'text-gray-900 dark:text-gray-100'
 }
 
 function StatusPill({ status }: { status: WetteStatus }) {

@@ -15,7 +15,7 @@ import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type Goalscorer
 import Link from 'next/link'
 import { TeamLogo } from '@/components/TeamLogo'
 import { wildiLabel } from '@/components/WildiIcon'
-import { oddsColorClass } from '@/components/WetteCard'
+import { oddsColorClass } from '@/lib/betDisplay'
 
 export const revalidate = 60
 

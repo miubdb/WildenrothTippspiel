@@ -3,7 +3,7 @@
 import React, { useState } from 'react'
 import { ShareCard, type ShareCardData } from './ShareCard'
 import { WildiIcon, fmtWildi, wildiLabel } from '@/components/WildiIcon'
-import { oddsColorClass } from '@/components/WetteCard'
+import { oddsColorClass } from '@/lib/betDisplay'
 
 export type RecapLegDetail = {
   matchName: string

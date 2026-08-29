@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
-import { oddsColorClass } from '@/components/WetteCard'
+import { oddsColorClass } from '@/lib/betDisplay'
 
 // Matchday numbers repeat across seasons — without this filter the admin
 // match list (and everything fed by it: "Abgerechnete Spiele", the Spieltag
