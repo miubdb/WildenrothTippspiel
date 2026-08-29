@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { fmtWildi, wildiLabel } from '@/components/WildiIcon'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { oddsColorClass } from '@/components/WetteCard'
 import type { Match } from '@/types'
 
 export const revalidate = 60
@@ -223,6 +224,7 @@ export default async function ErgebnisPage({
                 <div key={bet.id} className={`border-l-4 ${accentCls} px-4 py-3`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
+                      <span className="text-[10px] font-bold bg-gray-500 dark:bg-gray-600 text-white rounded px-1.5 py-0.5 mr-1">EINZEL</span>
                       {bet.is_risky && (
                         <span className="text-[10px] font-semibold text-purple-600 dark:text-purple-400 mr-1">🎲 Risky</span>
                       )}
@@ -231,7 +233,7 @@ export default async function ErgebnisPage({
                         {selLabel(bet.market_type, bet.selection, players)}
                       </div>
                       <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        @{bet.odds_value.toFixed(2).replace('.', ',')} · Einsatz: {fmt(bet.stake ?? 0)} {wildiLabel(bet.stake ?? 0)}
+                        <span className={`font-semibold ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span> · Einsatz: {fmt(bet.stake ?? 0)} {wildiLabel(bet.stake ?? 0)}
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">
@@ -272,7 +274,7 @@ export default async function ErgebnisPage({
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] font-bold bg-blue-600 text-white rounded px-1.5 py-0.5">KOMBI</span>
-                  <span className="text-[10px] text-gray-500 dark:text-gray-400">{legs.length} Tipps · @{cb.total_odds.toFixed(2).replace('.', ',')}</span>
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400">{legs.length} Tipps · <span className={`font-semibold ${oddsColorClass(cb.status)}`}>@{cb.total_odds.toFixed(2).replace('.', ',')}</span></span>
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Einsatz: {fmt(cb.stake)} {wildiLabel(cb.stake)}</div>
               </div>
@@ -312,7 +314,7 @@ export default async function ErgebnisPage({
                         {selLabel(leg.market_type, leg.selection, players)}
                       </div>
                     </div>
-                    <span className="text-xs font-bold text-red-600 dark:text-red-400 flex-shrink-0">
+                    <span className={`text-xs font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>
                       @{leg.odds_value.toFixed(2).replace('.', ',')}
                     </span>
                   </div>

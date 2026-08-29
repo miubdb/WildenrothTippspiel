@@ -332,7 +332,7 @@ export function BetSlip() {
                     {mode === 'combo' ? 'Kombiwette' : 'Wettschein'}
                   </h2>
                   {mode === 'combo' && comboOddsLabel && (
-                    <span className="text-red-700 font-black text-lg">{comboOddsLabel}</span>
+                    <span className="text-gray-900 dark:text-gray-100 font-black text-lg">{comboOddsLabel}</span>
                   )}
                 </div>
                 <p className="text-gray-500 text-xs">
@@ -418,7 +418,7 @@ export function BetSlip() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-red-700 font-bold text-sm">
+                      <span className="text-gray-900 dark:text-gray-100 font-bold text-sm">
                         {s.oddsValue.toFixed(2).replace('.', ',')}
                       </span>
                       {/* Small X: removes only this selection */}
@@ -483,7 +483,7 @@ export function BetSlip() {
                 <>
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-sm text-gray-600">Gesamtquote</span>
-                    <span className="font-bold text-red-700 text-lg">
+                    <span className="font-bold text-gray-900 dark:text-gray-100 text-lg">
                       {totalComboOdds.toFixed(2).replace('.', ',')}
                     </span>
                   </div>

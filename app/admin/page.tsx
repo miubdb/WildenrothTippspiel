@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
+import { oddsColorClass } from '@/components/WetteCard'
 
 // Matchday numbers repeat across seasons — without this filter the admin
 // match list (and everything fed by it: "Abgerechnete Spiele", the Spieltag
@@ -1823,7 +1824,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                           {bet.is_risky ? '🎲 RISKY' : '🔗 KOMBI'}
                         </span>
                         <span className="text-xs text-gray-500">
-                          {legs.length} Tipps · @{comboOdds.toFixed(2).replace('.', ',')}
+                          {legs.length} Tipps · <span className={`font-semibold ${oddsColorClass(effectiveComboStatus)}`}>@{comboOdds.toFixed(2).replace('.', ',')}</span>
                           {comboMap[Number(bet.combo_id)]?.stake != null && ` · ${comboMap[Number(bet.combo_id)].stake} ${wl(comboMap[Number(bet.combo_id)].stake)}`}
                         </span>
                         <StatusChip status={effectiveComboStatus} />
@@ -1834,7 +1835,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                           <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
                           <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
                           <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection, playerMap)}</span>
-                          <span className="text-red-600 font-bold ml-auto">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                          <span className={`font-bold ml-auto ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                         </div>
                       ))}
                     </div>
@@ -1846,7 +1847,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                     <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
                     <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
                     {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
-                    <span className="text-red-600 font-bold ml-auto">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+                    <span className={`font-bold ml-auto ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
                     <span className="text-gray-400">{bet.stake != null ? `${bet.stake} ${wl(bet.stake)}` : ''}</span>
                     <StatusChip status={bet.status} />
                   </div>

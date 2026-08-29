@@ -66,6 +66,16 @@ export function fmtOdds(n: number) {
   return n.toFixed(2).replace('.', ',')
 }
 
+/** Shared odds-value color convention, used everywhere an odds value is
+ *  rendered: dark/neutral while still open, green once won, red once lost.
+ *  Odds used to default to red everywhere regardless of outcome, which read
+ *  as "already lost" even for a bet that hadn't been decided yet. */
+export function oddsColorClass(status: WetteStatus | string | null | undefined): string {
+  if (status === 'won') return 'text-green-600 dark:text-green-400'
+  if (status === 'lost') return 'text-red-500 dark:text-red-400'
+  return 'text-gray-900 dark:text-gray-100'
+}
+
 function StatusPill({ status }: { status: WetteStatus }) {
   if (status === 'won')
     return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 whitespace-nowrap">Gewonnen</span>
@@ -128,7 +138,7 @@ export function WetteCard({
               <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{leg0.matchName}</div>
             )}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="text-sm font-black text-red-700">@{fmtOdds(wette.totalOdds)}</span>
+              <span className={`text-sm font-black ${oddsColorClass(wette.status)}`}>@{fmtOdds(wette.totalOdds)}</span>
               <span className="text-[10px] text-gray-500 dark:text-gray-400">{fmt(wette.stake)} {wildiLabel(wette.stake)}</span>
               {wette.status === 'pending' && (
                 <span className="text-[10px] text-gray-500 dark:text-gray-400">
@@ -175,7 +185,7 @@ export function WetteCard({
           <div className="px-3 py-2 space-y-2">
             {wette.legs.map(leg => {
               const dotCls = leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-amber-400'
-              const oddsCls = leg.status === 'won' ? 'text-green-600' : leg.status === 'lost' ? 'text-red-400' : 'text-red-700 dark:text-red-400'
+              const oddsCls = oddsColorClass(leg.status)
               return (
                 <div key={leg.id} className="flex items-start gap-2">
                   <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5 ${dotCls}`} />

@@ -3,6 +3,7 @@
 import React, { useState } from 'react'
 import { ShareCard, type ShareCardData } from './ShareCard'
 import { WildiIcon, fmtWildi, wildiLabel } from '@/components/WildiIcon'
+import { oddsColorClass } from '@/components/WetteCard'
 
 export type RecapLegDetail = {
   matchName: string
@@ -75,7 +76,7 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
           <div>
             <div className="font-bold text-gray-900 dark:text-gray-100">{ub.name}</div>
             <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              {ub.legs}er-Kombi · @{fmtOdds(ub.odds)}
+              {ub.legs}er-Kombi · <span className={`font-semibold ${oddsColorClass('lost')}`}>@{fmtOdds(ub.odds)}</span>
             </div>
           </div>
           <div className="text-right flex-shrink-0">
@@ -94,14 +95,14 @@ function UnluckyBastardCard({ ub }: { ub: NonNullable<RecapData['unluckyBastard'
                     : 'bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/30'
                 }`}
               >
-                <span className="text-sm flex-shrink-0 mt-0.5">{leg.status === 'won' ? '✅' : '❌'}</span>
+                <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${leg.status === 'won' ? 'bg-green-500' : 'bg-red-400'}`} />
                 <div className="flex-1 min-w-0">
                   <div className="text-gray-400 dark:text-gray-500 truncate text-[10px]">{leg.matchName}</div>
                   <div className={`font-semibold truncate ${leg.status === 'won' ? 'text-green-800 dark:text-green-300' : 'text-red-700 dark:text-red-400'}`}>
                     {leg.market}: {leg.selection}
                   </div>
                 </div>
-                <div className={`font-bold flex-shrink-0 ${leg.status === 'won' ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                <div className={`font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>
                   @{fmtOdds(leg.odds)}
                 </div>
               </div>

@@ -494,7 +494,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                                 }`}
                               >
                                 <span className="font-bold">{score}</span>
-                                <span className={`text-xs mt-0.5 font-semibold ${isSelected('exact_score', score) ? 'text-red-100' : 'text-red-600'}`}>
+                                <span className={`text-xs mt-0.5 font-semibold ${isSelected('exact_score', score) ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
                                   {o.toFixed(1).replace('.', ',')}
                                 </span>
                               </button>
