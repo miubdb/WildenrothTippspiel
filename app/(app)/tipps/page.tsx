@@ -1357,8 +1357,10 @@ export default async function TippsPage({
                         const lm = matchMap.get(leg.match_id)
                         const moot = leg.status === 'pending' && comboStatus === 'lost'
                         return (
+                          // No leading status mark here — the odds value's color (via
+                          // oddsColorClass below) already says won/lost/open, a dot in
+                          // front of every leg was redundant with it.
                           <div key={leg.id} className={`flex items-start gap-1.5 text-xs py-0.5 ${moot ? 'opacity-50' : ''}`}>
-                            <LegResultMark status={leg.status} moot={moot} />
                             <div className="flex-1 min-w-0">
                               <span className="text-gray-400 dark:text-gray-500 text-[10px] block truncate">{lm?.home_team?.short_name ?? lm?.home_team?.name ?? '?'} – {lm?.away_team?.short_name ?? lm?.away_team?.name ?? '?'}</span>
                               <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
