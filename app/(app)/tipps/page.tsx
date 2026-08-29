@@ -1310,20 +1310,24 @@ export default async function TippsPage({
                       }
                       return (
                         <div key={comboId} className={`rounded-xl border overflow-hidden ${borderCls}`}>
-                          {/* Header: avatar/name and stake/payout share one row, with the
-                              "N Tipps · @odds" line as a subtitle under the name — merges what
-                              used to be two rows into one without shortening any of the text. */}
+                          {/* Name row: avatar/badge/name get the full row width to themselves so
+                              a long name never competes for space with the stake/payout text
+                              (which, for a pending bet, is itself long — "X Wildis → Y Wildis" —
+                              and used to squeeze the name down to a couple of letters). */}
                           <div className="flex items-center gap-2 px-3 pt-2">
                             <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
                               <span className="text-blue-700 dark:text-blue-400 font-bold text-[10px]">{initialOf(owner)}</span>
                             </div>
                             <StatusDot status={comboStatus} />
                             <span className="text-[10px] font-bold bg-blue-600 text-white rounded px-1.5 py-0.5 flex-shrink-0">KOMBI</span>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">{nameOf(owner)}</div>
-                              <div className="text-[10px] text-gray-400 dark:text-gray-500">{legs.length} Tipps · @{totalOdds.toFixed(2).replace('.', ',')}</div>
-                            </div>
-                            <div className="text-right text-[11px] flex-shrink-0">
+                            <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0 flex-1">{nameOf(owner)}</span>
+                          </div>
+                          {/* Info row: tips-count/odds and stake/payout each get their own
+                              side, wrapping onto a second line (flex-wrap) instead of
+                              truncating when the stake/payout text runs long. */}
+                          <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 px-3 pb-2 pt-0.5 text-[11px]">
+                            <span className="text-gray-500 dark:text-gray-400">{legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                            <div className="ml-auto text-right">
                               {stake > 0 && comboStatus === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                               {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
                               {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
