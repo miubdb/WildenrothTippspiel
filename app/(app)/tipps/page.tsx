@@ -723,7 +723,7 @@ export default async function TippsPage({
   // Social bets: visible after each individual match kicks off (RLS policy allows this)
   type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number; stake: number | null }
   type SocialCombo = { id: number; stake: number; total_odds: number; status: string; payout: number | null }
-  type SocialProfile = { id: string; display_name: string | null; username: string }
+  type SocialProfile = { id: string; display_name: string | null; username: string; avatar_url: string | null }
   let socialBets: SocialBet[] = []
   let socialCombos: Record<string, SocialCombo> = {}
   let socialProfiles: SocialProfile[] = []
@@ -776,7 +776,7 @@ export default async function TippsPage({
       const uids = [...new Set(rawSocial.map(b => b.user_id))]
       const comboIds = [...new Set(rawSocial.filter(b => b.combo_id).map(b => b.combo_id as string))]
       const [pResult, cbResult] = await Promise.all([
-        supabase.from('profiles').select('id, display_name, username').in('id', uids),
+        supabase.from('profiles').select('id, display_name, username, avatar_url').in('id', uids),
         comboIds.length > 0
           ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds)
           : Promise.resolve({ data: [] }),
@@ -1183,6 +1183,23 @@ export default async function TippsPage({
           return p ? (p.display_name || p.username) : 'Unbekannt'
         }
         const initialOf = (uid: string) => (uid === user.id ? 'D' : (nameOf(uid)[0] ?? '?').toUpperCase())
+        const avatarUrlOf = (uid: string) => profileMap.get(uid)?.avatar_url ?? null
+        // Shared avatar for a bettor: their profile photo when set, the initial-letter
+        // circle otherwise (bgCls/textCls pick the red single-bet or blue combo theme).
+        const renderAvatar = (uid: string, dim: 'w-4 h-4' | 'w-6 h-6', bgCls: string, textCls: string, textSize: string) => {
+          const url = avatarUrlOf(uid)
+          if (url) {
+            return (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={url} alt="" className={`${dim} rounded-full object-cover flex-shrink-0`} />
+            )
+          }
+          return (
+            <span className={`${dim} rounded-full ${bgCls} flex items-center justify-center flex-shrink-0`}>
+              <span className={`${textCls} font-bold ${textSize}`}>{initialOf(uid)}</span>
+            </span>
+          )
+        }
         const totalTippers = new Set(activeSocial.map(b => b.user_id)).size
 
         // Each combo gets ONE full card (avatar/name/stake/collapsible other legs), placed
@@ -1240,11 +1257,15 @@ export default async function TippsPage({
                 // earliest-kickoff match — so a leg on an already-started match is never
                 // hidden just because an earlier leg of the same combo hasn't shown yet.
                 // Each occurrence expands its own leg for this match and collapses the rest.
-                const comboIdsHere = [...new Set(
-                  activeSocial
-                    .filter(b => b.combo_id && b.match_id === match.id)
-                    .map(b => b.combo_id as string)
-                )]
+                // Sorted by this match's own leg odds, highest first — the combo most
+                // worth noticing on this particular game leads, not insertion order.
+                const legsOnThisMatch = activeSocial.filter(b => b.combo_id && b.match_id === match.id)
+                const comboIdsHere = [...new Set(legsOnThisMatch.map(b => b.combo_id as string))]
+                  .sort((a, b) => {
+                    const oa = legsOnThisMatch.find(l => l.combo_id === a)?.odds_value ?? 0
+                    const ob = legsOnThisMatch.find(l => l.combo_id === b)?.odds_value ?? 0
+                    return ob - oa
+                  })
                 if (singles.length === 0 && comboIdsHere.length === 0) return null
 
                 return (
@@ -1272,9 +1293,7 @@ export default async function TippsPage({
                       return (
                         <details key={bet.id} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
                           <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
-                            <span className="w-4 h-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-                              <span className="text-red-700 dark:text-red-400 font-bold text-[9px]">{initialOf(bet.user_id)}</span>
-                            </span>
+                            {renderAvatar(bet.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
                             <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(bet.user_id)}</span>
                             <span className="text-[9px] font-bold bg-gray-500 dark:bg-gray-600 text-white rounded px-1 py-0.5 flex-shrink-0">EINZEL</span>
                             <StatusDot status={bet.status} />
@@ -1283,9 +1302,9 @@ export default async function TippsPage({
                             <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
                           </summary>
                           <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 text-[11px] text-gray-500 dark:text-gray-400">
-                            {stake > 0 && bet.status === 'pending' && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
-                            {stake > 0 && bet.status === 'won' && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
-                            {bet.status === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
+                            {bet.status === 'pending' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
+                            {bet.status === 'won' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
+                            {bet.status === 'lost' && <span>Einsatz: <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span></span>}
                           </div>
                         </details>
                       )
@@ -1359,9 +1378,7 @@ export default async function TippsPage({
                         return (
                           <details key={comboId} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
                             <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
-                              <span className="w-4 h-4 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
-                                <span className="text-blue-700 dark:text-blue-400 font-bold text-[9px]">{initialOf(owner)}</span>
-                              </span>
+                              {renderAvatar(owner, 'w-4 h-4', 'bg-blue-100 dark:bg-blue-900/30', 'text-blue-700 dark:text-blue-400', 'text-[9px]')}
                               <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(owner)}</span>
                               <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
                               <LegResultMark status={ownLeg.status} moot={ownLegMoot} />
@@ -1396,9 +1413,7 @@ export default async function TippsPage({
                               (which, for a pending bet, is itself long — "X Wildis → Y Wildis" —
                               and used to squeeze the name down to a couple of letters). */}
                           <div className="flex items-center gap-2 px-3 pt-2">
-                            <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
-                              <span className="text-blue-700 dark:text-blue-400 font-bold text-[10px]">{initialOf(owner)}</span>
-                            </div>
+                            {renderAvatar(owner, 'w-6 h-6', 'bg-blue-100 dark:bg-blue-900/30', 'text-blue-700 dark:text-blue-400', 'text-[10px]')}
                             <StatusDot status={comboStatus} />
                             <span className="text-[10px] font-bold bg-blue-600 text-white rounded px-1.5 py-0.5 flex-shrink-0">KOMBI</span>
                             <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0 flex-1">{nameOf(owner)}</span>
