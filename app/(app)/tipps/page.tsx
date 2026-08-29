@@ -1261,36 +1261,33 @@ export default async function TippsPage({
                       )}
                     </div>
 
-                    {/* Single bets on this match */}
+                    {/* Single bets on this match — same compact, expandable one-line
+                        row as a non-primary combo mention (see comboIdsHere below), so
+                        Einzel and Kombi take up the same amount of space in the list;
+                        stake/payout only shows once tapped open. */}
                     {singles.map(bet => {
                       const stake = bet.stake ?? 0
                       const potWin = Math.round(stake * bet.odds_value * 100) / 100
-                      const borderCls = bet.status === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : bet.status === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/40'
+                      const edgeCls = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
                       return (
-                        <div key={bet.id} className={`rounded-xl border overflow-hidden ${borderCls}`}>
-                          <div className="flex items-center gap-2 px-3 pt-2">
-                            <div className="w-6 h-6 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
-                              <span className="text-red-700 dark:text-red-400 font-bold text-[10px]">{initialOf(bet.user_id)}</span>
-                            </div>
+                        <details key={bet.id} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
+                          <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
+                            <span className="w-4 h-4 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                              <span className="text-red-700 dark:text-red-400 font-bold text-[9px]">{initialOf(bet.user_id)}</span>
+                            </span>
+                            <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(bet.user_id)}</span>
+                            <span className="text-[9px] font-bold bg-gray-500 dark:bg-gray-600 text-white rounded px-1 py-0.5 flex-shrink-0">EINZEL</span>
                             <StatusDot status={bet.status} />
-                            <span className="text-[10px] font-bold bg-gray-500 dark:bg-gray-600 text-white rounded px-1.5 py-0.5 flex-shrink-0">EINZEL</span>
-                            <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0 flex-1">{nameOf(bet.user_id)}</span>
+                            <span className="truncate flex-1 min-w-0 text-gray-600 dark:text-gray-300">{socialSelLabel(bet.market_type, bet.selection, playerNameMap)}</span>
+                            <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+                            <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
+                          </summary>
+                          <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 text-[11px] text-gray-500 dark:text-gray-400">
+                            {stake > 0 && bet.status === 'pending' && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
+                            {stake > 0 && bet.status === 'won' && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
+                            {bet.status === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
                           </div>
-                          <div className="flex items-center gap-2 px-3 pb-2 pt-0.5 text-[11px]">
-                            <span className="text-gray-500 dark:text-gray-400">Einzelwette · <span className={`font-bold ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span></span>
-                            <div className="ml-auto text-right flex-shrink-0">
-                              {stake > 0 && bet.status === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
-                              {stake > 0 && bet.status === 'won' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
-                              {bet.status === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
-                            </div>
-                          </div>
-                          <div className="border-t border-black/5 dark:border-white/5 px-3 py-1.5">
-                            <div className="flex items-start gap-1.5 text-xs py-0.5">
-                              <StatusDot status={bet.status} />
-                              <span className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(bet.market_type, bet.selection, playerNameMap)}</span>
-                            </div>
-                          </div>
-                        </div>
+                        </details>
                       )
                     })}
 
