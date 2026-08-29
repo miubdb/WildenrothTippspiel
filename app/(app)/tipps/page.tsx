@@ -15,6 +15,7 @@ import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type Goalscorer
 import Link from 'next/link'
 import { TeamLogo } from '@/components/TeamLogo'
 import { wildiLabel } from '@/components/WildiIcon'
+import { oddsColorClass } from '@/components/WetteCard'
 
 export const revalidate = 60
 
@@ -737,12 +738,22 @@ export default async function TippsPage({
       .in('match_id', matchdayMatchIds)
       .neq('user_id', user.id)
       .neq('status', 'cancelled')
-    const seenCountCombos = new Set<string>()
+    // Keyed by "matchId:comboId", not just comboId — a combo's bet slip counts as
+    // one "Wettschein" on EVERY match it has a leg on, not just the one match
+    // whose row happens to come first in this unordered query. A combo-id-only
+    // Set here meant a match whose combo legs never "won" that arbitrary race
+    // got credited 0 bets and silently vanished from "Alle Tipps" entirely
+    // (return null on count === 0), even though it had real, visible bets and
+    // was fully bettable — this is what made SV Fuchstal – FC Issing disappear.
+    const seenCountSlips = new Set<string>()
     for (const b of countRows ?? []) {
       if (!b.combo_id) {
         betCountByMatch[b.match_id] = (betCountByMatch[b.match_id] ?? 0) + 1
-      } else if (!seenCountCombos.has(String(b.combo_id))) {
-        seenCountCombos.add(String(b.combo_id))
+        continue
+      }
+      const dedupKey = `${b.match_id}:${b.combo_id}`
+      if (!seenCountSlips.has(dedupKey)) {
+        seenCountSlips.add(dedupKey)
         betCountByMatch[b.match_id] = (betCountByMatch[b.match_id] ?? 0) + 1
       }
     }
@@ -1262,10 +1273,11 @@ export default async function TippsPage({
                               <span className="text-red-700 dark:text-red-400 font-bold text-[10px]">{initialOf(bet.user_id)}</span>
                             </div>
                             <StatusDot status={bet.status} />
+                            <span className="text-[10px] font-bold bg-gray-500 dark:bg-gray-600 text-white rounded px-1.5 py-0.5 flex-shrink-0">EINZEL</span>
                             <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0 flex-1">{nameOf(bet.user_id)}</span>
                           </div>
                           <div className="flex items-center gap-2 px-3 pb-2 pt-0.5 text-[11px]">
-                            <span className="text-gray-500 dark:text-gray-400">Einzelwette · <span className="font-bold text-gray-700 dark:text-gray-200">@{bet.odds_value.toFixed(2).replace('.', ',')}</span></span>
+                            <span className="text-gray-500 dark:text-gray-400">Einzelwette · <span className={`font-bold ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span></span>
                             <div className="ml-auto text-right flex-shrink-0">
                               {stake > 0 && bet.status === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                               {stake > 0 && bet.status === 'won' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
@@ -1319,10 +1331,9 @@ export default async function TippsPage({
                       // A leg can individually be "won" while the combo as a whole is "lost"
                       // (this pick was right, another leg in the same slip wasn't) — the only
                       // direction this can diverge, since any lost leg always lost the combo
-                      // too. That's exactly the case a plain colored dot next to the
-                      // combo-level dot made confusing (green under red). LegResultMark below
-                      // uses a check/cross instead of a dot so it never reads as "another
-                      // status dot", and this caption spells out the divergence in words.
+                      // too. The caption below spells out the divergence in words, since the
+                      // green leg dot right under the combo's red status dot alone would read
+                      // as contradictory.
                       const legWonButComboLost = ownLeg.status === 'won' && comboStatus === 'lost'
                       const renderLeg = (leg: typeof ownLeg) => {
                         const lm = matchMap.get(leg.match_id)
@@ -1334,7 +1345,7 @@ export default async function TippsPage({
                               <span className="text-gray-400 dark:text-gray-500 text-[10px] block truncate">{lm?.home_team?.short_name ?? lm?.home_team?.name ?? '?'} – {lm?.away_team?.short_name ?? lm?.away_team?.name ?? '?'}</span>
                               <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
                             </div>
-                            <span className="text-red-600 dark:text-red-400 font-bold flex-shrink-0">@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                            <span className={`font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                           </div>
                         )
                       }
@@ -1358,7 +1369,7 @@ export default async function TippsPage({
                               <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
                               <LegResultMark status={ownLeg.status} moot={ownLegMoot} />
                               <span className={`truncate flex-1 min-w-0 ${ownLegMoot ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>{socialSelLabel(ownLeg.market_type, ownLeg.selection, playerNameMap)}</span>
-                              <span className="text-red-600 dark:text-red-400 font-bold flex-shrink-0">@{ownLeg.odds_value.toFixed(2).replace('.', ',')}</span>
+                              <span className={`font-bold flex-shrink-0 ${oddsColorClass(ownLeg.status)}`}>@{ownLeg.odds_value.toFixed(2).replace('.', ',')}</span>
                               <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
                             </summary>
                             <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 space-y-1.5">
@@ -1368,7 +1379,7 @@ export default async function TippsPage({
                                 </p>
                               )}
                               <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400">
-                                <span>{legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                                <span>{legs.length} Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
                                 {stake > 0 && comboStatus === 'pending' && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                                 {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
                                 {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
@@ -1399,7 +1410,7 @@ export default async function TippsPage({
                               side, wrapping onto a second line (flex-wrap) instead of
                               truncating when the stake/payout text runs long. */}
                           <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 px-3 pb-2 pt-0.5 text-[11px]">
-                            <span className="text-gray-500 dark:text-gray-400">{legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                            <span className="text-gray-500 dark:text-gray-400">{legs.length} Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
                             <div className="ml-auto text-right">
                               {stake > 0 && comboStatus === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                               {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
@@ -1483,11 +1494,16 @@ function StatusDot({ status }: { status: string }) {
 // contradictory when a leg won but the combo still lost; a check/cross reads
 // unambiguously as "this pick" regardless of the combo's own color above it.
 function LegResultMark({ status, moot }: { status: string; moot?: boolean }) {
+  // Same 🟡/🟢/🔴 dot convention as StatusDot everywhere else — a leg that
+  // individually won while its combo overall lost is disambiguated via the
+  // "Dieser Tipp war richtig, die Kombi ist aber an anderer Stelle verloren."
+  // caption next to it, not via a different mark shape.
+  //
   // "moot" = still pending on its own, but the combo it belongs to is already lost via a
   // different leg — a plain "still open" yellow dot would misleadingly suggest it still
   // matters, so this gets its own neutral, dimmed mark instead.
   if (moot) return <span className="text-gray-400 dark:text-gray-500 font-bold text-[11px] leading-4 flex-shrink-0" aria-label="Nicht mehr relevant">–</span>
-  if (status === 'won') return <span className="text-green-600 dark:text-green-400 font-bold text-[11px] leading-4 flex-shrink-0" aria-label="Tipp richtig">✓</span>
-  if (status === 'lost') return <span className="text-red-500 dark:text-red-400 font-bold text-[11px] leading-4 flex-shrink-0" aria-label="Tipp falsch">✗</span>
+  if (status === 'won') return <span className="inline-block w-2 h-2 rounded-full bg-green-500 flex-shrink-0 mt-1" aria-label="Tipp richtig" />
+  if (status === 'lost') return <span className="inline-block w-2 h-2 rounded-full bg-red-400 flex-shrink-0 mt-1" aria-label="Tipp falsch" />
   return <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0 mt-1" aria-label="Tipp offen" />
 }
