@@ -1287,11 +1287,19 @@ export default async function TippsPage({
                       const borderCls = comboStatus === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : comboStatus === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-blue-100 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10'
                       const ownLeg = legs.find(l => l.match_id === match.id) ?? legs[0]
                       const otherLegs = legs.filter(l => l.id !== ownLeg.id)
+                      // A leg can individually be "won" while the combo as a whole is "lost"
+                      // (this pick was right, another leg in the same slip wasn't) — the only
+                      // direction this can diverge, since any lost leg always lost the combo
+                      // too. That's exactly the case a plain colored dot next to the
+                      // combo-level dot made confusing (green under red). LegResultMark below
+                      // uses a check/cross instead of a dot so it never reads as "another
+                      // status dot", and this caption spells out the divergence in words.
+                      const legWonButComboLost = ownLeg.status === 'won' && comboStatus === 'lost'
                       const renderLeg = (leg: typeof ownLeg) => {
                         const lm = matchMap.get(leg.match_id)
                         return (
                           <div key={leg.id} className="flex items-start gap-1.5 text-xs py-0.5">
-                            <StatusDot status={leg.status} />
+                            <LegResultMark status={leg.status} />
                             <div className="flex-1 min-w-0">
                               <span className="text-gray-400 dark:text-gray-500 text-[10px] block truncate">{lm?.home_team?.short_name ?? lm?.home_team?.name ?? '?'} – {lm?.away_team?.short_name ?? lm?.away_team?.name ?? '?'}</span>
                               <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
@@ -1302,17 +1310,20 @@ export default async function TippsPage({
                       }
                       return (
                         <div key={comboId} className={`rounded-xl border overflow-hidden ${borderCls}`}>
+                          {/* Header: avatar/name and stake/payout share one row, with the
+                              "N Tipps · @odds" line as a subtitle under the name — merges what
+                              used to be two rows into one without shortening any of the text. */}
                           <div className="flex items-center gap-2 px-3 pt-2">
                             <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
                               <span className="text-blue-700 dark:text-blue-400 font-bold text-[10px]">{initialOf(owner)}</span>
                             </div>
                             <StatusDot status={comboStatus} />
                             <span className="text-[10px] font-bold bg-blue-600 text-white rounded px-1.5 py-0.5 flex-shrink-0">KOMBI</span>
-                            <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0 flex-1">{nameOf(owner)}</span>
-                          </div>
-                          <div className="flex items-center gap-2 px-3 pb-2 pt-0.5 text-[11px]">
-                            <span className="text-gray-500 dark:text-gray-400">{legs.length} Tipps · <span className="font-bold text-gray-700 dark:text-gray-200">@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
-                            <div className="ml-auto text-right flex-shrink-0">
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate">{nameOf(owner)}</div>
+                              <div className="text-[10px] text-gray-400 dark:text-gray-500">{legs.length} Tipps · @{totalOdds.toFixed(2).replace('.', ',')}</div>
+                            </div>
+                            <div className="text-right text-[11px] flex-shrink-0">
                               {stake > 0 && comboStatus === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                               {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
                               {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
@@ -1320,6 +1331,11 @@ export default async function TippsPage({
                           </div>
                           <div className="border-t border-black/5 dark:border-white/5 px-3 py-1.5">
                             {renderLeg(ownLeg)}
+                            {legWonButComboLost && (
+                              <p className="text-[10px] text-gray-400 dark:text-gray-500 italic pl-4 pt-0.5">
+                                Dieser Tipp war richtig, die Kombi ist aber an anderer Stelle verloren.
+                              </p>
+                            )}
                             {otherLegs.length > 0 && (
                               <details className="mt-0.5">
                                 <summary className="text-[10px] text-blue-700 dark:text-blue-400 font-semibold cursor-pointer py-1 select-none">
@@ -1382,4 +1398,15 @@ function StatusDot({ status }: { status: string }) {
       status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'
     }`} />
   )
+}
+
+// Deliberately NOT a colored dot like StatusDot — this marks the result of one
+// leg inside a combo card, right below the combo-level StatusDot (which shows
+// the whole slip's outcome). Two same-shaped dots in different colors read as
+// contradictory when a leg won but the combo still lost; a check/cross reads
+// unambiguously as "this pick" regardless of the combo's own color above it.
+function LegResultMark({ status }: { status: string }) {
+  if (status === 'won') return <span className="text-green-600 dark:text-green-400 font-bold text-[11px] leading-4 flex-shrink-0" aria-label="Tipp richtig">✓</span>
+  if (status === 'lost') return <span className="text-red-500 dark:text-red-400 font-bold text-[11px] leading-4 flex-shrink-0" aria-label="Tipp falsch">✗</span>
+  return <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0 mt-1" aria-label="Tipp offen" />
 }
