@@ -79,6 +79,25 @@ function Avatar({ profile, size, isMe, className = '' }: { profile: Profile; siz
   )
 }
 
+// A not-yet-visible bet slip, shaped like a real WetteCard row so it doesn't read
+// as a throwaway line — same rounded/border-l-4/padding footprint, with blurred
+// placeholder content standing in for the real market/odds/stake and a "verborgen"
+// pill on top instead of plain text so it's obviously a locked card, not real data.
+function LockedBetRow({ variant }: { variant: 'single' | 'combo' }) {
+  return (
+    <div className="relative rounded-xl border-l-4 border-l-gray-300 dark:border-l-gray-600 bg-gray-50 dark:bg-gray-700/40 px-3 py-2.5 overflow-hidden">
+      <div className="blur-[3px] select-none" aria-hidden="true">
+        <div className="text-[10px] text-gray-400 dark:text-gray-500">{variant === 'combo' ? 'Kombiwette · 4 Tipps' : 'Einzelwette'}</div>
+        <div className="text-sm font-black text-gray-700 dark:text-gray-300 mt-0.5">Heimsieg</div>
+        <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">@3,50 · 50,00 Wildis</div>
+      </div>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-xs font-medium text-gray-500 dark:text-gray-400 bg-white/80 dark:bg-gray-800/80 px-2.5 py-1 rounded-full">🔒 verborgen</span>
+      </div>
+    </div>
+  )
+}
+
 // Visibility: single bets after own game kickoff; combos once any leg has kicked off; cancelled = hidden
 function isBetVisible(bet: BetRow, allMatchdayBets: BetRow[], now: Date): boolean {
   if (bet.status === 'cancelled') return false
@@ -538,6 +557,29 @@ export function LeaderboardClient({
             const pnl = mdStats[profile.id]
             const displayBalancePre = profile.balance + (pendingStakesPerUser[profile.id] ?? 0)
 
+            // Slot-count a list of bets, deduping a combo's legs down to one slot —
+            // shared by the header count and by figuring out how many of a user's
+            // bets are still hidden (see hiddenSlipCount below).
+            const countSlips = (bets: BetRow[]) => {
+              const seenCombos = new Set<number>()
+              let n = 0
+              for (const b of bets) {
+                if (!b.combo_id) { n++ }
+                else if (!seenCombos.has(b.combo_id)) { seenCombos.add(b.combo_id); n++ }
+              }
+              return n
+            }
+            // betCountsPerUser (service-role, see leaderboard/page.tsx) is reliable for
+            // every viewer; countSlips(userBets) is only a fallback — for a non-admin
+            // viewer, RLS can hide some of another user's not-yet-started bets from
+            // matchdayBets even once this matchday has partially started, which would
+            // otherwise undercount them here.
+            const displayCount = betCountsPerUser[profile.id] ?? countSlips(userBets)
+            // How many of that total still have no visible card — these each get a
+            // LockedBetRow placeholder below the real ones instead of just vanishing
+            // from the count with nothing shown for them.
+            const hiddenSlipCount = isMe ? 0 : Math.max(0, displayCount - countSlips(visibleBets))
+
             // Before any visible bets: same card shape as a user with visible bets
             // (header + one row per bet slip below it), just with each row's content
             // masked out — so it reads as "N bets are here, just hidden" rather than
@@ -558,10 +600,7 @@ export function LeaderboardClient({
                   </div>
                   <div className="px-4 py-2 space-y-1.5">
                     {Array.from({ length: count }).map((_, i) => (
-                      <div key={i} className="rounded-lg border-l-4 border-l-gray-200 dark:border-l-gray-600 bg-gray-50 dark:bg-gray-700/40 px-3 py-2 flex items-center gap-2">
-                        <span className="text-gray-300 dark:text-gray-600 font-bold text-xs tracking-widest select-none" aria-hidden="true">▬▬▬▬▬▬▬▬</span>
-                        <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">🔒 verborgen</span>
-                      </div>
+                      <LockedBetRow key={i} variant={i % 2 === 0 ? 'combo' : 'single'} />
                     ))}
                   </div>
                 </div>
@@ -584,34 +623,22 @@ export function LeaderboardClient({
                       {pnl > 0 ? '+' : ''}{fmtWildi(pnl)} Wildis
                     </div>
                   )}
-                  {(pnl === null || !isDeadlinePassed) && (() => {
-                    const seenCombos = new Set<number>()
-                    let slipCount = 0
-                    for (const b of userBets) {
-                      if (!b.combo_id) { slipCount++ }
-                      else if (!seenCombos.has(b.combo_id)) { seenCombos.add(b.combo_id); slipCount++ }
-                    }
-                    // betCountsPerUser (service-role, see leaderboard/page.tsx)
-                    // is reliable for every viewer; slipCount from userBets is
-                    // only a fallback — for a non-admin viewer, RLS can hide
-                    // some of another user's not-yet-started bets from
-                    // matchdayBets even once this matchday has partially
-                    // started, which would otherwise undercount them here.
-                    const displayCount = betCountsPerUser[profile.id] ?? slipCount
-                    return (
-                      <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
-                        {!isDeadlinePassed && isMe && (
-                          <span className="mr-1 text-gray-500 dark:text-gray-400 font-medium">
-                            Stand vor ST {matchdayNumber}: {fmtAmt(displayBalancePre)} Wildis
-                          </span>
-                        )}
-                        {displayCount} Wettschein{displayCount !== 1 ? 'e' : ''}
-                      </div>
-                    )
-                  })()}
+                  {(pnl === null || !isDeadlinePassed) && (
+                    <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+                      {!isDeadlinePassed && isMe && (
+                        <span className="mr-1 text-gray-500 dark:text-gray-400 font-medium">
+                          Stand vor ST {matchdayNumber}: {fmtAmt(displayBalancePre)} Wildis
+                        </span>
+                      )}
+                      {displayCount} Wettschein{displayCount !== 1 ? 'e' : ''}
+                    </div>
+                  )}
                 </div>
-                <div className="px-4 py-2">
+                <div className="px-4 py-2 space-y-1.5">
                   <UserBets bets={visibleBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
+                  {Array.from({ length: hiddenSlipCount }).map((_, i) => (
+                    <LockedBetRow key={`hidden-${i}`} variant={i % 2 === 0 ? 'combo' : 'single'} />
+                  ))}
                 </div>
               </div>
             )
