@@ -166,30 +166,27 @@ export default async function LeaderboardPage({
 
   // Always compute ALL pending stakes across all matches so balance+pending = true ranking value.
   // This prevents reducing balances from leaking bet sizes before reveal.
-  //
-  // betCountsPerUser, by contrast, drives the "N Wettscheine platziert" placeholder
-  // shown under the currently selected Spieltag — it must count only bets that
-  // touch THIS Spieltag's matches, not a user's pending bets for the whole
-  // season, or a user with bets open on two Spieltage at once (e.g. one held
-  // open by a postponed match) gets a combined, misleading count shown here.
   const pendingStakesPerUser: Record<string, number> = {}
+  // betCountsPerUser drives the "N Wettscheine" header shown per user under the
+  // currently selected Spieltag — the client then renders exactly that many rows
+  // (real WetteCards for visible bets, LockedBetRow placeholders for the rest),
+  // so this MUST be every one of a user's bet slips touching this Spieltag's
+  // matches (pending, won, or lost — not just pending), or the header count and
+  // the row count below it silently drift apart once any bet on the matchday
+  // has already been settled. A combo counts once per user regardless of how
+  // many of its legs land on this matchday's matches.
   const betCountsPerUser: Record<string, number> = {}
+  const adminSupa = createAdminClient()
   {
-    const adminSupa = createAdminClient()
     const { data: pendingBetRows } = await adminSupa
       .from('bets')
       .select('id, user_id, stake, combo_id, match_id')
       .eq('status', 'pending')
     const seenComboIds = new Set<number>()
-    const comboTouchesMatchday = new Set<number>()
     for (const b of pendingBetRows ?? []) {
       if (!b.combo_id) {
         pendingStakesPerUser[b.user_id] = (pendingStakesPerUser[b.user_id] ?? 0) + (b.stake ?? 0)
-        if (matchdayMatchIds.has(b.match_id)) {
-          betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
-        }
       } else {
-        if (matchdayMatchIds.has(b.match_id)) comboTouchesMatchday.add(Number(b.combo_id))
         seenComboIds.add(Number(b.combo_id))
       }
     }
@@ -209,9 +206,25 @@ export default async function LeaderboardPage({
         .eq('status', 'pending')
       for (const c of comboPendingRows ?? []) {
         pendingStakesPerUser[c.user_id] = (pendingStakesPerUser[c.user_id] ?? 0) + c.stake
-        if (comboTouchesMatchday.has(c.id)) {
-          betCountsPerUser[c.user_id] = (betCountsPerUser[c.user_id] ?? 0) + 1
-        }
+      }
+    }
+  }
+  if (matchdayMatchIds.size > 0) {
+    const { data: mdBetRows } = await adminSupa
+      .from('bets')
+      .select('user_id, combo_id')
+      .in('match_id', [...matchdayMatchIds])
+      .neq('status', 'cancelled')
+    const seenUserCombo = new Set<string>()
+    for (const b of mdBetRows ?? []) {
+      if (!b.combo_id) {
+        betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
+        continue
+      }
+      const key = `${b.user_id}:${b.combo_id}`
+      if (!seenUserCombo.has(key)) {
+        seenUserCombo.add(key)
+        betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
       }
     }
   }
