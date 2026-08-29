@@ -1174,6 +1174,23 @@ export default async function TippsPage({
         const initialOf = (uid: string) => (uid === user.id ? 'D' : (nameOf(uid)[0] ?? '?').toUpperCase())
         const totalTippers = new Set(activeSocial.map(b => b.user_id)).size
 
+        // Each combo gets ONE full card (avatar/name/stake/collapsible other legs), placed
+        // under its earliest-kickoff match — every other match it touches gets only a slim
+        // one-line mention (see compactComboRow below) instead of repeating the full card,
+        // which got noisy once combos routinely span 5-8 matches across a matchday.
+        const comboFirstMatchId = new Map<string, number>()
+        for (const b of activeSocial) {
+          if (!b.combo_id) continue
+          const cid = String(b.combo_id)
+          if (!comboFirstMatchId.has(cid)) {
+            comboFirstMatchId.set(cid, b.match_id)
+          } else {
+            const curMatchDate = new Date(matchMap.get(comboFirstMatchId.get(cid)!)?.match_date ?? '').getTime()
+            const thisMatchDate = new Date(matchMap.get(b.match_id)?.match_date ?? '').getTime()
+            if (thisMatchDate < curMatchDate) comboFirstMatchId.set(cid, b.match_id)
+          }
+        }
+
         return (
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
             <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
@@ -1265,12 +1282,12 @@ export default async function TippsPage({
                       )
                     })}
 
-                    {/* Combos with a leg on this match — shown once per match they touch (see
-                        comboIdsHere above). Only the leg belonging to THIS match is shown
-                        inline — with several multi-leg combos per matchday this section got
-                        very long otherwise; the other legs (on different matches) collapse
-                        behind a <details> toggle, which needs no client-side state since this
-                        stays a server component. */}
+                    {/* Combos with a leg on this match. The full card (below) renders only at
+                        the combo's earliest-kickoff match; every other match gets a compact
+                        one-line mention instead — see the comboFirstMatchId check inside the
+                        map. Within the full card, only the leg belonging to THIS match is
+                        shown inline, with the other legs collapsed behind a <details> toggle
+                        (no client-side state needed since this stays a server component). */}
                     {comboIdsHere.map(comboId => {
                       const legs = activeSocial.filter(b => b.combo_id === comboId)
                       if (legs.length === 0) return null
@@ -1287,6 +1304,26 @@ export default async function TippsPage({
                       const borderCls = comboStatus === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : comboStatus === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-blue-100 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10'
                       const ownLeg = legs.find(l => l.match_id === match.id) ?? legs[0]
                       const otherLegs = legs.filter(l => l.id !== ownLeg.id)
+
+                      // Only the combo's earliest-kickoff match gets the full card (avatar,
+                      // stake/payout, collapsible other legs). Every other match this combo
+                      // touches gets a single compact line instead — repeating the full card
+                      // once per leg got noisy for combos spanning most of a matchday.
+                      if (comboFirstMatchId.get(comboId) !== match.id) {
+                        return (
+                          <div key={comboId} className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-700/40">
+                            <span className="w-4 h-4 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
+                              <span className="text-blue-700 dark:text-blue-400 font-bold text-[9px]">{initialOf(owner)}</span>
+                            </span>
+                            <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(owner)}</span>
+                            <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
+                            <LegResultMark status={ownLeg.status} />
+                            <span className="text-gray-600 dark:text-gray-300 truncate flex-1 min-w-0">{socialSelLabel(ownLeg.market_type, ownLeg.selection, playerNameMap)}</span>
+                            <span className="text-red-600 dark:text-red-400 font-bold flex-shrink-0">@{ownLeg.odds_value.toFixed(2).replace('.', ',')}</span>
+                          </div>
+                        )
+                      }
+
                       // A leg can individually be "won" while the combo as a whole is "lost"
                       // (this pick was right, another leg in the same slip wasn't) — the only
                       // direction this can diverge, since any lost leg always lost the combo
