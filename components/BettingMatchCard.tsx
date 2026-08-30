@@ -145,14 +145,20 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   // exactScores prop doc above). Not recomputed here.
   const exactScores = isScheduled && odds ? (exactScoresProp ?? []) : []
 
-  // Detail stats
-  const homeForm = getForm(allMatches, match.home_team_id, 5)
-  const awayForm = getForm(allMatches, match.away_team_id, 5)
-  const homeRecord = getTeamRecord(allMatches, match.home_team_id)
-  const awayRecord = getTeamRecord(allMatches, match.away_team_id)
-
-  // H2H: use full history if provided, otherwise fall back to season matches
+  // Form/record/H2H must all read from the full, unfiltered match history, not
+  // `allMatches` — that prop is actually the odds-snapshot-cutoff-filtered list
+  // (matches finished after the matchday's betting-window freeze are excluded,
+  // so a live result can't leak into an already-frozen quote). A team's cosmetic
+  // "Form" badges have nothing to do with quote freezing though, so using the
+  // same filtered list here made a midweek Nachholspiel result vanish from a
+  // team's form on its very next (weekend) match card until that next matchday's
+  // own freeze cutoff caught up. `historyMatches` is the real full list.
   const h2hSource = historyMatches ?? allMatches
+  const homeForm = getForm(h2hSource, match.home_team_id, 5)
+  const awayForm = getForm(h2hSource, match.away_team_id, 5)
+  const homeRecord = getTeamRecord(h2hSource, match.home_team_id)
+  const awayRecord = getTeamRecord(h2hSource, match.away_team_id)
+
   const h2h = h2hSource
     .filter(
       (m) =>
