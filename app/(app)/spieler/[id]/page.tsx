@@ -58,12 +58,15 @@ export default async function SpielerPage({
   }
   const displayBalance = profile.balance + (pendingStakesPerUser[profile.id] ?? 0)
 
-  // Rank among all eligible profiles — same ranking value and tiebreak as
-  // /leaderboard, so the two pages never disagree about someone's rank.
+  // Rank among all eligible profiles — same ranking value, tiebreak, AND
+  // deleted_at exclusion as /leaderboard, so the two pages never disagree
+  // about someone's rank (a deactivated account was previously still
+  // counted here, inflating the "X / Y" total past what /leaderboard shows).
   const { data: eligibleProfiles } = await supabase
     .from('profiles')
     .select('id, username, display_name, balance')
     .or('eligible_for_current_season.eq.true,is_admin.eq.true')
+    .is('deleted_at', null)
 
   const ranked = [...(eligibleProfiles ?? [])].sort((a, b) => {
     const balA = a.balance + (pendingStakesPerUser[a.id] ?? 0)
