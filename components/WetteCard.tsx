@@ -140,7 +140,9 @@ export function WetteCard({
                 <span className="text-[10px] font-bold text-green-600">+{fmt(wette.payout)} {wildiLabel(wette.payout)}</span>
               )}
               {wette.status === 'lost' && (
-                <span className="text-[10px] text-red-400 line-through">{fmt(wette.stake)} {wildiLabel(wette.stake)}</span>
+                <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                  {'→ wäre '}<span className="text-red-400 line-through">{fmt(wette.stake * wette.totalOdds)} {wildiLabel(wette.stake * wette.totalOdds)}</span>
+                </span>
               )}
             </div>
           </div>
