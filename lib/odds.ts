@@ -219,13 +219,25 @@ function getTeamPPG(matches: Match[], teamId: number): number {
   return pts / games.length
 }
 
-/** Last N results as W/D/L (oldest first) */
-export function getForm(matches: Match[], teamId: number, n = 5): ('W' | 'D' | 'L')[] {
+/** Last N results as W/D/L (oldest first).
+ *
+ *  `excludeMatchday`, when given, drops any finished game sharing that raw
+ *  `matchday` number — i.e. the other fixtures of the SAME round as the match
+ *  currently being displayed. Without this, a Saturday result from the same
+ *  Spieltag as a Sunday match would leak into some OTHER team's form the
+ *  moment it finishes, even though from a bettor's viewpoint the whole round
+ *  is still "in progress" and form should only advance one Spieltag at a
+ *  time. A genuine Nachholspiel (a makeup game for an EARLIER round, played
+ *  midweek right before this one) has a different, lower matchday number, so
+ *  it still counts — that's the one case where the same team plays twice in
+ *  a matter of days and the more recent result should already show. */
+export function getForm(matches: Match[], teamId: number, n = 5, excludeMatchday?: number): ('W' | 'D' | 'L')[] {
   const games = matches
     .filter(
       (m) =>
         m.status === 'finished' &&
-        (m.home_team_id === teamId || m.away_team_id === teamId)
+        (m.home_team_id === teamId || m.away_team_id === teamId) &&
+        (excludeMatchday == null || m.matchday !== excludeMatchday)
     )
     .sort((a, b) => new Date(b.match_date).getTime() - new Date(a.match_date).getTime())
     .slice(0, n)
@@ -238,12 +250,13 @@ export function getForm(matches: Match[], teamId: number, n = 5): ('W' | 'D' | '
   }).reverse()
 }
 
-/** Team record for display in match card */
-export function getTeamRecord(matches: Match[], teamId: number) {
+/** Team record for display in match card. See getForm's excludeMatchday doc. */
+export function getTeamRecord(matches: Match[], teamId: number, excludeMatchday?: number) {
   const games = matches.filter(
     (m) =>
       m.status === 'finished' &&
-      (m.home_team_id === teamId || m.away_team_id === teamId)
+      (m.home_team_id === teamId || m.away_team_id === teamId) &&
+      (excludeMatchday == null || m.matchday !== excludeMatchday)
   )
   let w = 0, d = 0, l = 0, gf = 0, ga = 0
   for (const m of games) {

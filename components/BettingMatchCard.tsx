@@ -153,11 +153,18 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   // same filtered list here made a midweek Nachholspiel result vanish from a
   // team's form on its very next (weekend) match card until that next matchday's
   // own freeze cutoff caught up. `historyMatches` is the real full list.
+  //
+  // excludeMatchday=match.matchday additionally drops any OTHER fixture of this
+  // same round (e.g. Saturday's result from the same Spieltag as a Sunday
+  // match) — form should still advance one whole Spieltag at a time, not
+  // match-by-match as the current round plays out. A genuine Nachholspiel
+  // (a makeup game for an earlier round) keeps counting since it carries a
+  // different, lower matchday number.
   const h2hSource = historyMatches ?? allMatches
-  const homeForm = getForm(h2hSource, match.home_team_id, 5)
-  const awayForm = getForm(h2hSource, match.away_team_id, 5)
-  const homeRecord = getTeamRecord(h2hSource, match.home_team_id)
-  const awayRecord = getTeamRecord(h2hSource, match.away_team_id)
+  const homeForm = getForm(h2hSource, match.home_team_id, 5, match.matchday)
+  const awayForm = getForm(h2hSource, match.away_team_id, 5, match.matchday)
+  const homeRecord = getTeamRecord(h2hSource, match.home_team_id, match.matchday)
+  const awayRecord = getTeamRecord(h2hSource, match.away_team_id, match.matchday)
 
   const h2h = h2hSource
     .filter(
