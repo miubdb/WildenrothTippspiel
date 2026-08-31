@@ -296,6 +296,11 @@ export interface PriorContext {
   awayAdvMap: Map<string, number>
   leaguePlayers: Map<string, LeaguePlayer[]>
   lineups: Map<string, LineupEntry[]>
+  /** Earliest red-card minute per (match, team), keyed `${match_id}:${team_name}`.
+   *  Built from the same `match_lineups` rows as `lineups` above — see
+   *  `redCardWeight` for how this discounts a match's contribution to a
+   *  team's rolling goal-scoring stats. */
+  redCards: Map<string, number>
 }
 
 const HOME_ADV_CAP_LOW = 0.75
@@ -501,10 +506,19 @@ export function buildPriorContext(
   }
 
   const lineupsMap = new Map<string, LineupEntry[]>()
+  const redCardsMap = new Map<string, number>()
   for (const e of lineupEntries) {
     const arr = lineupsMap.get(e.team_name) ?? []
     arr.push(e)
     lineupsMap.set(e.team_name, arr)
+    if (e.red_card_minute != null) {
+      const key = `${e.match_id}:${e.team_name}`
+      // A team fielding two red cards in one match is rare but not impossible —
+      // keep the EARLIEST one, since that's when the man disadvantage started
+      // and therefore the larger share of the match was affected.
+      const existing = redCardsMap.get(key)
+      if (existing == null || e.red_card_minute < existing) redCardsMap.set(key, e.red_card_minute)
+    }
   }
 
   return {
@@ -515,6 +529,7 @@ export function buildPriorContext(
     awayAdvMap,
     leaguePlayers: leaguePlayersMap,
     lineups: lineupsMap,
+    redCards: redCardsMap,
   }
 }
 
@@ -544,32 +559,65 @@ function getKEffective(gamesPlayed: number): number {
   return XG_PRIOR + XG_PRIOR_EARLY_BONUS * rampFactor
 }
 
+// A match partly played with a man disadvantage (red card) is a poor sample of
+// a team's normal strength for BOTH sides — the carded team's output is
+// suppressed, and the opponent's is inflated — but we don't know which
+// direction dominates a specific scoreline, so rather than adjust the value
+// we just trust it less. Weight ramps from RED_CARD_MIN_WEIGHT (a card in the
+// first minute) up to 1.0 (a card in stoppage time barely changes anything),
+// linear in the card's minute. Whichever side got the card, both team's
+// stats for that match are discounted the same way (see redCardWeight).
+const RED_CARD_MIN_WEIGHT = 0.3
+
+/** Discount weight for one match's contribution to a team's goal-scoring
+ *  average, based on the earliest red card (either side) in that match —
+ *  looked up by team NAME (not id) since that's how match_lineups keys it,
+ *  same as the roster-factor lineup data this reuses. */
+function redCardWeight(m: Match, redCards?: Map<string, number>): number {
+  if (!redCards || redCards.size === 0) return 1
+  const homeMinute = m.home_team?.name ? redCards.get(`${m.id}:${m.home_team.name}`) : undefined
+  const awayMinute = m.away_team?.name ? redCards.get(`${m.id}:${m.away_team.name}`) : undefined
+  const minute = [homeMinute, awayMinute].filter((v): v is number => v != null).sort((a, b) => a - b)[0]
+  if (minute == null) return 1
+  return Math.max(RED_CARD_MIN_WEIGHT, Math.min(1, minute / 90))
+}
+
+function weightedAvg(games: Match[], value: (m: Match) => number, redCards?: Map<string, number>): number {
+  let wSum = 0, wTotal = 0
+  for (const m of games) {
+    const w = redCardWeight(m, redCards)
+    wSum += value(m) * w
+    wTotal += w
+  }
+  return wTotal > 0 ? wSum / wTotal : 0
+}
+
 /** Goals scored per home game for teamId */
-function homeGoalsScored(matches: Match[], teamId: number): { avg: number; n: number } {
+function homeGoalsScored(matches: Match[], teamId: number, redCards?: Map<string, number>): { avg: number; n: number } {
   const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
   if (games.length === 0) return { avg: LEAGUE_HOME_XG, n: 0 }
-  return { avg: games.reduce((s, m) => s + (m.home_score ?? 0), 0) / games.length, n: games.length }
+  return { avg: weightedAvg(games, (m) => m.home_score ?? 0, redCards), n: games.length }
 }
 
 /** Goals conceded per away game for teamId (scored by the opposing home team) */
-function awayGoalsConceded(matches: Match[], teamId: number): { avg: number; n: number } {
+function awayGoalsConceded(matches: Match[], teamId: number, redCards?: Map<string, number>): { avg: number; n: number } {
   const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
   if (games.length === 0) return { avg: LEAGUE_HOME_XG, n: 0 }
-  return { avg: games.reduce((s, m) => s + (m.home_score ?? 0), 0) / games.length, n: games.length }
+  return { avg: weightedAvg(games, (m) => m.home_score ?? 0, redCards), n: games.length }
 }
 
 /** Goals scored per away game for teamId */
-function awayGoalsScored(matches: Match[], teamId: number): { avg: number; n: number } {
+function awayGoalsScored(matches: Match[], teamId: number, redCards?: Map<string, number>): { avg: number; n: number } {
   const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
   if (games.length === 0) return { avg: LEAGUE_AWAY_XG, n: 0 }
-  return { avg: games.reduce((s, m) => s + (m.away_score ?? 0), 0) / games.length, n: games.length }
+  return { avg: weightedAvg(games, (m) => m.away_score ?? 0, redCards), n: games.length }
 }
 
 /** Goals conceded per home game for teamId (scored by the opposing away team) */
-function homeGoalsConceded(matches: Match[], teamId: number): { avg: number; n: number } {
+function homeGoalsConceded(matches: Match[], teamId: number, redCards?: Map<string, number>): { avg: number; n: number } {
   const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
   if (games.length === 0) return { avg: LEAGUE_AWAY_XG, n: 0 }
-  return { avg: games.reduce((s, m) => s + (m.away_score ?? 0), 0) / games.length, n: games.length }
+  return { avg: weightedAvg(games, (m) => m.away_score ?? 0, redCards), n: games.length }
 }
 
 /**
@@ -755,10 +803,11 @@ export function getMatchXG(
   awayTeamId: number,
   priorCtx?: PriorContext
 ): { homeXG: number; awayXG: number; diagnostics: OddsDiagnostics } {
-  let homeAtk = homeGoalsScored(matches, homeTeamId)    // home team goals scored at home
-  let awayDef = awayGoalsConceded(matches, awayTeamId)  // away team goals conceded away
-  let awayAtk = awayGoalsScored(matches, awayTeamId)    // away team goals scored away
-  let homeDef = homeGoalsConceded(matches, homeTeamId)  // home team goals conceded at home
+  const redCards = priorCtx?.redCards
+  let homeAtk = homeGoalsScored(matches, homeTeamId, redCards)    // home team goals scored at home
+  let awayDef = awayGoalsConceded(matches, awayTeamId, redCards)  // away team goals conceded away
+  let awayAtk = awayGoalsScored(matches, awayTeamId, redCards)    // away team goals scored away
+  let homeDef = homeGoalsConceded(matches, homeTeamId, redCards)  // home team goals conceded at home
 
   const homeName = priorCtx?.teamNames.get(homeTeamId)
   const awayName = priorCtx?.teamNames.get(awayTeamId)
