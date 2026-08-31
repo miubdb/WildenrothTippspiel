@@ -529,10 +529,18 @@ export default async function TippsPage({
 
         const { data: existingRows } = await supabase
           .from('match_goalscorer_odds')
-          .select('match_id, player_id, status, is_offered, is_offered_2plus, prob_score, prob_score_2plus, odds_score, odds_score_2plus, frozen_at')
+          .select('match_id, player_id, status, is_offered, is_offered_2plus, prob_score, prob_score_2plus, odds_score, odds_score_2plus, frozen_at, manually_overridden')
           .in('match_id', wmIds)
 
         const frozenSet = new Set((existingRows ?? []).filter(r => r.frozen_at).map(r => r.match_id))
+        // Rows an admin already manually blocked/enabled/re-priced (via
+        // /availability or /cancel-player, typically before the window opened)
+        // must survive this automatic freeze — otherwise the first real page
+        // load after betting opens silently reverts the admin's edit back to
+        // the model's own numbers, which is exactly what happened last time.
+        const overriddenKeys = new Set(
+          (existingRows ?? []).filter(r => r.manually_overridden).map(r => `${r.match_id}:${r.player_id}`)
+        )
         // match_goalscorer_odds only grants writes to admins, so the freeze must
         // go through the service-role client exactly like the 1X2 freeze above —
         // otherwise a normal member's page load silently writes nothing and the
@@ -547,6 +555,12 @@ export default async function TippsPage({
             )
             const now = new Date().toISOString()
             for (const o of offers) {
+              if (overriddenKeys.has(`${m.id}:${o.player_id}`)) {
+                await adminSupaGs.from('match_goalscorer_odds')
+                  .update({ frozen_at: now, updated_at: now })
+                  .eq('match_id', m.id).eq('player_id', o.player_id)
+                continue
+              }
               await adminSupaGs.from('match_goalscorer_odds').upsert({
                 match_id: m.id,
                 player_id: o.player_id,

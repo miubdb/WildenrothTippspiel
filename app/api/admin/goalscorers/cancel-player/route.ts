@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
   // Mark offers off + status not_bettable
   await admin
     .from('match_goalscorer_odds')
-    .update({ is_offered: false, is_offered_2plus: false, status: 'not_bettable', updated_at: new Date().toISOString() })
+    .update({ is_offered: false, is_offered_2plus: false, status: 'not_bettable', manually_overridden: true, updated_at: new Date().toISOString() })
     .eq('match_id', matchId)
     .eq('player_id', playerId)
 

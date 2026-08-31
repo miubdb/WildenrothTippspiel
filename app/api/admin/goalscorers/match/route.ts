@@ -181,8 +181,28 @@ export async function POST(request: NextRequest) {
     seasonMatches, match.home_team_id, match.away_team_id, wildenrothId, players, priorCtx,
   )
 
+  // Rows an admin already manually blocked/enabled/re-priced (via
+  // /availability or /cancel-player) must survive a recompute — otherwise
+  // "Quoten neu berechnen" (or the automatic freeze once betting opens)
+  // silently reverts a manual edit back to the model's own numbers.
+  const { data: existingRows } = await supabase
+    .from('match_goalscorer_odds')
+    .select('player_id, manually_overridden, frozen_at')
+    .eq('match_id', matchId)
+  const overriddenIds = new Set((existingRows ?? []).filter(r => r.manually_overridden).map(r => r.player_id))
+  const alreadyFrozenIds = new Set((existingRows ?? []).filter(r => r.frozen_at).map(r => r.player_id))
+
   const now = new Date().toISOString()
   for (const o of offers) {
+    if (overriddenIds.has(o.player_id)) {
+      // Only (maybe) freeze it — never touch the admin's own status/is_offered/odds.
+      if (allowFreeze && !alreadyFrozenIds.has(o.player_id)) {
+        await supabase.from('match_goalscorer_odds')
+          .update({ frozen_at: now, updated_at: now })
+          .eq('match_id', matchId).eq('player_id', o.player_id)
+      }
+      continue
+    }
     await supabase.from('match_goalscorer_odds').upsert({
       match_id: matchId,
       player_id: o.player_id,
