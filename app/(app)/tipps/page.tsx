@@ -544,7 +544,15 @@ export default async function TippsPage({
           .select('match_id, player_id, status, is_offered, is_offered_2plus, prob_score, prob_score_2plus, odds_score, odds_score_2plus, frozen_at, manually_overridden')
           .in('match_id', wmIds)
 
-        const frozenSet = new Set((existingRows ?? []).filter(r => r.frozen_at).map(r => r.match_id))
+        // Per-(match,player) — NOT per-match. A match-level "is this match
+        // already frozen" check meant that once a single row for a match had
+        // frozen_at set, every other still-unfrozen row for that SAME match
+        // (e.g. a player added/reactivated after the first freeze) would
+        // never get frozen at all, silently staying invisible/unbettable
+        // forever even though it holds a real admin-set price.
+        const frozenKeys = new Set(
+          (existingRows ?? []).filter(r => r.frozen_at).map(r => `${r.match_id}:${r.player_id}`)
+        )
         // Rows an admin already manually blocked/enabled/re-priced (via
         // /availability or /cancel-player, typically before the window opened)
         // must survive this automatic freeze — otherwise the first real page
@@ -560,33 +568,31 @@ export default async function TippsPage({
         const adminSupaGs = createAdminClient()
 
         for (const m of openWildenrothMatches) {
-          if (!frozenSet.has(m.id)) {
-            // Freeze for this match now
-            const offers = computeGoalscorerOffersForMatch(
-              seasonMatches, m.home_team_id, m.away_team_id, wildenrothId, players, priorCtx,
-            )
-            const now = new Date().toISOString()
-            for (const o of offers) {
-              if (overriddenKeys.has(`${m.id}:${o.player_id}`)) {
-                await adminSupaGs.from('match_goalscorer_odds')
-                  .update({ frozen_at: now, updated_at: now })
-                  .eq('match_id', m.id).eq('player_id', o.player_id)
-                continue
-              }
-              await adminSupaGs.from('match_goalscorer_odds').upsert({
-                match_id: m.id,
-                player_id: o.player_id,
-                status: 'available',
-                is_offered: o.is_offered,
-                is_offered_2plus: o.is_offered_2plus,
-                prob_score: o.prob_score,
-                prob_score_2plus: o.prob_score_2plus,
-                odds_score: o.odds_score,
-                odds_score_2plus: o.odds_score_2plus,
-                frozen_at: now,
-                updated_at: now,
-              }, { onConflict: 'match_id,player_id' })
+          const offers = computeGoalscorerOffersForMatch(
+            seasonMatches, m.home_team_id, m.away_team_id, wildenrothId, players, priorCtx,
+          )
+          const now = new Date().toISOString()
+          for (const o of offers) {
+            if (frozenKeys.has(`${m.id}:${o.player_id}`)) continue // already live — never re-freeze
+            if (overriddenKeys.has(`${m.id}:${o.player_id}`)) {
+              await adminSupaGs.from('match_goalscorer_odds')
+                .update({ frozen_at: now, updated_at: now })
+                .eq('match_id', m.id).eq('player_id', o.player_id)
+              continue
             }
+            await adminSupaGs.from('match_goalscorer_odds').upsert({
+              match_id: m.id,
+              player_id: o.player_id,
+              status: 'available',
+              is_offered: o.is_offered,
+              is_offered_2plus: o.is_offered_2plus,
+              prob_score: o.prob_score,
+              prob_score_2plus: o.prob_score_2plus,
+              odds_score: o.odds_score,
+              odds_score_2plus: o.odds_score_2plus,
+              frozen_at: now,
+              updated_at: now,
+            }, { onConflict: 'match_id,player_id' })
           }
         }
 
