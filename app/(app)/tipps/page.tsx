@@ -654,20 +654,34 @@ export default async function TippsPage({
     }
   }
 
-  // Standings positions
-  const teamPtsMap = new Map<number, { pts: number; gd: number; gf: number }>()
-  for (const m of seasonMatches) {
-    if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
-    const hs = m.home_score; const as_ = m.away_score
-    const h = teamPtsMap.get(m.home_team_id) ?? { pts: 0, gd: 0, gf: 0 }
-    const a = teamPtsMap.get(m.away_team_id) ?? { pts: 0, gd: 0, gf: 0 }
-    h.gf += hs; h.gd += hs - as_; a.gf += as_; a.gd += as_ - hs
-    if (hs > as_) h.pts += 3; else if (hs < as_) a.pts += 3; else { h.pts++; a.pts++ }
-    teamPtsMap.set(m.home_team_id, h); teamPtsMap.set(m.away_team_id, a)
+  // Standings positions — computed SEPARATELY per competition, not pooled
+  // across all of them. 'kreisliga' matches are the real Kreisliga Zugspitze
+  // table (Wildenroth I's league); 'wildenroth_ii' + 'bklasse_topspiel' +
+  // 'b-klasse' matches all belong to the SAME underlying B-Klasse Gruppe 2
+  // table (Wildenroth II's league) — mixing either group into one combined
+  // ranking produced nonsense positions like "Platz 18"/"Platz 24" for
+  // B-Klasse teams, since a league of ~11 teams can't have a position that
+  // high; it was really their rank across two unrelated leagues' team pools
+  // stacked together.
+  function computePositions(pool: Match[]): Record<number, number> {
+    const teamPtsMap = new Map<number, { pts: number; gd: number; gf: number }>()
+    for (const m of pool) {
+      if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
+      const hs = m.home_score; const as_ = m.away_score
+      const h = teamPtsMap.get(m.home_team_id) ?? { pts: 0, gd: 0, gf: 0 }
+      const a = teamPtsMap.get(m.away_team_id) ?? { pts: 0, gd: 0, gf: 0 }
+      h.gf += hs; h.gd += hs - as_; a.gf += as_; a.gd += as_ - hs
+      if (hs > as_) h.pts += 3; else if (hs < as_) a.pts += 3; else { h.pts++; a.pts++ }
+      teamPtsMap.set(m.home_team_id, h); teamPtsMap.set(m.away_team_id, a)
+    }
+    const sortedTeams = [...teamPtsMap.entries()].sort(([, a], [, b]) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
+    const result: Record<number, number> = {}
+    sortedTeams.forEach(([id], idx) => { result[id] = idx + 1 })
+    return result
   }
-  const sortedTeams = [...teamPtsMap.entries()].sort(([, a], [, b]) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
-  const positions: Record<number, number> = {}
-  sortedTeams.forEach(([id], idx) => { positions[id] = idx + 1 })
+  const kreisligaPool = seasonMatches.filter(m => !m.match_category || m.match_category === 'kreisliga')
+  const bKlassePool = seasonMatches.filter(m => m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel' || m.match_category === 'b-klasse')
+  const positions: Record<number, number> = { ...computePositions(kreisligaPool), ...computePositions(bKlassePool) }
 
   // Find Wildenroth team IDs (1. and 2. Mannschaft are separate teams/flags)
   const allTeamsInMatches = allMatches.flatMap(m => [m.home_team, m.away_team])
