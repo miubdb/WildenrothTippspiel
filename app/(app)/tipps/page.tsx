@@ -514,18 +514,30 @@ export default async function TippsPage({
       const players = (playersRaw ?? []) as WildenrothPlayer[]
       for (const p of players) playerNameMap[p.id] = p.name
 
-      let goalscorerGateOpen = true
+      // Only the LATER match(es) of a double-fixture Spieltag get locked — the
+      // earlier (e.g. midweek) match's own Torschützen market stays open and
+      // freezes normally, exactly like Option 2 asked for. Locking the
+      // earlier match too (as an earlier version of this code did) made no
+      // sense: its own kickoff is what the lock is waiting on in the first
+      // place.
+      const lockedMatchIds = new Set<number>()
       if (wildenrothMatches.length >= 2) {
-        const earliestKickoff = Math.min(...wildenrothMatches.map(m => new Date(m.match_date).getTime()))
+        const sortedByKickoff = [...wildenrothMatches].sort(
+          (a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime()
+        )
+        const earliestKickoff = new Date(sortedByKickoff[0].match_date).getTime()
         const unlockAt = earliestKickoff + GOALSCORER_DOUBLE_FIXTURE_BUFFER_MS
         if (Date.now() < unlockAt) {
-          goalscorerGateOpen = false
-          for (const m of wildenrothMatches) goalscorerLockUntilByMatch[m.id] = new Date(unlockAt).toISOString()
+          for (const m of sortedByKickoff.slice(1)) {
+            lockedMatchIds.add(m.id)
+            goalscorerLockUntilByMatch[m.id] = new Date(unlockAt).toISOString()
+          }
         }
       }
+      const openWildenrothMatches = wildenrothMatches.filter(m => !lockedMatchIds.has(m.id))
 
-      if (wildenrothMatches.length > 0 && isBettingOpen && goalscorerGateOpen) {
-        const wmIds = wildenrothMatches.map(m => m.id)
+      if (openWildenrothMatches.length > 0 && isBettingOpen) {
+        const wmIds = openWildenrothMatches.map(m => m.id)
 
         const { data: existingRows } = await supabase
           .from('match_goalscorer_odds')
@@ -547,7 +559,7 @@ export default async function TippsPage({
         // Torschützen tab never appears for them.
         const adminSupaGs = createAdminClient()
 
-        for (const m of wildenrothMatches) {
+        for (const m of openWildenrothMatches) {
           if (!frozenSet.has(m.id)) {
             // Freeze for this match now
             const offers = computeGoalscorerOffersForMatch(
