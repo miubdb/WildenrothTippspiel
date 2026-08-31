@@ -472,6 +472,19 @@ export default async function TippsPage({
   const goalscorerOffersByMatch: Record<number, (GoalscorerOffer & { status: string })[]> = {}
   // Player name map used by display components for goalscorer selections.
   const playerNameMap: Record<number, string> = {}
+  // When a Wildenroth side (I or II) has two of its own matches under the same
+  // open Spieltag — a rescheduled midweek Nachholspiel landing on the same
+  // effective Spieltag as that week's normal fixture, NOT the separate
+  // single-match-per-team English-week Spieltage — both those matches' minute
+  // projections are too uncertain (rotation risk across two games in one
+  // week) to freeze/offer a Torschützen market immediately. Instead the whole
+  // Torschützen tab for BOTH matches stays locked until a fixed buffer after
+  // the EARLIER match's kickoff (a proxy for "that match is over"), by which
+  // point the admin will typically have entered its match_lineups and
+  // recomputed wildenroth_players — so the later match's own projection also
+  // benefits from that game's real minutes/goals data once it unlocks.
+  const GOALSCORER_DOUBLE_FIXTURE_BUFFER_MS = 2 * 60 * 60 * 1000
+  const goalscorerLockUntilByMatch: Record<number, string> = {}
   {
     // Both Wildenroth sides get a goalscorer market, each from its own squad.
     // Resolved by exact name: a substring match on 'Wildenroth' also hits
@@ -501,7 +514,17 @@ export default async function TippsPage({
       const players = (playersRaw ?? []) as WildenrothPlayer[]
       for (const p of players) playerNameMap[p.id] = p.name
 
-      if (wildenrothMatches.length > 0 && isBettingOpen) {
+      let goalscorerGateOpen = true
+      if (wildenrothMatches.length >= 2) {
+        const earliestKickoff = Math.min(...wildenrothMatches.map(m => new Date(m.match_date).getTime()))
+        const unlockAt = earliestKickoff + GOALSCORER_DOUBLE_FIXTURE_BUFFER_MS
+        if (Date.now() < unlockAt) {
+          goalscorerGateOpen = false
+          for (const m of wildenrothMatches) goalscorerLockUntilByMatch[m.id] = new Date(unlockAt).toISOString()
+        }
+      }
+
+      if (wildenrothMatches.length > 0 && isBettingOpen && goalscorerGateOpen) {
         const wmIds = wildenrothMatches.map(m => m.id)
 
         const { data: existingRows } = await supabase
@@ -1136,6 +1159,7 @@ export default async function TippsPage({
                     isWildenrothIiPlayer={isWildenrothIiPlayer}
                     wildenrothIiTeamId={wildenrothIiTeamId}
                     goalscorers={goalscorerOffersByMatch[match.id] ?? null}
+                    goalscorerLockedUntil={goalscorerLockUntilByMatch[match.id] ?? null}
                     originalMatchday={isRescheduledMatch(match, mdIndex) ? match.matchday : null}
                     exactScores={exactScoreOffersMap[match.id] ?? []}
                   />
@@ -1160,6 +1184,7 @@ export default async function TippsPage({
                         isWildenrothIiPlayer={isWildenrothIiPlayer}
                         wildenrothIiTeamId={wildenrothIiTeamId}
                         goalscorers={goalscorerOffersByMatch[match.id] ?? null}
+                        goalscorerLockedUntil={goalscorerLockUntilByMatch[match.id] ?? null}
                         exactScores={exactScoreOffersMap[match.id] ?? []}
                       />
                     ))}
