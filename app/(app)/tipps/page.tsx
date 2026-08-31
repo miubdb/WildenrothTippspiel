@@ -1112,7 +1112,8 @@ export default async function TippsPage({
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2">
             <div className="text-red-200 text-xs">Wetten öffnen am</div>
             <div className="text-white font-semibold text-sm">
-              {bettingOpens.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })} um 12:00 Uhr
+              {bettingOpens.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })} um{' '}
+              {bettingOpens.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })} Uhr
             </div>
           </div>
         )}
