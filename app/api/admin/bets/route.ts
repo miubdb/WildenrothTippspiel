@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import type { Match } from '@/types'
 
 const SEASON_START = '2026-08-01'
 
@@ -19,18 +21,33 @@ export async function GET(request: NextRequest) {
   const matchday = parseInt(request.nextUrl.searchParams.get('matchday') ?? '0', 10)
   if (!matchday) return NextResponse.json({ error: 'Spieltag fehlt.' }, { status: 400 })
 
-  // All match IDs for this matchday. Matchday numbers repeat across seasons
-  // (this one and the prior 25/26 season both run 1-30), so without the
-  // season filter this would mix in year-old settled bets from last season's
-  // identically-numbered Spieltag — matchday 999 (test) is exempt, same as
-  // everywhere else in the app.
-  const { data: matchRows } = await supabase
+  // Must resolve via the EFFECTIVE Tippspiel-Spieltag (lib/season.ts), not the
+  // raw `matches.matchday` column — exactly like every member-facing page
+  // (tipps, leaderboard). A Kreisliga Nachholspiel reassigned to a different
+  // Spieltag (e.g. raw matchday=1, actually played and bet under Spieltag 7 —
+  // see the "matchday scheduling quirk" note in CLAUDE.md) still carries its
+  // OLD raw matchday number, and a Wildenroth-II/Topspiel match's raw number
+  // is independent/meaningless. Filtering by raw matchday here used to
+  // fragment a single combo across several ST-tabs whenever one of its legs
+  // was such a match: each tab saw only a PARTIAL subset of the combo's legs,
+  // showed a wrong partial-product "Gesamtquote", and duplicated its
+  // 🎲 RISKY tag onto every fragment — reported live as "two Risky slips at
+  // once" for a user who really only had one.
+  const { data: allMatchesRaw } = await supabase
     .from('matches')
-    .select('id, home_team_id, away_team_id, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
-    .eq('matchday', matchday)
+    .select('id, matchday, tippspiel_matchday, match_date, match_category, is_topspiel, home_team_id, away_team_id, status, home_score, away_score, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
     .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
 
-  const matchIds = (matchRows ?? []).map(m => m.id)
+  const seasonMatches = (allMatchesRaw ?? []).map((m) => ({
+    ...m,
+    home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
+    away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
+  })) as unknown as Match[]
+
+  const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
+  const matchRows = seasonMatches.filter((m) => effectiveMatchdayOf(m, mdIndex) === matchday)
+
+  const matchIds = matchRows.map(m => m.id)
   if (matchIds.length === 0) return NextResponse.json({ bets: [], profiles: [], matches: [] })
 
   const matchMap = Object.fromEntries(

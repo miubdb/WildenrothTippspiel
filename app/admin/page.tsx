@@ -1811,11 +1811,20 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                   if (shownCombos.has(bet.combo_id)) return null
                   shownCombos.add(bet.combo_id)
                   const legs = userBets.filter(b => b.combo_id === bet.combo_id)
-                  const comboOdds = legs.reduce((acc, l) => acc * l.odds_value, 1)
-                  // Compute effective combo status from legs — same logic as the app
+                  // Prefer the stored total_odds (combo_bets, always the full,
+                  // correct value) over recomputing from `legs` — `legs` here
+                  // only ever holds whichever legs this Spieltag's /api/admin/bets
+                  // call returned, so a product over it silently understates a
+                  // combo whose fetch was incomplete for any reason.
+                  const comboOdds = comboMap[Number(bet.combo_id)]?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
+                  // Compute effective combo status from legs — same logic as the app.
+                  // 'void' (storniert) legs are neither 'lost' nor 'won', and must be
+                  // checked before the 'pending' fallback — otherwise a cancelled
+                  // combo (all legs 'void') silently reads as "Offen".
                   const effectiveComboStatus =
                     legs.some(l => l.status === 'lost') ? 'lost' :
                     legs.every(l => l.status === 'won') ? 'won' :
+                    legs.every(l => l.status === 'void') ? 'void' :
                     'pending'
                   return (
                     <div key={bet.combo_id} className="px-4 py-2.5">
@@ -1831,7 +1840,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                       </div>
                       {legs.map(leg => (
                         <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5 pl-2">
-                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-500' : 'bg-yellow-400'}`} />
+                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-500' : leg.status === 'void' ? 'bg-gray-300' : 'bg-yellow-400'}`} />
                           <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
                           <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
                           <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection, playerMap)}</span>
@@ -1865,9 +1874,10 @@ function StatusChip({ status }: { status: string }) {
   return (
     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
       status === 'won' ? 'bg-green-100 text-green-700' :
-      status === 'lost' ? 'bg-red-100 text-red-600' : 'bg-yellow-50 text-yellow-700'
+      status === 'lost' ? 'bg-red-100 text-red-600' :
+      status === 'void' ? 'bg-gray-100 text-gray-500' : 'bg-yellow-50 text-yellow-700'
     }`}>
-      {status === 'won' ? 'Gewonnen' : status === 'lost' ? 'Verloren' : 'Offen'}
+      {status === 'won' ? 'Gewonnen' : status === 'lost' ? 'Verloren' : status === 'void' ? 'Storniert' : 'Offen'}
     </span>
   )
 }
