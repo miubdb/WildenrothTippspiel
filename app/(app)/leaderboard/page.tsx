@@ -214,7 +214,7 @@ export default async function LeaderboardPage({
       .from('bets')
       .select('user_id, combo_id')
       .in('match_id', [...matchdayMatchIds])
-      .neq('status', 'cancelled')
+      .neq('status', 'void')
     const seenUserCombo = new Set<string>()
     for (const b of mdBetRows ?? []) {
       if (!b.combo_id) {
@@ -255,6 +255,7 @@ export default async function LeaderboardPage({
          )`
       )
       .in('match_id', matchIds)
+      .neq('status', 'void')
 
     const mapped = (betsRaw ?? []).map(b => ({
       ...b,
@@ -328,7 +329,7 @@ export default async function LeaderboardPage({
 
   // Single bets
   for (const b of allBets) {
-    if (b.status === 'pending' || !b.match_id) continue
+    if (b.status === 'pending' || b.status === 'void' || !b.match_id) continue
     const md = matchToMatchday.get(b.match_id)
     if (!md || b.combo_id) continue
     const key = `${b.user_id}_${md}`
@@ -345,7 +346,7 @@ export default async function LeaderboardPage({
     }
   }
   for (const cb of allCombos) {
-    if (cb.status === 'pending') continue
+    if (cb.status === 'pending' || cb.status === 'void') continue
     const md = comboToMatchday.get(cb.id)
     if (!md) continue
     const key = `${cb.user_id}_${md}`

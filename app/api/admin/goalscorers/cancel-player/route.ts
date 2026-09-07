@@ -9,10 +9,16 @@ import { sendPushToUser } from '@/lib/push'
  *
  * Marks a player as not offered for the match, then:
  *  - finds all pending goalscorer bets on that (match, player)
- *  - for single bets: deletes them and refunds stake
- *  - for combo bets that contain such a leg: deletes the entire combo (all legs)
- *    and refunds the combo stake (user-friendly: full refund)
+ *  - for single bets: soft-cancels them (status='void') and refunds stake
+ *  - for combo bets that contain such a leg: soft-cancels the entire combo (all
+ *    legs) and refunds the combo stake (user-friendly: full refund)
  *  - sends a push notification to each affected user
+ *
+ * Soft-cancelling (not deleting) keeps the row around for later "what would
+ * have happened" recap analysis, same as the user-initiated cancel flow in
+ * app/api/bets/cancel/route.ts — every read site that must not see cancelled
+ * bets already filters status <> 'void'. 'void' (not 'cancelled') is what the
+ * bets_status_check / combo_bets_status_check CHECK constraints allow.
  */
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -72,7 +78,7 @@ export async function POST(request: NextRequest) {
 
   // Cancel single bets
   if (cancelledSingles.length > 0) {
-    await admin.from('bets').delete().in('id', cancelledSingles)
+    await admin.from('bets').update({ status: 'void' }).in('id', cancelledSingles)
   }
 
   // Cancel combos (refund the full combo stake to the user)
@@ -80,8 +86,8 @@ export async function POST(request: NextRequest) {
     const { data: combo } = await admin
       .from('combo_bets').select('id, user_id, stake').eq('id', comboId).single()
     if (!combo) continue
-    await admin.from('bets').delete().eq('combo_id', comboId)
-    await admin.from('combo_bets').delete().eq('id', comboId)
+    await admin.from('bets').update({ status: 'void' }).eq('combo_id', comboId)
+    await admin.from('combo_bets').update({ status: 'void' }).eq('id', comboId)
     refunds.push({ userId: combo.user_id, amount: Number(combo.stake) })
   }
 

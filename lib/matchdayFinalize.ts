@@ -106,6 +106,7 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
         .from('bets')
         .select('user_id')
         .in('match_id', mdMatchIds)
+        .neq('status', 'void')
       const activeUserIds = new Set((activeBetRows ?? []).map((b) => b.user_id as string))
 
       // Only users actually allowed to bet this season can be "inactive" —

@@ -663,7 +663,7 @@ export default async function TippsPage({
   const [{ data: userProfile }, ownBetsResult] = await Promise.all([
     user ? supabase.from('profiles').select('is_wildenroth, is_wildenroth_ii, eligible_for_current_season, is_admin').eq('id', user.id).single() : Promise.resolve({ data: null }),
     user && matchdayMatchIds.length > 0
-      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky').eq('user_id', user.id).in('match_id', matchdayMatchIds)
+      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky').eq('user_id', user.id).in('match_id', matchdayMatchIds).neq('status', 'void')
       : Promise.resolve({ data: [] }),
   ])
 
@@ -700,9 +700,13 @@ export default async function TippsPage({
       // Counts come from the actually stored is_risky flag (set once, server-side,
       // at placement — see /api/bets/place) rather than re-derived from odds here.
       // A combo's legs all share one is_risky value, so any leg reflects the
-      // whole combo's slot. Only PENDING bets occupy a slot — a settled bet no
-      // longer counts toward the limit (cancellation deletes the row outright,
-      // so it's already excluded either way).
+      // whole combo's slot. Only PENDING bets occupy a slot in this on-page
+      // counter — a settled bet no longer counts here (this is a lighter,
+      // display-only tally; the actual limit enforced at placement in
+      // /api/bets/place also blocks re-betting a slot freed by early
+      // settlement, see the comment there). A cancelled bet (status 'void',
+      // not deleted — see /api/bets/cancel) is excluded either way since
+      // it's never 'pending'.
       const pendingSingles = userSingles.filter(b => b.status === 'pending')
       const pendingCombos = userCombos.filter(c => c.status === 'pending')
       const riskySingles = pendingSingles.filter(b => b.is_risky).length
@@ -737,7 +741,7 @@ export default async function TippsPage({
       .select('match_id, combo_id')
       .in('match_id', matchdayMatchIds)
       .neq('user_id', user.id)
-      .neq('status', 'cancelled')
+      .neq('status', 'void')
     // Keyed by "matchId:comboId", not just comboId — a combo's bet slip counts as
     // one "Wettschein" on EVERY match it has a leg on, not just the one match
     // whose row happens to come first in this unordered query. A combo-id-only
@@ -1175,7 +1179,7 @@ export default async function TippsPage({
           Includes the current user's own bets (labelled "Du") for one complete overview. */}
       {user && Object.values(betCountByMatch).some(c => c > 0) && (() => {
         const now = new Date()
-        const activeSocial = socialBets.filter(b => b.status !== 'cancelled')
+        const activeSocial = socialBets.filter(b => b.status !== 'void')
         const profileMap = new Map(socialProfiles.map(p => [p.id, p]))
         const nameOf = (uid: string) => {
           if (uid === user.id) return 'Du'

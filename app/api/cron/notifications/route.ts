@@ -144,17 +144,18 @@ export async function GET(request: NextRequest) {
         // recomputeRiskyForUserMatchday() after each placement/cancellation
         // (see lib/risky.ts), so counting "normal slips < 2" / "risky slips
         // < 1" from it is equivalent to evaluating the dynamic Risky rule
-        // fresh. No status filter — a cancelled bet's row is deleted outright,
-        // so every remaining row (pending, won, or lost) still occupies a slot
-        // for that matchday, exactly like the limit check in bets/place/route.ts.
-        // Filtering to status='pending' here undercounts once early matches in
-        // the Spieltag finish and settle, wrongly telling a user with all 3
-        // slots used that one is still free.
+        // fresh. Excludes only 'void' (soft-cancelled — see /api/bets/cancel)
+        // — every other status (pending, won, or lost) still occupies a slot
+        // for that matchday, exactly like the limit check in
+        // bets/place/route.ts. Filtering to status='pending' here undercounts
+        // once early matches in the Spieltag finish and settle, wrongly
+        // telling a user with all 3 slots used that one is still free.
         const { data: betLegs } = await admin
           .from('bets')
           .select('user_id, combo_id, is_risky')
           .in('match_id', matchdayMatchIds)
           .eq('season', '26/27')
+          .neq('status', 'void')
 
         // Track normal singles/combos (max 2 slots) and risky singles/combos (max 1 slot)
         const userNormalSingles = new Map<string, number>()

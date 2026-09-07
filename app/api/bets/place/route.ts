@@ -488,8 +488,9 @@ export async function POST(request: NextRequest) {
     // still open — settlement runs per match, so one match in a Spieltag can
     // finish (freeing nothing) while others are still scheduled, and a slip
     // settling early must not hand back a slot to bet again. A cancelled bet
-    // (cancellation deletes the row entirely — see /api/bets/cancel) never
-    // occupies a slot here, since there's no row left to match either filter.
+    // (soft-cancelled to status='void', not deleted — see /api/bets/cancel)
+    // never occupies a slot here, since 'void' is deliberately excluded from
+    // this status list.
     const { data: existingLegs } = await admin
       .from('bets')
       .select('id, combo_id, odds_value')

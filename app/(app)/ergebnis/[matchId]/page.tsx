@@ -89,6 +89,7 @@ export default async function ErgebnisPage({
     .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky')
     .eq('match_id', matchId)
     .eq('user_id', user.id)
+    .neq('status', 'void')
 
   const bets = betsRaw ?? []
   const singles = bets.filter(b => !b.combo_id)

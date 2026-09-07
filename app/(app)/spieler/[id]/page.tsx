@@ -83,6 +83,7 @@ export default async function SpielerPage({
     .from('bets')
     .select('id, status, combo_id, season, stake, payout')
     .eq('user_id', id)
+    .neq('status', 'void')
 
   const bets = (betsRaw ?? []).filter(b => !b.season || b.season === CURRENT_SEASON)
   const singleBets = bets.filter(b => !b.combo_id)

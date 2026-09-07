@@ -99,6 +99,7 @@ export default async function ProfilPage({
        )`
     )
     .eq('user_id', user.id)
+    .neq('status', 'void')
     .order('created_at', { ascending: false })
     .limit(120)
 

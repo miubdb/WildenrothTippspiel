@@ -102,18 +102,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Soft-cancel: mark 'cancelled' instead of deleting, so the row survives
-    // for later "what would have happened" recap analysis — cancelled bets
-    // are never shown to users, never count toward slot limits, and never
-    // settle (every other read site filters status <> 'cancelled'; see the
+    // Soft-cancel: mark status='void' instead of deleting, so the row
+    // survives for later "what would have happened" recap analysis — void
+    // bets are never shown to users, never count toward slot limits, and
+    // never settle (every other read site filters status <> 'void'; see the
     // grep-for-`.from('bets')`/`.from('combo_bets')` sweep done when this was
-    // introduced). Legs first, gated on still being pending — this is the
+    // introduced). 'void' — not 'cancelled' — because that's the value the
+    // bets_status_check / combo_bets_status_check CHECK constraints actually
+    // allow (ARRAY['pending','won','lost','void']); 'cancelled' fails the
+    // constraint. Legs first, gated on still being pending — this is the
     // atomic guard against concurrent cancels: only the request that actually
     // flips rows may refund. A losing racer's update matches 0 rows and it
     // must not credit the stake.
     const { data: cancelledLegs, error: legsCancelError } = await admin
       .from('bets')
-      .update({ status: 'cancelled' })
+      .update({ status: 'void' })
       .eq('combo_id', comboId)
       .eq('status', 'pending')
       .select('id')
@@ -126,7 +129,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Wette wurde bereits storniert oder abgerechnet.' }, { status: 409 })
     }
 
-    const { error: comboCancelError } = await admin.from('combo_bets').update({ status: 'cancelled' }).eq('id', comboId)
+    const { error: comboCancelError } = await admin.from('combo_bets').update({ status: 'void' }).eq('id', comboId)
     if (comboCancelError) {
       // Legs are already cancelled (and the user is about to be refunded) —
       // log it, but don't fail the request over the parent row's own status.
@@ -190,11 +193,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Soft-cancel (see combo branch above for why) — gated on still being
-    // pending — only the request that actually flips the row may refund.
+    // Soft-cancel (see combo branch above for why 'void', not 'cancelled') —
+    // gated on still being pending — only the request that actually flips
+    // the row may refund.
     const { data: cancelledBet, error: cancelError } = await admin
       .from('bets')
-      .update({ status: 'cancelled' })
+      .update({ status: 'void' })
       .eq('id', bet.id)
       .eq('status', 'pending')
       .select('id, stake')

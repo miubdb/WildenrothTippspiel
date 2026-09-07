@@ -81,7 +81,7 @@ export default async function RecapPage({
     .select(`id, user_id, match_id, stake, payout, status, combo_id`)
     .in('match_id', matchIds)
     .eq('season', '26/27')
-    .not('status', 'eq', 'pending')
+    .in('status', ['won', 'lost'])
 
   // Fetch combo_bets for combos that have at least one leg in this matchday
   const comboIds = [
@@ -99,7 +99,7 @@ export default async function RecapPage({
       .from('combo_bets')
       .select('id, user_id, stake, payout, status')
       .in('id', comboIds)
-      .not('status', 'eq', 'pending')
+      .in('status', ['won', 'lost'])
     comboBetRows = (cbData ?? []) as ComboBetRow[]
   }
 

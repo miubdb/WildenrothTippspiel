@@ -98,9 +98,11 @@ function LockedBetRow({ variant }: { variant: 'single' | 'combo' }) {
   )
 }
 
-// Visibility: single bets after own game kickoff; combos once any leg has kicked off; cancelled = hidden
+// Visibility: single bets after own game kickoff; combos once any leg has kicked off; void (cancelled) = hidden.
+// Belt-and-suspenders: the page-level query already excludes status='void', so this
+// should never actually see one, but keep the guard in case that ever changes.
 function isBetVisible(bet: BetRow, allMatchdayBets: BetRow[], now: Date): boolean {
-  if (bet.status === 'cancelled') return false
+  if (bet.status === 'void') return false
   if (!bet.combo_id) {
     return !!bet.match && new Date(bet.match.match_date) <= now
   }
