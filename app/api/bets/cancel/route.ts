@@ -102,31 +102,35 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Delete the legs first, gated on them still being pending — this is the
+    // Soft-cancel: mark 'cancelled' instead of deleting, so the row survives
+    // for later "what would have happened" recap analysis — cancelled bets
+    // are never shown to users, never count toward slot limits, and never
+    // settle (every other read site filters status <> 'cancelled'; see the
+    // grep-for-`.from('bets')`/`.from('combo_bets')` sweep done when this was
+    // introduced). Legs first, gated on still being pending — this is the
     // atomic guard against concurrent cancels: only the request that actually
-    // removes rows may refund. A losing racer's delete matches 0 rows and it
-    // must not credit the stake. (Legs must go first: bets_combo_id_fkey has
-    // no ON DELETE CASCADE, so combo_bets can't be deleted while legs remain.)
-    const { data: deletedLegs, error: legsDeleteError } = await admin
+    // flips rows may refund. A losing racer's update matches 0 rows and it
+    // must not credit the stake.
+    const { data: cancelledLegs, error: legsCancelError } = await admin
       .from('bets')
-      .delete()
+      .update({ status: 'cancelled' })
       .eq('combo_id', comboId)
       .eq('status', 'pending')
       .select('id')
 
-    if (legsDeleteError) {
-      console.error('combo legs delete error:', legsDeleteError)
+    if (legsCancelError) {
+      console.error('combo legs cancel error:', legsCancelError)
       return NextResponse.json({ error: 'Fehler beim Stornieren.' }, { status: 500 })
     }
-    if (!deletedLegs || deletedLegs.length === 0) {
+    if (!cancelledLegs || cancelledLegs.length === 0) {
       return NextResponse.json({ error: 'Wette wurde bereits storniert oder abgerechnet.' }, { status: 409 })
     }
 
-    const { error: comboDeleteError } = await admin.from('combo_bets').delete().eq('id', comboId)
-    if (comboDeleteError) {
-      // Legs are already gone (and the user is about to be refunded) — an
-      // orphaned combo_bets row with no legs left is harmless, just log it.
-      console.error('combo_bets row delete error (legs already removed):', comboDeleteError)
+    const { error: comboCancelError } = await admin.from('combo_bets').update({ status: 'cancelled' }).eq('id', comboId)
+    if (comboCancelError) {
+      // Legs are already cancelled (and the user is about to be refunded) —
+      // log it, but don't fail the request over the parent row's own status.
+      console.error('combo_bets row cancel error (legs already cancelled):', comboCancelError)
     }
 
     // Refund stake atomically (avoids the stale-read-then-write race a plain
@@ -186,26 +190,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Delete gated on still being pending — only the request that actually
-    // removes the row may refund (see combo branch above for why).
-    const { data: deletedBet, error: deleteError } = await admin
+    // Soft-cancel (see combo branch above for why) — gated on still being
+    // pending — only the request that actually flips the row may refund.
+    const { data: cancelledBet, error: cancelError } = await admin
       .from('bets')
-      .delete()
+      .update({ status: 'cancelled' })
       .eq('id', bet.id)
       .eq('status', 'pending')
       .select('id, stake')
 
-    if (deleteError) {
-      console.error('bet delete error:', deleteError)
+    if (cancelError) {
+      console.error('bet cancel error:', cancelError)
       return NextResponse.json({ error: 'Fehler beim Stornieren.' }, { status: 500 })
     }
-    if (!deletedBet || deletedBet.length === 0) {
+    if (!cancelledBet || cancelledBet.length === 0) {
       return NextResponse.json({ error: 'Wette wurde bereits storniert oder abgerechnet.' }, { status: 409 })
     }
 
     const { data: newBalance, error: refundError } = await admin.rpc('increment_balance', {
       p_user_id: user.id,
-      p_amount: deletedBet[0].stake ?? 0,
+      p_amount: cancelledBet[0].stake ?? 0,
     })
     if (refundError) {
       console.error('single bet refund error:', refundError)
