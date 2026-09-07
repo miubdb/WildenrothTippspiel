@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
+import { computeTeamRoster, teamRosterHighlights, type TeamRosterEntry } from '@/lib/leagueStats'
 
 export const revalidate = 60
 
@@ -172,6 +173,16 @@ export default async function WildenrothTeamPage() {
   }))
   const players: PlayerRow[] = (rawPlayers ?? []) as PlayerRow[]
 
+  // Zentrale Kader-Statistik-Schicht (lib/leagueStats.ts) — dieselbe
+  // Funktion wie auf jeder anderen Vereinsseite (Einsätze/Startelf/Minuten/
+  // Tore/Vorlagen/Karten/Startelfquote/per-90), statt eines eigenen
+  // wildenroth_players-Zählpfads. `wildenroth_players` bleibt NUR als
+  // ergänzende Anzeige-Schicht (Bild, Trikotnummer, Position, Elfer/
+  // Freistoß-Kennzeichnung) — siehe playersByName-Merge unten.
+  const roster = await computeTeamRoster(supabase, 'SpVgg Wildenroth')
+  const rosterHighlights = teamRosterHighlights(roster)
+  const playersByName = new Map(players.map((p) => [p.name, p]))
+
   const standings = computeStandings(matches)
   const wildenrothSt = standings.find((s) => s.teamName.includes('Wildenroth') && !s.teamName.includes('II'))
   const wildenrothPos = wildenrothSt ? standings.findIndex((s) => s.teamId === wildenrothSt.teamId) + 1 : 0
@@ -185,16 +196,30 @@ export default async function WildenrothTeamPage() {
     ? [...players].filter((p) => (p.goals ?? 0) > 0).sort((a, b) => (b.goals ?? 0) - (a.goals ?? 0)).slice(0, 5)
     : [...players].filter((p) => (p.prev_goals ?? 0) > 0).sort((a, b) => (b.prev_goals ?? 0) - (a.prev_goals ?? 0)).slice(0, 5)
 
+  // Gruppierung nach Position: bevorzugt match_lineups.position (neue,
+  // optional befüllte Spalte, siehe lib/leagueStats.ts#TeamRosterEntry),
+  // fällt für aktuell alle historischen Zeilen (noch nirgends befüllt) auf
+  // wildenroth_players.position zurück — die für Wildenroth eindeutig
+  // vorhandene Zusatzinformation, die andere Vereine nicht haben.
+  function resolvedPosition(r: TeamRosterEntry): string | null {
+    if (r.position) return r.position
+    const wp = playersByName.get(r.playerName)
+    if (!wp) return null
+    if (wp.is_goalkeeper) return 'Tor'
+    return wp.position ?? null
+  }
   const grouped = POSITIONS.map((g) => ({
     ...g,
-    list: players
-      .filter((p) =>
-        g.key === 'Tor'
-          ? p.position === 'Tor' || p.position === 'Torwart' || p.is_goalkeeper === true
-          : p.position === g.key && p.is_goalkeeper !== true
-      )
-      .sort((a, b) => (a.shirt_number ?? 99) - (b.shirt_number ?? 99) || a.name.localeCompare(b.name, 'de')),
+    list: roster
+      .filter((r) => {
+        const pos = resolvedPosition(r)
+        return g.key === 'Tor' ? pos === 'Tor' || pos === 'Torwart' : pos === g.key
+      })
+      .sort((a, b) => (playersByName.get(a.playerName)?.shirt_number ?? 99) - (playersByName.get(b.playerName)?.shirt_number ?? 99) || a.playerName.localeCompare(b.playerName, 'de')),
   })).filter((g) => g.list.length > 0)
+  const ungroupedRoster = roster
+    .filter((r) => !resolvedPosition(r))
+    .sort((a, b) => b.minutes - a.minutes || a.playerName.localeCompare(b.playerName, 'de'))
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -317,60 +342,123 @@ export default async function WildenrothTeamPage() {
         )}
       </div>
 
-      {/* Squad — hidden for everyone ahead of go-live, see showSquad above */}
+      {/* Kader-Highlights aus derselben Statistik-Schicht wie jede andere
+          Vereinsseite (lib/leagueStats.ts#teamRosterHighlights) — ergänzt die
+          Vorsaison-basierten Top-Torschützen oben um aktuelle Saisonwerte,
+          die aus den erfassten Aufstellungen stammen. */}
+      {(rosterHighlights.ironMan || rosterHighlights.cardKing) && (
+        <div className="grid grid-cols-2 gap-2">
+          {rosterHighlights.ironMan && (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-3 py-3">
+              <div className="flex items-center gap-1.5 mb-1"><span className="text-base">⏱</span><span className="text-[11px] text-gray-500 dark:text-gray-400">Dauerbrenner (Saison 26/27)</span></div>
+              <div className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{rosterHighlights.ironMan.playerName}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{rosterHighlights.ironMan.minutes} Min.</div>
+            </div>
+          )}
+          {rosterHighlights.cardKing && (
+            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-3 py-3">
+              <div className="flex items-center gap-1.5 mb-1"><span className="text-base">🟨</span><span className="text-[11px] text-gray-500 dark:text-gray-400">Kartenkönig (Saison 26/27)</span></div>
+              <div className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{rosterHighlights.cardKing.playerName}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{rosterHighlights.cardKing.yellowCards} Gelb{rosterHighlights.cardKing.redCards > 0 ? ` · ${rosterHighlights.cardKing.redCards} Rot` : ''}</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Squad — hidden for everyone ahead of go-live, see showSquad above.
+          Aus lib/leagueStats.ts#computeTeamRoster (dieselbe Quelle wie jede
+          andere Vereinsseite) — wildenroth_players liefert hier nur noch die
+          Zusatz-Anzeige (Bild, Trikotnummer, Position, Elfer/Freistoß). */}
       {showSquad && (
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
           <h2 className="font-bold text-gray-900 dark:text-gray-100">Kader 1. Mannschaft</h2>
-          <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{players.length} Spieler · Saison 26/27</div>
+          <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{roster.length} Spieler aus erfassten Aufstellungen · Saison 26/27</div>
         </div>
-        {grouped.length > 0 ? grouped.map((g) => (
-          <div key={g.key}>
-            <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-              {g.label}
-            </div>
-            <div className="divide-y divide-gray-50 dark:divide-gray-700">
-              {g.list.map((p) => (
-                <Link key={p.id} href={`/kader/${p.id}`} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                  <PlayerAvatar player={p} size={36} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate flex items-center gap-1.5 flex-wrap">
-                      {p.shirt_number != null && (
-                        <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded font-bold w-5 text-center">{p.shirt_number}</span>
-                      )}
-                      {p.name}
-                      {p.squad === 'both' && (
-                        <span className="text-[10px] bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded font-bold">I+II</span>
-                      )}
-                      {p.is_penalty_taker && (
-                        <span className="text-[10px] bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-1.5 py-0.5 rounded font-bold">Elfer</span>
-                      )}
-                      {p.is_freekick_taker && (
-                        <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-1.5 py-0.5 rounded font-bold">Freistoß</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-center flex-shrink-0 w-10">
-                    <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{p.games ?? 0}</div>
-                    <div className="text-[10px] text-gray-400 dark:text-gray-500">Spiele</div>
-                  </div>
-                  <div className="text-center flex-shrink-0 w-10">
-                    <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{p.goals ?? 0}</div>
-                    <div className="text-[10px] text-gray-400 dark:text-gray-500">Tore</div>
-                  </div>
-                  <div className="text-center flex-shrink-0 w-10">
-                    <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{p.assists ?? 0}</div>
-                    <div className="text-[10px] text-gray-400 dark:text-gray-500">Assists</div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        )) : (
-          <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Keine aktiven Spieler erfasst.</div>
+        {roster.length > 0 ? (
+          <>
+            {grouped.map((g) => (
+              <div key={g.key}>
+                <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  {g.label}
+                </div>
+                <div className="divide-y divide-gray-50 dark:divide-gray-700">
+                  {g.list.map((r) => <RosterRow key={r.playerName} entry={r} wp={playersByName.get(r.playerName) ?? null} />)}
+                </div>
+              </div>
+            ))}
+            {ungroupedRoster.length > 0 && (
+              <div>
+                <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  Ohne Positionsdaten
+                </div>
+                <div className="divide-y divide-gray-50 dark:divide-gray-700">
+                  {ungroupedRoster.map((r) => <RosterRow key={r.playerName} entry={r} wp={playersByName.get(r.playerName) ?? null} />)}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Für diesen Verein liegen noch keine Aufstellungsdaten vor.</div>
         )}
       </div>
       )}
+    </div>
+  )
+}
+
+function RosterRow({ entry: r, wp }: { entry: TeamRosterEntry; wp: PlayerRow | null }) {
+  const inner = (
+    <>
+      {wp
+        ? <PlayerAvatar player={wp} size={36} />
+        : <div className="rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-bold flex items-center justify-center flex-shrink-0 text-xs" style={{ width: 36, height: 36 }}>
+            {r.playerName.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()}
+          </div>}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate flex items-center gap-1.5 flex-wrap">
+          {wp?.shirt_number != null && (
+            <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1.5 py-0.5 rounded font-bold w-5 text-center">{wp.shirt_number}</span>
+          )}
+          {r.playerName}
+          {wp?.squad === 'both' && (
+            <span className="text-[10px] bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded font-bold">I+II</span>
+          )}
+          {wp?.is_penalty_taker && (
+            <span className="text-[10px] bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-1.5 py-0.5 rounded font-bold">Elfer</span>
+          )}
+          {wp?.is_freekick_taker && (
+            <span className="text-[10px] bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-1.5 py-0.5 rounded font-bold">Freistoß</span>
+          )}
+        </div>
+        {(r.starterRate != null || r.scorerPer90 != null) && (
+          <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
+            {r.starterRate != null && <span>Startelfquote {r.starterRate}%</span>}
+            {r.goalsPer90 != null && <span className="ml-2">Tore/90: {r.goalsPer90.toFixed(2).replace('.', ',')}</span>}
+          </div>
+        )}
+      </div>
+      <div className="grid grid-cols-3 grid-rows-2 gap-1 flex-shrink-0 text-center text-[10px] w-24">
+        <MiniStat label="Sp." value={r.appearances} />
+        <MiniStat label="Min." value={r.minutes} />
+        <MiniStat label="Tore" value={r.goals} highlight={r.goals > 0} />
+        <MiniStat label="Vorl." value={r.assists} highlight={r.assists > 0} />
+        <MiniStat label="🟨" value={r.yellowCards} />
+        <MiniStat label="🟥" value={r.redCards} />
+      </div>
+    </>
+  )
+  const className = 'flex items-center gap-3 px-4 py-2.5'
+  return wp
+    ? <Link href={`/kader/${wp.id}`} className={`${className} hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors`}>{inner}</Link>
+    : <div className={className}>{inner}</div>
+}
+
+function MiniStat({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
+  return (
+    <div className="bg-gray-50 dark:bg-gray-700 rounded-md py-1">
+      <div className={`font-bold ${highlight ? 'text-red-700 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'}`}>{value}</div>
+      <div className="text-gray-400 dark:text-gray-500 text-[9px] leading-tight">{label}</div>
     </div>
   )
 }

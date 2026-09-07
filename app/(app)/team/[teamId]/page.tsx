@@ -72,7 +72,6 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
 
   const roster = await computeTeamRoster(supabase, team.name)
   const highlights = teamRosterHighlights(roster)
-  const uncertainCount = roster.filter((r) => r.isUncertain).length
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -158,11 +157,6 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
             Spielerdaten basieren auf den bisher erfassten Spielberichten. Namenszuordnungen werden aktuell noch bereinigt — keine Positions-Gruppierung, da Positionsdaten für diesen Verein nicht erfasst sind.
           </p>
-          {uncertainCount > 0 && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-              {uncertainCount} {uncertainCount === 1 ? 'Name ist' : 'Namen sind'} mit ❓ markiert — abgekürzt erfasst (z.B. „L. Sporer&quot;), könnte mehrere Spieler betreffen.
-            </p>
-          )}
         </div>
         {roster.length > 0 ? (
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
@@ -170,15 +164,15 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
               <div key={p.playerName} className="px-4 py-2.5">
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.playerName}</span>
-                  {p.isUncertain && <span title="Abgekürzt erfasst, Zuordnung unsicher" className="text-xs">❓</span>}
                 </div>
-                <div className="grid grid-cols-6 gap-1 text-center text-[11px]">
+                <div className="grid grid-cols-7 gap-1 text-center text-[11px]">
                   <MiniCell label="Sp." value={p.appearances} />
                   <MiniCell label="Elf" value={p.starts} />
                   <MiniCell label="Min." value={p.minutes} />
                   <MiniCell label="Tore" value={p.goals} highlight={p.goals > 0} />
                   <MiniCell label="Vorl." value={p.assists} highlight={p.assists > 0} />
-                  <MiniCell label="🟨/🟥" value={p.yellowCards + p.redCards} />
+                  <MiniCell label="🟨" value={p.yellowCards} />
+                  <MiniCell label="🟥" value={p.redCards} />
                 </div>
                 {(p.starterRate != null || p.scorerPer90 != null) && (
                   <div className="flex items-center gap-3 mt-1 pl-0.5 text-[10px] text-gray-400 dark:text-gray-500">

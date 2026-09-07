@@ -37,6 +37,7 @@ export function PlayerBetSummary({ stats, isOwnProfile }: { stats: UserBetStats;
         <div className="px-4 py-3 text-center">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ausgezahlt</div>
           <div className="font-bold text-green-600 text-sm">{fmtWildi(stats.totalPayout)} Wildis</div>
+          <div className="text-[9px] text-gray-400 dark:text-gray-500 mt-0.5">Bruttosumme gewonnener Scheine (inkl. Einsatz zurück)</div>
         </div>
       </div>
     </div>

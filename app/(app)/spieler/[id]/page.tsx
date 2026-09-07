@@ -163,6 +163,7 @@ export default async function SpielerPage({
           <div className="text-lg font-black text-gray-900 dark:text-gray-100">
             {displayBalance.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' Wildis'}
           </div>
+          <div className="text-[9px] text-gray-400 dark:text-gray-500 mt-0.5">Kontostand (inkl. offener Scheine)</div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Rang</div>
@@ -176,6 +177,7 @@ export default async function SpielerPage({
           <div className={`text-lg font-black ${wettbilanz > 0 ? 'text-green-600' : wettbilanz < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
             {wettbilanz >= 0 ? '+' : ''}{wettbilanz.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Wildis
           </div>
+          <div className="text-[9px] text-gray-400 dark:text-gray-500 mt-0.5">Netto aus abgeschlossenen Wetten</div>
         </div>
       </div>
 

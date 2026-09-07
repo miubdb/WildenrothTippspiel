@@ -33,8 +33,15 @@ export interface LeaguePlayerEntry {
   matches: number
   /** true, wenn der Name nach einem Abkürzungsmuster ("L. Sporer") aussieht
    *  und deshalb mehreren Personen im selben Verein gehören könnte — nicht
-   *  aus der Liste entfernt, aber in der UI mit einem Hinweis zu versehen. */
+   *  aus der Liste entfernt, aber intern gehalten (nicht mehr in der UI
+   *  gerendert, siehe Modulkommentar zu #7). */
   isUncertain: boolean
+}
+
+export interface LeaguePlayerRankedEntry extends LeaguePlayerEntry {
+  /** Geteilter Rang bei Gleichstand (1,2,2,4 — "competition ranking"), nicht
+   *  einfach der Array-Index. */
+  rank: number
 }
 
 /** Mindestminuten, ab denen ein Per-90-Wert als Ranking-Grundlage taugt —
@@ -60,6 +67,12 @@ export interface TeamRosterEntry {
   goalsPer90: number | null
   assistsPer90: number | null
   scorerPer90: number | null
+  /** Optionales Positionsfeld aus match_lineups.position (siehe Migration
+   *  "add_position_to_match_lineups") — für historische Zeilen aktuell immer
+   *  null, da bewusst nicht rückwirkend befüllt. Zukünftige Importe können
+   *  es setzen. null, wenn keine Aufstellungszeile dieses Spielers je eine
+   *  Position trug (nicht: "unbekannt", sondern "nie erfasst"). */
+  position: string | null
 }
 
 export interface TeamMatchSummary {
@@ -110,37 +123,41 @@ type LineupRow = {
   yellow_cards: number | null
   red_card_minute: number | null
   match_id: number
+  position: string | null
 }
 
-async function fetchKreisligaLineups(supabase: SupabaseClient): Promise<LineupRow[]> {
-  const { data } = await supabase
+/** `category` defaults to the Kreisliga (the only category with real lineup
+ *  data today, see Modulkommentar) — pass e.g. 'wildenroth_ii'/'b-klasse', or
+ *  an array of several, for a team playing in categories other than
+ *  Kreisliga once lineup data exists there. */
+async function fetchKreisligaLineups(supabase: SupabaseClient, category: string | string[] = LEAGUE_STATS_CATEGORY): Promise<LineupRow[]> {
+  let query = supabase
     .from('match_lineups')
-    .select('team_name, player_name, minutes_played, goals, assists, is_starter, yellow_cards, red_card_minute, match_id, matches!inner(match_date, matchday, match_category)')
-    .eq('matches.match_category', LEAGUE_STATS_CATEGORY)
+    .select('team_name, player_name, minutes_played, goals, assists, is_starter, yellow_cards, red_card_minute, match_id, position, matches!inner(match_date, matchday, match_category)')
     .gte('matches.match_date', LEAGUE_STATS_SEASON_START)
     .neq('matches.matchday', 999)
+  query = Array.isArray(category) ? query.in('matches.match_category', category) : query.eq('matches.match_category', category)
+  const { data } = await query
   return (data ?? []) as LineupRow[]
-}
-
-export interface LeaguePlayerLeaderboard {
-  /** Die Top-`limit` Einträge. */
-  entries: LeaguePlayerEntry[]
-  /** Alle Einträge mit Wert > 0 — Basis für "Alle anzeigen"/"Weitere X". */
-  all: LeaguePlayerEntry[]
 }
 
 /**
  * Ligaweite Top-Liste für eine Kennzahl. `scorer` = Tore + Vorlagen aus den
  * tatsächlich vorhandenen Daten summiert (kein separates Feld in der DB).
- * Liefert zusätzlich zu den Top-`limit`-Einträgen die VOLLSTÄNDIGE Liste, damit
- * die UI dynamisch "Weitere X Spieler …" anzeigen kann, statt stumpf bei 10/15
- * abzuschneiden.
+ *
+ * Strikte Top-`limit`-mit-Gleichstand-Regel: es wird der Wert an Rang
+ * `limit` (1-indiziert) ermittelt, und JEDER Spieler mit einem Wert ≥ diesem
+ * Cutoff-Wert bleibt in der Liste (alle Gleichstände am Cutoff werden
+ * mitgenommen, keine willkürliche Kappung mittendrin). Wer strikt darunter
+ * liegt, fällt raus. Gibt es insgesamt weniger als `limit` Spieler mit
+ * Wert > 0, werden einfach alle zurückgegeben. Gleichstände teilen sich
+ * einen Rang (1,2,2,4 — "competition ranking"), nicht den Array-Index.
  */
 export async function computeLeaguePlayerLeaderboard(
   supabase: SupabaseClient,
   metric: LeaguePlayerMetric,
-  limit = 10,
-): Promise<LeaguePlayerLeaderboard> {
+  limit = 15,
+): Promise<LeaguePlayerRankedEntry[]> {
   const [rows, aliasMap] = await Promise.all([fetchKreisligaLineups(supabase), getAliasMap(supabase)])
 
   type Agg = { value: number; matches: Set<number> }
@@ -174,16 +191,32 @@ export async function computeLeaguePlayerLeaderboard(
     .filter(e => e.value > 0)
     .sort((a, b) => b.value - a.value || a.playerName.localeCompare(b.playerName, 'de'))
 
-  return { entries: list.slice(0, limit), all: list }
+  const cutoffValue = list.length <= limit ? -Infinity : list[limit - 1].value
+  const included = list.filter(e => e.value >= cutoffValue)
+
+  let rank = 0
+  let lastValue: number | null = null
+  return included.map((e, idx) => {
+    if (e.value !== lastValue) {
+      rank = idx + 1
+      lastValue = e.value
+    }
+    return { ...e, rank }
+  })
 }
 
 /**
  * Flache Spielerliste eines Vereins aus den erfassten Aufstellungen — NICHT
- * nach Position gruppiert (match_lineups hat keine Positions-Spalte, siehe
- * Modulkommentar). Sortiert nach Einsatzminuten absteigend.
+ * nach Position gruppiert (match_lineups.position ist bewusst nicht
+ * rückwirkend befüllt, siehe Modulkommentar und `position`-Feld auf
+ * TeamRosterEntry). Sortiert nach Einsatzminuten absteigend.
+ *
+ * `category` defaults to Kreisliga — Wildenroth-II-Seiten übergeben
+ * ['wildenroth_ii', 'b-klasse'] explizit, sobald für diese Kategorien
+ * Aufstellungsdaten existieren (aktuell 0 Zeilen, siehe Modulkommentar).
  */
-export async function computeTeamRoster(supabase: SupabaseClient, teamName: string): Promise<TeamRosterEntry[]> {
-  const [allRows, aliasMap] = await Promise.all([fetchKreisligaLineups(supabase), getAliasMap(supabase)])
+export async function computeTeamRoster(supabase: SupabaseClient, teamName: string, category: string | string[] = LEAGUE_STATS_CATEGORY): Promise<TeamRosterEntry[]> {
+  const [allRows, aliasMap] = await Promise.all([fetchKreisligaLineups(supabase, category), getAliasMap(supabase)])
   const rows = allRows.filter(r => r.team_name === teamName)
 
   type Accum = Omit<TeamRosterEntry, 'starterRate' | 'goalsPer90' | 'assistsPer90' | 'scorerPer90'>
@@ -192,7 +225,7 @@ export async function computeTeamRoster(supabase: SupabaseClient, teamName: stri
     const name = resolveName(aliasMap, teamName, r.player_name)
     const e = byPlayer.get(name) ?? {
       playerName: name, appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0,
-      yellowCards: 0, redCards: 0, isUncertain: looksAbbreviated(name),
+      yellowCards: 0, redCards: 0, isUncertain: looksAbbreviated(name), position: null,
     }
     if ((r.minutes_played ?? 0) > 0 || r.is_starter) e.appearances += 1
     if (r.is_starter) e.starts += 1
@@ -200,6 +233,7 @@ export async function computeTeamRoster(supabase: SupabaseClient, teamName: stri
     e.goals += r.goals ?? 0
     e.assists += r.assists ?? 0
     e.yellowCards += r.yellow_cards ?? 0
+    if (r.position != null) e.position = r.position
     if (r.red_card_minute != null) e.redCards += 1
     byPlayer.set(name, e)
   }

@@ -204,12 +204,14 @@ export default async function ProfilPage({
           <div className="text-xl font-black text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
             {fmtWildi(profile.balance)} Wildis <WildiIcon size={20} />
           </div>
+          <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">Aktueller Kontostand</div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Wettbilanz <span className="text-[10px]">26/27</span></div>
           <div className={`text-xl font-black ${wettbilanz > 0 ? 'text-green-600' : wettbilanz < 0 ? 'text-red-600' : 'text-gray-900'}`}>
             {wettbilanz >= 0 ? '+' : ''}{fmtWildi(wettbilanz) + ' Wildis'}
           </div>
+          <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">Netto-Gewinn/-Verlust nur aus abgeschlossenen Wetten</div>
         </div>
       </div>
 
