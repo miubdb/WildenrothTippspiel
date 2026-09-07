@@ -512,7 +512,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                                     : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:border-red-300'
                                 }`}
                               >
-                                <span className="font-bold">{score}</span>
+                                <span className={`font-bold ${isSelected('exact_score', score) ? 'text-red-100' : 'text-gray-400 dark:text-gray-500'}`}>{score}</span>
                                 <span className={`text-xs mt-0.5 font-semibold ${isSelected('exact_score', score) ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
                                   {o.toFixed(1).replace('.', ',')}
                                 </span>
