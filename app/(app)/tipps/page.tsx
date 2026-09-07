@@ -16,6 +16,7 @@ import Link from 'next/link'
 import { TeamLogo } from '@/components/TeamLogo'
 import { wildiLabel } from '@/components/WildiIcon'
 import { oddsColorClass } from '@/lib/betDisplay'
+import { cappedPayout } from '@/lib/payout'
 
 export const revalidate = 60
 
@@ -958,6 +959,15 @@ export default async function TippsPage({
         acc[l.combo_id].push({ status: l.status })
         return acc
       }, {})
+      // combo_bets has no is_risky column of its own — every leg carries the
+      // same value, so any one leg reflects the combo's classification.
+      // comboLegBets (a subset of recapBets) still has is_risky; allComboLegs
+      // (fetched separately, all legs incl. other matchdays) does not.
+      const comboIsRiskyMap = new Map<number, boolean>()
+      for (const l of comboLegBets) {
+        const cid = Number(l.combo_id)
+        if (!comboIsRiskyMap.has(cid)) comboIsRiskyMap.set(cid, !!l.is_risky)
+      }
       const unluckyResults = recapCombos
         .filter(c => c.status === 'lost')
         .map(c => {
@@ -1016,7 +1026,7 @@ export default async function TippsPage({
         odds: unlucky.c.total_odds,
         stake: unlucky.c.stake,
         legs: unlucky.legs.length,
-        wouldHavePayout: Math.round(unlucky.c.stake * unlucky.c.total_odds * 100) / 100,
+        wouldHavePayout: Math.round(cappedPayout(unlucky.c.stake, unlucky.c.total_odds, comboIsRiskyMap.get(unlucky.c.id) ?? false) * 100) / 100,
         legDetails: unluckyLegDetails,
       } : null
 

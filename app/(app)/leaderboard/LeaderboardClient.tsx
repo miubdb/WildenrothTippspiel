@@ -46,6 +46,7 @@ export type BetRow = {
   status: string
   payout: number | null
   combo_id: number | null
+  is_risky?: boolean | null
   match: {
     id: number
     match_date: string
@@ -138,6 +139,7 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
       wetten.push({
         id: `bet-${b.id}`,
         type: 'single',
+        isRisky: !!b.is_risky,
         totalOdds: b.odds_value,
         stake: b.stake,
         payout: b.payout,
@@ -168,6 +170,9 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
       wetten.push({
         id: `combo-${b.combo_id}`,
         type: 'combo',
+        // combo_bets has no is_risky column of its own — every leg carries
+        // the same value, so any one leg reflects the combo's classification.
+        isRisky: !!comboLegs[0]?.is_risky,
         totalOdds,
         stake: cb?.stake ?? 0,
         payout: cb?.payout,

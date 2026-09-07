@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser } from '@/lib/push'
 import { wildiLabel } from '@/components/WildiIcon'
 import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
+import { cappedPayout } from '@/lib/payout'
 
 function settleBet(
   marketType: string,
@@ -159,7 +160,7 @@ export async function POST(request: NextRequest) {
   // separately once the admin enters who scored, which depends on more than the final score)
   const { data: pendingBets, error: betsError } = await supabase
     .from('bets')
-    .select('id, user_id, market_type, selection, stake, odds_value, combo_id')
+    .select('id, user_id, market_type, selection, stake, odds_value, combo_id, is_risky')
     .eq('match_id', matchId)
     .eq('status', 'pending')
     .not('market_type', 'in', '("goalscorer","goalscorer_2plus")')
@@ -182,8 +183,10 @@ export async function POST(request: NextRequest) {
     let payout = 0
 
     if (result === 'won' && bet.combo_id === null) {
-      // Single bet win: payout = stake * odds
-      payout = Math.round(bet.stake * bet.odds_value * 100) / 100
+      // Single bet win: payout = stake * odds, capped at the max payout for
+      // this slip's Risky status (see lib/payout.ts) — never applied to
+      // odds_value itself, only to the credited amount.
+      payout = Math.round(cappedPayout(bet.stake, bet.odds_value, bet.is_risky) * 100) / 100
       userBalanceUpdates[bet.user_id] = (userBalanceUpdates[bet.user_id] ?? 0) + payout
     }
 
@@ -213,7 +216,7 @@ export async function POST(request: NextRequest) {
     // Fetch all legs of this combo
     const { data: comboLegs } = await supabase
       .from('bets')
-      .select('id, status, odds_value, user_id')
+      .select('id, status, odds_value, user_id, is_risky')
       .eq('combo_id', comboId)
 
     if (!comboLegs) continue
@@ -241,8 +244,11 @@ export async function POST(request: NextRequest) {
         .eq('id', comboId)
       newlyResolvedCombos.set(comboId, { user_id: comboBet.user_id, status: 'lost' })
     } else {
-      // All legs won
-      const payout = Math.round(comboBet.stake * comboBet.total_odds * 100) / 100
+      // All legs won. combo_bets has no is_risky column of its own — every
+      // leg carries the same value (set at placement, kept in sync by
+      // lib/risky.ts), so any one leg reflects the combo's classification.
+      const comboIsRisky = comboLegs[0]?.is_risky ?? false
+      const payout = Math.round(cappedPayout(comboBet.stake, comboBet.total_odds, comboIsRisky) * 100) / 100
       await admin
         .from('combo_bets')
         .update({ status: 'won', payout })

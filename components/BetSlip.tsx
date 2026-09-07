@@ -10,6 +10,7 @@ const MIN_STAKE = 1
 const MAX_STAKE = 250
 import type { MarketType } from '@/types'
 import { crestPath } from '@/lib/teams'
+import { MAX_PAYOUT_NORMAL, MAX_PAYOUT_RISKY, previewComboIsRisky, previewSingleIsRisky } from '@/lib/payout'
 
 function TrashIcon({ className }: { className?: string }) {
   return (
@@ -36,6 +37,7 @@ export function BetSlip() {
     clearSlip,
     totalComboOdds,
     potentialPayout,
+    theoreticalPayout,
     isComboValid,
   } = useBetSlip()
 
@@ -198,8 +200,10 @@ export function BetSlip() {
   )
 
   const isRiskyEligible =
-    (mode === 'single' && selections.length === 1 && selections[0].oddsValue > 20) ||
-    (mode === 'combo' && isComboValid && totalComboOdds > 20)
+    (mode === 'single' && previewSingleIsRisky(selections.length, selections[0]?.oddsValue ?? 0)) ||
+    (mode === 'combo' && isComboValid && previewComboIsRisky(totalComboOdds))
+
+  const payoutIsCapped = potentialPayout < theoreticalPayout - 0.005
 
   // Collapsed bar labels
   const showComboOdds = mode === 'combo' && isComboValid && count >= 2
@@ -537,6 +541,17 @@ export function BetSlip() {
                   <div className="text-right">
                     <div className="text-xs text-gray-500">Möglicher Gewinn</div>
                     <div className="font-bold text-green-600 flex items-center gap-1 justify-end">{fmtWildi(potentialPayout)} {wildiLabel(potentialPayout)} <WildiIcon size={14} /></div>
+                  </div>
+                </div>
+              )}
+
+              {payoutIsCapped && (
+                <div className="mb-3 text-right">
+                  <div className="text-xs text-gray-500 font-medium">Max. Auszahlung erreicht</div>
+                  <div className="text-[11px] text-gray-400">
+                    {isRiskyEligible
+                      ? `Maximal ${fmtWildi(MAX_PAYOUT_RISKY)} ${wildiLabel(MAX_PAYOUT_RISKY)} pro Risky-Wettschein`
+                      : `Maximal ${fmtWildi(MAX_PAYOUT_NORMAL)} ${wildiLabel(MAX_PAYOUT_NORMAL)} pro Wettschein`}
                   </div>
                 </div>
               )}

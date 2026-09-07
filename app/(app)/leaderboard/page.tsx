@@ -6,6 +6,7 @@ import type { CommentData } from '@/components/CommentSection'
 import type { RecapData } from '@/components/MatchdayRecap'
 import { bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, recapMatchdayOf as recapMatchdayOfShared } from '@/lib/season'
 import type { Match } from '@/types'
+import { cappedPayout } from '@/lib/payout'
 
 export const revalidate = 60
 
@@ -259,7 +260,7 @@ export default async function LeaderboardPage({
     const { data: betsRaw } = await supabase
       .from('bets')
       .select(
-        `id, user_id, market_type, selection, stake, odds_value, status, payout, combo_id,
+        `id, user_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky,
          match:matches(id, match_date, home_score, away_score, status,
            home_team:teams!matches_home_team_id_fkey(name, short_name),
            away_team:teams!matches_away_team_id_fkey(name, short_name)
@@ -466,6 +467,15 @@ export default async function LeaderboardPage({
         acc[l.combo_id].push({ status: l.status })
         return acc
       }, {})
+      // combo_bets has no is_risky column of its own — every leg carries the
+      // same value, so any one leg reflects the combo's classification.
+      // recapComboLegBets (a subset of recapBets) still has is_risky;
+      // allComboLegs (fetched separately) does not.
+      const comboIsRiskyMap = new Map<number, boolean>()
+      for (const l of recapComboLegBets) {
+        const cid = Number(l.combo_id)
+        if (!comboIsRiskyMap.has(cid)) comboIsRiskyMap.set(cid, !!l.is_risky)
+      }
       const unluckyResults = recapCombos
         .filter(c => c.status === 'lost')
         .map(c => {
@@ -528,7 +538,7 @@ export default async function LeaderboardPage({
         odds: unlucky.c.total_odds,
         stake: unlucky.c.stake,
         legs: unlucky.legs.length,
-        wouldHavePayout: Math.round(unlucky.c.stake * unlucky.c.total_odds * 100) / 100,
+        wouldHavePayout: Math.round(cappedPayout(unlucky.c.stake, unlucky.c.total_odds, comboIsRiskyMap.get(unlucky.c.id) ?? false) * 100) / 100,
         legDetails: unluckyLegDetails,
       } : null
 

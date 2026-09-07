@@ -5,6 +5,7 @@ import { ReactionBar } from '@/components/ReactionBar'
 import { CommentSection, type CommentData } from '@/components/CommentSection'
 import { wildiLabel } from '@/components/WildiIcon'
 import { oddsColorClass } from '@/lib/betDisplay'
+import { cappedPayout } from '@/lib/payout'
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -102,6 +103,7 @@ export function WetteCard({
     'border-l-amber-400'
 
   const leg0 = wette.legs[0]
+  const possiblePayout = cappedPayout(wette.stake, wette.totalOdds, !!wette.isRisky)
   const typeLine =
     wette.isRisky && wette.type === 'combo' ? `🎲 Risky · ${wette.legs.length} Tipps` :
     wette.isRisky ? '🎲 Risky' :
@@ -133,7 +135,7 @@ export function WetteCard({
               <span className="text-[10px] text-gray-500 dark:text-gray-400">{fmt(wette.stake)} {wildiLabel(wette.stake)}</span>
               {wette.status === 'pending' && (
                 <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                  {'→ mög. '}<span className="font-semibold text-gray-700 dark:text-gray-300">{fmt(wette.stake * wette.totalOdds)} {wildiLabel(wette.stake * wette.totalOdds)}</span>
+                  {'→ mög. '}<span className="font-semibold text-gray-700 dark:text-gray-300">{fmt(possiblePayout)} {wildiLabel(possiblePayout)}</span>
                 </span>
               )}
               {wette.status === 'won' && wette.payout != null && (
@@ -141,7 +143,7 @@ export function WetteCard({
               )}
               {wette.status === 'lost' && (
                 <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                  {'→ wäre '}<span className="text-red-400 line-through">{fmt(wette.stake * wette.totalOdds)} {wildiLabel(wette.stake * wette.totalOdds)}</span>
+                  {'→ wäre '}<span className="text-red-400 line-through">{fmt(possiblePayout)} {wildiLabel(possiblePayout)}</span>
                 </span>
               )}
             </div>

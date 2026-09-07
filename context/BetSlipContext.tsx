@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import type { BetSlipItem, MarketType } from '@/types'
+import { cappedPayout, previewComboIsRisky, previewSingleIsRisky } from '@/lib/payout'
 
 type BetSlipMode = 'single' | 'combo'
 
@@ -21,7 +22,12 @@ interface BetSlipContextValue {
   setStake: (matchId: number, marketType: MarketType, stake: number, selection?: string) => void
   setComboStake: (stake: number) => void
   totalComboOdds: number
+  /** Preview payout, capped at the applicable max-payout limit (see
+   *  lib/payout.ts) — this is what the user will actually see credited. */
   potentialPayout: number
+  /** Uncapped stake × odds — compare against `potentialPayout` to know
+   *  whether the cap is currently kicking in. */
+  theoreticalPayout: number
   isComboValid: boolean
 }
 
@@ -107,11 +113,22 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     !selections.some((a, i) => selections.slice(i + 1).some(b => a.matchId === b.matchId))
 
   const totalComboOdds = selections.reduce((acc, s) => acc * s.oddsValue, 1)
-  const potentialPayout = mode === 'combo'
+
+  // Combo mode: one slip, the cap applies once to comboStake × totalComboOdds.
+  // Single mode: each selection is its OWN independent bet slip (placed and
+  // settled separately) — the cap must apply per selection, then the capped
+  // amounts are summed for display, not the other way round.
+  const theoreticalPayout = mode === 'combo'
     ? comboStake * totalComboOdds
     : selections.reduce((acc, s) => {
         const stake = stakes[bsKey(s.matchId, s.marketType, s.selection)] ?? 10
         return acc + stake * s.oddsValue
+      }, 0)
+  const potentialPayout = mode === 'combo'
+    ? cappedPayout(comboStake, totalComboOdds, previewComboIsRisky(totalComboOdds))
+    : selections.reduce((acc, s) => {
+        const stake = stakes[bsKey(s.matchId, s.marketType, s.selection)] ?? 10
+        return acc + cappedPayout(stake, s.oddsValue, previewSingleIsRisky(selections.length, s.oddsValue))
       }, 0)
 
   return (
@@ -129,6 +146,7 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
         setComboStake,
         totalComboOdds,
         potentialPayout,
+        theoreticalPayout,
         isComboValid,
       }}
     >

@@ -13,6 +13,7 @@ type Bet = {
   status: string
   payout: number | null
   combo_id: string | null
+  is_risky?: boolean | null
   match: {
     id: number
     matchday: number
@@ -93,6 +94,7 @@ function toWetteData(item: HistoryItem, players?: Record<number, string>): Wette
     return {
       id: `bet-${b.id}`,
       type: 'single',
+      isRisky: !!b.is_risky,
       totalOdds: b.odds_value ?? 1,
       stake: b.stake ?? 0,
       payout: b.payout,
@@ -122,6 +124,10 @@ function toWetteData(item: HistoryItem, players?: Record<number, string>): Wette
   return {
     id: `combo-${item.comboId}`,
     type: 'combo',
+    // combo_bets has no is_risky column of its own — every leg carries the
+    // same value (see lib/risky.ts), so any one leg reflects the combo's
+    // classification.
+    isRisky: !!legs[0]?.is_risky,
     totalOdds,
     stake: cb?.stake ?? 0,
     payout: cb?.payout,

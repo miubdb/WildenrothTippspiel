@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { wildiLabel } from '@/components/WildiIcon'
 import { buildEffectiveMatchdayIndex, recapMatchdayOf } from '@/lib/season'
+import { cappedPayout } from '@/lib/payout'
 import type { Match } from '@/types'
 
 const SEASON_START = '2026-08-01'
@@ -195,12 +196,20 @@ export async function computeAndPersistMatchdayAwards(
     if (!legsByCombo[l.combo_id]) legsByCombo[l.combo_id] = []
     legsByCombo[l.combo_id].push({ status: l.status })
   }
+  // combo_bets has no is_risky column of its own — every leg carries the
+  // same value (see lib/risky.ts), so any one leg reflects the combo's
+  // classification. legBets is a superset of allLegs that still has it.
+  const comboIsRiskyMap = new Map<number, boolean>()
+  for (const l of legBets as { combo_id: unknown; is_risky?: boolean }[]) {
+    const cid = Number(l.combo_id)
+    if (!comboIsRiskyMap.has(cid)) comboIsRiskyMap.set(cid, !!l.is_risky)
+  }
   const unlucky = lostCombos
     .map(c => ({ c, legs: legsByCombo[c.id] ?? [], lostCount: (legsByCombo[c.id] ?? []).filter(l => l.status === 'lost').length }))
     .filter(x => x.lostCount === 1 && x.legs.length >= 2 && x.legs.every(l => l.status !== 'pending'))
     .sort((a, b) => (b.c.stake * b.c.total_odds) - (a.c.stake * a.c.total_odds))[0]
   if (unlucky) {
-    const potential = unlucky.c.stake * unlucky.c.total_odds
+    const potential = cappedPayout(unlucky.c.stake, unlucky.c.total_odds, comboIsRiskyMap.get(unlucky.c.id) ?? false)
     awardInputs.push({ user_id: unlucky.c.user_id, award_type: 'unlucky_bastard', value: potential, value_text: `${Math.round(potential)} ${wildiLabel(potential)} möglich` })
   }
 
