@@ -53,12 +53,27 @@ export function PlayerRealizedBalance({ stats }: { stats: UserBetStats }) {
         </span>
       </div>
       {stats.roi != null && (
-        <div className="px-4 pb-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-          <span>ROI</span>
-          <span className={stats.roi >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
-            {stats.roi >= 0 ? '+' : ''}{stats.roi.toFixed(1).replace('.', ',')} %
-          </span>
-        </div>
+        <details className="px-4 pb-2 group">
+          <summary className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+            <span className="flex items-center gap-1">
+              ROI
+              <span className="w-3.5 h-3.5 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300 text-[9px] font-bold flex items-center justify-center">i</span>
+            </span>
+            <span className={stats.roi >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+              {stats.roi >= 0 ? '+' : ''}{stats.roi.toFixed(1).replace('.', ',')} %
+            </span>
+          </summary>
+          <div className="mt-2 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">
+            ROI zeigt, wie profitabel deine abgeschlossenen Wetten im Verhältnis zu deinem Einsatz waren.
+            <br />Formel: (Auszahlung − Einsatz) ÷ Einsatz × 100
+            <br /><br />
+            <span className="font-semibold text-green-600">+20 %</span> = aus 100 Wildis Einsatz wurden netto 20 Wildis Gewinn.
+            <br /><span className="font-semibold">0 %</span> = genau Break-even.
+            <br /><span className="font-semibold text-red-600">−20 %</span> = pro 100 Wildis Einsatz wurden 20 Wildis verloren.
+            <br /><br />
+            Nur abgeschlossene Wetten zählen — offene Wetten gehen nicht als Verlust ein. ROI ist nicht dasselbe wie die Trefferquote.
+          </div>
+        </details>
       )}
       {stats.pending > 0 && (
         <div className="px-4 py-2.5 border-t border-gray-100 dark:border-gray-700 grid grid-cols-2 gap-2 bg-amber-50/50 dark:bg-amber-900/10">

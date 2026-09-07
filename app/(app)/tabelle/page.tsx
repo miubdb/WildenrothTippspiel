@@ -362,6 +362,17 @@ export default async function TabellePage({
         </Link>
       </div>
 
+      {/* Liga-Stats — nur Kreisliga, B-Klasse hat noch keine Aufstellungsdaten (siehe lib/leagueStats.ts) */}
+      {!isB && (
+        <Link
+          href="/liga-stats"
+          className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        >
+          <span>⚽ Liga-Stats — Torschützen, Vorlagen, Karten &amp; mehr</span>
+          <span className="text-gray-400 dark:text-gray-500">›</span>
+        </Link>
+      )}
+
       {/* Standings Table */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
@@ -399,6 +410,29 @@ export default async function TabellePage({
                       {s.teamName}
                       <span className="ml-1 text-xs text-red-400">⚽</span>
                       <span className="ml-1 text-xs text-red-400">›</span>
+                    </div>
+                    <div className="flex gap-0.5 mt-0.5">
+                      {s.form.map((r, i) => (
+                        <span key={i} className={`w-3.5 h-3.5 rounded-sm text-white text-[8px] font-bold flex items-center justify-center ${
+                          r === 'W' ? 'bg-green-500' : r === 'D' ? 'bg-yellow-400' : 'bg-red-400'
+                        }`}>
+                          {r === 'W' ? 'S' : r === 'D' ? 'U' : 'N'}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </Link>
+              ) : !isB && s.teamId > 0 ? (
+                // B-Klasse-Vereine verlinken noch nicht — /team/[teamId] zeigt
+                // dort sonst fälschlich "noch keine Spiele" an, weil die
+                // Mannschaftsübersicht bewusst nur Kreisliga-Spiele zählt
+                // (siehe lib/leagueStats.ts: B-Klasse hat aktuell keine
+                // Aufstellungsdaten für individuelle Spielerstatistiken).
+                <Link href={`/team/${s.teamId}`} className="flex items-center gap-1.5 min-w-0 group">
+                  <TeamLogo name={s.teamName} size="xs" className="flex-shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold leading-tight truncate text-gray-900 dark:text-gray-100 group-hover:underline">
+                      {s.teamName}
                     </div>
                     <div className="flex gap-0.5 mt-0.5">
                       {s.form.map((r, i) => (
