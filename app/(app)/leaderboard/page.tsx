@@ -83,6 +83,17 @@ export default async function LeaderboardPage({
   // live Wochentippkönig banner could disagree about the same Spieltag.
   const recapMatchdayOf = (m: Match) => recapMatchdayOfShared(m, mdIndex)
   const byKickoff = (a: number, b: number) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0)
+  // Outlier-robust variant for firstScheduledMd below — matchdayMinDate is
+  // NOT outlier-robust (see its doc in lib/season.ts) and is keyed by RAW
+  // matchday, so a rescheduled makeup match that now runs under a DIFFERENT
+  // effective Spieltag but still carries some other Spieltag's raw number
+  // (e.g. raw matchday=13, reassigned to effective Spieltag 7) drags that raw
+  // group's min date down to its own early kickoff — even though it no longer
+  // plays under that Spieltag. That made firstScheduledMd resolve to the wrong
+  // (numerically coincidental) Spieltag and permanently stall the default on
+  // the last completed one. matchdayAnchorDate (median) isn't dragged by a
+  // single outlier — mirrors the identical fix in tipps/page.tsx.
+  const byAnchor = (a: number, b: number) => (mdIndex.matchdayAnchorDate.get(a) ?? 0) - (mdIndex.matchdayAnchorDate.get(b) ?? 0)
   const isKreisligaMatch = (m: Match) => !m.match_category || m.match_category === 'kreisliga'
   const kreisligaMatches = seasonMatches.filter(m => m.matchday !== 999 && isKreisligaMatch(m))
   const hasTestMatchday = seasonMatches.some(m => m.matchday === 999)
@@ -112,7 +123,7 @@ export default async function LeaderboardPage({
       .filter(m => m.status === 'scheduled')
       .map(m => effectiveMatchdayOf(m))
       .filter((md): md is number => md != null)
-  )].sort(byKickoff)[0]
+  )].sort(byAnchor)[0]
 
   // Before the next Spieltag's betting window opens → show last completed
   // matchday; after it opens → show the upcoming matchday. Resolves through

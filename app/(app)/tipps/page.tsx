@@ -194,12 +194,24 @@ export default async function TippsPage({
   // quirk" note in CLAUDE.md. completedMatchdays/lastCompletedMd below already
   // gets this right via effective grouping; firstScheduled must match or the
   // default-Spieltag switch parks on an already-finished Spieltag forever.
+  //
+  // The sort key must be matchdayAnchorDate, NOT matchdayMinDate: both are
+  // keyed by RAW matchday, but matchdayMinDate is the raw group's own earliest
+  // date and is NOT outlier-robust (see its doc in lib/season.ts). A rescheduled
+  // outlier match numerically reuses ANOTHER Spieltag's raw number (e.g. a
+  // Spieltag-1 makeup effectively reassigned to Spieltag 7 still has raw
+  // matchday=1, but a Spieltag-13 makeup effectively reassigned to Spieltag 7
+  // still has raw matchday=13) — that drags matchdayMinDate.get(13) down to the
+  // outlier's early date even though the outlier itself no longer runs under
+  // effective Spieltag 13, making firstScheduled resolve to 13 instead of 7 and
+  // permanently stalling the page on the last completed Spieltag. The
+  // median-based matchdayAnchorDate isn't dragged by one early/late outlier.
   const firstScheduled = [...new Set(
     kreisligaMatches
       .filter((m) => m.status === 'scheduled')
       .map((m) => effectiveMatchdayOf(m))
       .filter((md): md is number => md != null)
-  )].sort((a, b) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0))[0]
+  )].sort((a, b) => (mdIndex.matchdayAnchorDate.get(a) ?? 0) - (mdIndex.matchdayAnchorDate.get(b) ?? 0))[0]
 
   // Before the next Spieltag's betting window opens → default to last completed
   // matchday (Sunday games just ended). After it opens → default to the next
