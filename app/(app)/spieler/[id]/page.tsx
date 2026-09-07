@@ -4,10 +4,12 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { crestPath } from '@/lib/teams'
 import { fmtWildi } from '@/components/WildiIcon'
 import { AvatarLightbox } from '@/components/AvatarLightbox'
+import { PlayerBetSummary, PlayerRealizedBalance, PlayerStatsTiles, PlayerMoreStats, BalanceHistoryChart } from '@/components/PlayerBetStatsCard'
+import { computeUserBetStats, computeBalanceHistory, STATS_CURRENT_SEASON } from '@/lib/betStats'
 
 export const revalidate = 60
 
-const CURRENT_SEASON = '26/27'
+const CURRENT_SEASON = STATS_CURRENT_SEASON
 
 export default async function SpielerPage({
   params,
@@ -78,42 +80,14 @@ export default async function SpielerPage({
   const rank = rankIdx >= 0 ? rankIdx + 1 : null
   const totalRanked = ranked.length
 
-  // Season bets
-  const { data: betsRaw } = await supabase
-    .from('bets')
-    .select('id, status, combo_id, season, stake, payout')
-    .eq('user_id', id)
-    .neq('status', 'void')
-
-  const bets = (betsRaw ?? []).filter(b => !b.season || b.season === CURRENT_SEASON)
-  const singleBets = bets.filter(b => !b.combo_id)
-  const comboIds = [...new Set(bets.filter(b => b.combo_id).map(b => b.combo_id as string))]
-
-  const comboStatuses: { status: string; stake: number; payout: number | null }[] = []
-  if (comboIds.length > 0) {
-    const { data: cbData } = await supabase
-      .from('combo_bets')
-      .select('status, season, stake, payout')
-      .in('id', comboIds)
-    for (const cb of (cbData ?? []).filter(c => !c.season || c.season === CURRENT_SEASON)) {
-      comboStatuses.push(cb)
-    }
-  }
-
-  const totalBets = singleBets.length + comboStatuses.length
-  const wonBets = singleBets.filter(b => b.status === 'won').length +
-    comboStatuses.filter(c => c.status === 'won').length
-  const lostBets = singleBets.filter(b => b.status === 'lost').length +
-    comboStatuses.filter(c => c.status === 'lost').length
-
-  // Wettbilanz = actual betting profit/loss from settled bets only — kept
+  // Zentrale Statistik-Schicht (lib/betStats.ts) — dieselbe Funktion wie im
+  // eigenen Profil, damit beide Seiten für denselben User nie auseinanderlaufen.
+  const stats = await computeUserBetStats(supabase, id, CURRENT_SEASON)
+  // "Wettbilanz" = realisierte Bilanz aus abgeschlossenen Wettscheinen — kept
   // separate from balance-vs-start-balance, which also includes weekly pocket
   // money and any inactivity penalties (see profil/page.tsx for the same split).
-  const totalStaked = singleBets.reduce((acc, b) => acc + (b.stake ?? 0), 0) +
-    comboStatuses.reduce((acc, cb) => acc + (cb.stake ?? 0), 0)
-  const totalPayout = singleBets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0) +
-    comboStatuses.filter(cb => cb.status === 'won').reduce((acc, cb) => acc + (cb.payout ?? 0), 0)
-  const wettbilanz = totalPayout - totalStaked
+  const wettbilanz = stats.realizedNet
+  const balancePoints = await computeBalanceHistory(supabase, id, profile.balance, profile.season_start_balance ?? 1000, CURRENT_SEASON)
 
   const { data: awardsRaw } = await supabase
     .from('user_awards')
@@ -198,17 +172,26 @@ export default async function SpielerPage({
         </div>
       </div>
 
-      {/* Bet stats */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">Statistiken <span className="text-xs font-normal text-gray-400">{CURRENT_SEASON}</span></h2>
+      {/* Öffentliche Wett-Stats — dieselbe Komponente wie im eigenen Profil
+          (nur Wett-Kennzahlen, die ohnehin über "Alle Tipps" öffentlich
+          sichtbar sind; kein Zugriff auf private Kontodaten außer Guthaben/
+          Rang, die oben schon separat gezeigt werden). */}
+      <PlayerBetSummary stats={stats} />
+      <PlayerRealizedBalance stats={stats} />
+      <PlayerStatsTiles stats={stats} />
+      <PlayerMoreStats stats={stats} />
+
+      {balancePoints.length >= 2 && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Guthaben-Verlauf</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Startguthaben bis heute</p>
+          </div>
+          <div className="px-4 py-3">
+            <BalanceHistoryChart points={balancePoints} currentLabel="Aktuell" />
+          </div>
         </div>
-        <div className="grid grid-cols-3 divide-x divide-gray-100 dark:divide-gray-700">
-          <StatCell label="Wetten" value={totalBets} />
-          <StatCell label="Gewonnen" value={wonBets} color="text-green-600" />
-          <StatCell label="Verloren" value={lostBets} color="text-red-600" />
-        </div>
-      </div>
+      )}
 
       {/* Pokalschrank */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
@@ -260,15 +243,6 @@ export default async function SpielerPage({
           </div>
         )}
       </div>
-    </div>
-  )
-}
-
-function StatCell({ label, value, color = 'text-gray-900 dark:text-gray-100' }: { label: string; value: number; color?: string }) {
-  return (
-    <div className="px-2 py-4 text-center">
-      <div className={`text-xl font-black ${color}`}>{value}</div>
-      <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{label}</div>
     </div>
   )
 }

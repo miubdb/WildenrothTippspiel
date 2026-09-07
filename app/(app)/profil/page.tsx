@@ -5,56 +5,12 @@ import { ProfileEditForm } from '@/components/ProfileEditForm'
 import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { DeleteAccountButton } from '@/components/DeleteAccountButton'
-import { WildiIcon, fmtWildi } from '@/components/WildiIcon'
+import { fmtWildi, WildiIcon } from '@/components/WildiIcon'
 import { AvatarLightbox } from '@/components/AvatarLightbox'
+import { PlayerBetSummary, PlayerRealizedBalance, PlayerStatsTiles, PlayerMoreStats, BalanceHistoryChart } from '@/components/PlayerBetStatsCard'
+import { computeUserBetStats, computeBalanceHistory, STATS_CURRENT_SEASON, STATS_PREV_SEASON } from '@/lib/betStats'
 
 export const revalidate = 60
-
-const MARKET_LABELS: Record<string, string> = {
-  '1x2': '1X2',
-  double_chance: 'Doppelte Chance',
-  over_under: 'Ü/U 2,5',
-  over_under_3_5: 'Ü/U 3,5',
-  over_under_5_5: 'Ü/U 5,5',
-  over_under_7_5: 'Ü/U 7,5',
-  btts: 'Beide treffen',
-  exact_score: 'Genaues Ergebnis',
-  handicap: 'Handicap',
-  goalscorer: 'Torschütze',
-  goalscorer_2plus: 'Torschütze 2+',
-}
-
-const SELECTION_LABELS: Record<string, string> = {
-  home: 'Heimsieg',
-  draw: 'Unentschieden',
-  away: 'Auswärtssieg',
-  '1x': '1X',
-  x2: 'X2',
-  '12': '12',
-  'over_2.5': 'Über 2,5',
-  'under_2.5': 'Unter 2,5',
-  'over_3.5': 'Über 3,5',
-  'under_3.5': 'Unter 3,5',
-  'over_5.5': 'Über 5,5',
-  'under_5.5': 'Unter 5,5',
-  'over_7.5': 'Über 7,5',
-  'under_7.5': 'Unter 7,5',
-  yes: 'Beide treffen',
-  no: 'Nicht beide',
-  home_minus_1_5: 'Heim –1,5',
-  away_plus_1_5: 'Gast +1,5',
-  home_minus_2_5: 'Heim –2,5',
-  away_plus_2_5: 'Gast +2,5',
-  away_minus_1_5: 'Gast –1,5',
-  home_plus_1_5: 'Heim +1,5',
-  away_minus_2_5: 'Gast –2,5',
-  home_plus_2_5: 'Heim +2,5',
-}
-
-function selLabel(marketType: string, selection: string): string {
-  if (marketType === 'exact_score') return selection
-  return SELECTION_LABELS[selection] ?? selection
-}
 
 export default async function ProfilPage({
   searchParams,
@@ -73,8 +29,8 @@ export default async function ProfilPage({
     .single()
   if (!profile) redirect('/login')
 
-  const CURRENT_SEASON = '26/27'
-  const PREV_SEASON = '25/26'
+  const CURRENT_SEASON = STATS_CURRENT_SEASON
+  const PREV_SEASON = STATS_PREV_SEASON
 
   const { data: awardsRaw } = await supabase
     .from('user_awards')
@@ -185,27 +141,16 @@ export default async function ProfilPage({
     }
   }
 
-  // Stats (all bets; combo counted as one bet via combo_bets)
-  const singleBets = bets.filter(b => !b.combo_id)
-  const totalBets = singleBets.length + comboBetsMap.size
-  const wonBets = singleBets.filter(b => b.status === 'won').length +
-    [...comboBetsMap.values()].filter(cb => cb.status === 'won').length
-  const lostBets = singleBets.filter(b => b.status === 'lost').length +
-    [...comboBetsMap.values()].filter(cb => cb.status === 'lost').length
-  const pendingBets = singleBets.filter(b => b.status === 'pending').length +
-    [...comboBetsMap.values()].filter(cb => cb.status === 'pending').length
-  const totalStaked = singleBets.reduce((acc, b) => acc + (b.stake ?? 0), 0) +
-    [...comboBetsMap.values()].reduce((acc, cb) => acc + cb.stake, 0)
-  const totalPayout = singleBets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0) +
-    [...comboBetsMap.values()].filter(cb => cb.status === 'won').reduce((acc, cb) => acc + (cb.payout ?? 0), 0)
-  // "Wettbilanz" = actual betting profit/loss, computed purely from settled bet
-  // records — NOT the same as balance-vs-start, which also includes weekly
-  // pocket money and any inactivity penalties (neither of which is a betting
-  // result). Showing balance-vs-start as "Gewinn/Verlust" would make free
-  // pocket money look like a won bet, which is exactly what we want to avoid.
-  const wettbilanz = totalPayout - totalStaked
+  // Zentrale Statistik-Schicht (lib/betStats.ts) — einzige Quelle für
+  // Wett-Kennzahlen, dieselbe Funktion wie auf einem fremden Spielerprofil.
+  const stats = await computeUserBetStats(supabase, user.id, CURRENT_SEASON)
+  // "Wettbilanz" = realisierte Bilanz aus abgeschlossenen Wettscheinen — NICHT
+  // dasselbe wie balance-vs-start, das auch Taschengeld/Strafen enthält.
+  const wettbilanz = stats.realizedNet
   const profit = profile.balance - (profile.season_start_balance ?? 1000)
   const sonstigeBuchungen = profit - wettbilanz
+
+  const balancePoints = await computeBalanceHistory(supabase, user.id, profile.balance, profile.season_start_balance ?? 1000, CURRENT_SEASON)
 
   // Previous season quick stats (singles + combos)
   const prevSingleBets = prevBets.filter(b => !b.combo_id)
@@ -221,89 +166,6 @@ export default async function ProfilPage({
   const prevPayout = prevSingleBets.filter(b => b.status === 'won').reduce((acc, b) => acc + (b.payout ?? 0), 0)
     + [...prevComboBetsMap.values()].filter(cb => cb.status === 'won').reduce((acc, cb) => acc + (cb.payout ?? 0), 0)
   const prevProfit = prevPayout - prevStaked
-
-  // Extended stats
-  const settledCount = wonBets + lostBets
-  const hitRate = settledCount > 0 ? Math.round((wonBets / settledCount) * 100) : null
-
-  // Best single win
-  const bestSingleWin = singleBets
-    .filter(b => b.status === 'won' && b.payout != null)
-    .sort((a, b) => (b.payout ?? 0) - b.stake - ((a.payout ?? 0) - a.stake))[0] ?? null
-  const bestSingleProfit = bestSingleWin ? (bestSingleWin.payout ?? 0) - (bestSingleWin.stake ?? 0) : null
-
-  // Best combo win
-  const bestComboWin = [...comboBetsMap.values()]
-    .filter(cb => cb.status === 'won' && cb.payout != null)
-    .sort((a, b) => (b.payout ?? 0) - b.stake - ((a.payout ?? 0) - a.stake))[0] ?? null
-  const bestComboProfit = bestComboWin ? (bestComboWin.payout ?? 0) - bestComboWin.stake : null
-  const bestWinProfit = Math.max(bestSingleProfit ?? 0, bestComboProfit ?? 0)
-  const hasBestWin = bestWinProfit > 0
-
-  // Favorite market
-  const marketCounts: Record<string, number> = {}
-  for (const b of singleBets.filter(b => b.status !== 'pending')) {
-    marketCounts[b.market_type] = (marketCounts[b.market_type] ?? 0) + 1
-  }
-  const favoriteMarketEntry = Object.entries(marketCounts).sort((a, b) => b[1] - a[1])[0]
-  const favoriteMarket = favoriteMarketEntry ? MARKET_LABELS[favoriteMarketEntry[0]] ?? favoriteMarketEntry[0] : null
-
-  // Combo rate
-  const comboCount = [...comboBetsMap.values()].filter(cb => cb.status !== 'pending').length
-  const comboRate = settledCount + comboCount > 0 ? Math.round((comboCount / (settledCount + comboCount)) * 100) : null
-
-  // Risky bets — reads the actually stored is_risky flag (set at placement,
-  // dynamically reclassified while pending — see lib/risky.ts) rather than
-  // re-deriving from odds > 20: two settled bets can both have odds > 20 for
-  // the same Spieltag while only one of them was ever the Risky slot. A
-  // combo's is_risky isn't its own column; any one leg reflects it (all legs
-  // of one combo share the same value).
-  const comboIsRiskyMap = new Map<string, boolean>()
-  for (const b of bets) {
-    if (b.combo_id != null && !comboIsRiskyMap.has(b.combo_id)) comboIsRiskyMap.set(b.combo_id, b.is_risky)
-  }
-  const riskyWon = singleBets.filter(b => b.is_risky && b.status === 'won').length +
-    [...comboBetsMap.values()].filter(cb => comboIsRiskyMap.get(cb.id) && cb.status === 'won').length
-  const riskyLost = singleBets.filter(b => b.is_risky && b.status === 'lost').length +
-    [...comboBetsMap.values()].filter(cb => comboIsRiskyMap.get(cb.id) && cb.status === 'lost').length
-  const riskyTotal = riskyWon + riskyLost
-
-  // Balance history: reconstruct from settled bets ordered by match date
-  const settledBets = [...bets]
-    .filter(b => b.status !== 'pending' && b.match?.match_date)
-    .sort((a, b) => new Date(a.match!.match_date).getTime() - new Date(b.match!.match_date).getTime())
-
-  // Also fetch combo_bets settled for chart
-  const comboSettled = [...comboBetsMap.values()].filter(cb => cb.status !== 'pending')
-
-  // Combine events: single bet placements/settlements and combo settlements
-  type BalanceEvent = { date: string; delta: number }
-  const events: BalanceEvent[] = []
-  const processedCombos = new Set<string>()
-
-  for (const b of settledBets) {
-    if (!b.match?.match_date) continue
-    if (b.combo_id) {
-      if (!processedCombos.has(b.combo_id)) {
-        processedCombos.add(b.combo_id)
-        const cb = comboBetsMap.get(b.combo_id)
-        if (cb && cb.status !== 'pending') {
-          // stake deducted at placement (not tracked here), payout added on win
-          events.push({ date: b.match.match_date, delta: cb.status === 'won' ? (cb.payout ?? 0) - cb.stake : -cb.stake })
-        }
-      }
-    } else {
-      const stake = b.stake ?? 0
-      const payout = b.payout ?? 0
-      events.push({ date: b.match.match_date, delta: b.status === 'won' ? payout - stake : -stake })
-    }
-  }
-
-  events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-  const balancePoints: number[] = [1000]
-  for (const e of events) {
-    balancePoints.push(balancePoints[balancePoints.length - 1] + e.delta)
-  }
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -357,84 +219,10 @@ export default async function ProfilPage({
         </div>
       )}
 
-      {/* Stats */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">Statistiken</h2>
-        </div>
-        <div className="grid grid-cols-4 divide-x divide-gray-100 dark:divide-gray-700">
-          <StatCell label="Gesamt" value={totalBets} />
-          <StatCell label="Gewonnen" value={wonBets} color="text-green-600" />
-          <StatCell label="Verloren" value={lostBets} color="text-red-600" />
-          <StatCell label="Offen" value={pendingBets} color="text-yellow-600" />
-        </div>
-        <div className="grid grid-cols-2 divide-x divide-gray-100 dark:divide-gray-700 border-t border-gray-100 dark:border-gray-700">
-          <div className="px-4 py-3 text-center">
-            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Eingesetzt</div>
-            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{fmtWildi(totalStaked) + ' Wildis'}</div>
-          </div>
-          <div className="px-4 py-3 text-center">
-            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ausgezahlt</div>
-            <div className="font-bold text-green-600 text-sm">{fmtWildi(totalPayout) + ' Wildis'}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Extended Stats */}
-      {settledCount >= 3 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
-            <h2 className="font-bold text-gray-900 dark:text-gray-100">Spieler-Stats</h2>
-          </div>
-          <div className="grid grid-cols-2 divide-x divide-y divide-gray-100 dark:divide-gray-700">
-            {hitRate !== null && (
-              <StatTile
-                emoji="🎯"
-                label="Trefferquote"
-                value={`${hitRate} %`}
-                sub={`${wonBets}/${settledCount} Wetten`}
-                color={hitRate >= 55 ? 'text-green-600' : hitRate >= 40 ? 'text-amber-600' : 'text-red-600'}
-              />
-            )}
-            {hasBestWin && (
-              <StatTile
-                emoji="🏅"
-                label="Bester Gewinn"
-                value={`+${fmtWildi(bestWinProfit)} Wildis`}
-                sub={bestComboProfit != null && bestComboProfit >= (bestSingleProfit ?? 0) ? 'Kombiwette' : 'Einzelwette'}
-                color="text-green-600"
-              />
-            )}
-            {favoriteMarket && favoriteMarketEntry && (
-              <StatTile
-                emoji="📊"
-                label="Lieblingsmarkt"
-                value={favoriteMarket}
-                sub={`${favoriteMarketEntry[1]}× getippt`}
-                color="text-blue-700"
-              />
-            )}
-            {comboRate !== null && (
-              <StatTile
-                emoji="🔗"
-                label="Kombi-Anteil"
-                value={`${comboRate} %`}
-                sub={`${comboCount} Kombis`}
-                color="text-purple-700"
-              />
-            )}
-            {riskyTotal > 0 && (
-              <StatTile
-                emoji="🎲"
-                label="Risky-Bilanz"
-                value={`${riskyWon}W / ${riskyLost}V`}
-                sub="Wetten mit Quote >20"
-                color={riskyWon > riskyLost ? 'text-green-600' : 'text-red-600'}
-              />
-            )}
-          </div>
-        </div>
-      )}
+      <PlayerBetSummary stats={stats} />
+      <PlayerRealizedBalance stats={stats} />
+      <PlayerStatsTiles stats={stats} />
+      <PlayerMoreStats stats={stats} />
 
       {/* Balance Chart */}
       {balancePoints.length >= 2 && (
@@ -442,14 +230,14 @@ export default async function ProfilPage({
           <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700 flex items-center justify-between">
             <div>
               <h2 className="font-bold text-gray-900 dark:text-gray-100">Guthaben-Verlauf</h2>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Stand nach abgeschlossenen Spieltagen</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Startguthaben bis heute</p>
             </div>
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${wettbilanz >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-              {wettbilanz >= 0 ? '+' : ''}{fmtWildi(wettbilanz)} Wildis
+              {wettbilanz >= 0 ? '+' : ''}{fmtWildi(wettbilanz)} Wildis Wettbilanz
             </span>
           </div>
           <div className="px-4 py-3">
-            <BalanceSparkline points={balancePoints} />
+            <BalanceHistoryChart points={balancePoints} currentLabel="Aktuell" />
           </div>
         </div>
       )}
@@ -602,28 +390,6 @@ export default async function ProfilPage({
   )
 }
 
-function StatTile({ emoji, label, value, sub, color }: { emoji: string; label: string; value: string; sub: string; color: string }) {
-  return (
-    <div className="px-4 py-3">
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-base">{emoji}</span>
-        <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
-      </div>
-      <div className={`text-sm font-black ${color}`}>{value}</div>
-      <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{sub}</div>
-    </div>
-  )
-}
-
-function StatCell({ label, value, color = 'text-gray-900 dark:text-gray-100' }: { label: string; value: number; color?: string }) {
-  return (
-    <div className="px-2 py-3 text-center">
-      <div className={`text-lg font-black ${color}`}>{value}</div>
-      <div className="text-xs text-gray-400 dark:text-gray-500">{label}</div>
-    </div>
-  )
-}
-
 function SignOutButton() {
   return (
     <form action="/api/auth/signout" method="POST">
@@ -634,47 +400,5 @@ function SignOutButton() {
         Abmelden
       </button>
     </form>
-  )
-}
-
-function BalanceSparkline({ points }: { points: number[] }) {
-  const W = 320
-  const H = 72
-  const pad = 4
-  const min = Math.min(...points)
-  const max = Math.max(...points)
-  const range = max - min || 1
-
-  const xs = points.map((_, i) => pad + (i / (points.length - 1)) * (W - 2 * pad))
-  const ys = points.map((v) => H - pad - ((v - min) / range) * (H - 2 * pad))
-
-  const pathD = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ')
-  const fillD = `${pathD} L${xs[xs.length - 1].toFixed(1)},${H} L${xs[0].toFixed(1)},${H} Z`
-
-  const isUp = points[points.length - 1] >= points[0]
-  const color = isUp ? '#16a34a' : '#dc2626'
-  const fillColor = isUp ? '#dcfce7' : '#fee2e2'
-
-  const baseline = H - pad - ((1000 - min) / range) * (H - 2 * pad)
-
-  return (
-    <div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="none">
-        {/* Baseline at 1000 */}
-        <line x1={pad} y1={baseline.toFixed(1)} x2={W - pad} y2={baseline.toFixed(1)} stroke="#e5e7eb" strokeWidth="1" strokeDasharray="4,3" />
-        {/* Fill */}
-        <path d={fillD} fill={fillColor} opacity="0.5" />
-        {/* Line */}
-        <path d={pathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        {/* Last point dot */}
-        <circle cx={xs[xs.length - 1].toFixed(1)} cy={ys[ys.length - 1].toFixed(1)} r="3" fill={color} />
-      </svg>
-      <div className="flex justify-between text-xs text-gray-400 mt-1 px-1">
-        <span>Start: 1.000 Wildis</span>
-        <span className={isUp ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
-          Aktuell: {fmtWildi(points[points.length - 1])} Wildis
-        </span>
-      </div>
-    </div>
   )
 }
