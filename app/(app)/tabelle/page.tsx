@@ -280,25 +280,15 @@ export default async function TabellePage({
   // at the club this season (status active/internal_move) — a departed
   // player's tally isn't "our" scorer anymore, and an incoming transfer's
   // tally was scored at a different club.
-  const scorerTeamNames = isB ? new Set(BKLASSE_TEAM_NAMES) : OUR_TEAMS
-  const { data: lineupScorersRaw } = await supabase
-    .from('match_lineups')
-    .select('player_name, team_name, goals, match_id, matches!inner(match_date, matchday, match_category)')
-    .in('team_name', [...scorerTeamNames])
-    .gt('goals', 0)
-    .gte('matches.match_date', '2026-08-01')
-    .neq('matches.matchday', 999)
-  const currentScorerMap = new Map<string, { name: string; team: string; goals: number }>()
-  for (const r of (lineupScorersRaw ?? []) as { player_name: string; team_name: string; goals: number }[]) {
-    const key = `${r.team_name}::${r.player_name}`
-    const cur = currentScorerMap.get(key) ?? { name: r.player_name, team: r.team_name, goals: 0 }
-    cur.goals += r.goals
-    currentScorerMap.set(key, cur)
-  }
-  const currentScorers = [...currentScorerMap.values()].sort((a, b) => b.goals - a.goals).slice(0, 10)
-  const hasCurrentScorerData = currentScorers.length > 0
-
-  const priorScorers = hasCurrentScorerData ? [] : await (async () => {
+  // Kreisliga hat jetzt die vollständige, ausführlichere Torjägerliste unter
+  // /liga-stats (Tore/Vorlagen/Scorer/Einsätze/Minuten/Karten) — eine zweite,
+  // kürzere Torjägerliste hier direkt darunter wäre eine reine Dopplung.
+  // B-Klasse hat noch keine Aufstellungsdaten für /liga-stats, deshalb bleibt
+  // der bewährte Vorsaison-Fallback hier für die B-Klasse-Ansicht bestehen.
+  const scorerTeamNames = new Set(BKLASSE_TEAM_NAMES)
+  const currentScorers: { name: string; team: string; goals: number }[] = []
+  const hasCurrentScorerData = false
+  const priorScorers = isB ? await (async () => {
     const rows = await fetchAllRows((from, to) => supabase
       .from('league_players')
       .select('name, team_name, goals, status')
@@ -310,7 +300,7 @@ export default async function TabellePage({
     return rows
       .filter((p) => scorerTeamNames.has(p.team_name) && (p.status === 'active' || p.status === 'internal_move'))
       .slice(0, 10)
-  })()
+  })() : []
 
   // Zones are shown regardless of whether a season match has been played yet
   // — they mark fixed table POSITIONS (1, 2, etc.), not results, so they're
@@ -368,7 +358,7 @@ export default async function TabellePage({
           href="/liga-stats"
           className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
-          <span>⚽ Liga-Stats — Torschützen, Vorlagen, Karten &amp; mehr</span>
+          <span>⚽ Liga-Stats — Tore, Vorlagen, Scorer, Einsätze, Minuten &amp; Karten</span>
           <span className="text-gray-400 dark:text-gray-500">›</span>
         </Link>
       )}
@@ -597,8 +587,9 @@ export default async function TabellePage({
         </>
       )}
 
-      {/* Torjäger */}
-      {(hasCurrentScorerData || priorScorers.length > 0) && (
+      {/* Torjäger — nur B-Klasse (Vorsaison-Fallback); Kreisliga verweist über
+          den Liga-Stats-Einstieg oben, keine zweite Liste hier. */}
+      {isB && (hasCurrentScorerData || priorScorers.length > 0) && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
             <h2 className="font-bold text-gray-900 dark:text-gray-100">Torjäger</h2>

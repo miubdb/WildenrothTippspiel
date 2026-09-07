@@ -181,8 +181,9 @@ export interface UserBetStats {
   singlePerformance: { settled: number; won: number; staked: number; payout: number; net: number; roi: number | null }
   comboPerformance: { settled: number; won: number; staked: number; payout: number; net: number; roi: number | null }
 
-  /** Form der letzten N abgeschlossenen Scheine (neueste zuerst), z.B. für
-   *  eine "WWVLV"-Anzeige. */
+  /** Form der letzten N abgeschlossenen Scheine, chronologisch aufsteigend
+   *  (ältester zuerst, neuester zuletzt) — so liest sich eine Punkte-Reihe
+   *  links-nach-rechts mit dem aktuellsten Ergebnis ganz rechts. */
   recentForm: ('won' | 'lost')[]
 }
 
@@ -370,7 +371,7 @@ export async function computeUserBetStats(
     ...combos.filter(c => c.status === 'won' || c.status === 'lost').map(c => ({ status: c.status as 'won' | 'lost', created_at: c.created_at })),
   ].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
   const { longestWinStreak, longestLossStreak } = computeStreaks(chronologicalSettled)
-  const recentForm = [...chronologicalSettled].reverse().slice(0, 10).map(b => b.status)
+  const recentForm = chronologicalSettled.slice(-10).map(b => b.status)
 
   // ── Einzel- vs. Kombi-Performance ───────────────────────────────────
   function perfOf(settledStake: number, settledWonPayout: number, settledN: number, wonN: number) {

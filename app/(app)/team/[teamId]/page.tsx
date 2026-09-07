@@ -180,6 +180,14 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
                   <MiniCell label="Vorl." value={p.assists} highlight={p.assists > 0} />
                   <MiniCell label="🟨/🟥" value={p.yellowCards + p.redCards} />
                 </div>
+                {(p.starterRate != null || p.scorerPer90 != null) && (
+                  <div className="flex items-center gap-3 mt-1 pl-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+                    {p.starterRate != null && <span>Startelfquote {p.starterRate}%</span>}
+                    {p.goalsPer90 != null && <span>Tore/90: {p.goalsPer90.toFixed(2).replace('.', ',')}</span>}
+                    {p.assistsPer90 != null && <span>Vorl./90: {p.assistsPer90.toFixed(2).replace('.', ',')}</span>}
+                    {p.scorerPer90 != null && <span>Scorer/90: {p.scorerPer90.toFixed(2).replace('.', ',')}</span>}
+                  </div>
+                )}
               </div>
             ))}
           </div>

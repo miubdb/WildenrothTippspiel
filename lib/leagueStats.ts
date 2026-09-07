@@ -37,6 +37,14 @@ export interface LeaguePlayerEntry {
   isUncertain: boolean
 }
 
+/** Mindestminuten, ab denen ein Per-90-Wert als Ranking-Grundlage taugt —
+ *  bei z.B. 9 gespielten Minuten macht "3,0 Tore/90" rechnerisch Sinn, ist
+ *  aber als Vergleichswert bedeutungslos. NUR für Rankings/Auszeichnungen
+ *  relevant; auf reinen Spieler-/Vereinsdetailseiten werden die Werte auch
+ *  unterhalb der Schwelle angezeigt (der Nutzer sieht dort ohnehin die
+ *  absoluten Minuten daneben und kann selbst einordnen). */
+export const MIN_MINUTES_FOR_PER90_RANKING = 270 // = 3 volle Spiele
+
 export interface TeamRosterEntry {
   playerName: string
   appearances: number
@@ -47,6 +55,11 @@ export interface TeamRosterEntry {
   yellowCards: number
   redCards: number
   isUncertain: boolean
+  /** starts / appearances, in Prozent. null ohne Einsätze. */
+  starterRate: number | null
+  goalsPer90: number | null
+  assistsPer90: number | null
+  scorerPer90: number | null
 }
 
 export interface TeamMatchSummary {
@@ -109,15 +122,25 @@ async function fetchKreisligaLineups(supabase: SupabaseClient): Promise<LineupRo
   return (data ?? []) as LineupRow[]
 }
 
+export interface LeaguePlayerLeaderboard {
+  /** Die Top-`limit` Einträge. */
+  entries: LeaguePlayerEntry[]
+  /** Alle Einträge mit Wert > 0 — Basis für "Alle anzeigen"/"Weitere X". */
+  all: LeaguePlayerEntry[]
+}
+
 /**
  * Ligaweite Top-Liste für eine Kennzahl. `scorer` = Tore + Vorlagen aus den
  * tatsächlich vorhandenen Daten summiert (kein separates Feld in der DB).
+ * Liefert zusätzlich zu den Top-`limit`-Einträgen die VOLLSTÄNDIGE Liste, damit
+ * die UI dynamisch "Weitere X Spieler …" anzeigen kann, statt stumpf bei 10/15
+ * abzuschneiden.
  */
 export async function computeLeaguePlayerLeaderboard(
   supabase: SupabaseClient,
   metric: LeaguePlayerMetric,
   limit = 10,
-): Promise<LeaguePlayerEntry[]> {
+): Promise<LeaguePlayerLeaderboard> {
   const [rows, aliasMap] = await Promise.all([fetchKreisligaLineups(supabase), getAliasMap(supabase)])
 
   type Agg = { value: number; matches: Set<number> }
@@ -151,7 +174,7 @@ export async function computeLeaguePlayerLeaderboard(
     .filter(e => e.value > 0)
     .sort((a, b) => b.value - a.value || a.playerName.localeCompare(b.playerName, 'de'))
 
-  return list.slice(0, limit)
+  return { entries: list.slice(0, limit), all: list }
 }
 
 /**
@@ -163,7 +186,8 @@ export async function computeTeamRoster(supabase: SupabaseClient, teamName: stri
   const [allRows, aliasMap] = await Promise.all([fetchKreisligaLineups(supabase), getAliasMap(supabase)])
   const rows = allRows.filter(r => r.team_name === teamName)
 
-  const byPlayer = new Map<string, TeamRosterEntry>()
+  type Accum = Omit<TeamRosterEntry, 'starterRate' | 'goalsPer90' | 'assistsPer90' | 'scorerPer90'>
+  const byPlayer = new Map<string, Accum>()
   for (const r of rows) {
     const name = resolveName(aliasMap, teamName, r.player_name)
     const e = byPlayer.get(name) ?? {
@@ -180,7 +204,19 @@ export async function computeTeamRoster(supabase: SupabaseClient, teamName: stri
     byPlayer.set(name, e)
   }
 
-  return [...byPlayer.values()].sort((a, b) => b.minutes - a.minutes || b.appearances - a.appearances || a.playerName.localeCompare(b.playerName, 'de'))
+  // Per-90-Werte und Startelfquote: nur berechnet, wenn überhaupt Minuten
+  // vorliegen (sonst Division durch 0) — auf reinen Detailseiten werden sie
+  // trotzdem angezeigt, auch bei kleiner Stichprobe (siehe
+  // MIN_MINUTES_FOR_PER90_RANKING, das nur für Rankings gilt, nicht hier).
+  const withDerived: TeamRosterEntry[] = [...byPlayer.values()].map((e) => ({
+    ...e,
+    starterRate: e.appearances > 0 ? Math.round((e.starts / e.appearances) * 100) : null,
+    goalsPer90: e.minutes > 0 ? Math.round((e.goals / e.minutes) * 90 * 100) / 100 : null,
+    assistsPer90: e.minutes > 0 ? Math.round((e.assists / e.minutes) * 90 * 100) / 100 : null,
+    scorerPer90: e.minutes > 0 ? Math.round(((e.goals + e.assists) / e.minutes) * 90 * 100) / 100 : null,
+  }))
+
+  return withDerived.sort((a, b) => b.minutes - a.minutes || b.appearances - a.appearances || a.playerName.localeCompare(b.playerName, 'de'))
 }
 
 /** Höchste Werte eines Teams — für die "Top-Torschütze/Top-Vorlagengeber/

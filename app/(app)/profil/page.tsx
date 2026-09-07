@@ -7,7 +7,7 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { DeleteAccountButton } from '@/components/DeleteAccountButton'
 import { fmtWildi, WildiIcon } from '@/components/WildiIcon'
 import { AvatarLightbox } from '@/components/AvatarLightbox'
-import { PlayerBetSummary, PlayerRealizedBalance, PlayerStatsTiles, PlayerMoreStats, BalanceHistoryChart } from '@/components/PlayerBetStatsCard'
+import { PlayerBetSummary, PlayerRealizedBalance, PlayerStatsTiles, BalanceHistoryChart } from '@/components/PlayerBetStatsCard'
 import { computeUserBetStats, computeBalanceHistory, STATS_CURRENT_SEASON, STATS_PREV_SEASON } from '@/lib/betStats'
 
 export const revalidate = 60
@@ -219,10 +219,9 @@ export default async function ProfilPage({
         </div>
       )}
 
-      <PlayerBetSummary stats={stats} />
-      <PlayerRealizedBalance stats={stats} />
+      <PlayerBetSummary stats={stats} isOwnProfile={true} />
+      <PlayerRealizedBalance stats={stats} isOwnProfile={true} />
       <PlayerStatsTiles stats={stats} />
-      <PlayerMoreStats stats={stats} />
 
       {/* Balance Chart */}
       {balancePoints.length >= 2 && (

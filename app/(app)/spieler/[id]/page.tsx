@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { crestPath } from '@/lib/teams'
 import { fmtWildi } from '@/components/WildiIcon'
 import { AvatarLightbox } from '@/components/AvatarLightbox'
-import { PlayerBetSummary, PlayerRealizedBalance, PlayerStatsTiles, PlayerMoreStats, BalanceHistoryChart } from '@/components/PlayerBetStatsCard'
+import { PlayerBetSummary, PlayerRealizedBalance, PlayerStatsTiles, BalanceHistoryChart } from '@/components/PlayerBetStatsCard'
 import { computeUserBetStats, computeBalanceHistory, STATS_CURRENT_SEASON } from '@/lib/betStats'
 
 export const revalidate = 60
@@ -18,6 +18,13 @@ export default async function SpielerPage({
 }) {
   const { id } = await params
   const supabase = await createClient()
+
+  // Steuert, ob private Wettdetails (gebundener Einsatz/mögliche Auszahlung
+  // offener Scheine) gezeigt werden dürfen — siehe PlayerRealizedBalance in
+  // components/PlayerBetStatsCard.tsx. Bis zum Anpfiff darf niemand außer dem
+  // Spieler selbst ableiten können, wie viel er aktuell gewettet hat.
+  const { data: { user: viewer } } = await supabase.auth.getUser()
+  const isOwnProfile = viewer?.id === id
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -176,10 +183,9 @@ export default async function SpielerPage({
           (nur Wett-Kennzahlen, die ohnehin über "Alle Tipps" öffentlich
           sichtbar sind; kein Zugriff auf private Kontodaten außer Guthaben/
           Rang, die oben schon separat gezeigt werden). */}
-      <PlayerBetSummary stats={stats} />
-      <PlayerRealizedBalance stats={stats} />
+      <PlayerBetSummary stats={stats} isOwnProfile={isOwnProfile} />
+      <PlayerRealizedBalance stats={stats} isOwnProfile={isOwnProfile} />
       <PlayerStatsTiles stats={stats} />
-      <PlayerMoreStats stats={stats} />
 
       {balancePoints.length >= 2 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">

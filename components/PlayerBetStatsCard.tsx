@@ -8,23 +8,31 @@ import { MIN_SETTLED_FOR_STATS_CARD } from '@/lib/betStats'
  * möglichst dieselbe Komponente verwenden wie im eigenen Profil"). Zeigt
  * ausschließlich Wett-Kennzahlen, die ohnehin über "Alle Tipps" öffentlich
  * einsehbar sind — keine privaten Kontodaten wie Guthaben oder E-Mail.
+ *
+ * `isOwnProfile` blendet auf einem fremden Profil alles aus, woraus sich
+ * ableiten ließe, wie viel jemand aktuell in noch offenen (nicht
+ * angepfiffenen) Scheinen gebunden hat: die "Offen"-Kachel entfällt und
+ * "Eingesetzt" zeigt nur den Einsatz bereits abgeschlossener Scheine, nicht
+ * `totalStaked` (das offene Einsätze mit einrechnet). Historische,
+ * abgeschlossene Zahlen (Gewonnen/Verloren/Ausgezahlt) bleiben unverändert
+ * sichtbar — die sind über "Alle Tipps" ohnehin öffentlich.
  */
-export function PlayerBetSummary({ stats }: { stats: UserBetStats }) {
+export function PlayerBetSummary({ stats, isOwnProfile }: { stats: UserBetStats; isOwnProfile: boolean }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
         <h2 className="font-bold text-gray-900 dark:text-gray-100">Statistiken</h2>
       </div>
-      <div className="grid grid-cols-4 divide-x divide-gray-100 dark:divide-gray-700">
-        <StatCell label="Gesamt" value={stats.totalSlips} />
+      <div className={`grid ${isOwnProfile ? 'grid-cols-4' : 'grid-cols-3'} divide-x divide-gray-100 dark:divide-gray-700`}>
+        <StatCell label="Gesamt" value={isOwnProfile ? stats.totalSlips : stats.settledCount} />
         <StatCell label="Gewonnen" value={stats.won} color="text-green-600" />
         <StatCell label="Verloren" value={stats.lost} color="text-red-600" />
-        <StatCell label="Offen" value={stats.pending} color="text-yellow-600" />
+        {isOwnProfile && <StatCell label="Offen" value={stats.pending} color="text-yellow-600" />}
       </div>
       <div className="grid grid-cols-2 divide-x divide-gray-100 dark:divide-gray-700 border-t border-gray-100 dark:border-gray-700">
         <div className="px-4 py-3 text-center">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Eingesetzt</div>
-          <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{fmtWildi(stats.totalStaked)} Wildis</div>
+          <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">{fmtWildi(isOwnProfile ? stats.totalStaked : stats.settledStaked)} Wildis</div>
         </div>
         <div className="px-4 py-3 text-center">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Ausgezahlt</div>
@@ -35,48 +43,47 @@ export function PlayerBetSummary({ stats }: { stats: UserBetStats }) {
   )
 }
 
-/** Realisierte Bilanz (nur abgeschlossene Scheine) getrennt von aktuell
- *  gebundenem Einsatz und möglicher Auszahlung offener Scheine — offene
- *  Wetten zählen bewusst nicht als Verlust (siehe lib/betStats.ts). */
-export function PlayerRealizedBalance({ stats }: { stats: UserBetStats }) {
-  if (stats.settledCount === 0 && stats.pending === 0) return null
+/**
+ * ROI-Karte (nur abgeschlossene Scheine) — die Netto-Wettbilanz selbst wird
+ * hier bewusst NICHT nochmal angezeigt, die steht schon prominent oben auf
+ * der Profil-/Spielerseite ("Wettbilanz"-Kachel); eine zweite Darstellung
+ * derselben Zahl wäre reine Wiederholung.
+ *
+ * Gebundener Einsatz und mögliche Auszahlung offener Scheine sind PRIVAT:
+ * bis zum Anpfiff darf niemand außer dem Spieler selbst ableiten können, wie
+ * viel er aktuell gewettet hat. `isOwnProfile` steuert das zentral — kein
+ * zweiter Berechnungspfad, dieselbe Komponente für beide Fälle.
+ */
+export function PlayerRealizedBalance({ stats, isOwnProfile }: { stats: UserBetStats; isOwnProfile: boolean }) {
+  if (stats.roi == null && (!isOwnProfile || stats.pending === 0)) return null
+  const roiAmount = stats.roi != null ? Math.abs(stats.roi).toFixed(1).replace('.', ',') : null
+  const roiMeaning = stats.roi != null
+    ? stats.roi >= 0
+      ? `Pro 100 eingesetzten Wildis hast du bei abgeschlossenen Wetten im Schnitt ${roiAmount} Wildis Gewinn erzielt.`
+      : `Pro 100 eingesetzten Wildis hast du bei abgeschlossenen Wetten im Schnitt ${roiAmount} Wildis verloren.`
+    : null
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
-        <h2 className="font-bold text-gray-900 dark:text-gray-100">Wettbilanz</h2>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Nur abgeschlossene Wettscheine — offene zählen nicht als Verlust</p>
-      </div>
-      <div className="px-4 py-3 flex items-center justify-between">
-        <span className="text-sm text-gray-600 dark:text-gray-300">Realisierte Bilanz ({stats.settledCount} Scheine)</span>
-        <span className={`text-lg font-black ${stats.realizedNet > 0 ? 'text-green-600' : stats.realizedNet < 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
-          {stats.realizedNet >= 0 ? '+' : ''}{fmtWildi(stats.realizedNet)} Wildis
-        </span>
-      </div>
       {stats.roi != null && (
-        <details className="px-4 pb-2 group">
-          <summary className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
-            <span className="flex items-center gap-1">
+        <details className="px-4 py-3 group">
+          <summary className="flex items-center justify-between text-sm text-gray-600 dark:text-gray-300 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+            <span className="flex items-center gap-1.5 font-bold text-gray-900 dark:text-gray-100">
               ROI
               <span className="w-3.5 h-3.5 rounded-full bg-gray-200 dark:bg-gray-600 text-gray-500 dark:text-gray-300 text-[9px] font-bold flex items-center justify-center">i</span>
             </span>
-            <span className={stats.roi >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+            <span className={`text-lg font-black ${stats.roi >= 0 ? 'text-green-600' : 'text-red-600'}`}>
               {stats.roi >= 0 ? '+' : ''}{stats.roi.toFixed(1).replace('.', ',')} %
             </span>
           </summary>
           <div className="mt-2 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">
-            ROI zeigt, wie profitabel deine abgeschlossenen Wetten im Verhältnis zu deinem Einsatz waren.
-            <br />Formel: (Auszahlung − Einsatz) ÷ Einsatz × 100
+            <span className="font-semibold">Dein ROI beträgt {stats.roi >= 0 ? '+' : ''}{stats.roi.toFixed(1).replace('.', ',')} %.</span> Das bedeutet: {roiMeaning}
             <br /><br />
-            <span className="font-semibold text-green-600">+20 %</span> = aus 100 Wildis Einsatz wurden netto 20 Wildis Gewinn.
-            <br /><span className="font-semibold">0 %</span> = genau Break-even.
-            <br /><span className="font-semibold text-red-600">−20 %</span> = pro 100 Wildis Einsatz wurden 20 Wildis verloren.
-            <br /><br />
-            Nur abgeschlossene Wetten zählen — offene Wetten gehen nicht als Verlust ein. ROI ist nicht dasselbe wie die Trefferquote.
+            Formel: (Auszahlung − Einsatz) ÷ Einsatz × 100 — nur abgeschlossene Wetten zählen, offene Wetten gehen nicht als Verlust ein. ROI ist nicht dasselbe wie die Trefferquote.
           </div>
         </details>
       )}
-      {stats.pending > 0 && (
-        <div className="px-4 py-2.5 border-t border-gray-100 dark:border-gray-700 grid grid-cols-2 gap-2 bg-amber-50/50 dark:bg-amber-900/10">
+      {isOwnProfile && stats.pending > 0 && (
+        <div className={`px-4 py-2.5 grid grid-cols-2 gap-2 bg-amber-50/50 dark:bg-amber-900/10 ${stats.roi != null ? 'border-t border-gray-100 dark:border-gray-700' : ''}`}>
           <div>
             <div className="text-[11px] text-gray-500 dark:text-gray-400">Gebunden in {stats.pending} offenen Scheinen</div>
             <div className="text-sm font-bold text-gray-800 dark:text-gray-100">{fmtWildi(stats.pendingStaked)} Wildis</div>
@@ -148,7 +155,10 @@ export function PlayerStatsTiles({ stats }: { stats: UserBetStats }) {
           <StatTile emoji="📈" label="Ø Quote" value={`@${stats.avgOdds.toFixed(2).replace('.', ',')}`} sub="abgeschlossene Scheine" color="text-gray-700 dark:text-gray-200" />
         )}
         {stats.highestWonOdds != null && (
-          <StatTile emoji="⚡" label="Höchste gewonnene Quote" value={`@${stats.highestWonOdds.toFixed(2).replace('.', ',')}`} sub={stats.avgWinningOdds != null ? `Ø Gewinnquote @${stats.avgWinningOdds.toFixed(2).replace('.', ',')}` : ''} color="text-gray-700 dark:text-gray-200" />
+          <StatTile emoji="⚡" label="Höchste gewonnene Quote" value={`@${stats.highestWonOdds.toFixed(2).replace('.', ',')}`} sub="bisher bester Treffer" color="text-gray-700 dark:text-gray-200" />
+        )}
+        {stats.avgWinningOdds != null && (
+          <StatTile emoji="📐" label="Ø Gewinnquote" value={`@${stats.avgWinningOdds.toFixed(2).replace('.', ',')}`} sub="Ø Quote gewonnener Scheine" color="text-gray-700 dark:text-gray-200" />
         )}
         {stats.longestWinStreak.length >= 2 && (
           <StatTile emoji="🔥" label="Längste Siegesserie" value={`${stats.longestWinStreak.length}×`} sub="in Folge gewonnen" color="text-green-600" />
@@ -167,67 +177,6 @@ export function PlayerStatsTiles({ stats }: { stats: UserBetStats }) {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-/** "Mehr Statistiken" — aufklappbar, Markt-Performance mit Mindeststichprobe. */
-export function PlayerMoreStats({ stats }: { stats: UserBetStats }) {
-  const qualifying = stats.marketBreakdown.filter(m => m.won + m.lost >= 5)
-  const bestMarket = [...qualifying].sort((a, b) => (b.hitRate ?? -1) - (a.hitRate ?? -1))[0] ?? null
-  const worstMarket = qualifying.length > 1
-    ? [...qualifying].sort((a, b) => (a.hitRate ?? 101) - (b.hitRate ?? 101))[0]
-    : null
-
-  if (stats.marketBreakdown.length === 0) return null
-
-  return (
-    <details className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-      <summary className="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-700 dark:text-gray-200 list-none flex items-center justify-between">
-        <span>Mehr Statistiken</span>
-        <span className="text-xs text-gray-400">▼</span>
-      </summary>
-      <div className="px-4 pb-4 pt-1 space-y-3">
-        <div className="grid grid-cols-2 gap-2">
-          <MiniStat label="Einzel-ROI" value={stats.singlePerformance.roi} sub={`${stats.singlePerformance.won}/${stats.singlePerformance.settled} Einzel`} />
-          <MiniStat label="Kombi-ROI" value={stats.comboPerformance.roi} sub={`${stats.comboPerformance.won}/${stats.comboPerformance.settled} Kombis`} />
-        </div>
-
-        {bestMarket ? (
-          <MiniStat label="Bester Markt" value={bestMarket.hitRate} sub={`${bestMarket.label} · ${bestMarket.won}/${bestMarket.won + bestMarket.lost}`} isRate />
-        ) : (
-          <p className="text-[11px] text-gray-400 dark:text-gray-500">Bester Markt: noch nicht genügend Daten (mind. 5 abgeschlossene Tipps pro Markt nötig).</p>
-        )}
-        {worstMarket && (
-          <MiniStat label="Schwächster Markt" value={worstMarket.hitRate} sub={`${worstMarket.label} · ${worstMarket.won}/${worstMarket.won + worstMarket.lost}`} isRate />
-        )}
-
-        <div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">Alle Märkte (Tipps, jedes Kombi-Bein zählt einzeln)</div>
-          <div className="space-y-1">
-            {stats.marketBreakdown.map(m => (
-              <div key={m.marketType} className="flex items-center justify-between text-xs">
-                <span className="text-gray-700 dark:text-gray-300">{m.label}</span>
-                <span className="text-gray-400 dark:text-gray-500">
-                  {m.ticks}× {m.hitRate != null && <span className="ml-1">· {m.hitRate}% ({m.won}/{m.won + m.lost})</span>}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </details>
-  )
-}
-
-function MiniStat({ label, value, sub, isRate }: { label: string; value: number | null; sub: string; isRate?: boolean }) {
-  return (
-    <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl px-3 py-2">
-      <div className="text-[10px] text-gray-500 dark:text-gray-400">{label}</div>
-      <div className={`text-sm font-black ${value == null ? 'text-gray-400' : value >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-        {value == null ? '—' : isRate ? `${value} %` : `${value >= 0 ? '+' : ''}${value.toFixed(1).replace('.', ',')} %`}
-      </div>
-      <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{sub}</div>
     </div>
   )
 }
