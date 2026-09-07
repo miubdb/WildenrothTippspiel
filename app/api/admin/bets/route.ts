@@ -57,10 +57,13 @@ export async function GET(request: NextRequest) {
     }])
   )
 
+  // Stornierte (void) Tipps sollen im Admin-Tool gar nicht erst auftauchen —
+  // gleiche Regel wie in jeder User-facing Ansicht (tipps, leaderboard).
   const { data: bets } = await supabase
     .from('bets')
     .select('id, user_id, match_id, market_type, selection, odds_value, status, combo_id, is_risky, stake, created_at')
     .in('match_id', matchIds)
+    .neq('status', 'void')
     .order('created_at', { ascending: true })
 
   const comboIds = [...new Set((bets ?? []).filter(b => b.combo_id).map(b => b.combo_id as number))]
