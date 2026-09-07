@@ -112,6 +112,8 @@ export interface LineupEntry {
   minutes_played: number
   goals: number
   assists: number
+  /** Minute of a straight/second-yellow red card, if any — null otherwise. */
+  red_card_minute?: number | null
   created_at: string
 }
 

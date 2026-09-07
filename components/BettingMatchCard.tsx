@@ -35,6 +35,12 @@ interface BettingMatchCardProps {
   isWildenrothIiPlayer?: boolean
   wildenrothIiTeamId?: number | null
   goalscorers?: GoalscorerRow[] | null
+  /** Set (ISO string) when this match's Torschützen tab is locked because its
+   *  Wildenroth side has a second match under the same open Spieltag (a
+   *  rescheduled midweek Nachholspiel) — see tipps/page.tsx. The tab still
+   *  shows, but with a "opens after the earlier match" notice instead of
+   *  odds, until this instant. */
+  goalscorerLockedUntil?: string | null
   /** Set when this Kreisliga match is displayed under a Spieltag other than
    *  its own official BFV number (see `isRescheduledMatch` in lib/season.ts)
    *  — shows a "eigentlich Spieltag X" hint so it doesn't look like a mistake. */
@@ -52,7 +58,7 @@ interface BettingMatchCardProps {
 
 type Tab = '1x2' | 'goals' | 'exact' | 'handicap' | 'goalscorer'
 
-export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, originalMatchday, exactScores: exactScoresProp }: BettingMatchCardProps) {
+export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, goalscorerLockedUntil, originalMatchday, exactScores: exactScoresProp }: BettingMatchCardProps) {
   const { selections, addSelection, mode } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
@@ -336,7 +342,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             {/* Show the Torschützen tab only when at least one player is actually
                 offered — gating on row count alone rendered a tab that then said
                 "Keine Torschützen verfügbar." Both Wildenroth sides qualify. */}
-            {((matchInvolvesWildenroth || matchInvolvesWildenrothII) && goalscorers && goalscorers.some(g => g.is_offered)
+            {((matchInvolvesWildenroth || matchInvolvesWildenrothII) && ((goalscorers && goalscorers.some(g => g.is_offered)) || goalscorerLockedUntil)
               ? [['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap'], ['goalscorer', 'Torschützen']] as [Tab, string][]
               : [['1x2', '1X2'], ['goals', 'Tore'], ['exact', 'Ergebnis'], ['handicap', 'Handicap']] as [Tab, string][]
             ).map(([tab, label]) => (
@@ -594,7 +600,15 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             })()}
 
             {/* Goalscorer (Wildenroth only) */}
-            {activeTab === 'goalscorer' && goalscorers && (
+            {activeTab === 'goalscorer' && goalscorerLockedUntil && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 italic py-2">
+                Torschützen-Quoten öffnen nach dem Wildenroth-Spiel am{' '}
+                {new Date(goalscorerLockedUntil).toLocaleString('de-DE', {
+                  timeZone: 'Europe/Berlin', weekday: 'long', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+                })}{' '}Uhr — Wildenroth hat in diesem Spieltag zwei Spiele.
+              </div>
+            )}
+            {activeTab === 'goalscorer' && !goalscorerLockedUntil && goalscorers && (
               <div className="space-y-2">
                 <div className="text-xs text-gray-400 dark:text-gray-500 font-medium">
                   Torschützen – nur Wildenroth-Spieler

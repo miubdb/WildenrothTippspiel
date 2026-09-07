@@ -26,6 +26,27 @@ export const ODDS_COLUMN: Record<string, Record<string, string>> = {
 }
 
 /**
+ * The handicap market has two independent lines (±1.5 and ±2.5), each with a
+ * true complementary pair — home_minus_X and away_plus_X (or the mirrored
+ * away_minus_X/home_plus_X) are the only genuinely opposite outcomes for the
+ * SAME line, since their probabilities sum to 1. A 1.5 and a 2.5 selection on
+ * the same favoured side are correlated instead (winning the 2.5 line always
+ * wins the 1.5 line too) and are NOT opposites — used to scope the
+ * same-match "opposite outcome" hedge check to just these real pairs instead
+ * of treating any two different handicap selections as a hedge.
+ */
+export const HANDICAP_OPPOSITE: Record<string, string> = {
+  home_minus_1_5: 'away_plus_1_5',
+  away_plus_1_5: 'home_minus_1_5',
+  home_minus_2_5: 'away_plus_2_5',
+  away_plus_2_5: 'home_minus_2_5',
+  away_minus_1_5: 'home_plus_1_5',
+  home_plus_1_5: 'away_minus_1_5',
+  away_minus_2_5: 'home_plus_2_5',
+  home_plus_2_5: 'away_minus_2_5',
+}
+
+/**
  * Both handicap directions (home-favoured and away-favoured) are always
  * computed and stored, but only one direction per match is actually offered
  * to bettors — the other one is either a near-certainty or a near-

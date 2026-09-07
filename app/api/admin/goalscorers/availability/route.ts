@@ -36,7 +36,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'matchId/playerId fehlt.' }, { status: 400 })
   }
 
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  // manually_overridden protects this row from the automatic freeze/recompute
+  // pipeline (tipps/page.tsx, POST /api/admin/goalscorers/match) — those
+  // unconditionally overwrite status/is_offered/odds from the model unless
+  // this flag is set, which previously silently erased an admin's manual
+  // block/enable/odds edit the moment the real freeze fired after betting
+  // opened.
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString(), manually_overridden: true }
   if (body.status !== undefined) updates.status = body.status
   if (body.is_offered !== undefined) updates.is_offered = body.is_offered
   if (body.is_offered_2plus !== undefined) updates.is_offered_2plus = body.is_offered_2plus

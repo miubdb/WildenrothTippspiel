@@ -84,7 +84,7 @@ export default async function TippsPage({
     ).then((data) => ({ data })),
     fetchAllRows((from, to) => supabase
       .from('match_lineups')
-      .select('id, match_id, team_name, player_name, minutes_played, goals, assists, created_at')
+      .select('id, match_id, team_name, player_name, minutes_played, goals, assists, red_card_minute, created_at')
       .order('id')
       .range(from, to)
     ).then((data) => ({ data })),
@@ -472,6 +472,19 @@ export default async function TippsPage({
   const goalscorerOffersByMatch: Record<number, (GoalscorerOffer & { status: string })[]> = {}
   // Player name map used by display components for goalscorer selections.
   const playerNameMap: Record<number, string> = {}
+  // When a Wildenroth side (I or II) has two of its own matches under the same
+  // open Spieltag — a rescheduled midweek Nachholspiel landing on the same
+  // effective Spieltag as that week's normal fixture, NOT the separate
+  // single-match-per-team English-week Spieltage — both those matches' minute
+  // projections are too uncertain (rotation risk across two games in one
+  // week) to freeze/offer a Torschützen market immediately. Instead the whole
+  // Torschützen tab for BOTH matches stays locked until a fixed buffer after
+  // the EARLIER match's kickoff (a proxy for "that match is over"), by which
+  // point the admin will typically have entered its match_lineups and
+  // recomputed wildenroth_players — so the later match's own projection also
+  // benefits from that game's real minutes/goals data once it unlocks.
+  const GOALSCORER_DOUBLE_FIXTURE_BUFFER_MS = 2 * 60 * 60 * 1000
+  const goalscorerLockUntilByMatch: Record<number, string> = {}
   {
     // Both Wildenroth sides get a goalscorer market, each from its own squad.
     // Resolved by exact name: a substring match on 'Wildenroth' also hits
@@ -501,43 +514,85 @@ export default async function TippsPage({
       const players = (playersRaw ?? []) as WildenrothPlayer[]
       for (const p of players) playerNameMap[p.id] = p.name
 
-      if (wildenrothMatches.length > 0 && isBettingOpen) {
-        const wmIds = wildenrothMatches.map(m => m.id)
+      // Only the LATER match(es) of a double-fixture Spieltag get locked — the
+      // earlier (e.g. midweek) match's own Torschützen market stays open and
+      // freezes normally, exactly like Option 2 asked for. Locking the
+      // earlier match too (as an earlier version of this code did) made no
+      // sense: its own kickoff is what the lock is waiting on in the first
+      // place.
+      const lockedMatchIds = new Set<number>()
+      if (wildenrothMatches.length >= 2) {
+        const sortedByKickoff = [...wildenrothMatches].sort(
+          (a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime()
+        )
+        const earliestKickoff = new Date(sortedByKickoff[0].match_date).getTime()
+        const unlockAt = earliestKickoff + GOALSCORER_DOUBLE_FIXTURE_BUFFER_MS
+        if (Date.now() < unlockAt) {
+          for (const m of sortedByKickoff.slice(1)) {
+            lockedMatchIds.add(m.id)
+            goalscorerLockUntilByMatch[m.id] = new Date(unlockAt).toISOString()
+          }
+        }
+      }
+      const openWildenrothMatches = wildenrothMatches.filter(m => !lockedMatchIds.has(m.id))
+
+      if (openWildenrothMatches.length > 0 && isBettingOpen) {
+        const wmIds = openWildenrothMatches.map(m => m.id)
 
         const { data: existingRows } = await supabase
           .from('match_goalscorer_odds')
-          .select('match_id, player_id, status, is_offered, is_offered_2plus, prob_score, prob_score_2plus, odds_score, odds_score_2plus, frozen_at')
+          .select('match_id, player_id, status, is_offered, is_offered_2plus, prob_score, prob_score_2plus, odds_score, odds_score_2plus, frozen_at, manually_overridden')
           .in('match_id', wmIds)
 
-        const frozenSet = new Set((existingRows ?? []).filter(r => r.frozen_at).map(r => r.match_id))
+        // Per-(match,player) — NOT per-match. A match-level "is this match
+        // already frozen" check meant that once a single row for a match had
+        // frozen_at set, every other still-unfrozen row for that SAME match
+        // (e.g. a player added/reactivated after the first freeze) would
+        // never get frozen at all, silently staying invisible/unbettable
+        // forever even though it holds a real admin-set price.
+        const frozenKeys = new Set(
+          (existingRows ?? []).filter(r => r.frozen_at).map(r => `${r.match_id}:${r.player_id}`)
+        )
+        // Rows an admin already manually blocked/enabled/re-priced (via
+        // /availability or /cancel-player, typically before the window opened)
+        // must survive this automatic freeze — otherwise the first real page
+        // load after betting opens silently reverts the admin's edit back to
+        // the model's own numbers, which is exactly what happened last time.
+        const overriddenKeys = new Set(
+          (existingRows ?? []).filter(r => r.manually_overridden).map(r => `${r.match_id}:${r.player_id}`)
+        )
         // match_goalscorer_odds only grants writes to admins, so the freeze must
         // go through the service-role client exactly like the 1X2 freeze above —
         // otherwise a normal member's page load silently writes nothing and the
         // Torschützen tab never appears for them.
         const adminSupaGs = createAdminClient()
 
-        for (const m of wildenrothMatches) {
-          if (!frozenSet.has(m.id)) {
-            // Freeze for this match now
-            const offers = computeGoalscorerOffersForMatch(
-              seasonMatches, m.home_team_id, m.away_team_id, wildenrothId, players, priorCtx,
-            )
-            const now = new Date().toISOString()
-            for (const o of offers) {
-              await adminSupaGs.from('match_goalscorer_odds').upsert({
-                match_id: m.id,
-                player_id: o.player_id,
-                status: 'available',
-                is_offered: o.is_offered,
-                is_offered_2plus: o.is_offered_2plus,
-                prob_score: o.prob_score,
-                prob_score_2plus: o.prob_score_2plus,
-                odds_score: o.odds_score,
-                odds_score_2plus: o.odds_score_2plus,
-                frozen_at: now,
-                updated_at: now,
-              }, { onConflict: 'match_id,player_id' })
+        for (const m of openWildenrothMatches) {
+          const offers = computeGoalscorerOffersForMatch(
+            seasonMatches, m.home_team_id, m.away_team_id, wildenrothId, players, priorCtx,
+          )
+          const now = new Date().toISOString()
+          for (const o of offers) {
+            if (frozenKeys.has(`${m.id}:${o.player_id}`)) continue // already live — never re-freeze
+            if (overriddenKeys.has(`${m.id}:${o.player_id}`)) {
+              await adminSupaGs.from('match_goalscorer_odds')
+                .update({ frozen_at: now, updated_at: now })
+                .eq('match_id', m.id).eq('player_id', o.player_id)
+              continue
             }
+            await adminSupaGs.from('match_goalscorer_odds').upsert({
+              match_id: m.id,
+              player_id: o.player_id,
+              status: 'available',
+              is_offered: o.is_offered,
+              is_offered_2plus: o.is_offered_2plus,
+              prob_score: o.prob_score,
+              prob_score_2plus: o.prob_score_2plus,
+              odds_score: o.odds_score,
+              odds_score_2plus: o.odds_score_2plus,
+              frozen_at: now,
+              updated_at: now,
+            }, { onConflict: 'match_id,player_id' })
           }
         }
 
@@ -631,20 +686,34 @@ export default async function TippsPage({
     }
   }
 
-  // Standings positions
-  const teamPtsMap = new Map<number, { pts: number; gd: number; gf: number }>()
-  for (const m of seasonMatches) {
-    if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
-    const hs = m.home_score; const as_ = m.away_score
-    const h = teamPtsMap.get(m.home_team_id) ?? { pts: 0, gd: 0, gf: 0 }
-    const a = teamPtsMap.get(m.away_team_id) ?? { pts: 0, gd: 0, gf: 0 }
-    h.gf += hs; h.gd += hs - as_; a.gf += as_; a.gd += as_ - hs
-    if (hs > as_) h.pts += 3; else if (hs < as_) a.pts += 3; else { h.pts++; a.pts++ }
-    teamPtsMap.set(m.home_team_id, h); teamPtsMap.set(m.away_team_id, a)
+  // Standings positions — computed SEPARATELY per competition, not pooled
+  // across all of them. 'kreisliga' matches are the real Kreisliga Zugspitze
+  // table (Wildenroth I's league); 'wildenroth_ii' + 'bklasse_topspiel' +
+  // 'b-klasse' matches all belong to the SAME underlying B-Klasse Gruppe 2
+  // table (Wildenroth II's league) — mixing either group into one combined
+  // ranking produced nonsense positions like "Platz 18"/"Platz 24" for
+  // B-Klasse teams, since a league of ~11 teams can't have a position that
+  // high; it was really their rank across two unrelated leagues' team pools
+  // stacked together.
+  function computePositions(pool: Match[]): Record<number, number> {
+    const teamPtsMap = new Map<number, { pts: number; gd: number; gf: number }>()
+    for (const m of pool) {
+      if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
+      const hs = m.home_score; const as_ = m.away_score
+      const h = teamPtsMap.get(m.home_team_id) ?? { pts: 0, gd: 0, gf: 0 }
+      const a = teamPtsMap.get(m.away_team_id) ?? { pts: 0, gd: 0, gf: 0 }
+      h.gf += hs; h.gd += hs - as_; a.gf += as_; a.gd += as_ - hs
+      if (hs > as_) h.pts += 3; else if (hs < as_) a.pts += 3; else { h.pts++; a.pts++ }
+      teamPtsMap.set(m.home_team_id, h); teamPtsMap.set(m.away_team_id, a)
+    }
+    const sortedTeams = [...teamPtsMap.entries()].sort(([, a], [, b]) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
+    const result: Record<number, number> = {}
+    sortedTeams.forEach(([id], idx) => { result[id] = idx + 1 })
+    return result
   }
-  const sortedTeams = [...teamPtsMap.entries()].sort(([, a], [, b]) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
-  const positions: Record<number, number> = {}
-  sortedTeams.forEach(([id], idx) => { positions[id] = idx + 1 })
+  const kreisligaPool = seasonMatches.filter(m => !m.match_category || m.match_category === 'kreisliga')
+  const bKlassePool = seasonMatches.filter(m => m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel' || m.match_category === 'b-klasse')
+  const positions: Record<number, number> = { ...computePositions(kreisligaPool), ...computePositions(bKlassePool) }
 
   // Find Wildenroth team IDs (1. and 2. Mannschaft are separate teams/flags)
   const allTeamsInMatches = allMatches.flatMap(m => [m.home_team, m.away_team])
@@ -1053,7 +1122,8 @@ export default async function TippsPage({
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2">
             <div className="text-red-200 text-xs">Wetten öffnen am</div>
             <div className="text-white font-semibold text-sm">
-              {bettingOpens.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })} um 12:00 Uhr
+              {bettingOpens.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })} um{' '}
+              {bettingOpens.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })} Uhr
             </div>
           </div>
         )}
@@ -1140,6 +1210,7 @@ export default async function TippsPage({
                     isWildenrothIiPlayer={isWildenrothIiPlayer}
                     wildenrothIiTeamId={wildenrothIiTeamId}
                     goalscorers={goalscorerOffersByMatch[match.id] ?? null}
+                    goalscorerLockedUntil={goalscorerLockUntilByMatch[match.id] ?? null}
                     originalMatchday={isRescheduledMatch(match, mdIndex) ? match.matchday : null}
                     exactScores={exactScoreOffersMap[match.id] ?? []}
                   />
@@ -1164,6 +1235,7 @@ export default async function TippsPage({
                         isWildenrothIiPlayer={isWildenrothIiPlayer}
                         wildenrothIiTeamId={wildenrothIiTeamId}
                         goalscorers={goalscorerOffersByMatch[match.id] ?? null}
+                        goalscorerLockedUntil={goalscorerLockUntilByMatch[match.id] ?? null}
                         exactScores={exactScoreOffersMap[match.id] ?? []}
                       />
                     ))}

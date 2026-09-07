@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isAgainstWildenroth } from '@/lib/wildenroth'
 import { isSeasonStarted, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
-import { ODDS_COLUMN, offeredHandicapSelections } from '@/lib/oddsMarkets'
+import { ODDS_COLUMN, offeredHandicapSelections, HANDICAP_OPPOSITE } from '@/lib/oddsMarkets'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { RISKY_ODDS_THRESHOLD, evaluateSlips, recomputeRiskyForUserMatchday, type RiskySlip } from '@/lib/risky'
 import type { Match } from '@/types'
@@ -434,7 +434,15 @@ export async function POST(request: NextRequest) {
       .in('match_id', matchIds)
     for (const s of selections) {
       const conflict = (sameMarket ?? []).find(
-        (b) => b.match_id === s.matchId && b.market_type === s.marketType && b.selection !== s.selection
+        (b) => b.match_id === s.matchId && b.market_type === s.marketType && b.selection !== s.selection &&
+          // Handicap has TWO independent lines (±1.5 and ±2.5) sharing one
+          // market_type — a 1.5 and a 2.5 bet on the SAME favoured side are
+          // correlated, not opposite (winning the 2.5 line always wins the
+          // 1.5 line too), so only the true complementary pair for the SAME
+          // line counts as a hedge here. Every other market has just one
+          // line, where any two different selections genuinely are opposite
+          // outcomes.
+          (b.market_type !== 'handicap' || HANDICAP_OPPOSITE[s.selection] === b.selection)
       )
       if (conflict) {
         // Name the actual match + market so the user knows exactly which
