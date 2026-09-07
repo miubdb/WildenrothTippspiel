@@ -418,26 +418,40 @@ export async function computeUserBetStats(
 }
 
 export interface BalancePoint {
-  /** ISO-Datum des Ereignisses, oder null für den synthetischen Start-/
-   *  Sonstiges-Punkt. */
-  date: string | null
+  /** Effektiver Tippspiel-Spieltag (lib/season.ts), oder null für den
+   *  synthetischen Start-/Sonstiges-Punkt. */
+  matchday: number | null
   balance: number
-  /** Kurzlabel für Tooltip/Achse. */
+  /** Kurzlabel für Achse/Tooltip, z.B. "ST 4" oder "Taschengeld & Sonstiges". */
   label: string
+  /** Netto-Delta dieses Punkts gegenüber dem vorherigen — für den Tooltip
+   *  ("+120" / "-45"), null beim Startpunkt. */
+  delta: number | null
 }
 
 /**
- * Rekonstruiert den Guthaben-Verlauf eines Users. Startpunkt ist das echte
- * `season_start_balance` (nicht hart 1000). Danach folgt EIN Punkt pro
- * abgerechnetem Wettschein, chronologisch nach dem Datum des frühesten
- * zugehörigen Spiels. Es gibt in dieser App keine Buchungshistorie mit
- * Zeitstempel für Taschengeld/Strafen (weekly_pocket_money_log verzeichnet
- * nur, OB eine Woche ausgezahlt wurde, nicht an wen/wie viel) — die Summe
- * aus allen Nicht-Wett-Buchungen wird deshalb bewusst NICHT über die
- * Zeitachse verteilt (das wäre Raten), sondern als EIN letzter, klar
- * beschrifteter Schritt angehängt. Dadurch trifft der letzte Punkt immer
- * exakt das tatsächlich angezeigte Guthaben, ohne einzelne Ereignisse zu
- * erfinden.
+ * Rekonstruiert den Guthaben-Verlauf eines Users, gruppiert nach dem
+ * EFFEKTIVEN Tippspiel-Spieltag (nicht nach Kalenderdatum) — siehe
+ * lib/season.ts. Startpunkt ist das echte `season_start_balance` (nicht
+ * hart 1000). Mehrere an einem Spieltag abgerechnete Scheine werden zu
+ * einem Punkt aggregiert.
+ *
+ * Es gibt in dieser App keine Buchungshistorie mit Zeitstempel für
+ * Taschengeld/Strafen (weekly_pocket_money_log verzeichnet nur, OB eine
+ * Woche ausgezahlt wurde, nicht an wen/wie viel) — die Summe aus allen
+ * Nicht-Wett-Buchungen wird deshalb bewusst NICHT über die Zeitachse
+ * verteilt (das wäre Raten), sondern als EIN letzter, klar beschrifteter
+ * Schritt angehängt.
+ *
+ * GARANTIE: `points[points.length - 1].balance === currentBalance`, exakt
+ * (kein Runden auf volle Beträge) — der letzte Punkt ist entweder dieser
+ * expliziten Differenz-Schritt (`balance: currentBalance` wörtlich
+ * übernommen) oder, falls die Differenz nach Rundung auf Cent exakt 0 ist,
+ * der letzte Spieltags-Punkt, dessen `running`-Summe dann per Definition
+ * ebenfalls exakt `currentBalance` entspricht. `currentBalance` wird dem
+ * Aufrufer 1:1 als Zahl übergeben (kein weiterer Fetch, kein zweiter
+ * Wert) — dieselbe Zahl, die die Seite auch als "Guthaben" anzeigt, kann
+ * hier strukturell nicht auseinanderlaufen.
  */
 export async function computeBalanceHistory(
   supabase: SupabaseClient,
@@ -446,61 +460,110 @@ export async function computeBalanceHistory(
   seasonStartBalance: number,
   season: string = STATS_CURRENT_SEASON,
 ): Promise<BalancePoint[]> {
-  const { data: betsRaw } = await supabase
-    .from('bets')
-    .select('id, stake, payout, status, combo_id, created_at, season, match:matches(match_date)')
-    .eq('user_id', userId)
-    .neq('status', 'void')
-    .in('status', ['won', 'lost'])
+  const { buildEffectiveMatchdayIndex, effectiveMatchdayOf } = await import('./season')
+  type SeasonMatchRow = {
+    id: number; matchday: number; tippspiel_matchday: number | null; match_date: string
+    match_category: string | null; is_topspiel: boolean | null
+    home_team_id: number; away_team_id: number; status: string
+  }
 
-  type Row = { id: number; stake: number | null; payout: number | null; status: string; combo_id: number | null; created_at: string; season: string | null; match: { match_date: string } | { match_date: string }[] | null }
+  const [{ data: betsRaw }, { data: seasonMatchesRaw }] = await Promise.all([
+    supabase
+      .from('bets')
+      .select('id, stake, payout, status, combo_id, match_id, season')
+      .eq('user_id', userId)
+      .neq('status', 'void')
+      .in('status', ['won', 'lost']),
+    supabase
+      .from('matches')
+      .select('id, matchday, tippspiel_matchday, match_date, match_category, is_topspiel, home_team_id, away_team_id, status')
+      .or('match_date.gte.2026-08-01,matchday.eq.999'),
+  ])
+
+  type Row = { id: number; stake: number | null; payout: number | null; status: string; combo_id: number | null; match_id: number | null; season: string | null }
   const bets = ((betsRaw ?? []) as Row[]).filter(b => b.season === season)
+  const seasonMatches = (seasonMatchesRaw ?? []) as unknown as SeasonMatchRow[]
+  // buildEffectiveMatchdayIndex/effectiveMatchdayOf only read the fields
+  // used here (matchday, tippspiel_matchday, match_date, match_category,
+  // is_topspiel, home/away_team_id) — safe to cast without the full Match
+  // shape (home_score/away_score aren't needed for this computation).
+  const mdIndex = buildEffectiveMatchdayIndex(seasonMatches as never)
+  const matchById = new Map(seasonMatches.map(m => [m.id, m]))
+  const effMdOf = (matchId: number | null): number | null => {
+    if (matchId == null) return null
+    const m = matchById.get(matchId)
+    return m ? effectiveMatchdayOf(m as never, mdIndex) : null
+  }
 
   const comboIds = [...new Set(bets.filter(b => b.combo_id != null).map(b => b.combo_id as number))]
+  const comboLegMatchdays = new Map<number, number[]>()
   const comboById = new Map<number, { stake: number; payout: number | null; status: string }>()
   if (comboIds.length > 0) {
-    const { data: comboRaw } = await supabase
-      .from('combo_bets')
-      .select('id, stake, payout, status, season')
-      .in('id', comboIds)
+    const [{ data: comboRaw }, { data: allLegsRaw }] = await Promise.all([
+      supabase.from('combo_bets').select('id, stake, payout, status, season').in('id', comboIds),
+      supabase.from('bets').select('combo_id, match_id').in('combo_id', comboIds),
+    ])
     for (const c of (comboRaw ?? []) as { id: number; stake: number; payout: number | null; status: string; season: string | null }[]) {
       if (c.season === season) comboById.set(c.id, c)
     }
+    for (const l of (allLegsRaw ?? []) as { combo_id: number | null; match_id: number | null }[]) {
+      if (l.combo_id == null) continue
+      const md = effMdOf(l.match_id)
+      if (md == null) continue
+      const arr = comboLegMatchdays.get(l.combo_id) ?? []
+      arr.push(md)
+      comboLegMatchdays.set(l.combo_id, arr)
+    }
   }
 
-  type Event = { date: string; delta: number }
-  const events: Event[] = []
+  // Eine Kombi wird dem frühesten effektiven Spieltag ihrer Legs zugeordnet
+  // (mirrort lib/awards.ts' comboOwnerMatchday-Logik für spieltagübergreifende
+  // Kombis) — median-basierte Ankerdaten, robust gegen einzelne Nachholspiele.
+  function earliestMatchday(mds: number[]): number | null {
+    if (mds.length === 0) return null
+    return [...mds].sort((a, b) => (mdIndex.matchdayAnchorDate.get(a) ?? Infinity) - (mdIndex.matchdayAnchorDate.get(b) ?? Infinity))[0]
+  }
+
+  const byMatchday = new Map<number, number>()
   const seenCombos = new Set<number>()
   for (const b of bets) {
-    const m = Array.isArray(b.match) ? b.match[0] : b.match
-    if (!m?.match_date) continue
     if (b.combo_id != null) {
       if (seenCombos.has(b.combo_id)) continue
       seenCombos.add(b.combo_id)
       const cb = comboById.get(b.combo_id)
       if (!cb || cb.status === 'pending') continue
-      events.push({ date: m.match_date, delta: cb.status === 'won' ? (cb.payout ?? 0) - cb.stake : -cb.stake })
+      const md = earliestMatchday(comboLegMatchdays.get(b.combo_id) ?? [])
+      if (md == null) continue
+      const delta = cb.status === 'won' ? (cb.payout ?? 0) - cb.stake : -cb.stake
+      byMatchday.set(md, (byMatchday.get(md) ?? 0) + delta)
     } else {
+      const md = effMdOf(b.match_id)
+      if (md == null) continue
       const stake = b.stake ?? 0
-      events.push({ date: m.match_date, delta: b.status === 'won' ? (b.payout ?? 0) - stake : -stake })
+      const delta = b.status === 'won' ? (b.payout ?? 0) - stake : -stake
+      byMatchday.set(md, (byMatchday.get(md) ?? 0) + delta)
     }
   }
-  events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
 
-  const points: BalancePoint[] = [{ date: null, balance: seasonStartBalance, label: 'Start' }]
+  // Chronologische Reihenfolge wie überall sonst im UI (Nachholspiele landen
+  // an ihrer tatsächlichen, nicht ihrer nummerischen Position).
+  const orderedMatchdays = mdIndex.kreisligaMatchdaysDisplayOrder.filter(md => byMatchday.has(md))
+
+  const points: BalancePoint[] = [{ matchday: null, balance: seasonStartBalance, label: 'Start', delta: null }]
   let running = seasonStartBalance
-  for (const e of events) {
-    running += e.delta
-    points.push({ date: e.date, balance: running, label: e.delta >= 0 ? `+${Math.round(e.delta)}` : `${Math.round(e.delta)}` })
+  for (const md of orderedMatchdays) {
+    const delta = byMatchday.get(md)!
+    running += delta
+    points.push({ matchday: md, balance: running, label: `ST ${md}`, delta })
   }
 
   // Restdifferenz zum echten, aktuellen Guthaben (Taschengeld, Strafen,
-  // Admin-Korrekturen, gerundete Cent-Reste) als EIN letzter Schritt — siehe
-  // Funktionskommentar oben. Nur anhängen, wenn wirklich eine Differenz
-  // besteht, sonst gäbe es einen sinnlosen Nullschritt am Ende.
+  // Admin-Korrekturen) als EIN letzter Schritt — siehe Funktionskommentar
+  // oben. Nur anhängen, wenn wirklich eine Differenz besteht (auf den Cent
+  // gerundet), sonst gäbe es einen sinnlosen Nullschritt am Ende.
   const rest = Math.round((currentBalance - running) * 100) / 100
   if (Math.abs(rest) >= 0.01) {
-    points.push({ date: null, balance: currentBalance, label: 'Taschengeld & Sonstiges' })
+    points.push({ matchday: null, balance: currentBalance, label: 'Taschengeld & Sonstiges', delta: rest })
   }
   return points
 }

@@ -206,25 +206,35 @@ function StatCell({ label, value, color = 'text-gray-900 dark:text-gray-100' }: 
 export function BalanceHistoryChart({ points, currentLabel }: { points: BalancePoint[]; currentLabel: string }) {
   if (points.length < 2) return null
   const W = 320
-  const H = 72
+  const H = 84
   const pad = 4
+  const chartH = 60 // Platz für die Spieltag-Beschriftung unter der Kurve lassen
   const values = points.map(p => p.balance)
   const min = Math.min(...values)
   const max = Math.max(...values)
   const range = max - min || 1
 
   const xs = points.map((_, i) => pad + (i / (points.length - 1)) * (W - 2 * pad))
-  const ys = values.map(v => H - pad - ((v - min) / range) * (H - 2 * pad))
+  const ys = values.map(v => chartH - pad - ((v - min) / range) * (chartH - 2 * pad))
 
   const pathD = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${ys[i].toFixed(1)}`).join(' ')
-  const fillD = `${pathD} L${xs[xs.length - 1].toFixed(1)},${H} L${xs[0].toFixed(1)},${H} Z`
+  const fillD = `${pathD} L${xs[xs.length - 1].toFixed(1)},${chartH} L${xs[0].toFixed(1)},${chartH} Z`
 
   const start = values[0]
   const end = values[values.length - 1]
   const isUp = end >= start
   const color = isUp ? '#16a34a' : '#dc2626'
   const fillColor = isUp ? '#dcfce7' : '#fee2e2'
-  const baseline = H - pad - ((start - min) / range) * (H - 2 * pad)
+  const baseline = chartH - pad - ((start - min) / range) * (chartH - 2 * pad)
+
+  // Punkt-Label: "ST N" für Spieltage, "Start"/"Sonstiges" ausgeschrieben nur
+  // wenn Platz ist (wenige Punkte), sonst kompakt nur die Zahl.
+  const compact = points.length > 6
+  const pointLabel = (p: BalancePoint) => {
+    if (p.matchday != null) return compact ? String(p.matchday) : `ST ${p.matchday}`
+    if (p.label === 'Start') return compact ? '' : 'Start'
+    return compact ? '±' : 'Sonst.'
+  }
 
   return (
     <div>
@@ -232,9 +242,16 @@ export function BalanceHistoryChart({ points, currentLabel }: { points: BalanceP
         <line x1={pad} y1={baseline.toFixed(1)} x2={W - pad} y2={baseline.toFixed(1)} stroke="#e5e7eb" strokeWidth="1" strokeDasharray="4,3" />
         <path d={fillD} fill={fillColor} opacity="0.5" />
         <path d={pathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx={xs[xs.length - 1].toFixed(1)} cy={ys[ys.length - 1].toFixed(1)} r="3" fill={color} />
+        {xs.map((x, i) => (
+          <circle key={i} cx={x.toFixed(1)} cy={ys[i].toFixed(1)} r={i === xs.length - 1 ? 3 : 1.5} fill={i === xs.length - 1 ? color : '#9ca3af'} />
+        ))}
+        {points.map((p, i) => (
+          <text key={i} x={xs[i].toFixed(1)} y={chartH + 12} textAnchor={i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'} className="fill-gray-400 dark:fill-gray-500" style={{ fontSize: 8 }}>
+            {pointLabel(p)}
+          </text>
+        ))}
       </svg>
-      <div className="flex justify-between text-xs text-gray-400 mt-1 px-1">
+      <div className="flex justify-between text-xs text-gray-400 mt-0.5 px-1">
         <span>Start: {fmtWildi(start)} Wildis</span>
         <span className={isUp ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
           {currentLabel}: {fmtWildi(end)} Wildis
