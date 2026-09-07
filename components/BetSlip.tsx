@@ -10,7 +10,7 @@ const MIN_STAKE = 1
 const MAX_STAKE = 250
 import type { MarketType } from '@/types'
 import { crestPath } from '@/lib/teams'
-import { MAX_PAYOUT_NORMAL, MAX_PAYOUT_RISKY, previewComboIsRisky, previewSingleIsRisky } from '@/lib/payout'
+import { MAX_PAYOUT_NORMAL, MAX_PAYOUT_RISKY, breakevenStake, previewComboIsRisky, previewSingleIsRisky } from '@/lib/payout'
 
 function TrashIcon({ className }: { className?: string }) {
   return (
@@ -204,6 +204,14 @@ export function BetSlip() {
     (mode === 'combo' && isComboValid && previewComboIsRisky(totalComboOdds))
 
   const payoutIsCapped = potentialPayout < theoreticalPayout - 0.005
+
+  // Only well-defined for one single odds value: combo mode (one slip, one
+  // totalComboOdds) or single mode with exactly one selection. With several
+  // independent single-mode selections at different odds, "the" breakeven
+  // stake isn't one number — skip the hint there rather than showing a
+  // misleading figure for only one of several slips.
+  const breakevenOdds = mode === 'combo' ? totalComboOdds : selections.length === 1 ? selections[0]?.oddsValue : null
+  const breakeven = breakevenOdds != null ? breakevenStake(breakevenOdds, isRiskyEligible) : null
 
   // Collapsed bar labels
   const showComboOdds = mode === 'combo' && isComboValid && count >= 2
@@ -546,13 +554,21 @@ export function BetSlip() {
               )}
 
               {payoutIsCapped && (
-                <div className="mb-3 text-right">
-                  <div className="text-xs text-gray-500 font-medium">Max. Auszahlung erreicht</div>
-                  <div className="text-[11px] text-gray-400">
+                <div className="mb-3 bg-amber-50 text-amber-700 text-xs px-3 py-2 rounded-lg border border-amber-200">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <span className="text-base">🔒</span>
+                    <span>Max. Auszahlung erreicht</span>
+                  </div>
+                  <div className="text-[11px] text-amber-700/80 mt-0.5">
                     {isRiskyEligible
                       ? `Maximal ${fmtWildi(MAX_PAYOUT_RISKY)} ${wildiLabel(MAX_PAYOUT_RISKY)} pro Risky-Wettschein`
                       : `Maximal ${fmtWildi(MAX_PAYOUT_NORMAL)} ${wildiLabel(MAX_PAYOUT_NORMAL)} pro Wettschein`}
                   </div>
+                  {breakeven != null && breakeven > 0 && (
+                    <div className="text-[11px] text-amber-700/80 mt-0.5">
+                      Ab {fmtWildi(breakeven)} {wildiLabel(breakeven)} Einsatz zahlt diese Quote nicht mehr aus — mehr Einsatz bringt hier keine höhere Auszahlung mehr.
+                    </div>
+                  )}
                 </div>
               )}
 

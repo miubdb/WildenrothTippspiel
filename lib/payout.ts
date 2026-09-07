@@ -26,6 +26,16 @@ export function isPayoutCapped(stake: number, odds: number, isRisky: boolean): b
   return stake * odds > payoutCap(isRisky)
 }
 
+/** The exact stake at which stake × odds first reaches the payout cap — any
+ *  stake above this is wasted for THIS slip (same capped payout either way).
+ *  Used to show the user "ab X Wildis bringt mehr Einsatz nichts mehr" so a
+ *  2-Wildi and a 250-Wildi bet at the same huge quote don't silently land on
+ *  the identical payout without the user realizing why. */
+export function breakevenStake(odds: number, isRisky: boolean): number {
+  if (odds <= 0) return 0
+  return payoutCap(isRisky) / odds
+}
+
 /**
  * Preview-only heuristic for "will this not-yet-placed slip likely be
  * flagged Risky" — mirrors lib/risky.ts's RISKY_ODDS_THRESHOLD, duplicated
