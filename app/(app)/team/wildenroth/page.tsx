@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
-import { computeTeamRoster, teamRosterHighlights, type TeamRosterEntry } from '@/lib/leagueStats'
+import { computeTeamRoster, teamRosterHighlights, groupRosterByPosition, type TeamRosterEntry } from '@/lib/leagueStats'
 
 export const revalidate = 60
 
@@ -108,13 +108,6 @@ function computeStandings(matches: Match[]): Standing[] {
   return [...stats.values()].sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf)
 }
 
-const POSITIONS = [
-  { key: 'Tor',       label: 'Tor' },
-  { key: 'Abwehr',    label: 'Abwehr' },
-  { key: 'Mittelfeld',label: 'Mittelfeld' },
-  { key: 'Angriff',   label: 'Angriff' },
-]
-
 function PlayerAvatar({ player, size = 40 }: { player: PlayerRow; size?: number }) {
   const initials = player.name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase()
   if (player.image_url) {
@@ -205,21 +198,21 @@ export default async function WildenrothTeamPage() {
     if (r.position) return r.position
     const wp = playersByName.get(r.playerName)
     if (!wp) return null
-    if (wp.is_goalkeeper) return 'Tor'
+    if (wp.is_goalkeeper) return 'Torwart'
     return wp.position ?? null
   }
-  const grouped = POSITIONS.map((g) => ({
+  // Gleiche Torwart→Abwehr→Mittelfeld→Angriff→Unbekannt-Gruppierung/-Reihenfolge
+  // wie auf jeder anderen Vereinsseite (lib/leagueStats.ts#groupRosterByPosition,
+  // team/[teamId]/page.tsx) — innerhalb jeder Gruppe bleibt aber Wildenroths
+  // eigene Trikotnummern-Sortierung erhalten (nicht Spiele/Minuten wie bei den
+  // anderen Vereinen), da diese Zusatzinformation (wildenroth_players) nur hier
+  // vorliegt. "Ohne Positionsdaten" ist damit einfach die "Unbekannt"-Gruppe.
+  const rosterForGrouping: TeamRosterEntry[] = roster.map((r) => ({ ...r, position: resolvedPosition(r) }))
+  const rosterGroups = groupRosterByPosition(rosterForGrouping).map((g) => ({
     ...g,
-    list: roster
-      .filter((r) => {
-        const pos = resolvedPosition(r)
-        return g.key === 'Tor' ? pos === 'Tor' || pos === 'Torwart' : pos === g.key
-      })
-      .sort((a, b) => (playersByName.get(a.playerName)?.shirt_number ?? 99) - (playersByName.get(b.playerName)?.shirt_number ?? 99) || a.playerName.localeCompare(b.playerName, 'de')),
-  })).filter((g) => g.list.length > 0)
-  const ungroupedRoster = roster
-    .filter((r) => !resolvedPosition(r))
-    .sort((a, b) => b.minutes - a.minutes || a.playerName.localeCompare(b.playerName, 'de'))
+    players: [...g.players].sort((a, b) =>
+      (playersByName.get(a.playerName)?.shirt_number ?? 99) - (playersByName.get(b.playerName)?.shirt_number ?? 99) || a.playerName.localeCompare(b.playerName, 'de')),
+  }))
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -377,26 +370,16 @@ export default async function WildenrothTeamPage() {
         </div>
         {roster.length > 0 ? (
           <>
-            {grouped.map((g) => (
-              <div key={g.key}>
+            {rosterGroups.map((g) => (
+              <div key={g.position}>
                 <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  {g.label}
+                  {g.position}
                 </div>
                 <div className="divide-y divide-gray-50 dark:divide-gray-700">
-                  {g.list.map((r) => <RosterRow key={r.playerName} entry={r} wp={playersByName.get(r.playerName) ?? null} />)}
+                  {g.players.map((r) => <RosterRow key={r.playerName} entry={r} wp={playersByName.get(r.playerName) ?? null} />)}
                 </div>
               </div>
             ))}
-            {ungroupedRoster.length > 0 && (
-              <div>
-                <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  Ohne Positionsdaten
-                </div>
-                <div className="divide-y divide-gray-50 dark:divide-gray-700">
-                  {ungroupedRoster.map((r) => <RosterRow key={r.playerName} entry={r} wp={playersByName.get(r.playerName) ?? null} />)}
-                </div>
-              </div>
-            )}
           </>
         ) : (
           <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Für diesen Verein liegen noch keine Aufstellungsdaten vor.</div>
