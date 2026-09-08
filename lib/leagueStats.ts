@@ -346,6 +346,43 @@ export async function computeMvpLeaderboard(supabase: SupabaseClient, limit = 15
   })
 }
 
+/** Reihenfolge für die positionsgruppierte Kaderanzeige (Vereinsdetailseite) —
+ *  NICHT für die ligaweiten Ranking-Tabs (Torjäger/Vorlagen/Scorer/MVP/
+ *  Einsätze/Minuten/Karten), die weiterhin nach ihrem jeweiligen Statistikwert
+ *  sortiert bleiben. */
+const ROSTER_POSITION_ORDER = ['Torwart', 'Abwehr', 'Mittelfeld', 'Angriff', 'Unbekannt'] as const
+
+export interface RosterPositionGroup {
+  position: string
+  players: TeamRosterEntry[]
+}
+
+/**
+ * Gruppiert einen bereits von computeTeamRoster gelieferten Kader nach
+ * Position (Torwart → Abwehr → Mittelfeld → Angriff → Unbekannt, siehe
+ * ROSTER_POSITION_ORDER) und sortiert innerhalb jeder Gruppe nach Spiele
+ * absteigend, dann Minuten absteigend, dann Name alphabetisch als stabilem
+ * Tie-Breaker. `position === null` (nie erfasst) landet in "Unbekannt",
+ * ebenso ein Positionswert außerhalb der bekannten vier Kategorien. Leere
+ * Gruppen werden nicht zurückgegeben.
+ */
+export function groupRosterByPosition(roster: TeamRosterEntry[]): RosterPositionGroup[] {
+  const byPosition = new Map<string, TeamRosterEntry[]>()
+  for (const r of roster) {
+    const key = r.position && (ROSTER_POSITION_ORDER as readonly string[]).includes(r.position) ? r.position : 'Unbekannt'
+    const list = byPosition.get(key) ?? []
+    list.push(r)
+    byPosition.set(key, list)
+  }
+  return ROSTER_POSITION_ORDER
+    .map((position) => ({
+      position,
+      players: (byPosition.get(position) ?? []).sort((a, b) =>
+        b.appearances - a.appearances || b.minutes - a.minutes || a.playerName.localeCompare(b.playerName, 'de')),
+    }))
+    .filter((g) => g.players.length > 0)
+}
+
 export function teamRosterHighlights(roster: TeamRosterEntry[]) {
   const top = (sel: (r: TeamRosterEntry) => number) => {
     const withValue = roster.filter(r => sel(r) > 0)

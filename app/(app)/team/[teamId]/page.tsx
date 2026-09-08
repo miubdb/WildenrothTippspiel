@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
 import { TeamLogo } from '@/components/TeamLogo'
-import { computeTeamRoster, teamRosterHighlights, fetchPlayerSnapshots, LEAGUE_STATS_SEASON_START } from '@/lib/leagueStats'
+import { computeTeamRoster, teamRosterHighlights, fetchPlayerSnapshots, groupRosterByPosition, LEAGUE_STATS_SEASON_START } from '@/lib/leagueStats'
 
 export const revalidate = 60
 
@@ -75,6 +75,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
     fetchPlayerSnapshots(supabase, team.name),
   ])
   const highlights = teamRosterHighlights(roster)
+  const rosterGroups = groupRosterByPosition(roster)
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -162,46 +163,52 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
           </p>
         </div>
         {roster.length > 0 ? (
-          <div className="divide-y divide-gray-50 dark:divide-gray-700">
-            {roster.map((p) => {
-              const snap = snapshots.get(p.playerName)
-              return (
-              <div key={p.playerName} className="px-4 py-2.5">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.playerName}</span>
-                  {p.position && (
-                    <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">{p.position}</span>
-                  )}
+          <>
+            {rosterGroups.map((g) => (
+              <div key={g.position}>
+                <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  {g.position}
                 </div>
-                <div className="grid grid-cols-7 gap-1 text-center text-[11px]">
-                  <MiniCell label="Sp." value={p.appearances} />
-                  <MiniCell label="Elf" value={p.starts} />
-                  <MiniCell label="Min." value={p.minutes} />
-                  <MiniCell label="Tore" value={p.goals} highlight={p.goals > 0} />
-                  <MiniCell label="Vorl." value={p.assists} highlight={p.assists > 0} />
-                  <MiniCell label="🟨" value={p.yellowCards} />
-                  <MiniCell label="🟥" value={p.redCards} />
+                <div className="divide-y divide-gray-50 dark:divide-gray-700">
+                  {g.players.map((p) => {
+                    const snap = snapshots.get(p.playerName)
+                    return (
+                    <div key={p.playerName} className="px-4 py-2.5">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.playerName}</span>
+                      </div>
+                      <div className="grid grid-cols-7 gap-1 text-center text-[11px]">
+                        <MiniCell label="Sp." value={p.appearances} />
+                        <MiniCell label="Elf" value={p.starts} />
+                        <MiniCell label="Min." value={p.minutes} />
+                        <MiniCell label="Tore" value={p.goals} highlight={p.goals > 0} />
+                        <MiniCell label="Vorl." value={p.assists} highlight={p.assists > 0} />
+                        <MiniCell label="🟨" value={p.yellowCards} />
+                        <MiniCell label="🟥" value={p.redCards} />
+                      </div>
+                      {(p.starterRate != null || p.scorerPer90 != null) && (
+                        <div className="flex items-center gap-3 mt-1 pl-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+                          {p.starterRate != null && <span>Startelfquote {p.starterRate}%</span>}
+                          {p.goalsPer90 != null && <span>Tore/90: {p.goalsPer90.toFixed(2).replace('.', ',')}</span>}
+                          {p.assistsPer90 != null && <span>Vorl./90: {p.assistsPer90.toFixed(2).replace('.', ',')}</span>}
+                          {p.scorerPer90 != null && <span>Scorer/90: {p.scorerPer90.toFixed(2).replace('.', ',')}</span>}
+                        </div>
+                      )}
+                      {snap && (snap.mvpValue != null || snap.penaltiesTaken || snap.subbedIn || snap.subbedOut) && (
+                        <div className="flex items-center gap-3 mt-1 pl-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+                          {snap.mvpValue != null && <span>MVP-Wert {snap.mvpValue}</span>}
+                          {!!snap.penaltiesTaken && <span>11m: {snap.penaltiesScored}/{snap.penaltiesTaken}</span>}
+                          {(!!snap.subbedIn || !!snap.subbedOut) && <span>Ein {snap.subbedIn ?? 0} · Aus {snap.subbedOut ?? 0}</span>}
+                          <span className="text-gray-300 dark:text-gray-600">(FuPa-Snapshot)</span>
+                        </div>
+                      )}
+                    </div>
+                    )
+                  })}
                 </div>
-                {(p.starterRate != null || p.scorerPer90 != null) && (
-                  <div className="flex items-center gap-3 mt-1 pl-0.5 text-[10px] text-gray-400 dark:text-gray-500">
-                    {p.starterRate != null && <span>Startelfquote {p.starterRate}%</span>}
-                    {p.goalsPer90 != null && <span>Tore/90: {p.goalsPer90.toFixed(2).replace('.', ',')}</span>}
-                    {p.assistsPer90 != null && <span>Vorl./90: {p.assistsPer90.toFixed(2).replace('.', ',')}</span>}
-                    {p.scorerPer90 != null && <span>Scorer/90: {p.scorerPer90.toFixed(2).replace('.', ',')}</span>}
-                  </div>
-                )}
-                {snap && (snap.mvpValue != null || snap.penaltiesTaken || snap.subbedIn || snap.subbedOut) && (
-                  <div className="flex items-center gap-3 mt-1 pl-0.5 text-[10px] text-gray-400 dark:text-gray-500">
-                    {snap.mvpValue != null && <span>MVP-Wert {snap.mvpValue}</span>}
-                    {!!snap.penaltiesTaken && <span>11m: {snap.penaltiesScored}/{snap.penaltiesTaken}</span>}
-                    {(!!snap.subbedIn || !!snap.subbedOut) && <span>Ein {snap.subbedIn ?? 0} · Aus {snap.subbedOut ?? 0}</span>}
-                    <span className="text-gray-300 dark:text-gray-600">(FuPa-Snapshot)</span>
-                  </div>
-                )}
               </div>
-              )
-            })}
-          </div>
+            ))}
+          </>
         ) : (
           <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Für diesen Verein liegen noch keine Aufstellungsdaten vor.</div>
         )}
