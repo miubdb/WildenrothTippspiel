@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
 import { TeamLogo } from '@/components/TeamLogo'
-import { computeTeamRoster, teamRosterHighlights, LEAGUE_STATS_SEASON_START } from '@/lib/leagueStats'
+import { computeTeamRoster, teamRosterHighlights, fetchPlayerSnapshots, LEAGUE_STATS_SEASON_START } from '@/lib/leagueStats'
 
 export const revalidate = 60
 
@@ -70,7 +70,10 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
     return false
   }).length
 
-  const roster = await computeTeamRoster(supabase, team.name)
+  const [roster, snapshots] = await Promise.all([
+    computeTeamRoster(supabase, team.name),
+    fetchPlayerSnapshots(supabase, team.name),
+  ])
   const highlights = teamRosterHighlights(roster)
 
   return (
@@ -155,15 +158,20 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
           <h2 className="font-bold text-gray-900 dark:text-gray-100">Spieler aus erfassten Aufstellungen</h2>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-            Spielerdaten basieren auf den bisher erfassten Spielberichten. Namenszuordnungen werden aktuell noch bereinigt — keine Positions-Gruppierung, da Positionsdaten für diesen Verein nicht erfasst sind.
+            Spielerdaten basieren auf den bisher erfassten Spielberichten. Namenszuordnungen werden aktuell noch bereinigt — Positionsdaten sind derzeit nur für einen Teil der Vereine erfasst.
           </p>
         </div>
         {roster.length > 0 ? (
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
-            {roster.map((p) => (
+            {roster.map((p) => {
+              const snap = snapshots.get(p.playerName)
+              return (
               <div key={p.playerName} className="px-4 py-2.5">
                 <div className="flex items-center gap-1.5 mb-1.5">
                   <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.playerName}</span>
+                  {p.position && (
+                    <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">{p.position}</span>
+                  )}
                 </div>
                 <div className="grid grid-cols-7 gap-1 text-center text-[11px]">
                   <MiniCell label="Sp." value={p.appearances} />
@@ -182,8 +190,17 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
                     {p.scorerPer90 != null && <span>Scorer/90: {p.scorerPer90.toFixed(2).replace('.', ',')}</span>}
                   </div>
                 )}
+                {snap && (snap.mvpValue != null || snap.penaltiesTaken || snap.subbedIn || snap.subbedOut) && (
+                  <div className="flex items-center gap-3 mt-1 pl-0.5 text-[10px] text-gray-400 dark:text-gray-500">
+                    {snap.mvpValue != null && <span>MVP-Wert {snap.mvpValue}</span>}
+                    {!!snap.penaltiesTaken && <span>11m: {snap.penaltiesScored}/{snap.penaltiesTaken}</span>}
+                    {(!!snap.subbedIn || !!snap.subbedOut) && <span>Ein {snap.subbedIn ?? 0} · Aus {snap.subbedOut ?? 0}</span>}
+                    <span className="text-gray-300 dark:text-gray-600">(FuPa-Snapshot)</span>
+                  </div>
+                )}
               </div>
-            ))}
+              )
+            })}
           </div>
         ) : (
           <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Für diesen Verein liegen noch keine Aufstellungsdaten vor.</div>

@@ -25,6 +25,37 @@ export const LEAGUE_STATS_CATEGORY = 'kreisliga' as const
 
 export type LeaguePlayerMetric = 'goals' | 'assists' | 'scorer' | 'appearances' | 'starts' | 'minutes' | 'yellow_cards' | 'red_cards'
 
+/**
+ * FuPa-Season-Snapshot-Zusatzdaten (siehe Migration `add_player_season_snapshot_and_known_roster`,
+ * Import 2026-09-08). Bewusst NICHT in TeamRosterEntry gemischt — diese Felder haben KEINE
+ * match_lineups-Entsprechung (kein Per-Spiel-Nachvollzug möglich) und bleiben eine rein
+ * ergänzende Anzeige-Schicht, sourced aus einem einmaligen externen Snapshot, nicht laufend
+ * aus eigenen Spielberichten aktualisiert.
+ */
+export interface PlayerSeasonSnapshot {
+  mvpValue: number | null
+  penaltiesScored: number | null
+  penaltiesTaken: number | null
+  subbedIn: number | null
+  subbedOut: number | null
+}
+
+/** Lädt die Snapshot-Zusatzdaten eines Vereins, keyed nach kanonischem Spielernamen. */
+export async function fetchPlayerSnapshots(supabase: SupabaseClient, teamName: string): Promise<Map<string, PlayerSeasonSnapshot>> {
+  const { data } = await supabase
+    .from('player_season_snapshot')
+    .select('player_name, mvp_value, penalties_scored, penalties_taken, subbed_in, subbed_out')
+    .eq('team_name', teamName)
+  const map = new Map<string, PlayerSeasonSnapshot>()
+  for (const r of data ?? []) {
+    map.set(r.player_name, {
+      mvpValue: r.mvp_value, penaltiesScored: r.penalties_scored, penaltiesTaken: r.penalties_taken,
+      subbedIn: r.subbed_in, subbedOut: r.subbed_out,
+    })
+  }
+  return map
+}
+
 export interface LeaguePlayerEntry {
   /** Kanonischer (normalisierter) Name, siehe player_name_aliases. */
   playerName: string
@@ -216,7 +247,11 @@ export async function computeLeaguePlayerLeaderboard(
  * Aufstellungsdaten existieren (aktuell 0 Zeilen, siehe Modulkommentar).
  */
 export async function computeTeamRoster(supabase: SupabaseClient, teamName: string, category: string | string[] = LEAGUE_STATS_CATEGORY): Promise<TeamRosterEntry[]> {
-  const [allRows, aliasMap] = await Promise.all([fetchKreisligaLineups(supabase, category), getAliasMap(supabase)])
+  const [allRows, aliasMap, knownRoster] = await Promise.all([
+    fetchKreisligaLineups(supabase, category),
+    getAliasMap(supabase),
+    supabase.from('known_roster_players').select('player_name, position').eq('team_name', teamName),
+  ])
   const rows = allRows.filter(r => r.team_name === teamName)
 
   type Accum = Omit<TeamRosterEntry, 'starterRate' | 'goalsPer90' | 'assistsPer90' | 'scorerPer90'>
@@ -238,6 +273,18 @@ export async function computeTeamRoster(supabase: SupabaseClient, teamName: stri
     byPlayer.set(name, e)
   }
 
+  // Bekannte Kadermitglieder ohne bisherige Aufstellungszeile (0 Spiele) — siehe
+  // known_roster_players / Migration `add_player_season_snapshot_and_known_roster`.
+  // Werden NICHT überschrieben, falls der Name schon aus match_lineups befüllt ist
+  // (echte Daten haben immer Vorrang vor der reinen Kaderliste).
+  for (const kr of knownRoster.data ?? []) {
+    if (byPlayer.has(kr.player_name)) continue
+    byPlayer.set(kr.player_name, {
+      playerName: kr.player_name, appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0,
+      yellowCards: 0, redCards: 0, isUncertain: looksAbbreviated(kr.player_name), position: kr.position,
+    })
+  }
+
   // Per-90-Werte und Startelfquote: nur berechnet, wenn überhaupt Minuten
   // vorliegen (sonst Division durch 0) — auf reinen Detailseiten werden sie
   // trotzdem angezeigt, auch bei kleiner Stichprobe (siehe
@@ -257,6 +304,48 @@ export async function computeTeamRoster(supabase: SupabaseClient, teamName: stri
  *  Top-Scorer/Dauerbrenner/Kartenkönig"-Hervorhebung auf der Vereinsseite.
  *  null, wenn niemand im Kader einen Wert > 0 hat (z.B. Kartenkönig bei
  *  einem kartenlosen Team). */
+export interface MvpRankedEntry {
+  playerName: string
+  teamName: string
+  value: number
+  rank: number
+}
+
+/**
+ * MVP-Rangliste aus dem FuPa-Season-Snapshot (`player_season_snapshot.mvp_value`)
+ * — NICHT aus match_lineups, da wir keine eigene MVP-Erhebung haben. Nutzt dieselbe
+ * Gleichstand-Top-`limit`-Regel wie computeLeaguePlayerLeaderboard (Cutoff-Wert bei
+ * Rang `limit`, alle Gleichstände am Cutoff bleiben, geteilter Rang 1,2,2,4...).
+ * Datenbasis ist ein einmaliger Snapshot (Stand 2026-09-08, nicht laufend gepflegt)
+ * und deckt nur die vier zuletzt importierten Vereine ab — daher bewusst als
+ * eigenständige, klar beschriftete Zusatz-Rangliste behandelt statt als
+ * vollwertiges, prominentes Liga-Ranking neben den match_lineups-Metriken.
+ */
+export async function computeMvpLeaderboard(supabase: SupabaseClient, limit = 15): Promise<MvpRankedEntry[]> {
+  const { data } = await supabase
+    .from('player_season_snapshot')
+    .select('team_name, player_name, mvp_value')
+    .not('mvp_value', 'is', null)
+    .gt('mvp_value', 0)
+
+  const list = (data ?? [])
+    .map(r => ({ playerName: r.player_name as string, teamName: r.team_name as string, value: r.mvp_value as number }))
+    .sort((a, b) => b.value - a.value || a.playerName.localeCompare(b.playerName, 'de'))
+
+  const cutoffValue = list.length <= limit ? -Infinity : list[limit - 1].value
+  const included = list.filter(e => e.value >= cutoffValue)
+
+  let rank = 0
+  let lastValue: number | null = null
+  return included.map((e, idx) => {
+    if (e.value !== lastValue) {
+      rank = idx + 1
+      lastValue = e.value
+    }
+    return { ...e, rank }
+  })
+}
+
 export function teamRosterHighlights(roster: TeamRosterEntry[]) {
   const top = (sel: (r: TeamRosterEntry) => number) => {
     const withValue = roster.filter(r => sel(r) > 0)

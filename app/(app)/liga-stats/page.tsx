@@ -1,11 +1,13 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { TeamLogo } from '@/components/TeamLogo'
-import { computeLeaguePlayerLeaderboard, type LeaguePlayerMetric, type LeaguePlayerRankedEntry } from '@/lib/leagueStats'
+import { computeLeaguePlayerLeaderboard, computeMvpLeaderboard, type LeaguePlayerMetric, type LeaguePlayerRankedEntry, type MvpRankedEntry } from '@/lib/leagueStats'
 
 export const revalidate = 60
 
-const TABS: { key: LeaguePlayerMetric; label: string; emoji: string; unit: string }[] = [
+type TabKey = LeaguePlayerMetric | 'mvp'
+
+const TABS: { key: TabKey; label: string; emoji: string; unit: string }[] = [
   { key: 'goals', label: 'Torschützen', emoji: '⚽', unit: 'Tore' },
   { key: 'assists', label: 'Vorlagen', emoji: '🎯', unit: 'Vorlagen' },
   { key: 'scorer', label: 'Scorer', emoji: '🌟', unit: 'Punkte' },
@@ -13,11 +15,12 @@ const TABS: { key: LeaguePlayerMetric; label: string; emoji: string; unit: strin
   { key: 'minutes', label: 'Minuten', emoji: '⏱', unit: 'Min.' },
   { key: 'yellow_cards', label: 'Gelbe Karten', emoji: '🟨', unit: 'Gelb' },
   { key: 'red_cards', label: 'Rote Karten', emoji: '🟥', unit: 'Rot' },
+  { key: 'mvp', label: 'MVP', emoji: '🏆', unit: 'Pkt.' },
 ]
 
 const DEFAULT_LIMIT = 15
 
-function PlayerRow({ e, unit }: { e: LeaguePlayerRankedEntry; unit: string }) {
+function PlayerRow({ e, unit }: { e: LeaguePlayerRankedEntry | MvpRankedEntry; unit: string }) {
   return (
     <div className="flex items-center px-4 py-2.5 gap-2">
       <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 ${
@@ -45,7 +48,9 @@ export default async function LigaStatsPage({
   const activeTab = TABS.find((t) => t.key === tab) ?? TABS[0]
 
   const supabase = await createClient()
-  const ranked = await computeLeaguePlayerLeaderboard(supabase, activeTab.key, DEFAULT_LIMIT)
+  const ranked = activeTab.key === 'mvp'
+    ? await computeMvpLeaderboard(supabase, DEFAULT_LIMIT)
+    : await computeLeaguePlayerLeaderboard(supabase, activeTab.key, DEFAULT_LIMIT)
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -77,6 +82,11 @@ export default async function LigaStatsPage({
           {activeTab.key === 'assists' && (
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
               Vorlagen basieren auf den bei FuPa erfassten Spielberichten. TSV Altenstadt erfasst dort aktuell keine Vorlagen.
+            </p>
+          )}
+          {activeTab.key === 'mvp' && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              MVP-Wert aus einem einmaligen FuPa-Snapshot (Stand 08.09.2026), nicht laufend gepflegt — aktuell nur für FC Aich, TSV Landsberg II, TSV Peiting und SC Unterpfaffenhofen vorhanden.
             </p>
           )}
         </div>
