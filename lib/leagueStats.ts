@@ -104,6 +104,282 @@ export interface TeamRosterEntry {
    *  es setzen. null, wenn keine Aufstellungszeile dieses Spielers je eine
    *  Position trug (nicht: "unbekannt", sondern "nie erfasst"). */
   position: string | null
+  /** Provenienz je Feld — siehe computeEffectivePlayerSeasonStats. Nicht für
+   *  die normale UI gedacht (Rule #19: technisch nachvollziehbar, nicht
+   *  zwangsläufig sichtbar), aber z.B. für Debug-/Admin-Zwecke verfügbar. */
+  provenance?: EffectivePlayerProvenance
+}
+
+// ---------------------------------------------------------------------------
+// BFV-Overlay (Runde 4) + zentrale Effective-Stats-Schicht
+//
+// Ziel: EIN effektiver Saisonwert pro Spieler und Statistikfeld, gemischt aus
+// verschiedenen Quellen je nach Datenabdeckung — siehe Nutzeranweisung Runde 4
+// ("gemischte effektive Werte", Feldpriorität pro Statistikfeld). Diese
+// Funktion ist die EINZIGE Stelle, die BFV- und Matchdaten-Zahlen mischt;
+// computeTeamRoster/computeLeaguePlayerLeaderboard/computeMvpLeaderboard
+// bauen alle darauf auf, damit Vereinsseite und Liga-Rankings garantiert
+// dieselben Werte zeigen.
+//
+// "FuPa" im Sinne der Nutzeranweisung = unsere bereits erfassten
+// `match_lineups`-Zeilen (bei den meisten Vereinen ursprünglich aus FuPa-
+// Spielberichten transkribiert; bei TSV Altenstadt aus BFV-Spielberichten
+// derselben Quelle wie das neue Bündel — dort gibt es keine FuPa-Quelle,
+// siehe Punkt 17 der Anweisung, die Matchdaten übernehmen dort exakt dieselbe
+// Rolle als "bereits vorhandene, granulare Quelle" gegenüber dem neuen
+// BFV-Saison-Overlay). `player_bfv_snapshot` = die neue BFV-Saison-Overlay-
+// Tabelle (nur Summen, keine Einzelspiel-Zuordnung — bewusst NICHT auf
+// einzelne match_lineups-Zeilen verteilt, siehe Punkt 1 der Anweisung).
+// ---------------------------------------------------------------------------
+
+export type StatSource = 'bfv' | 'matchdata' | 'bfv+matchdata' | 'fupa' | 'roster' | 'none'
+
+export interface EffectivePlayerProvenance {
+  gamesSource: StatSource
+  minutesSource: StatSource
+  goalsSource: StatSource
+  assistsSource: StatSource
+  cardsSource: StatSource
+  subsSource: StatSource
+  positionSource: StatSource
+  /** FuPa/Matchdaten melden MEHR Einsätze als BFV — bewusst NICHT reduziert
+   *  (Regel 3), aber als ungeklärter Konflikt markiert, siehe Modulkommentar. */
+  gamesConflict: boolean
+  /** BFV deckt weniger Spiele ab als Matchdaten — Karten wurden deshalb NICHT
+   *  aus BFV übernommen, sondern die vollständigeren Matchdaten behalten. */
+  cardsConflictKeptMatchdata: boolean
+  /** BFV-Torsumme weicht von den granularen Matchdaten ab, obwohl die
+   *  Matchdaten (gleiche oder größere Abdeckung) als effektiver Wert
+   *  verwendet wurden — nicht automatisch korrigiert (Regel 6). */
+  goalsConflictNotApplied: boolean
+}
+
+export interface EffectivePlayerSeasonStats {
+  playerName: string
+  teamName: string
+  games: number
+  minutes: number
+  starts: number
+  goals: number
+  assists: number
+  yellowCards: number
+  redCards: number
+  subbedIn: number | null
+  subbedOut: number | null
+  position: string | null
+  mvpValue: number | null
+  penaltiesScored: number | null
+  penaltiesTaken: number | null
+  isUncertain: boolean
+  provenance: EffectivePlayerProvenance
+}
+
+interface BfvRow {
+  team_name: string
+  player_name: string
+  games: number | null
+  minutes: number | null
+  goals: number | null
+  subbed_in: number | null
+  subbed_out: number | null
+  yellow_cards: number | null
+  yellow_red_cards: number | null
+  red_cards: number | null
+}
+
+async function fetchBfvSnapshots(supabase: SupabaseClient): Promise<BfvRow[]> {
+  const { data } = await supabase
+    .from('player_bfv_snapshot')
+    .select('team_name, player_name, games, minutes, goals, subbed_in, subbed_out, yellow_cards, yellow_red_cards, red_cards')
+  return (data ?? []) as BfvRow[]
+}
+
+async function fetchKnownRosterPositions(supabase: SupabaseClient): Promise<Map<string, string | null>> {
+  const { data } = await supabase.from('known_roster_players').select('team_name, player_name, position')
+  const map = new Map<string, string | null>()
+  for (const r of data ?? []) map.set(`${r.team_name}::${r.player_name}`, r.position)
+  return map
+}
+
+async function fetchAllPlayerSnapshots(supabase: SupabaseClient): Promise<Map<string, PlayerSeasonSnapshot>> {
+  const { data } = await supabase
+    .from('player_season_snapshot')
+    .select('team_name, player_name, mvp_value, penalties_scored, penalties_taken, subbed_in, subbed_out')
+  const map = new Map<string, PlayerSeasonSnapshot>()
+  for (const r of data ?? []) {
+    map.set(`${r.team_name}::${r.player_name}`, {
+      mvpValue: r.mvp_value, penaltiesScored: r.penalties_scored, penaltiesTaken: r.penalties_taken,
+      subbedIn: r.subbed_in, subbedOut: r.subbed_out,
+    })
+  }
+  return map
+}
+
+type MatchdataAccum = { appearances: number; starts: number; minutes: number; goals: number; assists: number; yellowCards: number; redCards: number; position: string | null }
+
+/** Merge-Kern pro Spieler — siehe Modulkommentar für die Feldprioritäts-
+ *  Regeln. `m` = Matchdaten-Aggregat (undefined = keine Zeile), `b` = BFV-
+ *  Snapshot-Zeile (undefined = keine BFV-Daten), `krPosition` = intern
+ *  gepflegte Position aus known_roster_players, `snap` = FuPa-Season-
+ *  Snapshot (MVP/11m/Ein-Aus). */
+function mergeEffectiveStats(
+  teamName: string, playerName: string,
+  m: MatchdataAccum | undefined, b: BfvRow | undefined,
+  krPosition: string | null | undefined, snap: PlayerSeasonSnapshot | undefined,
+): EffectivePlayerSeasonStats {
+  const mGames = m?.appearances ?? 0
+  const bGames = b?.games ?? null
+
+  let games: number, gamesSource: StatSource, gamesConflict = false
+  if (b == null) { games = mGames; gamesSource = m ? 'matchdata' : 'none' }
+  else if (m == null) { games = bGames as number; gamesSource = 'bfv' }
+  else if (bGames! > mGames) { games = bGames as number; gamesSource = 'bfv' }
+  else if (bGames === mGames) { games = mGames; gamesSource = 'bfv+matchdata' }
+  else { games = mGames; gamesSource = 'matchdata'; gamesConflict = true } // FuPa/Matchdaten > BFV: nicht reduzieren, Konflikt melden
+
+  let minutes: number, minutesSource: StatSource
+  if (b == null) { minutes = m?.minutes ?? 0; minutesSource = m ? 'matchdata' : 'none' }
+  else if (m == null) { minutes = b.minutes ?? 0; minutesSource = 'bfv' }
+  else if (gamesSource === 'bfv') { minutes = b.minutes ?? 0; minutesSource = 'bfv' } // BFV deckt mehr Spiele ab — Matchdaten-Minuten unvollständig
+  else { minutes = m.minutes; minutesSource = 'matchdata' } // gleiche/größere Abdeckung: FuPa/Matchdaten-Minuten bevorzugt
+
+  let goals: number, goalsSource: StatSource, goalsConflict = false
+  if (b == null) { goals = m?.goals ?? 0; goalsSource = m ? 'matchdata' : 'none' }
+  else if (m == null) { goals = b.goals ?? 0; goalsSource = 'bfv' }
+  else if (gamesSource === 'bfv') { goals = b.goals ?? 0; goalsSource = 'bfv' } // BFV deckt mehr Spiele ab -> vollständigerer Torwert
+  else {
+    goals = m.goals; goalsSource = 'matchdata'
+    if ((b.goals ?? 0) !== m.goals) goalsConflict = true // Abweichung dokumentiert, nicht automatisch übernommen (Regel 6)
+  }
+
+  const assists = m?.assists ?? 0 // BFV liefert keine Assist-Daten (Regel 7)
+
+  let yellowCards: number, redCards: number, cardsSource: StatSource, cardsConflict = false
+  if (b == null) { yellowCards = m?.yellowCards ?? 0; redCards = m?.redCards ?? 0; cardsSource = m ? 'matchdata' : 'none' }
+  else if (m == null) { yellowCards = b.yellow_cards ?? 0; redCards = (b.yellow_red_cards ?? 0) + (b.red_cards ?? 0); cardsSource = 'bfv' }
+  else if (gamesSource === 'bfv' || gamesSource === 'bfv+matchdata') {
+    // BFV deckt mind. so viele Spiele ab wie unsere Matchdaten -> offizielle Referenz
+    yellowCards = b.yellow_cards ?? 0
+    redCards = (b.yellow_red_cards ?? 0) + (b.red_cards ?? 0) // Gelb-Rot + Rot = Gesamt-Platzverweise, kein Doppelzählen
+    cardsSource = 'bfv'
+  } else {
+    yellowCards = m.yellowCards; redCards = m.redCards; cardsSource = 'matchdata'; cardsConflict = true // BFV deckt weniger ab -> nicht reduzieren
+  }
+
+  let subbedIn: number | null, subbedOut: number | null, subsSource: StatSource
+  const fupaHasSubs = snap && (snap.subbedIn != null || snap.subbedOut != null)
+  const bfvHasSubs = b && (b.subbed_in != null || b.subbed_out != null)
+  if (fupaHasSubs && gamesSource !== 'bfv') { subbedIn = snap!.subbedIn; subbedOut = snap!.subbedOut; subsSource = 'fupa' }
+  else if (bfvHasSubs) { subbedIn = b!.subbed_in; subbedOut = b!.subbed_out; subsSource = 'bfv' }
+  else if (fupaHasSubs) { subbedIn = snap!.subbedIn; subbedOut = snap!.subbedOut; subsSource = 'fupa' }
+  else { subbedIn = null; subbedOut = null; subsSource = 'none' }
+
+  const position = m?.position ?? krPosition ?? null
+  const positionSource: StatSource = m?.position ? 'matchdata' : (krPosition ? 'roster' : 'none')
+
+  return {
+    playerName, teamName,
+    games, minutes, starts: m?.starts ?? 0, goals, assists, yellowCards, redCards,
+    subbedIn, subbedOut, position,
+    mvpValue: snap?.mvpValue ?? null, penaltiesScored: snap?.penaltiesScored ?? null, penaltiesTaken: snap?.penaltiesTaken ?? null,
+    isUncertain: looksAbbreviated(playerName),
+    provenance: {
+      gamesSource, minutesSource, goalsSource, assistsSource: m ? 'matchdata' : 'none', cardsSource, subsSource, positionSource,
+      gamesConflict, cardsConflictKeptMatchdata: cardsConflict, goalsConflictNotApplied: goalsConflict,
+    },
+  }
+}
+
+/**
+ * Zentrale Effective-Stats-Schicht (Runde 4) — für ALLE Vereine gleichzeitig,
+ * damit sowohl die Vereinsseite als auch die ligaweiten Ranglisten garantiert
+ * dieselben gemischten Werte pro Spieler verwenden (siehe Modulkommentar).
+ * Intern gecached für die Dauer eines Seiten-Requests (mehrere Aufrufe
+ * innerhalb derselben Page/Request sparen sich die wiederholten Fetches).
+ */
+async function computeEffectiveStatsAllTeams(supabase: SupabaseClient, category: string | string[] = LEAGUE_STATS_CATEGORY): Promise<Map<string, EffectivePlayerSeasonStats[]>> {
+  const [lineupRows, aliasMap, bfvRows, knownRosterPositions, snapshots] = await Promise.all([
+    fetchKreisligaLineups(supabase, category),
+    getAliasMap(supabase),
+    fetchBfvSnapshots(supabase),
+    fetchKnownRosterPositions(supabase),
+    fetchAllPlayerSnapshots(supabase),
+  ])
+
+  // Matchdaten-Aggregat pro Verein+Spieler (kanonisiert via Alias-Map) — exakt
+  // dieselbe Aggregationslogik wie computeTeamRoster vor Runde 4.
+  const matchdata = new Map<string, MatchdataAccum>()
+  for (const r of lineupRows) {
+    const name = resolveName(aliasMap, r.team_name, r.player_name)
+    const key = `${r.team_name}::${name}`
+    const e = matchdata.get(key) ?? { appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0, yellowCards: 0, redCards: 0, position: null }
+    if ((r.minutes_played ?? 0) > 0 || r.is_starter) e.appearances += 1
+    if (r.is_starter) e.starts += 1
+    e.minutes += r.minutes_played ?? 0
+    e.goals += r.goals ?? 0
+    e.assists += r.assists ?? 0
+    e.yellowCards += r.yellow_cards ?? 0
+    if (r.position != null) e.position = r.position
+    if (r.red_card_minute != null) e.redCards += 1
+    matchdata.set(key, e)
+  }
+
+  // BFV-Snapshot ebenfalls über dieselbe Alias-Map kanonisiert (BFV-Rohnamen
+  // können von unseren bisherigen Matchdaten-Namen abweichen, siehe Migration
+  // `bfv_round4_new_aliases`).
+  const bfvByKey = new Map<string, BfvRow>()
+  for (const r of bfvRows) {
+    const name = resolveName(aliasMap, r.team_name, r.player_name)
+    bfvByKey.set(`${r.team_name}::${name}`, r)
+  }
+
+  const allKeys = new Set<string>([...matchdata.keys(), ...bfvByKey.keys()])
+  const byTeam = new Map<string, EffectivePlayerSeasonStats[]>()
+  for (const key of allKeys) {
+    const sep = key.indexOf('::')
+    const teamName = key.slice(0, sep)
+    const playerName = key.slice(sep + 2)
+    const entry = mergeEffectiveStats(
+      teamName, playerName,
+      matchdata.get(key), bfvByKey.get(key),
+      knownRosterPositions.get(key), snapshots.get(key),
+    )
+    const list = byTeam.get(teamName) ?? []
+    list.push(entry)
+    byTeam.set(teamName, list)
+  }
+
+  // known_roster_players kann zusätzliche 0-Spiele-Kadermitglieder enthalten,
+  // die weder in match_lineups noch in player_bfv_snapshot auftauchen (z.B.
+  // TSV Altenstadt "Simon Reich", Punkt 17). Nicht überschreiben, falls der
+  // Spieler bereits über Matchdaten/BFV existiert.
+  for (const [key, position] of knownRosterPositions) {
+    if (allKeys.has(key)) continue
+    const sep = key.indexOf('::')
+    const teamName = key.slice(0, sep)
+    const playerName = key.slice(sep + 2)
+    const entry = mergeEffectiveStats(teamName, playerName, undefined, undefined, position, snapshots.get(key))
+    const list = byTeam.get(teamName) ?? []
+    list.push(entry)
+    byTeam.set(teamName, list)
+  }
+
+  return byTeam
+}
+
+/**
+ * Öffentliche Einstiegsstelle der zentralen Effective-Stats-Schicht (Runde 4)
+ * für EINEN Verein — siehe Modulkommentar. Jede Statistikanzeige (Vereins-
+ * seite, Liga-Ranglisten, Torjäger/Vorlagen/Scorer/MVP/Einsätze/Minuten/
+ * Karten) MUSS hierüber (oder über computeTeamRoster/computeLeaguePlayer-
+ * Leaderboard/computeMvpLeaderboard, die intern hierauf aufbauen) gehen —
+ * keine Statistikseite darf mehr direkt aus match_lineups aggregieren.
+ */
+export async function computeEffectivePlayerSeasonStats(
+  supabase: SupabaseClient, teamName: string, category: string | string[] = LEAGUE_STATS_CATEGORY,
+): Promise<EffectivePlayerSeasonStats[]> {
+  const all = await computeEffectiveStatsAllTeams(supabase, category)
+  return all.get(teamName) ?? []
 }
 
 export interface TeamMatchSummary {
@@ -189,36 +465,24 @@ export async function computeLeaguePlayerLeaderboard(
   metric: LeaguePlayerMetric,
   limit = 15,
 ): Promise<LeaguePlayerRankedEntry[]> {
-  const [rows, aliasMap] = await Promise.all([fetchKreisligaLineups(supabase), getAliasMap(supabase)])
+  const byTeam = await computeEffectiveStatsAllTeams(supabase)
+  const all = [...byTeam.values()].flat()
 
-  type Agg = { value: number; matches: Set<number> }
-  const byPlayer = new Map<string, Agg>()
-
-  for (const r of rows) {
-    const name = resolveName(aliasMap, r.team_name, r.player_name)
-    const key = `${r.team_name}::${name}`
-    const entry = byPlayer.get(key) ?? { value: 0, matches: new Set() }
+  const valueOf = (e: EffectivePlayerSeasonStats): number => {
     switch (metric) {
-      case 'goals': entry.value += r.goals ?? 0; break
-      case 'assists': entry.value += r.assists ?? 0; break
-      case 'scorer': entry.value += (r.goals ?? 0) + (r.assists ?? 0); break
-      case 'appearances': if ((r.minutes_played ?? 0) > 0 || r.is_starter) entry.value += 1; break
-      case 'starts': if (r.is_starter) entry.value += 1; break
-      case 'minutes': entry.value += r.minutes_played ?? 0; break
-      case 'yellow_cards': entry.value += r.yellow_cards ?? 0; break
-      case 'red_cards': if (r.red_card_minute != null) entry.value += 1; break
+      case 'goals': return e.goals
+      case 'assists': return e.assists
+      case 'scorer': return e.goals + e.assists
+      case 'appearances': return e.games
+      case 'starts': return e.starts
+      case 'minutes': return e.minutes
+      case 'yellow_cards': return e.yellowCards
+      case 'red_cards': return e.redCards
     }
-    entry.matches.add(r.match_id)
-    byPlayer.set(key, entry)
   }
 
-  const list: LeaguePlayerEntry[] = [...byPlayer.entries()]
-    .map(([key, agg]) => {
-      const sep = key.indexOf('::')
-      const teamName = key.slice(0, sep)
-      const playerName = key.slice(sep + 2)
-      return { playerName, teamName, value: agg.value, matches: agg.matches.size, isUncertain: looksAbbreviated(playerName) }
-    })
+  const list: LeaguePlayerEntry[] = all
+    .map((e) => ({ playerName: e.playerName, teamName: e.teamName, value: valueOf(e), matches: e.games, isUncertain: e.isUncertain }))
     .filter(e => e.value > 0)
     .sort((a, b) => b.value - a.value || a.playerName.localeCompare(b.playerName, 'de'))
 
@@ -247,51 +511,25 @@ export async function computeLeaguePlayerLeaderboard(
  * Aufstellungsdaten existieren (aktuell 0 Zeilen, siehe Modulkommentar).
  */
 export async function computeTeamRoster(supabase: SupabaseClient, teamName: string, category: string | string[] = LEAGUE_STATS_CATEGORY): Promise<TeamRosterEntry[]> {
-  const [allRows, aliasMap, knownRoster] = await Promise.all([
-    fetchKreisligaLineups(supabase, category),
-    getAliasMap(supabase),
-    supabase.from('known_roster_players').select('player_name, position').eq('team_name', teamName),
-  ])
-  const rows = allRows.filter(r => r.team_name === teamName)
-
-  type Accum = Omit<TeamRosterEntry, 'starterRate' | 'goalsPer90' | 'assistsPer90' | 'scorerPer90'>
-  const byPlayer = new Map<string, Accum>()
-  for (const r of rows) {
-    const name = resolveName(aliasMap, teamName, r.player_name)
-    const e = byPlayer.get(name) ?? {
-      playerName: name, appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0,
-      yellowCards: 0, redCards: 0, isUncertain: looksAbbreviated(name), position: null,
-    }
-    if ((r.minutes_played ?? 0) > 0 || r.is_starter) e.appearances += 1
-    if (r.is_starter) e.starts += 1
-    e.minutes += r.minutes_played ?? 0
-    e.goals += r.goals ?? 0
-    e.assists += r.assists ?? 0
-    e.yellowCards += r.yellow_cards ?? 0
-    if (r.position != null) e.position = r.position
-    if (r.red_card_minute != null) e.redCards += 1
-    byPlayer.set(name, e)
-  }
-
-  // Bekannte Kadermitglieder ohne bisherige Aufstellungszeile (0 Spiele) — siehe
-  // known_roster_players / Migration `add_player_season_snapshot_and_known_roster`.
-  // Werden NICHT überschrieben, falls der Name schon aus match_lineups befüllt ist
-  // (echte Daten haben immer Vorrang vor der reinen Kaderliste).
-  for (const kr of knownRoster.data ?? []) {
-    if (byPlayer.has(kr.player_name)) continue
-    byPlayer.set(kr.player_name, {
-      playerName: kr.player_name, appearances: 0, starts: 0, minutes: 0, goals: 0, assists: 0,
-      yellowCards: 0, redCards: 0, isUncertain: looksAbbreviated(kr.player_name), position: kr.position,
-    })
-  }
+  const effective = await computeEffectivePlayerSeasonStats(supabase, teamName, category)
 
   // Per-90-Werte und Startelfquote: nur berechnet, wenn überhaupt Minuten
   // vorliegen (sonst Division durch 0) — auf reinen Detailseiten werden sie
   // trotzdem angezeigt, auch bei kleiner Stichprobe (siehe
   // MIN_MINUTES_FOR_PER90_RANKING, das nur für Rankings gilt, nicht hier).
-  const withDerived: TeamRosterEntry[] = [...byPlayer.values()].map((e) => ({
-    ...e,
-    starterRate: e.appearances > 0 ? Math.round((e.starts / e.appearances) * 100) : null,
+  const withDerived: TeamRosterEntry[] = effective.map((e) => ({
+    playerName: e.playerName,
+    appearances: e.games,
+    starts: e.starts,
+    minutes: e.minutes,
+    goals: e.goals,
+    assists: e.assists,
+    yellowCards: e.yellowCards,
+    redCards: e.redCards,
+    isUncertain: e.isUncertain,
+    position: e.position,
+    provenance: e.provenance,
+    starterRate: e.games > 0 ? Math.round((e.starts / e.games) * 100) : null,
     goalsPer90: e.minutes > 0 ? Math.round((e.goals / e.minutes) * 90 * 100) / 100 : null,
     assistsPer90: e.minutes > 0 ? Math.round((e.assists / e.minutes) * 90 * 100) / 100 : null,
     scorerPer90: e.minutes > 0 ? Math.round(((e.goals + e.assists) / e.minutes) * 90 * 100) / 100 : null,
@@ -322,14 +560,12 @@ export interface MvpRankedEntry {
  * vollwertiges, prominentes Liga-Ranking neben den match_lineups-Metriken.
  */
 export async function computeMvpLeaderboard(supabase: SupabaseClient, limit = 15): Promise<MvpRankedEntry[]> {
-  const { data } = await supabase
-    .from('player_season_snapshot')
-    .select('team_name, player_name, mvp_value')
-    .not('mvp_value', 'is', null)
-    .gt('mvp_value', 0)
+  const byTeam = await computeEffectiveStatsAllTeams(supabase)
+  const all = [...byTeam.values()].flat()
 
-  const list = (data ?? [])
-    .map(r => ({ playerName: r.player_name as string, teamName: r.team_name as string, value: r.mvp_value as number }))
+  const list = all
+    .filter(e => e.mvpValue != null && e.mvpValue > 0)
+    .map(e => ({ playerName: e.playerName, teamName: e.teamName, value: e.mvpValue as number }))
     .sort((a, b) => b.value - a.value || a.playerName.localeCompare(b.playerName, 'de'))
 
   const cutoffValue = list.length <= limit ? -Infinity : list[limit - 1].value

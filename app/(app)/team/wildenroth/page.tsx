@@ -184,10 +184,26 @@ export default async function WildenrothTeamPage() {
 
   const priorStanding = hasFinished ? null : await getWildenrothPriorStanding(supabase, 'SpVgg Wildenroth')
 
-  const hasCurrentGoals = players.some((p) => (p.goals ?? 0) > 0)
-  const topScorers = hasCurrentGoals
-    ? [...players].filter((p) => (p.goals ?? 0) > 0).sort((a, b) => (b.goals ?? 0) - (a.goals ?? 0)).slice(0, 5)
-    : [...players].filter((p) => (p.prev_goals ?? 0) > 0).sort((a, b) => (b.prev_goals ?? 0) - (a.prev_goals ?? 0)).slice(0, 5)
+  // Top-Torschützen: aus derselben zentralen Effective-Stats-Schicht
+  // (lib/leagueStats.ts#computeTeamRoster) wie jede andere Statistikanzeige
+  // im Verein — NICHT mehr direkt aus wildenroth_players.goals/.assists
+  // gelesen (das war der Bug: diese Box zeigte veraltete/unabhängig
+  // gepflegte Werte, die von der Kader-Statistik weiter unten abweichen
+  // konnten). wildenroth_players liefert hier nur noch Bild/Trikotnummer/
+  // Position für die Anzeige, siehe playersByName-Merge unten.
+  const hasCurrentGoals = roster.some((r) => r.goals > 0)
+  const currentTopScorers = hasCurrentGoals
+    ? [...roster]
+        .filter((r) => r.goals > 0)
+        .sort((a, b) => b.goals - a.goals || b.assists - a.assists || a.playerName.localeCompare(b.playerName, 'de'))
+        .slice(0, 5)
+    : []
+  // Vorsaison-Fallback (noch keine aktuelle Saison-Tore erfasst): dafür gibt
+  // es in der Effective-Stats-Schicht keine Entsprechung — wildenroth_players
+  // bleibt hier bewusst die einzige Quelle für Vorsaison-Werte.
+  const priorTopScorers = !hasCurrentGoals
+    ? [...players].filter((p) => (p.prev_goals ?? 0) > 0).sort((a, b) => (b.prev_goals ?? 0) - (a.prev_goals ?? 0)).slice(0, 5)
+    : []
 
   // Gruppierung nach Position: bevorzugt match_lineups.position (neue,
   // optional befüllte Spalte, siehe lib/leagueStats.ts#TeamRosterEntry),
@@ -303,13 +319,43 @@ export default async function WildenrothTeamPage() {
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
           <h2 className="font-bold text-gray-900 dark:text-gray-100">Top-Torschützen</h2>
-          {!hasCurrentGoals && topScorers.length > 0 && (
+          {!hasCurrentGoals && priorTopScorers.length > 0 && (
             <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Vorsaison 25/26</div>
           )}
         </div>
-        {topScorers.length > 0 ? (
+        {hasCurrentGoals ? (
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
-            {topScorers.map((p, idx) => (
+            {currentTopScorers.map((r, idx) => {
+              const wp = playersByName.get(r.playerName) ?? null
+              return (
+                <div key={r.playerName} className="flex items-center gap-3 px-4 py-3">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200' : idx === 2 ? 'bg-amber-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>
+                    {idx + 1}
+                  </div>
+                  {wp
+                    ? <PlayerAvatar player={wp} size={32} />
+                    : <div className="rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-bold flex items-center justify-center flex-shrink-0 text-xs" style={{ width: 32, height: 32 }}>
+                        {r.playerName.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()}
+                      </div>}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{r.playerName}</div>
+                    <div className="text-xs text-gray-400 dark:text-gray-500">{r.position ?? wp?.position ?? '—'}</div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <span className="text-xl font-black text-red-700 dark:text-red-400">{r.goals}</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">Tore</span>
+                  </div>
+                  <div className="text-right flex-shrink-0 w-14">
+                    <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{r.assists}</div>
+                    <div className="text-[10px] text-gray-400 dark:text-gray-500">Assists</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : priorTopScorers.length > 0 ? (
+          <div className="divide-y divide-gray-50 dark:divide-gray-700">
+            {priorTopScorers.map((p, idx) => (
               <div key={p.id} className="flex items-center gap-3 px-4 py-3">
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200' : idx === 2 ? 'bg-amber-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>
                   {idx + 1}
@@ -320,11 +366,11 @@ export default async function WildenrothTeamPage() {
                   <div className="text-xs text-gray-400 dark:text-gray-500">{p.position ?? '—'}</div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <span className="text-xl font-black text-red-700 dark:text-red-400">{hasCurrentGoals ? (p.goals ?? 0) : (p.prev_goals ?? 0)}</span>
+                  <span className="text-xl font-black text-red-700 dark:text-red-400">{p.prev_goals ?? 0}</span>
                   <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">Tore</span>
                 </div>
                 <div className="text-right flex-shrink-0 w-14">
-                  <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{hasCurrentGoals ? (p.assists ?? 0) : (p.prev_assists ?? 0)}</div>
+                  <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{p.prev_assists ?? 0}</div>
                   <div className="text-[10px] text-gray-400 dark:text-gray-500">Assists</div>
                 </div>
               </div>
