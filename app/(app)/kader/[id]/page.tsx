@@ -2,6 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { computeTeamRoster } from '@/lib/leagueStats'
 
 export const revalidate = 60
 
@@ -84,8 +85,23 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
   const initials = p.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
   const squadLabel = p.squad === '1' ? '1. Mannschaft' : p.squad === '2' ? '2. Mannschaft' : '1. & 2. Mannschaft'
 
-  const minPerGame = (p.games ?? 0) > 0 && (p.minutes ?? 0) > 0
-    ? Math.round(p.minutes / p.games) : null
+  // Saison 26/27 der 1. Mannschaft kommt aus derselben zentralen Effective-
+  // Stats-Schicht (lib/leagueStats.ts) wie die Vereinsseite/Liga-Stats — NICHT
+  // mehr aus wildenroth_players.games/.goals/.assists/.minutes, die separat
+  // gepflegt werden und veraltete Werte tragen können (siehe team/wildenroth/
+  // page.tsx-Kommentar zum selben Bug). Für die 2. Mannschaft existieren noch
+  // keine erfassten Aufstellungen (lib/leagueStats.ts), daher bleibt dort
+  // wildenroth_players die einzige verfügbare Quelle.
+  const roster1 = p.squad !== '2' ? await computeTeamRoster(supabase, 'SpVgg Wildenroth') : []
+  const effective = roster1.find((r) => r.playerName === p.name) ?? null
+
+  const currentGames   = effective ? effective.appearances : (p.games ?? 0)
+  const currentGoals   = effective ? effective.goals : (p.goals ?? 0)
+  const currentAssists = effective ? effective.assists : (p.assists ?? 0)
+  const currentMinutes = effective ? effective.minutes : (p.minutes ?? 0)
+
+  const minPerGame = currentGames > 0 && currentMinutes > 0
+    ? Math.round(currentMinutes / currentGames) : null
   const prevMinPerGame = (p.prev_games ?? 0) > 0 && (p.prev_minutes ?? 0) > 0
     ? Math.round(p.prev_minutes / p.prev_games) : null
   const hasPrevStats = (p.prev_games ?? 0) + (p.prev_goals ?? 0) + (p.prev_assists ?? 0) + (p.prev_minutes ?? 0) > 0
@@ -190,10 +206,10 @@ export default async function KaderProfilPage({ params }: { params: Promise<{ id
             <span className="text-[10px] bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-800 px-2 py-1 rounded-full font-bold uppercase tracking-wide">Aktuell</span>
           </div>
           <div className="grid grid-cols-4 divide-x divide-gray-100 dark:divide-gray-700">
-            <CardStat label="Spiele" value={p.games ?? 0} />
-            <CardStat label="Tore" value={p.goals ?? 0} />
-            <CardStat label="Assists" value={p.assists ?? 0} />
-            <CardStat label="Minuten" value={p.minutes ?? 0} sub={minPerGame ? `Ø ${minPerGame}'` : undefined} />
+            <CardStat label="Spiele" value={currentGames} />
+            <CardStat label="Tore" value={currentGoals} />
+            <CardStat label="Assists" value={currentAssists} />
+            <CardStat label="Minuten" value={currentMinutes} sub={minPerGame ? `Ø ${minPerGame}'` : undefined} />
           </div>
         </div>
 

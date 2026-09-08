@@ -7,15 +7,15 @@ export const revalidate = 60
 
 type TabKey = LeaguePlayerMetric | 'mvp'
 
-const TABS: { key: TabKey; label: string; emoji: string; unit: string }[] = [
-  { key: 'goals', label: 'Torschützen', emoji: '⚽', unit: 'Tore' },
-  { key: 'assists', label: 'Vorlagen', emoji: '🎯', unit: 'Vorlagen' },
-  { key: 'scorer', label: 'Scorer', emoji: '🌟', unit: 'Punkte' },
-  { key: 'appearances', label: 'Einsätze', emoji: '👕', unit: 'Sp.' },
-  { key: 'minutes', label: 'Minuten', emoji: '⏱', unit: 'Min.' },
-  { key: 'yellow_cards', label: 'Gelbe Karten', emoji: '🟨', unit: 'Gelb' },
-  { key: 'red_cards', label: 'Rote Karten', emoji: '🟥', unit: 'Rot' },
-  { key: 'mvp', label: 'MVP', emoji: '🏆', unit: 'Pkt.' },
+const TABS: { key: TabKey; label: string; emoji: string; unit: string; overflowUnit: string }[] = [
+  { key: 'goals', label: 'Torschützen', emoji: '⚽', unit: 'Tore', overflowUnit: 'Toren' },
+  { key: 'assists', label: 'Vorlagen', emoji: '🎯', unit: 'Vorlagen', overflowUnit: 'Vorlagen' },
+  { key: 'scorer', label: 'Scorer', emoji: '🌟', unit: 'Punkte', overflowUnit: 'Scorer-Punkten' },
+  { key: 'appearances', label: 'Einsätze', emoji: '👕', unit: 'Sp.', overflowUnit: 'Einsätzen' },
+  { key: 'minutes', label: 'Minuten', emoji: '⏱', unit: 'Min.', overflowUnit: 'Minuten' },
+  { key: 'yellow_cards', label: 'Gelbe Karten', emoji: '🟨', unit: 'Gelb', overflowUnit: 'Gelben Karten' },
+  { key: 'red_cards', label: 'Rote Karten', emoji: '🟥', unit: 'Rot', overflowUnit: 'Roten Karten' },
+  { key: 'mvp', label: 'MVP', emoji: '🏆', unit: 'Pkt.', overflowUnit: 'MVP-Punkten' },
 ]
 
 const DEFAULT_LIMIT = 15
@@ -48,7 +48,7 @@ export default async function LigaStatsPage({
   const activeTab = TABS.find((t) => t.key === tab) ?? TABS[0]
 
   const supabase = await createClient()
-  const ranked = activeTab.key === 'mvp'
+  const { entries: ranked, overflowCount, overflowValue } = activeTab.key === 'mvp'
     ? await computeMvpLeaderboard(supabase, DEFAULT_LIMIT)
     : await computeLeaguePlayerLeaderboard(supabase, activeTab.key, DEFAULT_LIMIT)
 
@@ -95,6 +95,11 @@ export default async function LigaStatsPage({
             {ranked.map((e) => (
               <PlayerRow key={`${e.teamName}::${e.playerName}`} e={e} unit={activeTab.unit} />
             ))}
+            {overflowCount > 0 && overflowValue != null && (
+              <div className="px-4 py-2.5 text-xs text-gray-400 dark:text-gray-500 text-center">
+                +{overflowCount} weitere Spieler mit {overflowValue} {activeTab.overflowUnit}
+              </div>
+            )}
           </div>
         ) : (
           <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Noch keine Daten für diese Kategorie.</div>

@@ -448,23 +448,74 @@ async function fetchKreisligaLineups(supabase: SupabaseClient, category: string 
   return (data ?? []) as LineupRow[]
 }
 
+/** Ergebnis einer Top-`limit`-Rangliste: `entries` sind höchstens `limit`
+ *  einzeln anzuzeigende Zeilen (Gleichstände teilen sich einen Rang, aber
+ *  die Liste selbst wird bei `limit` gedeckelt — sie läuft NICHT über, auch
+ *  wenn am Cutoff mehr Spieler denselben Wert haben). `overflowCount`/
+ *  `overflowValue` beschreiben die Spieler, die deshalb NICHT einzeln
+ *  gezeigt werden, aber denselben Wert wie die letzte gezeigte Zeile haben
+ *  — für eine kompakte "+N weitere Spieler mit Y ..."-Zeile in der UI.
+ *  `overflowCount` ist 0 (und `overflowValue` null), wenn nichts wegfällt. */
+export interface RankedLeaderboardResult<T> {
+  entries: T[]
+  overflowCount: number
+  overflowValue: number | null
+}
+
+/** Gemeinsame Top-`limit`-mit-Gleichstand-Logik für alle Ligaranglisten
+ *  (Torjäger/Vorlagen/Scorer/Einsätze/Minuten/Karten/MVP):
+ *
+ * 1. Volle absteigend sortierte Liste (bei Gleichstand alphabetisch) bilden.
+ * 2. Die ersten `limit` Einträge werden einzeln angezeigt (`entries`) — mit
+ *    geteiltem Rang bei Gleichstand (1,2,2,4 — "competition ranking"), NICHT
+ *    dem Array-Index.
+ * 3. Gibt es über diese `limit` Zeilen hinaus weitere Spieler mit demselben
+ *    Wert wie die letzte gezeigte Zeile, werden diese NICHT einzeln
+ *    ausgeschrieben, sondern als `overflowCount` gezählt (Wert selbst in
+ *    `overflowValue`) — die aufrufende UI rendert daraus z.B.
+ *    "+5 weitere Spieler mit 2 Toren". Die Berechnung selbst nutzt dafür
+ *    immer den vollständigen Datensatz (keine Limit-Abfrage auf DB-Ebene),
+ *    nur die DARSTELLUNG wird auf `limit` gedeckelt.
+ */
+function buildRankedLeaderboard<E extends { value: number }>(
+  list: E[],
+  limit: number,
+): RankedLeaderboardResult<E & { rank: number }> {
+  const displayed = list.slice(0, limit)
+
+  let rank = 0
+  let lastValue: number | null = null
+  const entries = displayed.map((e, idx) => {
+    if (e.value !== lastValue) {
+      rank = idx + 1
+      lastValue = e.value
+    }
+    return { ...e, rank }
+  })
+
+  const cutoffValue = entries.length > 0 ? entries[entries.length - 1].value : null
+  const totalAtCutoff = cutoffValue == null ? 0 : list.filter(e => e.value === cutoffValue).length
+  const shownAtCutoff = cutoffValue == null ? 0 : entries.filter(e => e.value === cutoffValue).length
+  const overflowCount = totalAtCutoff - shownAtCutoff
+  const overflowValue = overflowCount > 0 ? cutoffValue : null
+
+  return { entries, overflowCount, overflowValue }
+}
+
 /**
  * Ligaweite Top-Liste für eine Kennzahl. `scorer` = Tore + Vorlagen aus den
  * tatsächlich vorhandenen Daten summiert (kein separates Feld in der DB).
  *
- * Strikte Top-`limit`-mit-Gleichstand-Regel: es wird der Wert an Rang
- * `limit` (1-indiziert) ermittelt, und JEDER Spieler mit einem Wert ≥ diesem
- * Cutoff-Wert bleibt in der Liste (alle Gleichstände am Cutoff werden
- * mitgenommen, keine willkürliche Kappung mittendrin). Wer strikt darunter
- * liegt, fällt raus. Gibt es insgesamt weniger als `limit` Spieler mit
- * Wert > 0, werden einfach alle zurückgegeben. Gleichstände teilen sich
- * einen Rang (1,2,2,4 — "competition ranking"), nicht den Array-Index.
+ * Maximal `limit` Zeilen werden einzeln zurückgegeben (siehe
+ * `buildRankedLeaderboard`); weitere Spieler mit demselben Wert wie die
+ * letzte gezeigte Zeile werden über `overflowCount`/`overflowValue`
+ * zusammengefasst statt einzeln angehängt.
  */
 export async function computeLeaguePlayerLeaderboard(
   supabase: SupabaseClient,
   metric: LeaguePlayerMetric,
   limit = 15,
-): Promise<LeaguePlayerRankedEntry[]> {
+): Promise<RankedLeaderboardResult<LeaguePlayerRankedEntry>> {
   const byTeam = await computeEffectiveStatsAllTeams(supabase)
   const all = [...byTeam.values()].flat()
 
@@ -486,18 +537,7 @@ export async function computeLeaguePlayerLeaderboard(
     .filter(e => e.value > 0)
     .sort((a, b) => b.value - a.value || a.playerName.localeCompare(b.playerName, 'de'))
 
-  const cutoffValue = list.length <= limit ? -Infinity : list[limit - 1].value
-  const included = list.filter(e => e.value >= cutoffValue)
-
-  let rank = 0
-  let lastValue: number | null = null
-  return included.map((e, idx) => {
-    if (e.value !== lastValue) {
-      rank = idx + 1
-      lastValue = e.value
-    }
-    return { ...e, rank }
-  })
+  return buildRankedLeaderboard(list, limit)
 }
 
 /**
@@ -559,7 +599,7 @@ export interface MvpRankedEntry {
  * eigenständige, klar beschriftete Zusatz-Rangliste behandelt statt als
  * vollwertiges, prominentes Liga-Ranking neben den match_lineups-Metriken.
  */
-export async function computeMvpLeaderboard(supabase: SupabaseClient, limit = 15): Promise<MvpRankedEntry[]> {
+export async function computeMvpLeaderboard(supabase: SupabaseClient, limit = 15): Promise<RankedLeaderboardResult<MvpRankedEntry>> {
   const byTeam = await computeEffectiveStatsAllTeams(supabase)
   const all = [...byTeam.values()].flat()
 
@@ -568,18 +608,7 @@ export async function computeMvpLeaderboard(supabase: SupabaseClient, limit = 15
     .map(e => ({ playerName: e.playerName, teamName: e.teamName, value: e.mvpValue as number }))
     .sort((a, b) => b.value - a.value || a.playerName.localeCompare(b.playerName, 'de'))
 
-  const cutoffValue = list.length <= limit ? -Infinity : list[limit - 1].value
-  const included = list.filter(e => e.value >= cutoffValue)
-
-  let rank = 0
-  let lastValue: number | null = null
-  return included.map((e, idx) => {
-    if (e.value !== lastValue) {
-      rank = idx + 1
-      lastValue = e.value
-    }
-    return { ...e, rank }
-  })
+  return buildRankedLeaderboard(list, limit)
 }
 
 /** Reihenfolge für die positionsgruppierte Kaderanzeige (Vereinsdetailseite) —
