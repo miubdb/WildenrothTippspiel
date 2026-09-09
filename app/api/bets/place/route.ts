@@ -219,6 +219,12 @@ export async function POST(request: NextRequest) {
   // request for them — reject explicitly here instead of relying on the UI.
   const CUP_ONLY_MARKETS = ['cup_advance', 'cup_first_goal', 'cup_decision', 'cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance']
   const CUP_ALLOWED_MARKETS = new Set(['btts', 'goalscorer', ...CUP_ONLY_MARKETS])
+  // Product decision: these 3 markets are now single-outcome "Ja"-only props
+  // for NEW bets (see components/CupMatchCard.tsx) — 'no' is no longer
+  // offered, but stays fully settleable for any bet placed before this
+  // changed (settlement reads the stored selection off the bet row, not this
+  // allow-list, so an old 'no' bet is untouched).
+  const CUP_YES_ONLY_MARKETS = new Set(['cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance'])
   const cupMatchIds = new Set(matches.filter(m => m.competition_type === 'cup').map(m => m.id))
   for (const s of selections) {
     if (cupMatchIds.has(s.matchId) && !CUP_ALLOWED_MARKETS.has(s.marketType)) {
@@ -226,6 +232,9 @@ export async function POST(request: NextRequest) {
     }
     if (!cupMatchIds.has(s.matchId) && CUP_ONLY_MARKETS.includes(s.marketType)) {
       return NextResponse.json({ error: 'Dieser Markt ist nur für das Pokalspiel verfügbar.' }, { status: 400 })
+    }
+    if (CUP_YES_ONLY_MARKETS.has(s.marketType) && s.selection !== 'yes') {
+      return NextResponse.json({ error: 'Dieser Markt bietet für neue Wetten nur noch die Auswahl "Ja" an.' }, { status: 400 })
     }
   }
 

@@ -506,6 +506,9 @@ export default async function TippsPage({
           cup_comeback_advance_no:       cupSpecialSim.cup_comeback_advance_no,
           cup_shootout_advance_yes:      cupSpecialSim.cup_shootout_advance_yes,
           cup_shootout_advance_no:       cupSpecialSim.cup_shootout_advance_no,
+          cup_halftime_lead_advance_yes_model: cupSpecialSim.cup_halftime_lead_advance_yes_model,
+          cup_comeback_advance_yes_model:      cupSpecialSim.cup_comeback_advance_yes_model,
+          cup_shootout_advance_yes_model:      cupSpecialSim.cup_shootout_advance_yes_model,
         } : null
         if (cupSpecialOdds) Object.assign(odds, cupSpecialOdds)
         oddsMap[m.id] = odds

@@ -101,6 +101,34 @@ export function CupMatchCard({
     )
   }
 
+  /** Single-outcome "Ja"-only prop button for the 3 cup specials — always
+   *  submits selection='yes'. The 'no' side is still fully settleable (see
+   *  app/api/admin/settle/route.ts) for any bet already placed before this
+   *  became a single-outcome market; it's just not offered here anymore. */
+  function renderCupPropButton(marketType: string, marketLabel: string, title: string, subtitle: string, oddsValue: number | undefined) {
+    if (oddsValue == null) return null
+    const selected = isSelected(marketType, 'yes')
+    return (
+      <button
+        key={marketType}
+        type="button"
+        onClick={() => add(marketType, marketLabel, 'yes', 'Ja', oddsValue)}
+        disabled={!isScheduled}
+        className={`w-full flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors disabled:opacity-50 ${
+          selected
+            ? 'bg-red-700 border-red-700 text-white'
+            : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 hover:border-red-300'
+        }`}
+      >
+        <div className="min-w-0">
+          <div className={`text-[11px] font-semibold truncate ${selected ? 'text-white' : 'text-gray-700 dark:text-gray-200'}`}>{title}</div>
+          <div className={`text-[10px] truncate ${selected ? 'text-red-100' : 'text-gray-500 dark:text-gray-400'}`}>{subtitle}</div>
+        </div>
+        <div className={`font-bold text-sm flex-shrink-0 ${selected ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>{oddsValue.toFixed(2)}</div>
+      </button>
+    )
+  }
+
   const offeredScorers = (goalscorers ?? [])
     .filter(g => g.is_offered && g.status === 'available')
     .sort((a, b) => a.odds_score - b.odds_score)
@@ -195,74 +223,47 @@ export function CupMatchCard({
 
           {tab === 'specials' && (
             <div className="bg-amber-50/80 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800 rounded-xl p-2.5 space-y-3">
-              <MarketBlock
-                title="Wer kommt weiter?"
-                subtitle="Inkl. Elfmeterschießen"
-              >
+              <MarketBlock title="🏆 Wer kommt weiter?" subtitle="Inkl. Elfmeterschießen">
                 {renderOddsButton('cup_advance', 'Wer kommt weiter?', 'home', homeName, odds.cup_advance_home)}
                 {renderOddsButton('cup_advance', 'Wer kommt weiter?', 'away', awayName, odds.cup_advance_away)}
               </MarketBlock>
 
-              <MarketBlock
-                title="🧤 Wie fällt die Entscheidung?"
-                subtitle={'"Nach 90 Minuten" = ein Team führt nach 90 Min. + Nachspielzeit. "Elfmeterschießen" = nach 90 Min. steht es unentschieden — keine Verlängerung.'}
-              >
+              <MarketBlock title="🧤 Entscheidung" subtitle="90 Min. oder Elfmeterschießen">
                 {renderOddsButton('cup_decision', 'Wie fällt die Entscheidung?', 'regulation', 'Nach 90 Minuten', odds.cup_decision_regulation)}
                 {renderOddsButton('cup_decision', 'Wie fällt die Entscheidung?', 'shootout', 'Elfmeterschießen', odds.cup_decision_shootout)}
               </MarketBlock>
 
-              <MarketBlock
-                title={`🔥 ${homeName} führt zur Halbzeit & kommt weiter`}
-                subtitle="HZ-Führung + Weiterkommen inkl. möglichem Elfmeterschießen"
-              >
-                {renderOddsButton('cup_halftime_lead_advance', 'Wildenroth führt zur Halbzeit & kommt weiter', 'yes', 'Ja', odds.cup_halftime_lead_advance_yes)}
-                {renderOddsButton('cup_halftime_lead_advance', 'Wildenroth führt zur Halbzeit & kommt weiter', 'no', 'Nein', odds.cup_halftime_lead_advance_no)}
-              </MarketBlock>
-
-              <MarketBlock
-                title={`🔄 ${awayName} führt – ${homeName} kommt trotzdem weiter`}
-                subtitle={`${awayName} muss während der 90 Min. geführt haben. Weiterkommen inkl. Elfmeterschießen.`}
-              >
-                {renderOddsButton('cup_comeback_advance', 'Geiselbullach führt – Wildenroth kommt trotzdem weiter', 'yes', 'Ja', odds.cup_comeback_advance_yes)}
-                {renderOddsButton('cup_comeback_advance', 'Geiselbullach führt – Wildenroth kommt trotzdem weiter', 'no', 'Nein', odds.cup_comeback_advance_no)}
-              </MarketBlock>
-
-              <MarketBlock
-                title={`🎯 Elfmeterschießen – ${homeName} kommt weiter`}
-                subtitle="Remis nach 90 Min. + Wildenroth gewinnt das Elfmeterschießen"
-              >
-                {renderOddsButton('cup_shootout_advance', 'Elfmeterschießen – Wildenroth kommt weiter', 'yes', 'Ja', odds.cup_shootout_advance_yes)}
-                {renderOddsButton('cup_shootout_advance', 'Elfmeterschießen – Wildenroth kommt weiter', 'no', 'Nein', odds.cup_shootout_advance_no)}
-              </MarketBlock>
+              {/* These 3 specials are deliberately offered as single-outcome
+                  "Ja"-only props (product decision) — the "Nein" side still
+                  exists in the odds/settlement model for any bet placed
+                  before this change, it's just no longer a NEW-bet button
+                  here. See renderCupPropButton below. */}
+              {renderCupPropButton('cup_halftime_lead_advance', 'Wildenroth führt zur Halbzeit & kommt weiter', '🔥 HZ-Führung & Weiter', `HZ-Führung ${homeName} + Weiterkommen`, odds.cup_halftime_lead_advance_yes)}
+              {renderCupPropButton('cup_comeback_advance', 'Geiselbullach führt – Wildenroth kommt trotzdem weiter', '🔄 Comeback & Weiter', `${awayName} führt, ${homeName} kommt weiter`, odds.cup_comeback_advance_yes)}
+              {renderCupPropButton('cup_shootout_advance', 'Elfmeterschießen – Wildenroth kommt weiter', '🎯 Im Elfmeterschießen weiter', 'Remis nach 90 + Wildenroth gewinnt', odds.cup_shootout_advance_yes)}
             </div>
           )}
 
           {tab === 'spiel' && (
             <div className="space-y-3">
-              <MarketBlock
-                title="Wer erzielt das erste Tor?"
-                subtitle="Nur reguläre Spielzeit inkl. Nachspielzeit (Elfmeterschießen zählt nicht)"
-              >
+              <MarketBlock title="⚽ Erstes Tor" subtitle="Nur reguläre Spielzeit">
                 {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'home', homeName, odds.cup_first_goal_home)}
                 {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'away', awayName, odds.cup_first_goal_away)}
                 {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'none', 'Kein Tor in 90 Min.', odds.cup_first_goal_none)}
               </MarketBlock>
 
-              <MarketBlock
-                title="Beide Teams treffen"
-                subtitle="Nur Tore innerhalb der 90 Min. + Nachspielzeit (Elfmeterschießen zählt nicht)"
-              >
+              <MarketBlock title="🤝 Beide treffen" subtitle="Nur reguläre Spielzeit">
                 {renderOddsButton('btts', 'Beide Teams treffen', 'yes', 'Ja', odds.btts_yes)}
                 {renderOddsButton('btts', 'Beide Teams treffen', 'no', 'Nein', odds.btts_no)}
               </MarketBlock>
 
               {offeredScorers.length > 0 && (
                 <div>
-                  <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-0.5">
+                  <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300">
                     🎯 Wildenroth-Torschütze
                   </div>
-                  <div className="text-[10px] text-amber-700 dark:text-amber-400 font-medium mb-1.5 leading-snug">
-                    Nur Tore in der regulären Spielzeit inkl. Nachspielzeit. Treffer im Elfmeterschießen zählen NICHT.
+                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-1.5 leading-snug">
+                    Elfmeterschießen zählt nicht
                   </div>
                   <div className="space-y-1.5">
                     {offeredScorers.map((g) => (

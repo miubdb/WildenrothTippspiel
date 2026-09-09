@@ -1088,7 +1088,18 @@ export interface CupMarketOdds {
   cup_first_goal_home: number
   cup_first_goal_away: number
   cup_first_goal_none: number
+  /** True model-derived odds for "Kein Tor in 90 Min." before the product
+   *  cap below — kept for transparency, never itself offered/bettable. */
+  cup_first_goal_none_model: number
 }
+
+// Deliberate PRODUCT pricing rule, not a model correction: a mathematically
+// fair ~43 for "no goal in 90 minutes" is technically correct (see
+// cupMarketOddsFromXG's own doc) but reads as an unplayable/uninteresting
+// outcome for a one-off cup special. The model's fair_probability and
+// model_odds are preserved as-is (see cup_first_goal_none_model above); only
+// the OFFERED price is capped, keeping the two concerns cleanly separate.
+export const MAX_CUP_FIRST_GOAL_NONE_ODDS = 15.0
 
 /**
  * The 3 correlated/path-dependent cup specials (Halbzeitführung & Weiterkommen,
@@ -1107,6 +1118,41 @@ export interface CupSpecialMarketOdds {
   cup_comeback_advance_no: number
   cup_shootout_advance_yes: number
   cup_shootout_advance_no: number
+  /** True model-derived odds for each special's "Ja" side, before the
+   *  commercial rounding below — kept for transparency. The "Nein" side is
+   *  no longer offered as a bettable outcome (product decision: these 3
+   *  markets read as pure prop specials, see components/CupMatchCard.tsx),
+   *  so it has no separate model/offered split — its stored value is simply
+   *  the model's own number, same as before. */
+  cup_halftime_lead_advance_yes_model: number
+  cup_comeback_advance_yes_model: number
+  cup_shootout_advance_yes_model: number
+}
+
+/**
+ * Deliberate commercial rounding for the 3 one-off cup specials' "Ja" price —
+ * a product decision (readable, "nice" odds for a special bet), not a model
+ * correction. Each mapping below is a manually chosen, individually reasoned
+ * override (not a generic round-to-nearest-ladder function, since this only
+ * ever applies to these 3 specific one-off markets on this one match):
+ *
+ * - Halbzeitführung & Weiterkommen: model 2.52 (35.37% fair prob, ~11.6%
+ *   margin). The spec's own suggested 2.75 would thin the margin to ~2.7% —
+ *   too close to break-even for comfort. 2.50 stays a clean round number
+ *   while keeping the margin close to the model's own ~11.6%.
+ * - Comeback & Weiterkommen: model 5.32 (16.79% fair prob). Rounds to 5.50
+ *   (closer than 5.00), leaving a healthy ~7.6% margin — the spec's own
+ *   suggestion, kept as-is.
+ * - Elfmeterschießen & Weiterkommen: model 8.07 (11.07% fair prob). Rounds to
+ *   8.00, a negligible move that leaves the margin essentially unchanged
+ *   (~11.4%) — the spec's own suggestion, kept as-is.
+ */
+function roundCupSpecialYesOdds(field: 'halftime' | 'comeback' | 'shootout'): number {
+  switch (field) {
+    case 'halftime': return 2.5
+    case 'comeback': return 5.5
+    case 'shootout': return 8.0
+  }
 }
 
 /**
@@ -1147,12 +1193,15 @@ export function cupMarketOddsFromXG(homeXG: number, awayXG: number): CupMarketOd
   const pFirstHome = totalXG > 0 ? pAnyGoal * (homeXG / totalXG) : 0
   const pFirstAway = totalXG > 0 ? pAnyGoal * (awayXG / totalXG) : 0
 
+  const modelNoneOdds = toOdds(pNoGoal)
+
   return {
     cup_advance_home: toOdds(pAdvanceHome),
     cup_advance_away: toOdds(pAdvanceAway),
     cup_first_goal_home: toOdds(pFirstHome),
     cup_first_goal_away: toOdds(pFirstAway),
-    cup_first_goal_none: toOdds(pNoGoal),
+    cup_first_goal_none: Math.min(modelNoneOdds, MAX_CUP_FIRST_GOAL_NONE_ODDS),
+    cup_first_goal_none_model: modelNoneOdds,
   }
 }
 
@@ -1184,16 +1233,22 @@ export function cupSpecialMarketOddsFromXG(
   numSims: number = CUP_SIMULATION_RUNS
 ): CupSpecialMarketOdds & { diagnostics: ReturnType<typeof simulateCupMatch> } {
   const sim = simulateCupMatch(homeXG, awayXG, numSims)
+  const halftimeModel = toOdds(sim.pHomeHtLeadAndAdvance)
+  const comebackModel = toOdds(sim.pAwayEverLedAndHomeAdvances)
+  const shootoutModel = toOdds(sim.pShootoutAndHomeAdvances)
 
   return {
     cup_decision_regulation: toOdds(sim.pDecidedIn90),
     cup_decision_shootout: toOdds(sim.pDecidedInShootout),
-    cup_halftime_lead_advance_yes: toOdds(sim.pHomeHtLeadAndAdvance),
+    cup_halftime_lead_advance_yes: roundCupSpecialYesOdds('halftime'),
     cup_halftime_lead_advance_no: toOdds(1 - sim.pHomeHtLeadAndAdvance),
-    cup_comeback_advance_yes: toOdds(sim.pAwayEverLedAndHomeAdvances),
+    cup_comeback_advance_yes: roundCupSpecialYesOdds('comeback'),
     cup_comeback_advance_no: toOdds(1 - sim.pAwayEverLedAndHomeAdvances),
-    cup_shootout_advance_yes: toOdds(sim.pShootoutAndHomeAdvances),
+    cup_shootout_advance_yes: roundCupSpecialYesOdds('shootout'),
     cup_shootout_advance_no: toOdds(1 - sim.pShootoutAndHomeAdvances),
+    cup_halftime_lead_advance_yes_model: halftimeModel,
+    cup_comeback_advance_yes_model: comebackModel,
+    cup_shootout_advance_yes_model: shootoutModel,
     diagnostics: sim,
   }
 }
