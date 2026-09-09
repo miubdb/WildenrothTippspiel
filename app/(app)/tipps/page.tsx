@@ -8,7 +8,8 @@ import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { MatchdayRecap } from '@/components/MatchdayRecap'
 import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
-import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext, getFullExactScoreMatrix, mergeExactScoreOffers } from '@/lib/odds'
+import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext, getFullExactScoreMatrix, mergeExactScoreOffers, cupMarketOddsFromXG } from '@/lib/odds'
+import { CupMatchCard } from '@/components/CupMatchCard'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
@@ -66,6 +67,7 @@ export default async function TippsPage({
       .from('matches')
       .select(
         `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday,
+         competition_type, competition_name, competition_round, cup_shootout_winner, cup_first_goal_team,
          home_team:teams!matches_home_team_id_fkey(id, name, short_name),
          away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
       )
@@ -384,6 +386,15 @@ export default async function TippsPage({
         hdp_home_plus_1_5:  Number(row.hdp_home_plus_1_5),
         hdp_away_minus_2_5: Number(row.hdp_away_minus_2_5),
         hdp_home_plus_2_5:  Number(row.hdp_home_plus_2_5),
+        // Cup-only markets (see lib/odds.ts#cupMarketOddsFromXG) — null on
+        // every normal league match's row, so only ever populated here.
+        ...(row.cup_advance_home != null ? {
+          cup_advance_home:    Number(row.cup_advance_home),
+          cup_advance_away:    Number(row.cup_advance_away),
+          cup_first_goal_home: Number(row.cup_first_goal_home),
+          cup_first_goal_away: Number(row.cup_first_goal_away),
+          cup_first_goal_none: Number(row.cup_first_goal_none),
+        } : {}),
       }
       if (row.exact_score_odds) {
         exactScoreAutoMap[row.match_id] = row.exact_score_odds as Record<string, number>
@@ -434,6 +445,12 @@ export default async function TippsPage({
       for (const m of toFreeze) {
         const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
         const odds = oddsFromXG(homeXG, awayXG)
+        // Cup-only markets (see lib/odds.ts#cupMarketOddsFromXG) — derived from
+        // the SAME (homeXG, awayXG) as every other market above, so they can
+        // never disagree with this match's own 1X2 card. Undefined (and never
+        // persisted) for every normal league match.
+        const cupOdds = m.competition_type === 'cup' ? cupMarketOddsFromXG(homeXG, awayXG) : null
+        if (cupOdds) Object.assign(odds, cupOdds)
         oddsMap[m.id] = odds
         // Standard markets above always use the model's own xG. The exact-score
         // grid uses the match-specific override when one exists (see comment above).
@@ -474,6 +491,7 @@ export default async function TippsPage({
           hdp_away_minus_2_5: odds.hdp_away_minus_2_5,
           hdp_home_plus_2_5:  odds.hdp_home_plus_2_5,
           exact_score_odds: exactGrid,
+          ...(cupOdds ?? {}),
         }, { onConflict: 'match_id' })
         await persistOddsDiagnostics(adminSupaOdds, m.id, 'freeze', diagnostics)
       }
@@ -1215,10 +1233,27 @@ export default async function TippsPage({
       ) : (
         <div className="space-y-3">
           {(() => {
-            const kreisliga = matchdayMatches.filter(m => !m.match_category || m.match_category === 'kreisliga')
+            const kreisligaAll = matchdayMatches.filter(m => !m.match_category || m.match_category === 'kreisliga')
+            // Cup fixtures (competition_type='cup') are pinned at the top of
+            // their own Spieltag's section in a distinct card instead of the
+            // normal Kreisliga list — same effective Spieltag (matchday/
+            // tippspiel_matchday), same Wettschein/limits, just a different
+            // display slot and its own 4-market card (see CupMatchCard).
+            const cupMatches = kreisligaAll.filter(m => m.competition_type === 'cup')
+            const kreisliga = kreisligaAll.filter(m => m.competition_type !== 'cup')
             const bklasse = matchdayMatches.filter(m => m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel))
             return (
               <>
+                {cupMatches.map((match) => (
+                  <CupMatchCard
+                    key={match.id}
+                    match={match}
+                    odds={match.status === 'scheduled' && isBettingOpen ? (oddsMap[match.id] ?? null) : null}
+                    goalscorers={goalscorerOffersByMatch[match.id] ?? null}
+                    isWildenrothPlayer={isWildenrothPlayer}
+                    wildenrothTeamId={wildenrothTeamId}
+                  />
+                ))}
                 {kreisliga.map((match) => (
                   <BettingMatchCard
                     key={match.id}

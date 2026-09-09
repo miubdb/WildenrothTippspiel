@@ -1,4 +1,4 @@
-export type MarketType = '1x2' | 'double_chance' | 'over_under' | 'over_under_3_5' | 'over_under_5_5' | 'over_under_7_5' | 'btts' | 'exact_score' | 'handicap' | 'goalscorer' | 'goalscorer_2plus'
+export type MarketType = '1x2' | 'double_chance' | 'over_under' | 'over_under_3_5' | 'over_under_5_5' | 'over_under_7_5' | 'btts' | 'exact_score' | 'handicap' | 'goalscorer' | 'goalscorer_2plus' | 'cup_advance' | 'cup_first_goal'
 
 export type MatchStatus = 'scheduled' | 'live' | 'finished' | 'cancelled' | 'postponed'
 
@@ -27,6 +27,21 @@ export interface Match {
   match_category?: 'kreisliga' | 'wildenroth_ii' | 'bklasse_topspiel' | 'b-klasse'
   is_topspiel?: boolean
   tippspiel_matchday?: number | null
+  /** 'league' (default) for every normal fixture, 'cup' for a one-off knockout
+   *  match like the Sparkassen Fußball-Cup — see lib/odds.ts#cupMarketOddsFromXG
+   *  and components/CupMatchCard.tsx. */
+  competition_type?: 'league' | 'cup'
+  competition_name?: string | null
+  competition_round?: string | null
+  /** Manual admin settlement input for a cup match's "Wer kommt weiter?"
+   *  market when the 90-minute score is a draw — which side won the penalty
+   *  shootout. Null for every league match and for a cup match decided in
+   *  regular time. */
+  cup_shootout_winner?: 'home' | 'away' | null
+  /** Manual admin settlement input for a cup match's "Wer erzielt das erste
+   *  Tor?" market — match_goalscorers has no minute column, so which side
+   *  scored first cannot be derived automatically. */
+  cup_first_goal_team?: 'home' | 'away' | 'none' | null
 }
 
 
@@ -142,4 +157,11 @@ export interface OddsData {
   hdp_home_plus_1_5: number
   hdp_away_minus_2_5: number
   hdp_home_plus_2_5: number
+  /** Cup-only markets (see lib/odds.ts#cupMarketOddsFromXG) — undefined for
+   *  every normal league match. */
+  cup_advance_home?: number
+  cup_advance_away?: number
+  cup_first_goal_home?: number
+  cup_first_goal_away?: number
+  cup_first_goal_none?: number
 }

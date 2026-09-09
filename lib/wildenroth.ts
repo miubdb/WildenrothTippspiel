@@ -30,6 +30,20 @@ export function isAgainstWildenroth(
     return true
   }
 
+  // Cup-only "Wer kommt weiter?" — pays out exactly when one named side
+  // advances (win in 90 min OR win on penalties), so it mirrors 1x2's own
+  // win-requirement logic: blocked exactly when the selection names the
+  // OTHER side advancing (never blocked for backing Wildenroth's own side).
+  if (marketType === 'cup_advance') {
+    return ctx.wildenrothIsHome ? selection !== 'home' : selection !== 'away'
+  }
+
+  // Cup-only "Wer erzielt das erste Tor?" and the reused 'btts' market
+  // (Beide Teams treffen) are deliberately NOT blocked here (falls through
+  // to `return false` below) — neither strictly requires Wildenroth to not
+  // win: Wildenroth can concede the first goal, or the opponent can score at
+  // all, and still go on to win the match/advance.
+
   if (marketType === 'exact_score') {
     const [h, a] = selection.split(':').map(Number)
     if (!Number.isFinite(h) || !Number.isFinite(a)) return false

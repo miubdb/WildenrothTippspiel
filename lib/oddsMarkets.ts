@@ -23,6 +23,11 @@ export const ODDS_COLUMN: Record<string, Record<string, string>> = {
     away_minus_2_5: 'hdp_away_minus_2_5',
     home_plus_2_5: 'hdp_home_plus_2_5',
   },
+  // Cup-only markets (see lib/odds.ts#cupMarketOddsFromXG) — only ever
+  // populated on the one-off cup fixture's own `odds` row, null everywhere
+  // else, so these columns are simply never matched for a normal match.
+  cup_advance: { home: 'cup_advance_home', away: 'cup_advance_away' },
+  cup_first_goal: { home: 'cup_first_goal_home', away: 'cup_first_goal_away', none: 'cup_first_goal_none' },
 }
 
 /**

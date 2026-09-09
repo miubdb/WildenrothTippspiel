@@ -6,13 +6,37 @@ import { wildiLabel } from '@/components/WildiIcon'
 import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
 import { cappedPayout } from '@/lib/payout'
 
+/**
+ * cupShootoutWinner: 'home'|'away'|null — who won the penalty shootout on a
+ * cup match's 90-minute draw (irrelevant/null otherwise). Only consulted for
+ * market 'cup_advance'.
+ * cupFirstGoalTeam: 'home'|'away'|'none'|null — which side scored first in
+ * regular time + stoppage on a cup match (match_goalscorers has no minute
+ * column, so this can't be derived automatically). Only consulted for
+ * market 'cup_first_goal'.
+ */
 function settleBet(
   marketType: string,
   selection: string,
   homeScore: number,
-  awayScore: number
+  awayScore: number,
+  cupShootoutWinner?: 'home' | 'away' | null,
+  cupFirstGoalTeam?: 'home' | 'away' | 'none' | null,
 ): 'won' | 'lost' {
   switch (marketType) {
+    case 'cup_advance': {
+      // 90-minute result decides it outright unless it's a draw, in which
+      // case (no extra time — straight to penalties) the admin-recorded
+      // shootout winner decides. A draw with no shootout winner recorded yet
+      // can't be settled correctly — fail safe as 'lost' rather than
+      // guessing; the admin must enter the shootout winner before settling.
+      if (homeScore > awayScore) return selection === 'home' ? 'won' : 'lost'
+      if (awayScore > homeScore) return selection === 'away' ? 'won' : 'lost'
+      return selection === cupShootoutWinner ? 'won' : 'lost'
+    }
+    case 'cup_first_goal': {
+      return cupFirstGoalTeam != null && selection === cupFirstGoalTeam ? 'won' : 'lost'
+    }
     case '1x2': {
       if (homeScore > awayScore && selection === 'home') return 'won'
       if (homeScore === awayScore && selection === 'draw') return 'won'
@@ -108,14 +132,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 })
   }
 
-  let body: { matchId: number; homeScore: number; awayScore: number }
+  let body: {
+    matchId: number; homeScore: number; awayScore: number
+    /** Cup-only manual settlement inputs (see settleBet doc above) — ignored
+     *  for a normal league match. */
+    cupShootoutWinner?: 'home' | 'away' | null
+    cupFirstGoalTeam?: 'home' | 'away' | 'none' | null
+  }
   try {
     body = await request.json()
   } catch {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
 
-  const { matchId, homeScore, awayScore } = body
+  const { matchId, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam } = body
 
   if (
     typeof matchId !== 'number' ||
@@ -131,7 +161,7 @@ export async function POST(request: NextRequest) {
   // loudly instead of corrupting balances quietly.
   const { data: existingMatch } = await supabase
     .from('matches')
-    .select('status')
+    .select('status, competition_type')
     .eq('id', matchId)
     .single()
 
@@ -142,6 +172,16 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Cup match: "Wer kommt weiter?" needs the shootout winner recorded on a
+  // 90-minute draw — refuse to settle rather than silently grading every
+  // cup_advance bet 'lost' (see settleBet's fail-safe above).
+  if (existingMatch?.competition_type === 'cup' && homeScore === awayScore && !cupShootoutWinner) {
+    return NextResponse.json(
+      { error: 'Unentschieden nach 90 Minuten — bitte zuerst den Elfmeterschießen-Sieger angeben.' },
+      { status: 400 }
+    )
+  }
+
   // Update match
   const { error: matchError } = await supabase
     .from('matches')
@@ -149,6 +189,10 @@ export async function POST(request: NextRequest) {
       home_score: homeScore,
       away_score: awayScore,
       status: 'finished',
+      ...(existingMatch?.competition_type === 'cup' ? {
+        cup_shootout_winner: homeScore === awayScore ? (cupShootoutWinner ?? null) : null,
+        cup_first_goal_team: cupFirstGoalTeam ?? null,
+      } : {}),
     })
     .eq('id', matchId)
 
@@ -179,7 +223,7 @@ export async function POST(request: NextRequest) {
   const combosToCheck = new Set<number>()
 
   for (const bet of pendingBets) {
-    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore)
+    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam)
     let payout = 0
 
     if (result === 'won' && bet.combo_id === null) {
@@ -264,7 +308,7 @@ export async function POST(request: NextRequest) {
   const userLostCount: Record<string, number> = {}
   for (const bet of pendingBets) {
     if (bet.combo_id !== null) continue // combos handled separately below
-    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore)
+    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam)
     if (result === 'won') userWonCount[bet.user_id] = (userWonCount[bet.user_id] ?? 0) + 1
     else userLostCount[bet.user_id] = (userLostCount[bet.user_id] ?? 0) + 1
   }

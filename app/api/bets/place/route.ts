@@ -33,6 +33,8 @@ const MARKET_LABELS: Record<string, string> = {
   exact_score: 'Genaues Ergebnis',
   goalscorer: 'Torschütze',
   goalscorer_2plus: 'Torschütze (mind. 2 Tore)',
+  cup_advance: 'Wer kommt weiter?',
+  cup_first_goal: 'Wer erzielt das erste Tor?',
 }
 
 interface PlaceBetSelection {

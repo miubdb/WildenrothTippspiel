@@ -1060,6 +1060,79 @@ export function getFullExactScoreMatrix(homeXG: number, awayXG: number, maxGoals
  * caller/column) so display, admin preview and any future consumer can never
  * disagree on order.
  */
+// ---------- Cup-specific markets (one-off knockout fixture, no extra time) ----------
+
+// There is no shootout-specific historical data anywhere in this dataset, so
+// a shootout's win probability is deliberately NOT modelled with any real
+// precision — it's anchored near 50:50 and nudged only slightly by overall
+// team strength (the same xG this match's every other market already uses),
+// capped so the tilt can never swing more than a few points either way. This
+// is a conservative, openly-approximate heuristic, not a fitted model.
+const SHOOTOUT_STRENGTH_DIFF_CAP = 0.3
+const SHOOTOUT_TILT_FACTOR = 0.2
+function shootoutHomeWinProb(homeXG: number, awayXG: number): number {
+  const totalXG = homeXG + awayXG
+  if (totalXG <= 0) return 0.5
+  const diffRatio = (homeXG - awayXG) / totalXG
+  const capped = Math.max(-SHOOTOUT_STRENGTH_DIFF_CAP, Math.min(SHOOTOUT_STRENGTH_DIFF_CAP, diffRatio))
+  return 0.5 + capped * SHOOTOUT_TILT_FACTOR
+}
+
+export interface CupMarketOdds {
+  cup_advance_home: number
+  cup_advance_away: number
+  cup_first_goal_home: number
+  cup_first_goal_away: number
+  cup_first_goal_none: number
+}
+
+/**
+ * "Wer kommt weiter?" and "Wer erzielt das erste Tor?" for a one-off knockout
+ * cup fixture with no extra time — a 90(+stoppage)-minute draw goes straight
+ * to penalties. Derived from the SAME (homeXG, awayXG) pair — via the same
+ * normalised score matrix — as every other market on this match, so the fair
+ * 90-minute split used here can never silently disagree with the match's own
+ * 1X2 card.
+ *
+ * "Wer erzielt das erste Tor?" uses the standard competing-independent-
+ * Poisson-processes approximation: among two goal processes with rates
+ * homeXG and awayXG over 90+stoppage minutes, the probability a given side
+ * scores first (conditional on any goal at all) is its share of the combined
+ * rate; P(no goal at all) = e^-(homeXG+awayXG) — exactly this match's own
+ * 0:0 probability, so "none" and the match's own scoreline can't disagree
+ * either. Penalty-shootout goals never count for this market.
+ */
+export function cupMarketOddsFromXG(homeXG: number, awayXG: number): CupMarketOdds {
+  const matrix = buildScoreMatrix(homeXG, awayXG)
+  let pHome = 0, pDraw = 0, pAway = 0
+  for (let h = 0; h <= SCORE_MATRIX_MAX_GOALS; h++) {
+    for (let a = 0; a <= SCORE_MATRIX_MAX_GOALS; a++) {
+      const p = matrix[h][a]
+      if (h > a) pHome += p
+      else if (h === a) pDraw += p
+      else pAway += p
+    }
+  }
+
+  const pShootoutHome = shootoutHomeWinProb(homeXG, awayXG)
+  const pAdvanceHome = pHome + pDraw * pShootoutHome
+  const pAdvanceAway = pAway + pDraw * (1 - pShootoutHome)
+
+  const pNoGoal = Math.exp(-(homeXG + awayXG))
+  const pAnyGoal = 1 - pNoGoal
+  const totalXG = homeXG + awayXG
+  const pFirstHome = totalXG > 0 ? pAnyGoal * (homeXG / totalXG) : 0
+  const pFirstAway = totalXG > 0 ? pAnyGoal * (awayXG / totalXG) : 0
+
+  return {
+    cup_advance_home: toOdds(pAdvanceHome),
+    cup_advance_away: toOdds(pAdvanceAway),
+    cup_first_goal_home: toOdds(pFirstHome),
+    cup_first_goal_away: toOdds(pFirstAway),
+    cup_first_goal_none: toOdds(pNoGoal),
+  }
+}
+
 export function mergeExactScoreOffers(
   autoOdds: Record<string, number> | null | undefined,
   overrides: Record<string, number> | null | undefined,

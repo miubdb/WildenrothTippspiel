@@ -24,6 +24,7 @@ interface MatchRow {
   away_team: { name: string; short_name: string } | null
   match_category: string | null
   is_topspiel: boolean
+  competition_type?: string | null
 }
 
 /** Draft row for the inline Spieltag-tab scorer entry — mirrors the shape
@@ -54,6 +55,9 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('spieltag')
   const [matches, setMatches] = useState<MatchRow[]>([])
   const [scores, setScores] = useState<Record<number, { home: string; away: string }>>({})
+  // Cup-only manual settlement inputs (see app/api/admin/settle/route.ts) —
+  // only ever read/sent for a match with competition_type='cup'.
+  const [cupInputs, setCupInputs] = useState<Record<number, { shootoutWinner: string; firstGoalTeam: string }>>({})
   const [loading, setLoading] = useState(false)
   const [settleLoading, setSettleLoading] = useState<number | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -194,7 +198,7 @@ export default function AdminPage() {
     const { data } = await supabase
       .from('matches')
       .select(
-        `id, match_number, matchday, match_date, status, home_score, away_score, match_category, is_topspiel,
+        `id, match_number, matchday, match_date, status, home_score, away_score, match_category, is_topspiel, competition_type,
          home_team:teams!matches_home_team_id_fkey(name, short_name),
          away_team:teams!matches_away_team_id_fkey(name, short_name)`
       )
@@ -268,13 +272,26 @@ export default function AdminPage() {
       return
     }
 
+    const match = matches.find(m => m.id === matchId)
+    const cup = cupInputs[matchId]
+    if (match?.competition_type === 'cup' && homeScore === awayScore && !cup?.shootoutWinner) {
+      setMessage('Unentschieden nach 90 Minuten — bitte zuerst den Elfmeterschießen-Sieger angeben.')
+      return
+    }
+
     setSettleLoading(matchId)
     setMessage(null)
 
     const res = await fetch('/api/admin/settle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ matchId, homeScore, awayScore }),
+      body: JSON.stringify({
+        matchId, homeScore, awayScore,
+        ...(match?.competition_type === 'cup' ? {
+          cupShootoutWinner: cup?.shootoutWinner || null,
+          cupFirstGoalTeam: cup?.firstGoalTeam || null,
+        } : {}),
+      }),
     })
 
     const data = await res.json()
@@ -576,6 +593,8 @@ export default function AdminPage() {
                       match={match}
                       score={scores[match.id] ?? { home: '', away: '' }}
                       onChange={(side, val) => handleScoreChange(match.id, side, val)}
+                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '' }}
+                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '' }), [field]: val } }))}
                       onSettle={() => settleMatch(match.id)}
                       onPostpone={() => postponeMatch(match.id)}
                       loading={settleLoading === match.id}
@@ -627,6 +646,8 @@ export default function AdminPage() {
                       match={match}
                       score={scores[match.id] ?? { home: '', away: '' }}
                       onChange={(side, val) => handleScoreChange(match.id, side, val)}
+                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '' }}
+                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '' }), [field]: val } }))}
                       onSettle={() => settleMatch(match.id)}
                       onPostpone={() => postponeMatch(match.id)}
                       loading={settleLoading === match.id}
@@ -1890,6 +1911,8 @@ function MatchSettleCard({
   match,
   score,
   onChange,
+  cupInput,
+  onCupInputChange,
   onSettle,
   onPostpone,
   loading,
@@ -1902,6 +1925,8 @@ function MatchSettleCard({
   match: MatchRow
   score: { home: string; away: string }
   onChange: (side: 'home' | 'away', val: string) => void
+  cupInput?: { shootoutWinner: string; firstGoalTeam: string }
+  onCupInputChange?: (field: 'shootoutWinner' | 'firstGoalTeam', val: string) => void
   onSettle: () => void
   onPostpone?: () => void
   loading: boolean
@@ -1975,6 +2000,40 @@ function MatchSettleCard({
             <option value="b-klasse">B-Klasse</option>
             <option value="bklasse_topspiel">B-Klasse-Topspiel</option>
           </select>
+        </div>
+      )}
+
+      {/* Cup match: two extra manual settlement inputs — see
+          app/api/admin/settle/route.ts settleBet() doc for why these can't
+          be derived automatically (no extra-time rule, no minute data). */}
+      {match.competition_type === 'cup' && onCupInputChange && (
+        <div className="mb-3 space-y-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
+          <div className="text-[10px] font-bold text-amber-700 uppercase">Pokal-Spezial</div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 flex-shrink-0 w-28">Elfmeter-Sieger:</span>
+            <select
+              value={cupInput?.shootoutWinner ?? ''}
+              onChange={(e) => onCupInputChange('shootoutWinner', e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1 flex-1"
+            >
+              <option value="">— (nur bei Remis nach 90 Min.)</option>
+              <option value="home">{match.home_team?.name ?? 'Heim'}</option>
+              <option value="away">{match.away_team?.name ?? 'Gast'}</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 flex-shrink-0 w-28">Erstes Tor:</span>
+            <select
+              value={cupInput?.firstGoalTeam ?? ''}
+              onChange={(e) => onCupInputChange('firstGoalTeam', e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1 flex-1"
+            >
+              <option value="">— auswählen —</option>
+              <option value="home">{match.home_team?.name ?? 'Heim'}</option>
+              <option value="away">{match.away_team?.name ?? 'Gast'}</option>
+              <option value="none">Kein Tor (0:0)</option>
+            </select>
+          </div>
         </div>
       )}
 
