@@ -208,7 +208,7 @@ export default async function TabellePage({
   const { data: rawMatches } = await supabase
     .from('matches')
     .select(
-      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category,
+      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, competition_type,
        home_team:teams!matches_home_team_id_fkey(id, name, short_name),
        away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
     )
@@ -228,11 +228,16 @@ export default async function TabellePage({
   // Split matches by liga. bklasse_topspiel is an admin-selected B-Klasse match
   // (see CLAUDE.md match_category) — it belongs in the B-Klasse standings, not
   // the Kreisliga ones, even though it's also bettable on the Kreisliga Spieltag.
+  // competition_type === 'cup' (e.g. the one-off Pokal-Spezial, see CLAUDE.md)
+  // keeps match_category='kreisliga' so it still bets/displays on its normal
+  // Spieltag, but its sporting result must never count toward the real league
+  // table — excluded from both pools regardless of match_category.
+  const isLeagueMatch = (m: Match) => m.competition_type !== 'cup'
   const kreisligaMatches = allMatches.filter(
-    (m) => !m.match_category || m.match_category === 'kreisliga'
+    (m) => (!m.match_category || m.match_category === 'kreisliga') && isLeagueMatch(m)
   )
   const bklasseMatches = allMatches.filter(
-    (m) => m.match_category === 'b-klasse' || m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel'
+    (m) => (m.match_category === 'b-klasse' || m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel') && isLeagueMatch(m)
   )
 
   const activeMatches = isB ? bklasseMatches : kreisligaMatches

@@ -150,6 +150,9 @@ export default async function WildenrothTeamPage() {
                away_team:teams!matches_away_team_id_fkey(id, name, short_name)`)
       .gte('match_date', SEASON_START)
       .not('match_category', 'in', '("wildenroth_ii","b-klasse")')
+      // One-off cup fixtures (e.g. Pokal-Spezial, see CLAUDE.md) must never
+      // count toward Wildenroth's league standing/form on this page.
+      .or('competition_type.is.null,competition_type.neq.cup')
       .order('match_date', { ascending: true }),
     supabase
       .from('wildenroth_players')

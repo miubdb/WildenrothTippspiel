@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   const { data: allMatchesRaw } = await supabase
     .from('matches')
     .select(
-      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday,
+      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday, competition_type,
        home_team:teams!matches_home_team_id_fkey(id, name, short_name),
        away_team:teams!matches_away_team_id_fkey(id, name, short_name)`,
     )
@@ -143,9 +143,12 @@ export async function GET(request: Request) {
   // exactly what would be frozen at the Spieltag's opening time.
   const seasonMatches = allMatches.filter((m) => m.match_date >= SEASON_START)
   const cutoff = bettingOpensAt ? new Date(bettingOpensAt) : null
-  const oddsMatches = cutoff
+  // competition_type === 'cup' (one-off Pokal-Spezial) never feeds the xG
+  // model's team-strength pool, same as tipps/page.tsx and admin/odds/route.ts.
+  const oddsMatches = (cutoff
     ? seasonMatches.filter((m) => m.status !== 'finished' || new Date(m.match_date) < cutoff)
     : seasonMatches
+  ).filter((m) => m.competition_type !== 'cup')
 
   // Existing frozen rows (if any) — exact_score_odds is the persisted auto grid;
   // once a match is frozen this is the binding source of truth and must NOT be

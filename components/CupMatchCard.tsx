@@ -245,7 +245,7 @@ export function CupMatchCard({
               >
                 {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'home', homeName, odds.cup_first_goal_home)}
                 {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'away', awayName, odds.cup_first_goal_away)}
-                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'none', 'Kein Tor', odds.cup_first_goal_none)}
+                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'none', 'Kein Tor in 90 Min.', odds.cup_first_goal_none)}
               </MarketBlock>
 
               <MarketBlock

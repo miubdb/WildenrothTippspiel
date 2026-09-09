@@ -299,13 +299,18 @@ export default async function TippsPage({
   const SEASON_START = '2026-08-01'
   // seasonMatches already declared above as filtered by SEASON_START_TIPPS (same value)
 
-  // Odds snapshot: freeze odds at Monday 12:00 — only use matches finished before that cutoff
+  // Odds snapshot: freeze odds at Monday 12:00 — only use matches finished before that cutoff.
+  // competition_type === 'cup' (the one-off Pokal-Spezial, see CLAUDE.md) is
+  // excluded here too — its sporting result must never feed the Poisson
+  // model's team-strength/form/roster inputs for future league matches, even
+  // though it stays match_category='kreisliga' for betting/display purposes.
   const oddsSnapshotCutoff = bettingOpens ?? deadline
-  const oddsMatches = oddsSnapshotCutoff
+  const oddsMatches = (oddsSnapshotCutoff
     ? seasonMatches.filter(
         (m) => m.status !== 'finished' || new Date(m.match_date) < oddsSnapshotCutoff
       )
     : seasonMatches
+  ).filter((m) => m.competition_type !== 'cup')
 
   // Odds: computed live until Monday 12:00, then frozen in DB forever.
   // First request at/after bettingOpens writes frozen_at; subsequent reads use DB values.

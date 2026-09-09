@@ -1918,6 +1918,61 @@ function isWildenrothMatch(match: MatchRow) {
   return !!(match.home_team?.name?.includes('Wildenroth') || match.away_team?.name?.includes('Wildenroth'))
 }
 
+/** Client-side "would settle as" preview for the 6 named-outcome cup markets
+ *  (BTTS/Torschütze settle via their own existing mechanisms, not shown
+ *  here), computed live from the current form state so the admin can sanity-
+ *  check every market BEFORE clicking "Ergebnis & abrechnen" — mirrors
+ *  settleBet()/cupAdvanceWinner() in app/api/admin/settle/route.ts exactly;
+ *  keep both in sync if that logic ever changes. Purely a display aid, never
+ *  submitted anywhere — the server re-derives everything itself. */
+function CupSettlementPreview({
+  match, score, cupInput,
+}: {
+  match: MatchRow
+  score: { home: string; away: string }
+  cupInput?: { shootoutWinner: string; firstGoalTeam: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }
+}) {
+  const homeScore = score.home === '' ? null : Number(score.home)
+  const awayScore = score.away === '' ? null : Number(score.away)
+  if (homeScore == null || awayScore == null || !Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null
+
+  const homeName = match.home_team?.short_name ?? match.home_team?.name ?? 'Heim'
+  const awayName = match.away_team?.short_name ?? match.away_team?.name ?? 'Gast'
+  const isDraw = homeScore === awayScore
+  const shootoutWinner = (cupInput?.shootoutWinner || null) as 'home' | 'away' | null
+  const winner: 'home' | 'away' | null = isDraw ? shootoutWinner : (homeScore > awayScore ? 'home' : 'away')
+  const winnerKnown = winner != null
+
+  const htHome = cupInput?.halftimeHome === '' || cupInput?.halftimeHome == null ? null : Number(cupInput.halftimeHome)
+  const htAway = cupInput?.halftimeAway === '' || cupInput?.halftimeAway == null ? null : Number(cupInput.halftimeAway)
+  const homeLedAtHt = htHome != null && htAway != null && htHome > htAway
+  const awayLed = cupInput?.awayTeamLed === 'yes'
+  const firstGoal = homeScore === 0 && awayScore === 0 ? 'none' : (cupInput?.firstGoalTeam || null)
+
+  const rows: { label: string; value: string; unresolved?: boolean }[] = [
+    { label: 'Wer kommt weiter?', value: winnerKnown ? (winner === 'home' ? homeName : awayName) : '— Elfmeter-Sieger fehlt', unresolved: !winnerKnown },
+    { label: 'Wie fällt die Entscheidung?', value: isDraw ? 'Elfmeterschießen' : 'Nach 90 Minuten' },
+    { label: 'HZ-Führung + Weiter', value: winnerKnown ? (homeLedAtHt && winner === 'home' ? 'Ja' : 'Nein') : '— Elfmeter-Sieger fehlt', unresolved: !winnerKnown },
+    { label: 'Comeback (Geiselbullach führte) + Weiter', value: winnerKnown ? (awayLed && winner === 'home' ? 'Ja' : 'Nein') : '— Elfmeter-Sieger fehlt', unresolved: !winnerKnown },
+    { label: 'Elfmeterschießen + Weiter', value: isDraw ? (shootoutWinner === 'home' ? 'Ja' : shootoutWinner ? 'Nein' : '— Elfmeter-Sieger fehlt') : 'Nein', unresolved: isDraw && !shootoutWinner },
+    { label: 'Erstes Tor', value: firstGoal === 'home' ? homeName : firstGoal === 'away' ? awayName : firstGoal === 'none' ? 'Kein Tor' : '— fehlt noch', unresolved: !firstGoal },
+  ]
+
+  return (
+    <div className="bg-white border border-amber-200 rounded-lg p-2 mt-1">
+      <div className="text-[10px] font-bold text-amber-700 uppercase mb-1">So würde abgerechnet</div>
+      <div className="space-y-0.5">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center justify-between text-[11px]">
+            <span className="text-gray-500">{r.label}</span>
+            <span className={`font-semibold ${r.unresolved ? 'text-red-600' : 'text-gray-800'}`}>{r.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function MatchSettleCard({
   match,
   score,
@@ -2079,6 +2134,7 @@ function MatchSettleCard({
             Halbzeitstand &amp; &bdquo;{match.away_team?.short_name ?? 'Gast'} führte&ldquo; werden für die
             Pokal-Spezialmärkte benötigt und müssen vor dem Abrechnen ausgefüllt sein.
           </div>
+          <CupSettlementPreview match={match} score={score} cupInput={cupInput} />
         </div>
       )}
 

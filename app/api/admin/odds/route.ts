@@ -32,7 +32,7 @@ export async function POST() {
   const { data: allMatchesRaw } = await supabase
     .from('matches')
     .select(
-      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status,
+      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, competition_type,
        home_team:teams!matches_home_team_id_fkey(id, name, short_name),
        away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
     )
@@ -49,6 +49,11 @@ export async function POST() {
   // into a team's current-season form (see tipps/page.tsx and
   // admin/odds/preview/route.ts, which already filter this way).
   const seasonMatches = allMatches.filter((m) => m.matchday === 999 || m.match_date >= SEASON_START)
+  // competition_type === 'cup' (one-off Pokal-Spezial, see CLAUDE.md) must
+  // never feed the Poisson model's team-strength inputs for other matches —
+  // excluded from the xG-model pool even though it stays in `seasonMatches`
+  // for bookkeeping elsewhere in this route.
+  const modelMatches = seasonMatches.filter((m) => m.competition_type !== 'cup')
 
   const priorMatchesRaw = await fetchAllRows((from, to) => supabase
     .from('prior_season_matches')
@@ -109,7 +114,7 @@ export async function POST() {
 
   for (const match of scheduledMatches) {
     try {
-      const { homeXG, awayXG, diagnostics } = getMatchXG(seasonMatches, match.home_team_id, match.away_team_id, priorCtx)
+      const { homeXG, awayXG, diagnostics } = getMatchXG(modelMatches, match.home_team_id, match.away_team_id, priorCtx)
       const oddsData = oddsFromXG(homeXG, awayXG)
 
       const { error } = await supabase.from('odds').upsert(

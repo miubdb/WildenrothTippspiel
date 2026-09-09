@@ -52,22 +52,24 @@ export function isAgainstWildenroth(
   }
 
   // The 3 correlated cup specials (see lib/cupSimulation.ts /
-  // lib/odds.ts#cupSpecialMarketOddsFromXG) are all phrased "home/Wildenroth
-  // advances AND <condition>" for 'yes'. 'yes' strictly requires a Wildenroth
-  // win/advance — never blocked, same as cup_advance's own home-side
-  // selection. 'no' is the general complement: true whenever Wildenroth
-  // fails to advance under that specific path (e.g. a plain non-comeback
-  // win, a regulation loss, a shootout loss) but ALSO true in some scenarios
-  // where Wildenroth wins another way — it does not strictly require a
-  // Wildenroth win, matching the away_plus_*/home_plus_* handicap reasoning
-  // above, so it's blocked unconditionally whenever the match involves
-  // Wildenroth (regardless of home/away side).
+  // lib/odds.ts#cupSpecialMarketOddsFromXG) are compound conditions, not
+  // result bets: "yes" names a specific PATH to a Wildenroth win/advance
+  // (leading at HT, coming back from behind, winning on penalties) and "no"
+  // is simply "that specific path didn't happen" — which is true in plenty
+  // of scenarios where Wildenroth still wins/advances a different way (e.g.
+  // a wire-to-wire 3:0 win is "no" on the comeback market despite Wildenroth
+  // advancing). Neither outcome strictly requires Wildenroth to lose or be
+  // eliminated, so NEITHER is blocked — unlike handicap's away_plus_*/
+  // home_plus_* (which include a genuine Wildenroth loss among their winning
+  // outcomes), a "no" here never pays out specifically because Wildenroth
+  // went out. Only `cup_advance` naming the other side is actually a bet on
+  // Wildenroth's elimination.
   if (
     marketType === 'cup_halftime_lead_advance' ||
     marketType === 'cup_comeback_advance' ||
     marketType === 'cup_shootout_advance'
   ) {
-    return selection === 'no'
+    return false
   }
 
   if (marketType === 'exact_score') {

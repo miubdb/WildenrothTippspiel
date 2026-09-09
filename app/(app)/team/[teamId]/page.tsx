@@ -51,6 +51,10 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
     .gte('match_date', LEAGUE_STATS_SEASON_START)
     .or('match_category.is.null,match_category.eq.kreisliga')
     .neq('matchday', 999)
+    // One-off cup fixtures (e.g. Pokal-Spezial, see CLAUDE.md) keep
+    // match_category='kreisliga' for betting/display purposes but must never
+    // count toward a team's league standing/form here.
+    .or('competition_type.is.null,competition_type.neq.cup')
     .order('match_date', { ascending: true })
 
   const matches: Match[] = (rawMatches ?? []).map((m) => ({

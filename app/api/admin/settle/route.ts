@@ -266,6 +266,32 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
+  // First-goal market: at 0:0 the only consistent answer is "none" — accept
+  // that automatically rather than force a redundant admin click, but for
+  // any other scoreline the admin must say who actually scored first.
+  const effectiveCupFirstGoalTeam =
+    existingMatch?.competition_type === 'cup' && homeScore === 0 && awayScore === 0
+      ? 'none'
+      : cupFirstGoalTeam
+  if (existingMatch?.competition_type === 'cup' && !effectiveCupFirstGoalTeam) {
+    return NextResponse.json(
+      { error: 'Bitte zuerst angeben, wer das erste Tor erzielt hat (für den Markt „Wer erzielt das erste Tor?“).' },
+      { status: 400 }
+    )
+  }
+  // Half-time score must be a real subset of the full-time score — an admin
+  // typo here (e.g. swapped fields) would otherwise silently mis-settle the
+  // "Wildenroth führt zur Halbzeit & kommt weiter" market.
+  if (
+    existingMatch?.competition_type === 'cup' &&
+    cupHalftimeHomeGoals != null && cupHalftimeAwayGoals != null &&
+    (cupHalftimeHomeGoals > homeScore || cupHalftimeAwayGoals > awayScore || cupHalftimeHomeGoals < 0 || cupHalftimeAwayGoals < 0)
+  ) {
+    return NextResponse.json(
+      { error: 'Der Halbzeitstand ist mit dem Endstand nicht vereinbar (Halbzeittore dürfen die Endstand-Tore je Team nicht übersteigen).' },
+      { status: 400 }
+    )
+  }
 
   // Update match
   const { error: matchError } = await supabase
@@ -276,7 +302,7 @@ export async function POST(request: NextRequest) {
       status: 'finished',
       ...(existingMatch?.competition_type === 'cup' ? {
         cup_shootout_winner: homeScore === awayScore ? (cupShootoutWinner ?? null) : null,
-        cup_first_goal_team: cupFirstGoalTeam ?? null,
+        cup_first_goal_team: effectiveCupFirstGoalTeam ?? null,
         cup_halftime_home_goals: cupHalftimeHomeGoals,
         cup_halftime_away_goals: cupHalftimeAwayGoals,
         cup_away_team_led: cupAwayTeamLed,

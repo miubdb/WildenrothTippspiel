@@ -440,9 +440,14 @@ type LineupRow = {
 async function fetchKreisligaLineups(supabase: SupabaseClient, category: string | string[] = LEAGUE_STATS_CATEGORY): Promise<LineupRow[]> {
   let query = supabase
     .from('match_lineups')
-    .select('team_name, player_name, minutes_played, goals, assists, is_starter, yellow_cards, red_card_minute, match_id, position, matches!inner(match_date, matchday, match_category)')
+    .select('team_name, player_name, minutes_played, goals, assists, is_starter, yellow_cards, red_card_minute, match_id, position, matches!inner(match_date, matchday, match_category, competition_type)')
     .gte('matches.match_date', LEAGUE_STATS_SEASON_START)
     .neq('matches.matchday', 999)
+    // One-off cup fixtures (e.g. Pokal-Spezial, see CLAUDE.md) keep
+    // match_category='kreisliga' for betting/display purposes but must never
+    // feed real league player statistics (Torjäger/Vorlagen/Scorer/Karten/
+    // Minuten) even if lineup data is later entered for one.
+    .or('matches.competition_type.is.null,matches.competition_type.neq.cup')
   query = Array.isArray(category) ? query.in('matches.match_category', category) : query.eq('matches.match_category', category)
   const { data } = await query
   return (data ?? []) as LineupRow[]
