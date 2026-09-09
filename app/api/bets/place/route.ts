@@ -198,11 +198,30 @@ export async function POST(request: NextRequest) {
   const matchIds = [...new Set(selections.map((s) => s.matchId))]
   const { data: matches } = await supabase
     .from('matches')
-    .select('id, match_number, match_date, status, matchday, home_team_id, away_team_id, match_category, is_topspiel, tippspiel_matchday')
+    .select('id, match_number, match_date, status, matchday, home_team_id, away_team_id, match_category, is_topspiel, tippspiel_matchday, competition_type')
     .in('id', matchIds)
 
   if (!matches || matches.length !== matchIds.length) {
     return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 400 })
+  }
+
+  // Pokal-Spezial (competition_type='cup', see CupMatchCard) intentionally
+  // offers only 4 markets — never the normal 1X2/Doppelte-Chance/Over-Under/
+  // Handicap/Exact-Score set, even though the standard odds columns on its
+  // `odds` row are also populated (the normal per-matchday freeze pipeline
+  // computes them as a harmless byproduct; nothing else reads them). The UI
+  // never renders those buttons for a cup match, but ODDS_COLUMN validation
+  // below is market-agnostic and would otherwise accept a replayed/crafted
+  // request for them — reject explicitly here instead of relying on the UI.
+  const CUP_ALLOWED_MARKETS = new Set(['cup_advance', 'cup_first_goal', 'btts', 'goalscorer'])
+  const cupMatchIds = new Set(matches.filter(m => m.competition_type === 'cup').map(m => m.id))
+  for (const s of selections) {
+    if (cupMatchIds.has(s.matchId) && !CUP_ALLOWED_MARKETS.has(s.marketType)) {
+      return NextResponse.json({ error: 'Dieser Markt wird für das Pokalspiel nicht angeboten.' }, { status: 400 })
+    }
+    if (!cupMatchIds.has(s.matchId) && (s.marketType === 'cup_advance' || s.marketType === 'cup_first_goal')) {
+      return NextResponse.json({ error: 'Dieser Markt ist nur für das Pokalspiel verfügbar.' }, { status: 400 })
+    }
   }
 
   // Full current-season match set, needed both to recompute exact-score odds and
