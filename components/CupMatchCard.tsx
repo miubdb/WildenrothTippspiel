@@ -140,29 +140,31 @@ export function CupMatchCard({
     .sort((a, b) => a.odds_score - b.odds_score)
 
   return (
-    <div className="bg-gradient-to-br from-amber-100 via-amber-50 to-white dark:from-amber-900/30 dark:via-amber-900/10 dark:to-gray-800 rounded-2xl shadow-lg border-2 border-amber-400 dark:border-amber-600 overflow-hidden">
-      {/* Header: explicit "POKAL-SPEZIAL" identity + competition context, per
-          the round-2 example layout — makes this fixture read as clearly
-          different from a normal league match before any odds are seen. */}
-      <div className="px-4 py-3 bg-gradient-to-r from-amber-500 to-amber-600 dark:from-amber-700 dark:to-amber-800">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-white font-black text-sm tracking-wide">
-            <span>🏆</span>
-            <span>POKAL-SPEZIAL</span>
-          </div>
-          {isLive && (
-            <div className="flex items-center gap-1 text-[10px] font-bold text-white bg-orange-600 rounded-full px-2 py-0.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> Live
-            </div>
+    <div className={`bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-l-4 border-l-amber-500 dark:border-l-amber-600 border-gray-100 dark:border-gray-700 overflow-hidden ${isFinished ? 'opacity-60' : ''}`}>
+      {/* Header: a small badge (not a full-width colored banner) is enough to
+          mark this as the one-off cup fixture — the card otherwise reads
+          like a normal match card, so it doesn't dominate the Spieltag list
+          it's pinned above. */}
+      <div className="px-4 pt-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-full px-2 py-0.5 flex-shrink-0">
+            🏆 {match.competition_name ?? 'Sparkassen Fußball-Cup'}
+          </span>
+          {match.competition_round && (
+            <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{match.competition_round}</span>
           )}
         </div>
-        <div className="text-amber-50 text-[11px] mt-0.5">
-          {match.competition_name ?? 'Sparkassen Fußball-Cup'}{match.competition_round ? ` · ${match.competition_round}` : ''}
-        </div>
-        <div className="text-amber-50/90 text-[10px] mt-1 leading-snug">
+        {isLive && (
+          <div className="flex items-center gap-1 text-[10px] font-bold text-white bg-orange-600 rounded-full px-2 py-0.5 flex-shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" /> Live
+          </div>
+        )}
+      </div>
+      {!isFinished && (
+        <div className="px-4 pt-1 text-[10px] text-gray-400 dark:text-gray-500 leading-snug">
           Bei Remis nach 90 Minuten geht es direkt ins Elfmeterschießen – keine Verlängerung.
         </div>
-      </div>
+      )}
 
       <div className="px-4 pt-3 pb-2">
         <div className="flex items-center justify-between gap-2">
@@ -300,9 +302,9 @@ export function CupMatchCard({
             </div>
           )}
         </div>
-      ) : (
-        <div className="px-4 pb-4 text-xs text-gray-400 dark:text-gray-500">Quoten noch nicht verfügbar.</div>
-      )}
+      ) : !isFinished ? (
+        <div className="h-2" />
+      ) : null}
     </div>
   )
 }
