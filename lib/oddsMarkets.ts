@@ -37,7 +37,7 @@ export const ODDS_COLUMN: Record<string, Record<string, string>> = {
   cup_shootout_advance: { yes: 'cup_shootout_advance_yes', no: 'cup_shootout_advance_no' },
   // Round-6 additions (lib/odds.ts#cupRound6MarketOddsFromSim) — same
   // cup-fixture-only story as above.
-  cup_early_goal: { yes: 'cup_early_goal_yes' },
+  cup_early_goal: { yes: 'cup_early_goal_yes', no: 'cup_early_goal_no' },
   cup_ht_more_goals: { h1: 'cup_ht_more_goals_h1', h2: 'cup_ht_more_goals_h2', equal: 'cup_ht_more_goals_equal' },
   cup_both_halves_btts: { yes: 'cup_both_halves_btts_yes' },
 }

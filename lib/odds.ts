@@ -1261,6 +1261,7 @@ export function cupSpecialMarketOddsFromXG(
 
 export interface CupRound6MarketOdds {
   cup_early_goal_yes: number
+  cup_early_goal_no: number
   cup_early_goal_yes_model: number
   cup_ht_more_goals_h1: number
   cup_ht_more_goals_h2: number
@@ -1304,9 +1305,11 @@ function roundCupRound6YesOdds(field: 'early_goal' | 'both_halves_btts', modelOd
  */
 export function cupRound6MarketOddsFromSim(sim: ReturnType<typeof simulateCupMatch>): CupRound6MarketOdds {
   const earlyGoalModel = toOdds(sim.pEarlyGoal)
+  const earlyGoalNoModel = toOdds(1 - sim.pEarlyGoal)
   const bothHalvesModel = toOdds(sim.pBttsInBothHalves)
   return {
     cup_early_goal_yes: roundCupRound6YesOdds('early_goal', earlyGoalModel),
+    cup_early_goal_no: roundCupRound6YesOdds('early_goal', earlyGoalNoModel),
     cup_early_goal_yes_model: earlyGoalModel,
     cup_ht_more_goals_h1: toOdds(sim.pMoreGoalsFirstHalf),
     cup_ht_more_goals_h2: toOdds(sim.pMoreGoalsSecondHalf),

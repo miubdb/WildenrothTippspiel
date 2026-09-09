@@ -191,6 +191,7 @@ export interface OddsData {
   /** Round-6 additions (see lib/odds.ts#cupRound6MarketOddsFromSim) —
    *  undefined for every normal league match. */
   cup_early_goal_yes?: number
+  cup_early_goal_no?: number
   cup_ht_more_goals_h1?: number
   cup_ht_more_goals_h2?: number
   cup_ht_more_goals_equal?: number

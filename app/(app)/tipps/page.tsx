@@ -417,6 +417,7 @@ export default async function TippsPage({
         } : {}),
         ...(row.cup_early_goal_yes != null ? {
           cup_early_goal_yes:      Number(row.cup_early_goal_yes),
+          ...(row.cup_early_goal_no != null ? { cup_early_goal_no: Number(row.cup_early_goal_no) } : {}),
           cup_ht_more_goals_h1:    Number(row.cup_ht_more_goals_h1),
           cup_ht_more_goals_h2:    Number(row.cup_ht_more_goals_h2),
           cup_ht_more_goals_equal: Number(row.cup_ht_more_goals_equal),
@@ -485,6 +486,22 @@ export default async function TippsPage({
             ...round6,
             updated_at: new Date().toISOString(),
           }).eq('match_id', row.match_id)
+        }
+      }
+      if (row.cup_advance_home != null && row.cup_early_goal_yes != null && row.cup_early_goal_no == null) {
+        // Backfill cup_early_goal_no for already-frozen cup rows that predate
+        // the 2-way Frühes-Tor market. Uses same (homeXG, awayXG) as the
+        // already-frozen cup_early_goal_yes column.
+        const m = matchdayMatches.find(x => x.id === row.match_id)
+        if (m) {
+          const modelXg = exactScoreXgOverrideMap.get(row.match_id)
+          const { homeXG: baseHomeXG, awayXG: baseAwayXG } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+          const homeXG = modelXg?.homeXG ?? baseHomeXG
+          const awayXG = modelXg?.awayXG ?? baseAwayXG
+          const sim = cupSpecialMarketOddsFromXG(homeXG, awayXG)
+          const { cup_early_goal_no } = cupRound6MarketOddsFromSim(sim.diagnostics)
+          Object.assign(oddsMap[row.match_id], { cup_early_goal_no })
+          await adminSupaOdds.from('odds').update({ cup_early_goal_no, updated_at: new Date().toISOString() }).eq('match_id', row.match_id)
         }
       }
       if (row.cup_advance_home != null && row.cup_decision_regulation == null) {

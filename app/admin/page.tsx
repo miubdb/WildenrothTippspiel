@@ -2095,7 +2095,7 @@ function MatchSettleCard({
           be derived automatically (no extra-time rule, no minute data). */}
       {match.competition_type === 'cup' && onCupInputChange && (
         <div className="mb-3 space-y-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
-          <div className="text-[10px] font-bold text-amber-700 uppercase">Pokal-Spezial</div>
+          <div className="text-[10px] font-bold text-amber-700 uppercase">🏆 Pokalabrechnung</div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 flex-shrink-0 w-28">Elfmeter-Sieger:</span>
             <select

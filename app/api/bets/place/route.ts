@@ -227,15 +227,16 @@ export async function POST(request: NextRequest) {
   // never renders those buttons for a cup match, but ODDS_COLUMN validation
   // below is market-agnostic and would otherwise accept a replayed/crafted
   // request for them — reject explicitly here instead of relying on the UI.
-  const CUP_ONLY_MARKETS = ['cup_advance', 'cup_first_goal', 'cup_decision', 'cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance', 'cup_early_goal', 'cup_ht_more_goals', 'cup_both_halves_btts']
+  // cup_both_halves_btts removed from CUP_ONLY_MARKETS — no longer offered for
+  // new bets (0 bets placed, removed from UI). Settlement still handles it.
+  const CUP_ONLY_MARKETS = ['cup_advance', 'cup_first_goal', 'cup_decision', 'cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance', 'cup_early_goal', 'cup_ht_more_goals']
   const CUP_ALLOWED_MARKETS = new Set(['btts', 'goalscorer', ...CUP_ONLY_MARKETS])
   // Product decision: these markets are single-outcome "Ja"-only props (see
   // components/CupMatchCard.tsx) — 'no' is no longer offered for new bets on
   // the first 3 (round 2), but stays fully settleable for any bet placed
   // before that changed (settlement reads the stored selection off the bet
-  // row, not this allow-list). cup_early_goal/cup_both_halves_btts (round 6)
-  // never had a 'no' side to begin with — Ja-only from day one.
-  const CUP_YES_ONLY_MARKETS = new Set(['cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance', 'cup_early_goal', 'cup_both_halves_btts'])
+  // row, not this allow-list). cup_early_goal is now a proper 2-way market.
+  const CUP_YES_ONLY_MARKETS = new Set(['cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance'])
   const cupMatchIds = new Set(matches.filter(m => m.competition_type === 'cup').map(m => m.id))
   for (const s of selections) {
     if (cupMatchIds.has(s.matchId) && !CUP_ALLOWED_MARKETS.has(s.marketType)) {
@@ -518,8 +519,12 @@ export async function POST(request: NextRequest) {
   // Grouped by EFFECTIVE Spieltag (lib/season.ts), not the raw `matchday` column —
   // a Wildenroth-II/Topspiel match keeps its own independent BFV matchday number,
   // and the limit must apply to the Spieltag the user actually bet under on /tipps.
+  // Cup matches (competition_type='cup') return null from effectiveMatchdayOf
+  // since they don't belong to the Kreisliga/WildenrothII/Topspiel structure.
+  // Use their raw matchday number directly so the per-matchday limit and bonus
+  // slot checks run correctly for cup-only submissions.
   const matchdayIds = [...new Set(
-    matches.map((m) => effectiveMatchdayOf(m as Match, mdIndex)).filter((md): md is number => md !== null)
+    matches.map((m) => m.competition_type === 'cup' ? m.matchday : effectiveMatchdayOf(m as Match, mdIndex)).filter((md): md is number => md !== null)
   )]
   // Captured here so the recompute pass after insertion (below) doesn't have
   // to redo this lookup — same set of match ids used for both.
@@ -530,7 +535,9 @@ export async function POST(request: NextRequest) {
   // set (seasonMatchesForRequest) so it resolves even when match 573 isn't
   // itself part of THIS submission's `matches`.
   const cupMatchRow = seasonMatchesForRequest.find((m) => m.id === CUP_BONUS_MATCH_ID)
-  const cupMatchday = cupMatchRow ? effectiveMatchdayOf(cupMatchRow, mdIndex) : null
+  // Cup match returns null from effectiveMatchdayOf (not part of Kreisliga
+  // structure) — use its raw matchday directly (7 for this cup fixture).
+  const cupMatchday = cupMatchRow ? cupMatchRow.matchday : null
   // A submission is a BONUS CANDIDATE only if it is a bare single-leg bet on
   // match 573 — a combo containing 573 alongside other matches, or a single-
   // mode submission with several selections, never qualifies (spec: "mode
@@ -542,10 +549,16 @@ export async function POST(request: NextRequest) {
   let submissionIsBonus = false
 
   for (const matchday of matchdayIds) {
-    // All matches sharing this effective Spieltag (not just current selection)
+    const isCupMatchday = cupMatchday !== null && matchday === cupMatchday
+    // All matches sharing this effective Spieltag (not just current selection).
+    // CUP_BONUS_MATCH_ID is included manually when on the cup matchday since
+    // effectiveMatchdayOf returns null for cup matches.
     const allMatchdayIds = seasonMatchesForRequest
       .filter((m) => effectiveMatchdayOf(m, mdIndex) === matchday)
       .map((m) => m.id)
+    if (isCupMatchday && !allMatchdayIds.includes(CUP_BONUS_MATCH_ID)) {
+      allMatchdayIds.push(CUP_BONUS_MATCH_ID)
+    }
 
     if (allMatchdayIds.length === 0) continue
     matchdayAllIds.set(matchday, allMatchdayIds)
@@ -568,8 +581,6 @@ export async function POST(request: NextRequest) {
       .eq('user_id', user.id)
       .in('status', ['pending', 'won', 'lost'])
       .in('match_id', allMatchdayIds)
-
-    const isCupMatchday = cupMatchday !== null && matchday === cupMatchday
     // Per spec: "cup573AlreadyUsedInNormalSlips" — despite the name, this is
     // simply "was match 573 already used in ANY earlier slip this Spieltag"
     // (normal slot OR bonus slot) — there can only ever be ONE bet on 573
@@ -603,7 +614,9 @@ export async function POST(request: NextRequest) {
       : selections
           .filter((s) => {
             const m = matches.find((match) => match.id === s.matchId)
-            return m && effectiveMatchdayOf(m as Match, mdIndex) === matchday
+            if (!m) return false
+            const mMatchday = m.competition_type === 'cup' ? m.matchday : effectiveMatchdayOf(m as Match, mdIndex)
+            return mMatchday === matchday
           })
           .map((s, i) => ({ id: `new-${i}`, odds: s.oddsValue }))
 

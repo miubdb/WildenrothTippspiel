@@ -155,8 +155,6 @@ export function CupMatchCard({
         </div>
         <div className="text-amber-50/90 text-[10px] mt-1 leading-snug">
           Bei Remis nach 90 Minuten geht es direkt ins Elfmeterschießen – keine Verlängerung.
-          <br />
-          <span className="opacity-80">Ob Elfmeterschießen zählt, steht direkt beim jeweiligen Markt.</span>
         </div>
       </div>
 
@@ -178,9 +176,6 @@ export function CupMatchCard({
         </div>
         <div className="mt-2 flex items-center justify-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
           <span>{isToday ? 'Heute' : dateStr} · {timeStr} Uhr</span>
-        </div>
-        <div className="mt-1 text-center text-[11px] font-semibold text-amber-700 dark:text-amber-400">
-          Verlierer scheidet aus
         </div>
       </div>
 
@@ -223,12 +218,12 @@ export function CupMatchCard({
 
           {tab === 'specials' && (
             <div className="bg-amber-50/80 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800 rounded-xl p-2.5 space-y-3">
-              <MarketBlock title="🏆 Wer kommt weiter?" subtitle="Inkl. Elfmeterschießen">
+              <MarketBlock title="🏆 Wer kommt weiter?" subtitle="">
                 {renderOddsButton('cup_advance', 'Wer kommt weiter?', 'home', homeName, odds.cup_advance_home)}
                 {renderOddsButton('cup_advance', 'Wer kommt weiter?', 'away', awayName, odds.cup_advance_away)}
               </MarketBlock>
 
-              <MarketBlock title="🧤 Entscheidung" subtitle="90 Min. oder Elfmeterschießen">
+              <MarketBlock title="🧤 Wann fällt die Entscheidung?" subtitle="90 Min. oder Elfmeterschießen">
                 {renderOddsButton('cup_decision', 'Wie fällt die Entscheidung?', 'regulation', 'Nach 90 Minuten', odds.cup_decision_regulation)}
                 {renderOddsButton('cup_decision', 'Wie fällt die Entscheidung?', 'shootout', 'Elfmeterschießen', odds.cup_decision_shootout)}
               </MarketBlock>
@@ -241,8 +236,10 @@ export function CupMatchCard({
               {renderCupPropButton('cup_halftime_lead_advance', 'Wildenroth führt zur Halbzeit & kommt weiter', '🔥 HZ-Führung & Weiter', `HZ-Führung ${homeName} + Weiterkommen`, odds.cup_halftime_lead_advance_yes)}
               {renderCupPropButton('cup_comeback_advance', 'Geiselbullach führt – Wildenroth kommt trotzdem weiter', '🔄 Comeback & Weiter', `${awayName} führt, ${homeName} kommt weiter`, odds.cup_comeback_advance_yes)}
               {renderCupPropButton('cup_shootout_advance', 'Elfmeterschießen – Wildenroth kommt weiter', '🎯 Im Elfmeterschießen weiter', 'Remis nach 90 + Wildenroth gewinnt', odds.cup_shootout_advance_yes)}
-              {renderCupPropButton('cup_early_goal', 'Frühes Tor Min. 1-15', '⚡ Frühes Tor', 'Erstes Tor in Min. 1-15', odds.cup_early_goal_yes)}
-              {renderCupPropButton('cup_both_halves_btts', 'Beide Teams treffen in beiden Halbzeiten', '🔥 Beide Teams in beiden HZ', 'Beide Teams treffen in HZ1 und HZ2', odds.cup_both_halves_btts_yes)}
+              <MarketBlock title="⚡ Frühes Tor" subtitle="Erstes Tor in Min. 1–15">
+                {renderOddsButton('cup_early_goal', 'Frühes Tor Min. 1-15', 'yes', 'Ja', odds.cup_early_goal_yes)}
+                {renderOddsButton('cup_early_goal', 'Frühes Tor Min. 1-15', 'no', 'Nein', odds.cup_early_goal_no)}
+              </MarketBlock>
 
               <div className="text-[10px] text-amber-800/80 dark:text-amber-300/80 leading-snug pt-0.5">
                 🏆 Pokal-Sonderregel: Das Pokalspiel könnt ihr entweder ganz normal in einen eurer
@@ -265,7 +262,7 @@ export function CupMatchCard({
                 {renderOddsButton('btts', 'Beide Teams treffen', 'no', 'Nein', odds.btts_no)}
               </MarketBlock>
 
-              <MarketBlock title="⏱️ Mehr Tore" subtitle="1. HZ / 2. HZ / gleich viele">
+              <MarketBlock title="⏱️ In welcher Halbzeit fallen mehr Tore?" subtitle="Alle Tore beider Mannschaften zusammen">
                 {renderOddsButton('cup_ht_more_goals', 'Mehr Tore in welcher Halbzeit?', 'h1', '1. Halbzeit', odds.cup_ht_more_goals_h1)}
                 {renderOddsButton('cup_ht_more_goals', 'Mehr Tore in welcher Halbzeit?', 'h2', '2. Halbzeit', odds.cup_ht_more_goals_h2)}
                 {renderOddsButton('cup_ht_more_goals', 'Mehr Tore in welcher Halbzeit?', 'equal', 'Gleich viele', odds.cup_ht_more_goals_equal)}
