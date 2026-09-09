@@ -15,15 +15,18 @@ type GoalscorerRow = {
   status: string
 }
 
+type CupTab = 'specials' | 'spiel'
+
 /**
  * Pinned card for a one-off cup fixture ("Pokal-Spezial") — deliberately a
  * separate, simpler component from BettingMatchCard rather than teaching that
- * 782-line component a whole new tab. 8 markets total, grouped into 3
- * visually distinct sections (see round-2 spec): 🏆 Pokal (5 markets, most
- * visual weight — the whole point of this fixture), ⚽ Spiel (2 markets,
- * normal-feeling), 🎯 Spieler (1 market). Reuses the same BetSlipContext /
- * normal Wettschein / normal Einsatzlimits as every other match — no
- * separate cup betting slip.
+ * 782-line component a whole new tab. 8 markets total, split into 2 tabs:
+ * 🏆 POKAL-SPECIALS (markets 1-5, cup-only) and ⚽ SPIEL & TORSCHÜTZEN
+ * (markets 6-8: Erstes Tor, Beide Teams treffen, Wildenroth-Torschütze).
+ * Reuses the same BetSlipContext / normal Wettschein / normal Einsatzlimits
+ * as every other match — no separate cup betting slip, and the tab toggle is
+ * purely local UI state, so switching tabs never touches (or resets)
+ * BetSlipContext selections.
  */
 export function CupMatchCard({
   match,
@@ -40,6 +43,7 @@ export function CupMatchCard({
 }) {
   const { selections, addSelection } = useBetSlip()
   const [blockMsg, setBlockMsg] = useState(false)
+  const [tab, setTab] = useState<CupTab>('specials')
 
   const homeName = match.home_team?.name ?? 'Heim'
   const awayName = match.away_team?.name ?? 'Gast'
@@ -97,6 +101,10 @@ export function CupMatchCard({
     )
   }
 
+  const offeredScorers = (goalscorers ?? [])
+    .filter(g => g.is_offered && g.status === 'available')
+    .sort((a, b) => a.odds_score - b.odds_score)
+
   return (
     <div className="bg-gradient-to-br from-amber-100 via-amber-50 to-white dark:from-amber-900/30 dark:via-amber-900/10 dark:to-gray-800 rounded-2xl shadow-lg border-2 border-amber-400 dark:border-amber-600 overflow-hidden">
       {/* Header: explicit "POKAL-SPEZIAL" identity + competition context, per
@@ -116,6 +124,11 @@ export function CupMatchCard({
         </div>
         <div className="text-amber-50 text-[11px] mt-0.5">
           {match.competition_name ?? 'Sparkassen Fußball-Cup'}{match.competition_round ? ` · ${match.competition_round}` : ''}
+        </div>
+        <div className="text-amber-50/90 text-[10px] mt-1 leading-snug">
+          Bei Remis nach 90 Minuten geht es direkt ins Elfmeterschießen – keine Verlängerung.
+          <br />
+          <span className="opacity-80">Ob Elfmeterschießen zählt, steht direkt beim jeweiligen Markt.</span>
         </div>
       </div>
 
@@ -150,105 +163,182 @@ export function CupMatchCard({
       )}
 
       {odds ? (
-        <div className="px-4 pb-4 space-y-4">
-          {/* ---------- 🏆 POKAL: the 5 cup-only specials, given the most
-              visual weight (amber panel) — the whole reason this fixture
-              exists as its own card. ---------- */}
-          <div className="bg-amber-50/80 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800 rounded-xl p-2.5 space-y-3">
-            <div className="text-[11px] font-black text-amber-700 dark:text-amber-400 uppercase tracking-wide">🏆 Pokal</div>
+        <div className="px-4 pb-4">
+          {/* Tabs: purely local UI state (useState above) — switching tabs
+              only toggles which market groups are rendered, it never
+              unmounts this component or touches BetSlipContext, so
+              selections already made survive a tab switch untouched. */}
+          <div className="flex gap-1.5 mb-3 bg-amber-100/70 dark:bg-amber-900/20 rounded-xl p-1">
+            <button
+              type="button"
+              onClick={() => setTab('specials')}
+              className={`flex-1 rounded-lg py-1.5 text-[11px] font-bold transition-colors ${
+                tab === 'specials'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-amber-800 dark:text-amber-300 hover:bg-amber-200/60 dark:hover:bg-amber-800/30'
+              }`}
+            >
+              🏆 Pokal-Specials
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('spiel')}
+              className={`flex-1 rounded-lg py-1.5 text-[11px] font-bold transition-colors ${
+                tab === 'spiel'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-amber-800 dark:text-amber-300 hover:bg-amber-200/60 dark:hover:bg-amber-800/30'
+              }`}
+            >
+              ⚽ Spiel &amp; Torschützen
+            </button>
+          </div>
 
-            <div>
-              <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">Wer kommt weiter?</div>
-              <div className="flex gap-1.5">
+          {tab === 'specials' && (
+            <div className="bg-amber-50/80 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800 rounded-xl p-2.5 space-y-3">
+              <MarketBlock
+                title="Wer kommt weiter?"
+                subtitle="Inkl. Elfmeterschießen"
+              >
                 {renderOddsButton('cup_advance', 'Wer kommt weiter?', 'home', homeName, odds.cup_advance_home)}
                 {renderOddsButton('cup_advance', 'Wer kommt weiter?', 'away', awayName, odds.cup_advance_away)}
-              </div>
-            </div>
+              </MarketBlock>
 
-            <div>
-              <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">🧤 Wie fällt die Entscheidung?</div>
-              <div className="flex gap-1.5">
+              <MarketBlock
+                title="🧤 Wie fällt die Entscheidung?"
+                subtitle={'"Nach 90 Minuten" = ein Team führt nach 90 Min. + Nachspielzeit. "Elfmeterschießen" = nach 90 Min. steht es unentschieden — keine Verlängerung.'}
+              >
                 {renderOddsButton('cup_decision', 'Wie fällt die Entscheidung?', 'regulation', 'Nach 90 Minuten', odds.cup_decision_regulation)}
                 {renderOddsButton('cup_decision', 'Wie fällt die Entscheidung?', 'shootout', 'Elfmeterschießen', odds.cup_decision_shootout)}
-              </div>
-            </div>
+              </MarketBlock>
 
-            <div>
-              <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                🔥 {homeName} führt zur Halbzeit &amp; kommt weiter
-              </div>
-              <div className="flex gap-1.5">
+              <MarketBlock
+                title={`🔥 ${homeName} führt zur Halbzeit & kommt weiter`}
+                subtitle="HZ-Führung + Weiterkommen inkl. möglichem Elfmeterschießen"
+              >
                 {renderOddsButton('cup_halftime_lead_advance', 'Wildenroth führt zur Halbzeit & kommt weiter', 'yes', 'Ja', odds.cup_halftime_lead_advance_yes)}
                 {renderOddsButton('cup_halftime_lead_advance', 'Wildenroth führt zur Halbzeit & kommt weiter', 'no', 'Nein', odds.cup_halftime_lead_advance_no)}
-              </div>
-            </div>
+              </MarketBlock>
 
-            <div>
-              <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                🔄 {awayName} führt – {homeName} kommt trotzdem weiter
-              </div>
-              <div className="flex gap-1.5">
+              <MarketBlock
+                title={`🔄 ${awayName} führt – ${homeName} kommt trotzdem weiter`}
+                subtitle={`${awayName} muss während der 90 Min. geführt haben. Weiterkommen inkl. Elfmeterschießen.`}
+              >
                 {renderOddsButton('cup_comeback_advance', 'Geiselbullach führt – Wildenroth kommt trotzdem weiter', 'yes', 'Ja', odds.cup_comeback_advance_yes)}
                 {renderOddsButton('cup_comeback_advance', 'Geiselbullach führt – Wildenroth kommt trotzdem weiter', 'no', 'Nein', odds.cup_comeback_advance_no)}
-              </div>
-            </div>
+              </MarketBlock>
 
-            <div>
-              <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">
-                🎯 Elfmeterschießen – {homeName} kommt weiter
-              </div>
-              <div className="flex gap-1.5">
+              <MarketBlock
+                title={`🎯 Elfmeterschießen – ${homeName} kommt weiter`}
+                subtitle="Remis nach 90 Min. + Wildenroth gewinnt das Elfmeterschießen"
+              >
                 {renderOddsButton('cup_shootout_advance', 'Elfmeterschießen – Wildenroth kommt weiter', 'yes', 'Ja', odds.cup_shootout_advance_yes)}
                 {renderOddsButton('cup_shootout_advance', 'Elfmeterschießen – Wildenroth kommt weiter', 'no', 'Nein', odds.cup_shootout_advance_no)}
-              </div>
-            </div>
-          </div>
-
-          {/* ---------- ⚽ SPIEL: the 2 "normal-feeling" markets. ---------- */}
-          <div className="space-y-2.5">
-            <div className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">⚽ Spiel</div>
-            <div>
-              <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Wer erzielt das erste Tor?</div>
-              <div className="flex gap-1.5">
-                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'home', homeName, odds.cup_first_goal_home)}
-                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'away', awayName, odds.cup_first_goal_away)}
-                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'none', 'Kein Tor', odds.cup_first_goal_none)}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Beide Teams treffen</div>
-              <div className="flex gap-1.5">
-                {renderOddsButton('btts', 'Beide Teams treffen', 'yes', 'Ja', odds.btts_yes)}
-                {renderOddsButton('btts', 'Beide Teams treffen', 'no', 'Nein', odds.btts_no)}
-              </div>
-            </div>
-          </div>
-
-          {/* ---------- 🎯 SPIELER: Wildenroth-Torschütze. ---------- */}
-          {goalscorers && goalscorers.length > 0 && (
-            <div className="space-y-2.5">
-              <div className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">🎯 Spieler</div>
-              <div>
-                <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Wildenroth-Torschütze</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {goalscorers.filter(g => g.is_offered && g.status === 'available').map((g) =>
-                    renderOddsButton('goalscorer', 'Torschütze', String(g.player_id), g.player_name, g.odds_score)
-                  )}
-                </div>
-              </div>
+              </MarketBlock>
             </div>
           )}
 
-          <div className="text-[10px] text-gray-400 dark:text-gray-500 leading-relaxed border-t border-amber-200 dark:border-amber-800 pt-2">
-            Bei Remis nach 90 Minuten geht es direkt ins Elfmeterschießen (keine Verlängerung).
-            &bdquo;Erstes Tor&ldquo;, &bdquo;Beide Teams treffen&ldquo; und &bdquo;Torschütze&ldquo; gelten nur für 90 Minuten
-            inkl. Nachspielzeit — das Elfmeterschießen zählt dafür nicht.
-          </div>
+          {tab === 'spiel' && (
+            <div className="space-y-3">
+              <MarketBlock
+                title="Wer erzielt das erste Tor?"
+                subtitle="Nur reguläre Spielzeit inkl. Nachspielzeit (Elfmeterschießen zählt nicht)"
+              >
+                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'home', homeName, odds.cup_first_goal_home)}
+                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'away', awayName, odds.cup_first_goal_away)}
+                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'none', 'Kein Tor', odds.cup_first_goal_none)}
+              </MarketBlock>
+
+              <MarketBlock
+                title="Beide Teams treffen"
+                subtitle="Nur Tore innerhalb der 90 Min. + Nachspielzeit (Elfmeterschießen zählt nicht)"
+              >
+                {renderOddsButton('btts', 'Beide Teams treffen', 'yes', 'Ja', odds.btts_yes)}
+                {renderOddsButton('btts', 'Beide Teams treffen', 'no', 'Nein', odds.btts_no)}
+              </MarketBlock>
+
+              {offeredScorers.length > 0 && (
+                <div>
+                  <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-0.5">
+                    🎯 Wildenroth-Torschütze
+                  </div>
+                  <div className="text-[10px] text-amber-700 dark:text-amber-400 font-medium mb-1.5 leading-snug">
+                    Nur Tore in der regulären Spielzeit inkl. Nachspielzeit. Treffer im Elfmeterschießen zählen NICHT.
+                  </div>
+                  <div className="space-y-1.5">
+                    {offeredScorers.map((g) => (
+                      <GoalscorerRow
+                        key={g.player_id}
+                        selected={isSelected('goalscorer', String(g.player_id))}
+                        disabled={!isScheduled}
+                        name={g.player_name}
+                        position={g.position}
+                        oddsValue={g.odds_score}
+                        onClick={() => add('goalscorer', 'Torschütze', String(g.player_id), g.player_name, g.odds_score)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div className="px-4 pb-4 text-xs text-gray-400 dark:text-gray-500">Quoten noch nicht verfügbar.</div>
       )}
+    </div>
+  )
+}
+
+/** One market group: heading, short inline rule subtitle, then its buttons. */
+function MarketBlock({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300">{title}</div>
+      <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-1 leading-snug">{subtitle}</div>
+      <div className="flex gap-1.5">{children}</div>
+    </div>
+  )
+}
+
+/**
+ * Goalscorer selection row — mirrors the existing, already-correct
+ * BettingMatchCard goalscorer list (name on the left, one fixed-width odds
+ * button on the right, stacked vertically) instead of cramming a variable
+ * number of long player names into equal-flexed OddsButtons inside a
+ * flex-wrap row (which squeezed/truncated names once more than 2-3 players
+ * were offered — the cause of the display bug on this card).
+ */
+function GoalscorerRow({ selected, disabled, name, position, oddsValue, onClick }: {
+  selected: boolean
+  disabled: boolean
+  name: string
+  position: string | null
+  oddsValue: number
+  onClick: () => void
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-semibold text-gray-900 dark:text-gray-100 truncate">{name}</div>
+        {position && (
+          <div className="text-[10px] text-gray-400 dark:text-gray-500">{position}</div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        className={`flex-shrink-0 flex flex-col items-center justify-center w-20 py-1.5 px-1 rounded-xl border transition-all active:scale-95 disabled:opacity-50 ${
+          selected
+            ? 'bg-red-700 border-red-700 text-white shadow-md'
+            : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-600 hover:border-red-300'
+        }`}
+      >
+        <span className={`text-[10px] ${selected ? 'text-red-100' : 'text-gray-500 dark:text-gray-400'}`}>Trifft</span>
+        <span className={`text-sm font-black ${selected ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
+          {oddsValue.toFixed(2)}
+        </span>
+      </button>
     </div>
   )
 }
