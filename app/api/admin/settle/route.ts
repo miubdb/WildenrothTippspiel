@@ -46,8 +46,40 @@ function settleBet(
   cupHalftimeHomeGoals?: number | null,
   cupHalftimeAwayGoals?: number | null,
   cupAwayTeamLed?: boolean | null,
+  /** Round-6: minute of the match's first goal (regular time + stoppage),
+   *  null when there was no goal at all (0:0). Only consulted for
+   *  'cup_early_goal' — see matches.cup_first_goal_minute. */
+  cupFirstGoalMinute?: number | null,
 ): 'won' | 'lost' {
   switch (marketType) {
+    case 'cup_early_goal': {
+      // "Ja": the match's first goal (either team, regular time + stoppage)
+      // fell in minute 1-15 inclusive. No goal at all (minute null) -> lost.
+      const yes = cupFirstGoalMinute != null && cupFirstGoalMinute >= 1 && cupFirstGoalMinute <= 15
+      const won = selection === 'yes' ? yes : !yes
+      return won ? 'won' : 'lost'
+    }
+    case 'cup_ht_more_goals': {
+      // Fully automatic from half-time + full-time score alone — no extra
+      // manual admin field. Fail-safe: missing half-time score can't happen
+      // here since settle's POST handler already refuses to settle a cup
+      // match without it (same guard cup_halftime_lead_advance relies on).
+      const ht1 = (cupHalftimeHomeGoals ?? 0) + (cupHalftimeAwayGoals ?? 0)
+      const ht2 = (homeScore - (cupHalftimeHomeGoals ?? 0)) + (awayScore - (cupHalftimeAwayGoals ?? 0))
+      const outcome = ht1 > ht2 ? 'h1' : ht2 > ht1 ? 'h2' : 'equal'
+      return selection === outcome ? 'won' : 'lost'
+    }
+    case 'cup_both_halves_btts': {
+      // "Ja": both teams score >=1 in HZ1 AND both teams score >=1 in HZ2
+      // (fulltime minus halftime per team). Fully automatic, same inputs.
+      const htHome = cupHalftimeHomeGoals ?? 0
+      const htAway = cupHalftimeAwayGoals ?? 0
+      const h2Home = homeScore - htHome
+      const h2Away = awayScore - htAway
+      const yes = htHome > 0 && htAway > 0 && h2Home > 0 && h2Away > 0
+      const won = selection === 'yes' ? yes : !yes
+      return won ? 'won' : 'lost'
+    }
     case 'cup_advance': {
       // 90-minute result decides it outright unless it's a draw, in which
       // case (no extra time — straight to penalties) the admin-recorded
@@ -199,6 +231,9 @@ export async function POST(request: NextRequest) {
     cupHalftimeHomeGoals?: number | null
     cupHalftimeAwayGoals?: number | null
     cupAwayTeamLed?: boolean | null
+    /** Round-6: minute of the match's first goal, required when at least one
+     *  goal was scored (see 'cup_early_goal' settlement + admin UI field). */
+    cupFirstGoalMinute?: number | null
   }
   try {
     body = await request.json()
@@ -208,7 +243,7 @@ export async function POST(request: NextRequest) {
 
   const {
     matchId, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam,
-    cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed,
+    cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed, cupFirstGoalMinute,
   } = body
 
   if (
@@ -279,6 +314,20 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
+  // Round-6 "Frühes Tor" market: required only when at least one goal was
+  // scored (0:0 -> no goal -> null is the correct, complete value; anything
+  // else without a minute would silently settle every 'yes' bet as 'lost'
+  // without the admin ever having entered real data).
+  if (
+    existingMatch?.competition_type === 'cup' &&
+    (homeScore > 0 || awayScore > 0) &&
+    (cupFirstGoalMinute == null || !Number.isInteger(cupFirstGoalMinute) || cupFirstGoalMinute < 1 || cupFirstGoalMinute > 120)
+  ) {
+    return NextResponse.json(
+      { error: 'Bitte zuerst die Minute des ersten Tores angeben (für den Markt „Frühes Tor Min. 1-15“).' },
+      { status: 400 }
+    )
+  }
   // Half-time score must be a real subset of the full-time score — an admin
   // typo here (e.g. swapped fields) would otherwise silently mis-settle the
   // "Wildenroth führt zur Halbzeit & kommt weiter" market.
@@ -306,6 +355,7 @@ export async function POST(request: NextRequest) {
         cup_halftime_home_goals: cupHalftimeHomeGoals,
         cup_halftime_away_goals: cupHalftimeAwayGoals,
         cup_away_team_led: cupAwayTeamLed,
+        cup_first_goal_minute: homeScore === 0 && awayScore === 0 ? null : cupFirstGoalMinute,
       } : {}),
     })
     .eq('id', matchId)
@@ -337,7 +387,7 @@ export async function POST(request: NextRequest) {
   const combosToCheck = new Set<number>()
 
   for (const bet of pendingBets) {
-    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam, cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed)
+    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam, cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed, homeScore === 0 && awayScore === 0 ? null : cupFirstGoalMinute)
     let payout = 0
 
     if (result === 'won' && bet.combo_id === null) {
@@ -422,7 +472,7 @@ export async function POST(request: NextRequest) {
   const userLostCount: Record<string, number> = {}
   for (const bet of pendingBets) {
     if (bet.combo_id !== null) continue // combos handled separately below
-    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam, cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed)
+    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam, cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed, homeScore === 0 && awayScore === 0 ? null : cupFirstGoalMinute)
     if (result === 'won') userWonCount[bet.user_id] = (userWonCount[bet.user_id] ?? 0) + 1
     else userLostCount[bet.user_id] = (userLostCount[bet.user_id] ?? 0) + 1
   }

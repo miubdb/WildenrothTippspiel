@@ -8,7 +8,7 @@ import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { MatchdayRecap } from '@/components/MatchdayRecap'
 import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
-import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext, getFullExactScoreMatrix, mergeExactScoreOffers, cupMarketOddsFromXG, cupSpecialMarketOddsFromXG } from '@/lib/odds'
+import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext, getFullExactScoreMatrix, mergeExactScoreOffers, cupMarketOddsFromXG, cupSpecialMarketOddsFromXG, cupRound6MarketOddsFromSim } from '@/lib/odds'
 import { CupMatchCard } from '@/components/CupMatchCard'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
@@ -323,17 +323,22 @@ export default async function TippsPage({
   // computed WITHOUT priorCtx in two places (BettingMatchCard, bets/place)
   // and producing near-identical score lists for every match pre-season.
   const exactScoreAutoMap: Record<number, Record<string, number>> = {}
+  // Match-specific model xG override (match_odds_overrides.model_home/away_xg_override)
+  // — a rare, explicit correction for a single match whose statistically-derived
+  // xG conflicts with a deliberately set manual 1X2 (see SpVgg Wildenroth – TSV
+  // 1882 Landsberg II), OR (round 6) the Geiselbullach/Wildenroth cup-match
+  // recalibration. When present, it is the basis for that match's EXACT-SCORE
+  // matrix and, for a cup match, every cup market AND the goalscorer market
+  // — never for the standard 1X2/O-U/BTTS markets (oddsFromXG below still
+  // always uses the model's own getMatchXG output, since those are never
+  // shown/bettable for a cup match anyway), and never for other matches'
+  // team data (this is a per-match override, not a global stat correction).
+  // Declared at function scope (not inside the `if (isBettingOpen)` block
+  // below) so the goalscorer section further down can also read it.
+  const exactScoreXgOverrideMap = new Map<number, { homeXG: number; awayXG: number }>()
   if (isBettingOpen) {
     const scheduledMatchIds = matchdayMatches.filter(m => m.status === 'scheduled').map(m => m.id)
 
-    // Match-specific model xG override (match_odds_overrides.model_home/away_xg_override)
-    // — a rare, explicit correction for a single match whose statistically-derived
-    // xG conflicts with a deliberately set manual 1X2 (see SpVgg Wildenroth – TSV
-    // 1882 Landsberg II). When present, it is the basis for that match's EXACT-SCORE
-    // matrix only — never for the standard markets (oddsFromXG below still always
-    // uses the model's own getMatchXG output), and never for other matches' team
-    // data (this is a per-match override, not a global stat correction).
-    const exactScoreXgOverrideMap = new Map<number, { homeXG: number; awayXG: number }>()
     if (scheduledMatchIds.length > 0) {
       const { data: xgOverrideRows } = await createAdminClient()
         .from('match_odds_overrides')
@@ -410,6 +415,13 @@ export default async function TippsPage({
           cup_shootout_advance_yes:      Number(row.cup_shootout_advance_yes),
           cup_shootout_advance_no:       Number(row.cup_shootout_advance_no),
         } : {}),
+        ...(row.cup_early_goal_yes != null ? {
+          cup_early_goal_yes:      Number(row.cup_early_goal_yes),
+          cup_ht_more_goals_h1:    Number(row.cup_ht_more_goals_h1),
+          cup_ht_more_goals_h2:    Number(row.cup_ht_more_goals_h2),
+          cup_ht_more_goals_equal: Number(row.cup_ht_more_goals_equal),
+          cup_both_halves_btts_yes: Number(row.cup_both_halves_btts_yes),
+        } : {}),
       }
       if (row.exact_score_odds) {
         exactScoreAutoMap[row.match_id] = row.exact_score_odds as Record<string, number>
@@ -451,6 +463,30 @@ export default async function TippsPage({
           }).eq('match_id', row.match_id)
         }
       }
+      if (row.cup_advance_home != null && row.cup_early_goal_yes == null) {
+        // Round-6 addition: backfill ONLY the 3 new markets (Frühes Tor / Mehr
+        // Tore je Halbzeit / Beide Teams in beiden HZ) for an already-frozen
+        // cup row that predates them. Uses the SAME (homeXG, awayXG) as the
+        // already-frozen cup_advance/cup_first_goal columns — including the
+        // match-specific xG override when one exists (match 573's round-6
+        // Geiselbullach/Wildenroth recalibration, see lib/odds.ts) — so it
+        // can never disagree with the rest of this match's cup card. Never
+        // rewrites any already-frozen column.
+        const m = matchdayMatches.find(x => x.id === row.match_id)
+        if (m) {
+          const modelXg = exactScoreXgOverrideMap.get(row.match_id)
+          const { homeXG: baseHomeXG, awayXG: baseAwayXG } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+          const homeXG = modelXg?.homeXG ?? baseHomeXG
+          const awayXG = modelXg?.awayXG ?? baseAwayXG
+          const sim = cupSpecialMarketOddsFromXG(homeXG, awayXG)
+          const round6 = cupRound6MarketOddsFromSim(sim.diagnostics)
+          Object.assign(oddsMap[row.match_id], round6)
+          await adminSupaOdds.from('odds').update({
+            ...round6,
+            updated_at: new Date().toISOString(),
+          }).eq('match_id', row.match_id)
+        }
+      }
       if (row.cup_advance_home != null && row.cup_decision_regulation == null) {
         // Already-frozen cup row (match 573 froze before the 3 correlated
         // specials + decision market existed) — backfill ONLY those new
@@ -487,16 +523,26 @@ export default async function TippsPage({
       for (const m of toFreeze) {
         const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
         const odds = oddsFromXG(homeXG, awayXG)
+        // Match-specific xG override (see exactScoreXgOverrideMap above) — for
+        // a cup match, applied to EVERY cup market below (not just exact
+        // score), so the whole card is derived from one single (homeXG,
+        // awayXG) snapshot — "no mixing old and new xG across markets" (see
+        // CLAUDE.md round-6 notes). Standard 1X2/O-U/BTTS columns (odds,
+        // above) still always use the model's own xG since they're never
+        // shown/bettable for a cup match anyway.
+        const modelXg = exactScoreXgOverrideMap.get(m.id)
+        const cupHomeXG = modelXg?.homeXG ?? homeXG
+        const cupAwayXG = modelXg?.awayXG ?? awayXG
         // Cup-only markets (see lib/odds.ts#cupMarketOddsFromXG) — derived from
         // the SAME (homeXG, awayXG) as every other market above, so they can
         // never disagree with this match's own 1X2 card. Undefined (and never
         // persisted) for every normal league match.
-        const cupOdds = m.competition_type === 'cup' ? cupMarketOddsFromXG(homeXG, awayXG) : null
+        const cupOdds = m.competition_type === 'cup' ? cupMarketOddsFromXG(cupHomeXG, cupAwayXG) : null
         if (cupOdds) Object.assign(odds, cupOdds)
         // The 3 Monte-Carlo-derived cup specials + decision market (see
         // lib/odds.ts#cupSpecialMarketOddsFromXG) — same (homeXG, awayXG),
         // undefined for every normal league match.
-        const cupSpecialSim = m.competition_type === 'cup' ? cupSpecialMarketOddsFromXG(homeXG, awayXG) : null
+        const cupSpecialSim = m.competition_type === 'cup' ? cupSpecialMarketOddsFromXG(cupHomeXG, cupAwayXG) : null
         const cupSpecialOdds = cupSpecialSim ? {
           cup_decision_regulation:       cupSpecialSim.cup_decision_regulation,
           cup_decision_shootout:         cupSpecialSim.cup_decision_shootout,
@@ -511,10 +557,15 @@ export default async function TippsPage({
           cup_shootout_advance_yes_model:      cupSpecialSim.cup_shootout_advance_yes_model,
         } : null
         if (cupSpecialOdds) Object.assign(odds, cupSpecialOdds)
+        // Round-6 additions (Frühes Tor / Mehr Tore je Halbzeit / Beide Teams
+        // in beiden HZ) — reuses the SAME simulation run above (cupSpecialSim)
+        // rather than re-simulating, so all cup markets stay derived from one
+        // Monte Carlo pass.
+        const cupRound6Odds = cupSpecialSim ? cupRound6MarketOddsFromSim(cupSpecialSim.diagnostics) : null
+        if (cupRound6Odds) Object.assign(odds, cupRound6Odds)
         oddsMap[m.id] = odds
         // Standard markets above always use the model's own xG. The exact-score
         // grid uses the match-specific override when one exists (see comment above).
-        const modelXg = exactScoreXgOverrideMap.get(m.id)
         const exactGrid = Object.fromEntries(
           getFullExactScoreMatrix(modelXg?.homeXG ?? homeXG, modelXg?.awayXG ?? awayXG).map(r => [r.score, r.odds])
         )
@@ -553,6 +604,7 @@ export default async function TippsPage({
           exact_score_odds: exactGrid,
           ...(cupOdds ?? {}),
           ...(cupSpecialOdds ?? {}),
+          ...(cupRound6Odds ?? {}),
         }, { onConflict: 'match_id' })
         await persistOddsDiagnostics(adminSupaOdds, m.id, 'freeze', diagnostics)
       }
@@ -660,8 +712,13 @@ export default async function TippsPage({
         const adminSupaGs = createAdminClient()
 
         for (const m of openWildenrothMatches) {
+          // Match-specific xG override (see exactScoreXgOverrideMap above) —
+          // so a cup fixture's goalscorer odds shift consistently with the
+          // same corrected team xG used for its other cup markets, instead of
+          // being derived from a different (uncorrected) strength estimate.
+          const gsXgOverride = exactScoreXgOverrideMap.get(m.id)
           const offers = computeGoalscorerOffersForMatch(
-            seasonMatches, m.home_team_id, m.away_team_id, wildenrothId, players, priorCtx,
+            seasonMatches, m.home_team_id, m.away_team_id, wildenrothId, players, priorCtx, gsXgOverride,
           )
           const now = new Date().toISOString()
           for (const o of offers) {

@@ -39,7 +39,17 @@ const MARKET_LABELS: Record<string, string> = {
   cup_halftime_lead_advance: 'Wildenroth führt zur Halbzeit & kommt weiter',
   cup_comeback_advance: 'Geiselbullach führt – Wildenroth kommt trotzdem weiter',
   cup_shootout_advance: 'Elfmeterschießen – Wildenroth kommt weiter',
+  cup_early_goal: 'Frühes Tor Min. 1-15',
+  cup_ht_more_goals: 'Mehr Tore in welcher Halbzeit?',
+  cup_both_halves_btts: 'Beide Teams treffen in beiden Halbzeiten',
 }
+
+/** The current cup fixture (SpVgg Wildenroth vs TSV Geiselbullach,
+ *  Sparkassen Fußball-Cup). Hardcoded, not derived via competition_type,
+ *  since the "4. Wettschein" bonus rule (see below) is scoped to this one
+ *  match by explicit product decision, not to "whichever match happens to be
+ *  a cup fixture" in general. */
+const CUP_BONUS_MATCH_ID = 573
 
 interface PlaceBetSelection {
   matchId: number
@@ -217,14 +227,15 @@ export async function POST(request: NextRequest) {
   // never renders those buttons for a cup match, but ODDS_COLUMN validation
   // below is market-agnostic and would otherwise accept a replayed/crafted
   // request for them — reject explicitly here instead of relying on the UI.
-  const CUP_ONLY_MARKETS = ['cup_advance', 'cup_first_goal', 'cup_decision', 'cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance']
+  const CUP_ONLY_MARKETS = ['cup_advance', 'cup_first_goal', 'cup_decision', 'cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance', 'cup_early_goal', 'cup_ht_more_goals', 'cup_both_halves_btts']
   const CUP_ALLOWED_MARKETS = new Set(['btts', 'goalscorer', ...CUP_ONLY_MARKETS])
-  // Product decision: these 3 markets are now single-outcome "Ja"-only props
-  // for NEW bets (see components/CupMatchCard.tsx) — 'no' is no longer
-  // offered, but stays fully settleable for any bet placed before this
-  // changed (settlement reads the stored selection off the bet row, not this
-  // allow-list, so an old 'no' bet is untouched).
-  const CUP_YES_ONLY_MARKETS = new Set(['cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance'])
+  // Product decision: these markets are single-outcome "Ja"-only props (see
+  // components/CupMatchCard.tsx) — 'no' is no longer offered for new bets on
+  // the first 3 (round 2), but stays fully settleable for any bet placed
+  // before that changed (settlement reads the stored selection off the bet
+  // row, not this allow-list). cup_early_goal/cup_both_halves_btts (round 6)
+  // never had a 'no' side to begin with — Ja-only from day one.
+  const CUP_YES_ONLY_MARKETS = new Set(['cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance', 'cup_early_goal', 'cup_both_halves_btts'])
   const cupMatchIds = new Set(matches.filter(m => m.competition_type === 'cup').map(m => m.id))
   for (const s of selections) {
     if (cupMatchIds.has(s.matchId) && !CUP_ALLOWED_MARKETS.has(s.marketType)) {
@@ -513,6 +524,23 @@ export async function POST(request: NextRequest) {
   // Captured here so the recompute pass after insertion (below) doesn't have
   // to redo this lookup — same set of match ids used for both.
   const matchdayAllIds = new Map<number, number[]>()
+
+  // "4. Wettschein" Pokal-Bonus (round 6, see CLAUDE.md "TEIL 2"). The cup
+  // fixture's own effective Spieltag — looked up from the FULL season match
+  // set (seasonMatchesForRequest) so it resolves even when match 573 isn't
+  // itself part of THIS submission's `matches`.
+  const cupMatchRow = seasonMatchesForRequest.find((m) => m.id === CUP_BONUS_MATCH_ID)
+  const cupMatchday = cupMatchRow ? effectiveMatchdayOf(cupMatchRow, mdIndex) : null
+  // A submission is a BONUS CANDIDATE only if it is a bare single-leg bet on
+  // match 573 — a combo containing 573 alongside other matches, or a single-
+  // mode submission with several selections, never qualifies (spec: "mode
+  // must be 'single', exactly 1 selection, that selection's matchId 573").
+  const isBonusCandidateSubmission =
+    mode === 'single' && selections.length === 1 && selections[0].matchId === CUP_BONUS_MATCH_ID
+  // Set true below only when this submission is actually granted the bonus
+  // slot; read at insert time to set bets.is_bonus and to force is_risky=false.
+  let submissionIsBonus = false
+
   for (const matchday of matchdayIds) {
     // All matches sharing this effective Spieltag (not just current selection)
     const allMatchdayIds = seasonMatchesForRequest
@@ -536,10 +564,19 @@ export async function POST(request: NextRequest) {
     // this status list.
     const { data: existingLegs } = await admin
       .from('bets')
-      .select('id, combo_id, odds_value')
+      .select('id, combo_id, odds_value, match_id, is_bonus')
       .eq('user_id', user.id)
       .in('status', ['pending', 'won', 'lost'])
       .in('match_id', allMatchdayIds)
+
+    const isCupMatchday = cupMatchday !== null && matchday === cupMatchday
+    // Per spec: "cup573AlreadyUsedInNormalSlips" — despite the name, this is
+    // simply "was match 573 already used in ANY earlier slip this Spieltag"
+    // (normal slot OR bonus slot) — there can only ever be ONE bet on 573
+    // per user per matchday, appearing either inside a normal slot or as the
+    // bonus slot, never both, never twice.
+    const cup573AlreadyUsed = isCupMatchday && (existingLegs ?? []).some((b) => b.match_id === CUP_BONUS_MATCH_ID)
+    const bonusAlreadyUsed = isCupMatchday && (existingLegs ?? []).some((b) => b.is_bonus === true)
 
     const existingComboIds = [...new Set((existingLegs ?? []).filter((b) => b.combo_id != null).map((b) => b.combo_id as number))]
     let existingCombos: { id: number; total_odds: number }[] = []
@@ -548,8 +585,11 @@ export async function POST(request: NextRequest) {
       existingCombos = data ?? []
     }
 
+    // The bonus slip is a fully separate allowance — it must NOT occupy (or
+    // be occupied by) a normal-budget slot, so it's excluded here. It's
+    // always single_id/combo_id==null, so only the single-leg filter needs it.
     const existingSlips: RiskySlip[] = [
-      ...(existingLegs ?? []).filter((b) => b.combo_id == null).map((b) => ({ id: `bet-${b.id}`, odds: Number(b.odds_value) })),
+      ...(existingLegs ?? []).filter((b) => b.combo_id == null && !b.is_bonus).map((b) => ({ id: `bet-${b.id}`, odds: Number(b.odds_value) })),
       ...existingCombos.map((c) => ({ id: `combo-${c.id}`, odds: Number(c.total_odds) })),
     ]
 
@@ -566,6 +606,43 @@ export async function POST(request: NextRequest) {
             return m && effectiveMatchdayOf(m as Match, mdIndex) === matchday
           })
           .map((s, i) => ({ id: `new-${i}`, odds: s.oddsValue }))
+
+    if (isCupMatchday) {
+      const submissionTouches573 = selections.some((s) => s.matchId === CUP_BONUS_MATCH_ID)
+      if (submissionTouches573 && cup573AlreadyUsed) {
+        return NextResponse.json(
+          { error: 'Das Pokalspiel wurde für diesen Spieltag bereits verwendet.' },
+          { status: 400 }
+        )
+      }
+
+      if (isBonusCandidateSubmission) {
+        // Prefer NOT using the bonus slot for as long as a normal slot is
+        // still available — check the normal budget FIRST, exactly like any
+        // other single-match bet would (existing evaluateSlips logic,
+        // unchanged). Only once that budget is exhausted does this fall
+        // through to the bonus path below.
+        const { valid: fitsNormalBudget } = evaluateSlips([...existingSlips, ...newSlipsHere])
+        if (!fitsNormalBudget) {
+          if (bonusAlreadyUsed) {
+            return NextResponse.json(
+              {
+                error: `Maximal 3 Wettscheine pro Spieltag erlaubt (der Pokal-Bonusschein wurde für Spieltag ${matchday} bereits verwendet). Du hast für Spieltag ${matchday} bereits ${existingSlips.length} Wettschein(e).`,
+              },
+              { status: 400 }
+            )
+          }
+          // Normal budget full, match 573 not used elsewhere, bonus not used
+          // yet → this submission becomes the 4. Wettschein (Pokal-Bonus).
+          // Bypasses the normal evaluateSlips check entirely for this
+          // matchday — it is additive, not counted against the 3-slip budget.
+          submissionIsBonus = true
+          continue
+        }
+        // Falls through to the normal evaluateSlips check below, which will
+        // pass (fitsNormalBudget was true) — this bet consumes a normal slot.
+      }
+    }
 
     const { valid, riskyId } = evaluateSlips([...existingSlips, ...newSlipsHere])
     if (!valid) {
@@ -670,7 +747,13 @@ export async function POST(request: NextRequest) {
       status: 'pending',
       payout: null,
       combo_id: null,
-      is_risky: effectiveRisky,
+      // Pokal-Bonus (4. Wettschein): NEVER flagged risky regardless of odds
+      // (see CLAUDE.md TEIL 2) — sits entirely outside the normal risky-
+      // accounting system, so it's forced false here rather than derived
+      // from effectiveRisky, and excluded from recomputeRiskyForUserMatchday
+      // below (lib/risky.ts skips is_bonus rows).
+      is_risky: submissionIsBonus ? false : effectiveRisky,
+      is_bonus: submissionIsBonus,
       season: betSeason,
     }))
 

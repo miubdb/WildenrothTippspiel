@@ -1134,24 +1134,28 @@ export interface CupSpecialMarketOdds {
  * a product decision (readable, "nice" odds for a special bet), not a model
  * correction. Each mapping below is a manually chosen, individually reasoned
  * override (not a generic round-to-nearest-ladder function, since this only
- * ever applies to these 3 specific one-off markets on this one match):
+ * ever applies to these 3 specific one-off markets on this one match).
  *
- * - Halbzeitführung & Weiterkommen: model 2.52 (35.37% fair prob, ~11.6%
- *   margin). The spec's own suggested 2.75 would thin the margin to ~2.7% —
- *   too close to break-even for comfort. 2.50 stays a clean round number
- *   while keeping the margin close to the model's own ~11.6%.
- * - Comeback & Weiterkommen: model 5.32 (16.79% fair prob). Rounds to 5.50
- *   (closer than 5.00), leaving a healthy ~7.6% margin — the spec's own
- *   suggestion, kept as-is.
- * - Elfmeterschießen & Weiterkommen: model 8.07 (11.07% fair prob). Rounds to
- *   8.00, a negligible move that leaves the margin essentially unchanged
- *   (~11.4%) — the spec's own suggestion, kept as-is.
+ * ROUND 6 UPDATE: after the Geiselbullach/Wildenroth xG recalibration (see
+ * the round-6 report — Geiselbullach is now the model favourite, homeXG≈2.01/
+ * awayXG≈2.52 instead of the previous ~2.12/1.65), all 3 "Wildenroth does X
+ * and still advances" paths got meaningfully LESS likely (Wildenroth is the
+ * "home" side these markets are phrased around), so their fair odds lengthened
+ * substantially and the old fixed prices (2.50/5.50/8.00) would now be
+ * significantly bettor-favourable (positive EV) if left unchanged:
+ * - Halbzeitführung & Weiterkommen: new model ≈3.95 (was 2.52). Rounds to
+ *   4.00 — close to fair, ~10.6% margin (was ~11.6%), same spirit as before.
+ * - Comeback & Weiterkommen: new model ≈6.18 (was 5.32). Rounds to 6.50 —
+ *   deliberately generous (~6.6% margin) same as before's below-standard
+ *   margin choice for this rare/fun market.
+ * - Elfmeterschießen & Weiterkommen: new model ≈9.99 (was 8.07). Rounds to
+ *   10.00 — negligible move, margin essentially unchanged (~11.9%).
  */
 function roundCupSpecialYesOdds(field: 'halftime' | 'comeback' | 'shootout'): number {
   switch (field) {
-    case 'halftime': return 2.5
-    case 'comeback': return 5.5
-    case 'shootout': return 8.0
+    case 'halftime': return 4.0
+    case 'comeback': return 6.5
+    case 'shootout': return 10.0
   }
 }
 
@@ -1250,6 +1254,65 @@ export function cupSpecialMarketOddsFromXG(
     cup_comeback_advance_yes_model: comebackModel,
     cup_shootout_advance_yes_model: shootoutModel,
     diagnostics: sim,
+  }
+}
+
+// ---------- Round-6 cup specials: Frühes Tor / Mehr Tore je Halbzeit / BTTS beide HZ ----------
+
+export interface CupRound6MarketOdds {
+  cup_early_goal_yes: number
+  cup_early_goal_yes_model: number
+  cup_ht_more_goals_h1: number
+  cup_ht_more_goals_h2: number
+  cup_ht_more_goals_equal: number
+  cup_both_halves_btts_yes: number
+  cup_both_halves_btts_yes_model: number
+}
+
+/**
+ * Deliberate commercial rounding for the round-6 "Frühes Tor" and "Beide
+ * Teams in beiden Halbzeiten" Ja-only props — same product pattern as
+ * roundCupSpecialYesOdds above (manually reasoned per-market, not a generic
+ * ladder). "Mehr Tore je Halbzeit" is a genuine 3-way market (no natural
+ * short-priced favourite to round away), so it's left at the model's own
+ * (rounded-to-cent) price like the main 1X2/O-U markets.
+ */
+function roundCupRound6YesOdds(field: 'early_goal' | 'both_halves_btts', modelOdds: number): number {
+  switch (field) {
+    // Model odds are short (this match's early-goal probability is >50% at
+    // the recalibrated, higher-scoring xG) — round to the nearest 0.05, same
+    // granularity as the main markets, instead of the coarser 0.50 step used
+    // for the other (long-shot) round-6/round-2 specials below, which would
+    // move the price too far from fair for a >50%-likely outcome.
+    case 'early_goal': return Math.round(modelOdds * 20) / 20
+    // Model is long (needs both teams to score in BOTH halves) — round to a
+    // clean whole/half number near the model value, same spirit as
+    // "Elfmeterschießen & Weiter" above (negligible move, keep the margin).
+    case 'both_halves_btts': return Math.round(modelOdds * 2) / 2
+  }
+}
+
+/**
+ * The 3 round-6 cup specials, derived from the SAME Monte Carlo simulation
+ * (lib/cupSimulation.ts) and the SAME (homeXG, awayXG) as every other cup
+ * market — see cupSpecialMarketOddsFromXG's own doc for why a full match
+ * simulation (not closed-form) is needed for path-dependent events. Callers
+ * should call this together with cupSpecialMarketOddsFromXG using ONE shared
+ * `simulateCupMatch` result where possible to avoid running the simulation
+ * twice; a separate export is used here so cupSpecialMarketOddsFromXG's own
+ * return shape (kept stable for existing callers) doesn't need to change.
+ */
+export function cupRound6MarketOddsFromSim(sim: ReturnType<typeof simulateCupMatch>): CupRound6MarketOdds {
+  const earlyGoalModel = toOdds(sim.pEarlyGoal)
+  const bothHalvesModel = toOdds(sim.pBttsInBothHalves)
+  return {
+    cup_early_goal_yes: roundCupRound6YesOdds('early_goal', earlyGoalModel),
+    cup_early_goal_yes_model: earlyGoalModel,
+    cup_ht_more_goals_h1: toOdds(sim.pMoreGoalsFirstHalf),
+    cup_ht_more_goals_h2: toOdds(sim.pMoreGoalsSecondHalf),
+    cup_ht_more_goals_equal: toOdds(sim.pEqualGoalsPerHalf),
+    cup_both_halves_btts_yes: roundCupRound6YesOdds('both_halves_btts', bothHalvesModel),
+    cup_both_halves_btts_yes_model: bothHalvesModel,
   }
 }
 

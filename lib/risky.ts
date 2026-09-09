@@ -68,14 +68,17 @@ export async function recomputeRiskyForUserMatchday(
 
   const { data: legs } = await admin
     .from('bets')
-    .select('id, combo_id, odds_value, is_risky')
+    .select('id, combo_id, odds_value, is_risky, is_bonus')
     .eq('user_id', userId)
     .eq('status', 'pending')
     .in('match_id', matchdayMatchIds)
 
   if (!legs || legs.length === 0) return
 
-  const singleLegs = legs.filter((b) => b.combo_id == null)
+  // Pokal-Bonus slips (bets.is_bonus) sit entirely outside the normal risky-
+  // accounting system — never counted toward the 2-normal/1-risky budget and
+  // never eligible to become the Risky slip themselves, regardless of odds.
+  const singleLegs = legs.filter((b) => b.combo_id == null && !b.is_bonus)
   const comboIds = [...new Set(legs.filter((b) => b.combo_id != null).map((b) => b.combo_id as number))]
 
   let combos: { id: number; total_odds: number }[] = []

@@ -54,6 +54,21 @@ export interface CupSimulationOutput {
    *  to "shootout decides it AND home advances", kept as a separate field
    *  for readability at call sites. */
   pShootoutAndHomeAdvances: number
+  /** P(the match's first goal — either team, regular time + stoppage —
+   *  falls in minute 1-15 inclusive). Round-6 "Frühes Tor" market. False
+   *  when there is no goal at all in the 90 (a shootout-only decision never
+   *  counts, matching cup_first_goal's own "penalties never count" rule). */
+  pEarlyGoal: number
+  /** P(strictly more total goals — both teams combined — in the 2nd half
+   *  than the 1st). Round-6 "Mehr Tore" market. */
+  pMoreGoalsSecondHalf: number
+  /** P(strictly more total goals in the 1st half than the 2nd). */
+  pMoreGoalsFirstHalf: number
+  /** P(equal total goals in both halves, including 0-0/0-0). */
+  pEqualGoalsPerHalf: number
+  /** P(both teams score AT LEAST once in HZ1 AND both teams score at least
+   *  once in HZ2) — round-6 "Beide Teams in beiden Halbzeiten" market. */
+  pBttsInBothHalves: number
 }
 
 /** Knuth's algorithm — draws one Poisson(lambda) sample from a uniform RNG. */
@@ -82,6 +97,11 @@ export function simulateCupMatch(
   let htLeadAdvanceCount = 0
   let awayEverLedAdvanceCount = 0
   let shootoutAdvanceCount = 0
+  let earlyGoalCount = 0
+  let moreSecondHalfCount = 0
+  let moreFirstHalfCount = 0
+  let equalHalvesCount = 0
+  let bttsBothHalvesCount = 0
 
   for (let i = 0; i < numSims; i++) {
     const homeGoals = samplePoisson(homeXG, rng)
@@ -129,6 +149,22 @@ export function simulateCupMatch(
     if (htHome > htAway && homeAdvances) htLeadAdvanceCount++
     if (awayEverLed && homeAdvances) awayEverLedAdvanceCount++
     if (!decidedIn90 && homeAdvances) shootoutAdvanceCount++
+
+    // "Frühes Tor" (round 6): did ANY goal (either team) fall in minute 1-15?
+    if (minutes.length > 0 && minutes[0].minute <= 15) earlyGoalCount++
+
+    // "Mehr Tore in welcher Halbzeit?" (round 6): total goals per half.
+    const htTotal = htHome + htAway
+    const secondHalfTotal = (finalHome - htHome) + (finalAway - htAway)
+    if (secondHalfTotal > htTotal) moreSecondHalfCount++
+    else if (htTotal > secondHalfTotal) moreFirstHalfCount++
+    else equalHalvesCount++
+
+    // "Beide Teams treffen in beiden Halbzeiten" (round 6): both teams score
+    // in HZ1 AND both teams score in HZ2 (fulltime minus halftime per team).
+    const secondHalfHome = finalHome - htHome
+    const secondHalfAway = finalAway - htAway
+    if (htHome > 0 && htAway > 0 && secondHalfHome > 0 && secondHalfAway > 0) bttsBothHalvesCount++
   }
 
   return {
@@ -139,5 +175,10 @@ export function simulateCupMatch(
     pHomeHtLeadAndAdvance: htLeadAdvanceCount / numSims,
     pAwayEverLedAndHomeAdvances: awayEverLedAdvanceCount / numSims,
     pShootoutAndHomeAdvances: shootoutAdvanceCount / numSims,
+    pEarlyGoal: earlyGoalCount / numSims,
+    pMoreGoalsSecondHalf: moreSecondHalfCount / numSims,
+    pMoreGoalsFirstHalf: moreFirstHalfCount / numSims,
+    pEqualGoalsPerHalf: equalHalvesCount / numSims,
+    pBttsInBothHalves: bttsBothHalvesCount / numSims,
   }
 }

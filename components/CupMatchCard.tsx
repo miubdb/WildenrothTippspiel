@@ -241,6 +241,14 @@ export function CupMatchCard({
               {renderCupPropButton('cup_halftime_lead_advance', 'Wildenroth führt zur Halbzeit & kommt weiter', '🔥 HZ-Führung & Weiter', `HZ-Führung ${homeName} + Weiterkommen`, odds.cup_halftime_lead_advance_yes)}
               {renderCupPropButton('cup_comeback_advance', 'Geiselbullach führt – Wildenroth kommt trotzdem weiter', '🔄 Comeback & Weiter', `${awayName} führt, ${homeName} kommt weiter`, odds.cup_comeback_advance_yes)}
               {renderCupPropButton('cup_shootout_advance', 'Elfmeterschießen – Wildenroth kommt weiter', '🎯 Im Elfmeterschießen weiter', 'Remis nach 90 + Wildenroth gewinnt', odds.cup_shootout_advance_yes)}
+              {renderCupPropButton('cup_early_goal', 'Frühes Tor Min. 1-15', '⚡ Frühes Tor', 'Erstes Tor in Min. 1-15', odds.cup_early_goal_yes)}
+              {renderCupPropButton('cup_both_halves_btts', 'Beide Teams treffen in beiden Halbzeiten', '🔥 Beide Teams in beiden HZ', 'Beide Teams treffen in HZ1 und HZ2', odds.cup_both_halves_btts_yes)}
+
+              <div className="text-[10px] text-amber-800/80 dark:text-amber-300/80 leading-snug pt-0.5">
+                🏆 Pokal-Sonderregel: Das Pokalspiel könnt ihr entweder ganz normal in einen eurer
+                Wettscheine/Kombis packen ODER zusätzlich als 4. Wettschein spielen. Der 4. Schein
+                darf dann aber nur eine einzelne Pokalwette enthalten.
+              </div>
             </div>
           )}
 
@@ -255,6 +263,12 @@ export function CupMatchCard({
               <MarketBlock title="🤝 Beide treffen" subtitle="Nur reguläre Spielzeit">
                 {renderOddsButton('btts', 'Beide Teams treffen', 'yes', 'Ja', odds.btts_yes)}
                 {renderOddsButton('btts', 'Beide Teams treffen', 'no', 'Nein', odds.btts_no)}
+              </MarketBlock>
+
+              <MarketBlock title="⏱️ Mehr Tore" subtitle="1. HZ / 2. HZ / gleich viele">
+                {renderOddsButton('cup_ht_more_goals', 'Mehr Tore in welcher Halbzeit?', 'h1', '1. Halbzeit', odds.cup_ht_more_goals_h1)}
+                {renderOddsButton('cup_ht_more_goals', 'Mehr Tore in welcher Halbzeit?', 'h2', '2. Halbzeit', odds.cup_ht_more_goals_h2)}
+                {renderOddsButton('cup_ht_more_goals', 'Mehr Tore in welcher Halbzeit?', 'equal', 'Gleich viele', odds.cup_ht_more_goals_equal)}
               </MarketBlock>
 
               {offeredScorers.length > 0 && (

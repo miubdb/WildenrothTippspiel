@@ -57,7 +57,7 @@ export default function AdminPage() {
   const [scores, setScores] = useState<Record<number, { home: string; away: string }>>({})
   // Cup-only manual settlement inputs (see app/api/admin/settle/route.ts) —
   // only ever read/sent for a match with competition_type='cup'.
-  const [cupInputs, setCupInputs] = useState<Record<number, { shootoutWinner: string; firstGoalTeam: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }>>({})
+  const [cupInputs, setCupInputs] = useState<Record<number, { shootoutWinner: string; firstGoalTeam: string; firstGoalMinute: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }>>({})
   const [loading, setLoading] = useState(false)
   const [settleLoading, setSettleLoading] = useState<number | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -286,6 +286,13 @@ export default function AdminPage() {
       setMessage('Bitte zuerst angeben, ob Geiselbullach im Spielverlauf in Führung war.')
       return
     }
+    if (
+      match?.competition_type === 'cup' && (homeScore > 0 || awayScore > 0) &&
+      (cup?.firstGoalMinute === '' || cup?.firstGoalMinute == null || isNaN(parseInt(cup.firstGoalMinute)))
+    ) {
+      setMessage('Bitte zuerst die Minute des ersten Tores angeben (für „Frühes Tor Min. 1-15“).')
+      return
+    }
 
     setSettleLoading(matchId)
     setMessage(null)
@@ -298,6 +305,7 @@ export default function AdminPage() {
         ...(match?.competition_type === 'cup' ? {
           cupShootoutWinner: cup?.shootoutWinner || null,
           cupFirstGoalTeam: cup?.firstGoalTeam || null,
+          cupFirstGoalMinute: cup?.firstGoalMinute !== '' && cup?.firstGoalMinute != null ? parseInt(cup.firstGoalMinute) : null,
           cupHalftimeHomeGoals: cup?.halftimeHome !== '' ? parseInt(cup?.halftimeHome ?? '') : null,
           cupHalftimeAwayGoals: cup?.halftimeAway !== '' ? parseInt(cup?.halftimeAway ?? '') : null,
           cupAwayTeamLed: cup?.awayTeamLed === 'yes' ? true : cup?.awayTeamLed === 'no' ? false : null,
@@ -604,8 +612,8 @@ export default function AdminPage() {
                       match={match}
                       score={scores[match.id] ?? { home: '', away: '' }}
                       onChange={(side, val) => handleScoreChange(match.id, side, val)}
-                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }}
-                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }), [field]: val } }))}
+                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', firstGoalMinute: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }}
+                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', firstGoalMinute: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }), [field]: val } }))}
                       onSettle={() => settleMatch(match.id)}
                       onPostpone={() => postponeMatch(match.id)}
                       loading={settleLoading === match.id}
@@ -657,8 +665,8 @@ export default function AdminPage() {
                       match={match}
                       score={scores[match.id] ?? { home: '', away: '' }}
                       onChange={(side, val) => handleScoreChange(match.id, side, val)}
-                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }}
-                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }), [field]: val } }))}
+                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', firstGoalMinute: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }}
+                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', firstGoalMinute: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }), [field]: val } }))}
                       onSettle={() => settleMatch(match.id)}
                       onPostpone={() => postponeMatch(match.id)}
                       loading={settleLoading === match.id}
@@ -1930,7 +1938,7 @@ function CupSettlementPreview({
 }: {
   match: MatchRow
   score: { home: string; away: string }
-  cupInput?: { shootoutWinner: string; firstGoalTeam: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }
+  cupInput?: { shootoutWinner: string; firstGoalTeam: string; firstGoalMinute: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }
 }) {
   const homeScore = score.home === '' ? null : Number(score.home)
   const awayScore = score.away === '' ? null : Number(score.away)
@@ -1949,6 +1957,16 @@ function CupSettlementPreview({
   const awayLed = cupInput?.awayTeamLed === 'yes'
   const firstGoal = homeScore === 0 && awayScore === 0 ? 'none' : (cupInput?.firstGoalTeam || null)
 
+  const needsFirstGoalMinute = homeScore > 0 || awayScore > 0
+  const firstGoalMinute = cupInput?.firstGoalMinute === '' || cupInput?.firstGoalMinute == null ? null : Number(cupInput.firstGoalMinute)
+  const earlyGoal = !needsFirstGoalMinute ? false : (firstGoalMinute != null && firstGoalMinute >= 1 && firstGoalMinute <= 15)
+
+  const htKnown = htHome != null && htAway != null
+  const ht1 = (htHome ?? 0) + (htAway ?? 0)
+  const ht2 = (homeScore - (htHome ?? 0)) + (awayScore - (htAway ?? 0))
+  const moreGoalsOutcome = ht1 > ht2 ? '1. Halbzeit' : ht2 > ht1 ? '2. Halbzeit' : 'Gleich viele'
+  const bothHalvesBtts = htKnown && (htHome ?? 0) > 0 && (htAway ?? 0) > 0 && (homeScore - (htHome ?? 0)) > 0 && (awayScore - (htAway ?? 0)) > 0
+
   const rows: { label: string; value: string; unresolved?: boolean }[] = [
     { label: 'Wer kommt weiter?', value: winnerKnown ? (winner === 'home' ? homeName : awayName) : '— Elfmeter-Sieger fehlt', unresolved: !winnerKnown },
     { label: 'Wie fällt die Entscheidung?', value: isDraw ? 'Elfmeterschießen' : 'Nach 90 Minuten' },
@@ -1956,6 +1974,9 @@ function CupSettlementPreview({
     { label: 'Comeback (Geiselbullach führte) + Weiter', value: winnerKnown ? (awayLed && winner === 'home' ? 'Ja' : 'Nein') : '— Elfmeter-Sieger fehlt', unresolved: !winnerKnown },
     { label: 'Elfmeterschießen + Weiter', value: isDraw ? (shootoutWinner === 'home' ? 'Ja' : shootoutWinner ? 'Nein' : '— Elfmeter-Sieger fehlt') : 'Nein', unresolved: isDraw && !shootoutWinner },
     { label: 'Erstes Tor', value: firstGoal === 'home' ? homeName : firstGoal === 'away' ? awayName : firstGoal === 'none' ? 'Kein Tor' : '— fehlt noch', unresolved: !firstGoal },
+    { label: 'Frühes Tor (Min. 1-15)', value: !needsFirstGoalMinute ? 'Nein (kein Tor)' : (firstGoalMinute != null ? (earlyGoal ? 'Ja' : 'Nein') : '— Minute fehlt'), unresolved: needsFirstGoalMinute && firstGoalMinute == null },
+    { label: 'Mehr Tore je Halbzeit', value: htKnown ? moreGoalsOutcome : '— Halbzeitstand fehlt', unresolved: !htKnown },
+    { label: 'Beide Teams in beiden HZ', value: htKnown ? (bothHalvesBtts ? 'Ja' : 'Nein') : '— Halbzeitstand fehlt', unresolved: !htKnown },
   ]
 
   return (
@@ -1991,8 +2012,8 @@ function MatchSettleCard({
   match: MatchRow
   score: { home: string; away: string }
   onChange: (side: 'home' | 'away', val: string) => void
-  cupInput?: { shootoutWinner: string; firstGoalTeam: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }
-  onCupInputChange?: (field: 'shootoutWinner' | 'firstGoalTeam' | 'halftimeHome' | 'halftimeAway' | 'awayTeamLed', val: string) => void
+  cupInput?: { shootoutWinner: string; firstGoalTeam: string; firstGoalMinute: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }
+  onCupInputChange?: (field: 'shootoutWinner' | 'firstGoalTeam' | 'firstGoalMinute' | 'halftimeHome' | 'halftimeAway' | 'awayTeamLed', val: string) => void
   onSettle: () => void
   onPostpone?: () => void
   loading: boolean
@@ -2100,6 +2121,19 @@ function MatchSettleCard({
               <option value="none">Kein Tor (0:0)</option>
             </select>
           </div>
+          {cupInput?.firstGoalTeam && cupInput.firstGoalTeam !== 'none' && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 flex-shrink-0 w-28">Minute 1. Tor:</span>
+              <input
+                type="number" min={1} max={120} inputMode="numeric"
+                value={cupInput?.firstGoalMinute ?? ''}
+                onChange={(e) => onCupInputChange?.('firstGoalMinute', e.target.value)}
+                placeholder="z.B. 12"
+                className="text-xs border border-gray-200 rounded-lg px-2 py-1 w-20"
+              />
+              <span className="text-[10px] text-gray-400">für „Frühes Tor Min. 1-15“</span>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-500 flex-shrink-0 w-28">Halbzeitstand:</span>
             <input

@@ -1,4 +1,4 @@
-export type MarketType = '1x2' | 'double_chance' | 'over_under' | 'over_under_3_5' | 'over_under_5_5' | 'over_under_7_5' | 'btts' | 'exact_score' | 'handicap' | 'goalscorer' | 'goalscorer_2plus' | 'cup_advance' | 'cup_first_goal' | 'cup_decision' | 'cup_halftime_lead_advance' | 'cup_comeback_advance' | 'cup_shootout_advance'
+export type MarketType = '1x2' | 'double_chance' | 'over_under' | 'over_under_3_5' | 'over_under_5_5' | 'over_under_7_5' | 'btts' | 'exact_score' | 'handicap' | 'goalscorer' | 'goalscorer_2plus' | 'cup_advance' | 'cup_first_goal' | 'cup_decision' | 'cup_halftime_lead_advance' | 'cup_comeback_advance' | 'cup_shootout_advance' | 'cup_early_goal' | 'cup_ht_more_goals' | 'cup_both_halves_btts'
 
 export type MatchStatus = 'scheduled' | 'live' | 'finished' | 'cancelled' | 'postponed'
 
@@ -188,4 +188,11 @@ export interface OddsData {
   cup_comeback_advance_no?: number
   cup_shootout_advance_yes?: number
   cup_shootout_advance_no?: number
+  /** Round-6 additions (see lib/odds.ts#cupRound6MarketOddsFromSim) —
+   *  undefined for every normal league match. */
+  cup_early_goal_yes?: number
+  cup_ht_more_goals_h1?: number
+  cup_ht_more_goals_h2?: number
+  cup_ht_more_goals_equal?: number
+  cup_both_halves_btts_yes?: number
 }

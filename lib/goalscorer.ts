@@ -221,11 +221,21 @@ export function computeGoalscorerOffersForMatch(
   wildenrothTeamId: number,
   players: WildenrothPlayer[],
   priorCtx?: PriorContext,
+  /** Match-specific (homeXG, awayXG) override — see lib/odds.ts
+   *  `match_odds_overrides.model_home_xg_override`/`model_away_xg_override`.
+   *  When given, used INSTEAD of getMatchXG's own output so a match-specific
+   *  correction (e.g. the round-6 Geiselbullach/Wildenroth recalibration)
+   *  shifts the goalscorer market consistently with every other market on
+   *  the same fixture, rather than leaving goalscorer odds computed from the
+   *  stale/uncorrected team xG. */
+  xgOverride?: { homeXG: number; awayXG: number },
 ): GoalscorerOffer[] {
   // priorCtx must be passed: without it this xG skips prior-season blending and
   // the roster factor, so the goalscorer market would be derived from a
   // different team-strength estimate than the 1X2/O-U markets on the same card.
-  const { homeXG, awayXG } = getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
+  const { homeXG: modelHomeXG, awayXG: modelAwayXG } = getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
+  const homeXG = xgOverride?.homeXG ?? modelHomeXG
+  const awayXG = xgOverride?.awayXG ?? modelAwayXG
   const wildenrothMatchXG = homeTeamId === wildenrothTeamId ? homeXG : awayXG
   return players.map(p => computePlayerOdds(p, wildenrothMatchXG))
 }
