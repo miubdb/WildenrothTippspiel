@@ -7,6 +7,7 @@ import { isSeasonStarted, buildEffectiveMatchdayIndex, effectiveMatchdayOf } fro
 import { ODDS_COLUMN, offeredHandicapSelections, HANDICAP_OPPOSITE } from '@/lib/oddsMarkets'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { RISKY_ODDS_THRESHOLD, evaluateSlips, recomputeRiskyForUserMatchday, type RiskySlip } from '@/lib/risky'
+import { sendPushToUser } from '@/lib/push'
 import type { Match } from '@/types'
 
 const MAX_STAKE = 250
@@ -776,6 +777,41 @@ export async function POST(request: NextRequest) {
       await admin.rpc('increment_balance', { p_user_id: user.id, p_amount: totalCost })
       return NextResponse.json({ error: 'Fehler beim Speichern der Wetten.' }, { status: 500 })
     }
+  }
+
+  // Admin push notification: notify every admin (currently just Jani) the
+  // moment any user places a bet — visibility into betting activity as it
+  // happens. Never lets a push failure fail the bet placement itself (the
+  // balance is already deducted and the bet rows already inserted above).
+  try {
+    const { data: placerProfile } = await supabase
+      .from('profiles')
+      .select('display_name, username')
+      .eq('id', user.id)
+      .single()
+    const placerName = placerProfile?.display_name || placerProfile?.username || 'Ein Nutzer'
+
+    const { data: adminIds } = await admin
+      .from('profiles')
+      .select('id')
+      .eq('is_admin', true)
+      .neq('id', user.id)
+
+    if (adminIds && adminIds.length > 0) {
+      const betSummary = mode === 'combo'
+        ? `Kombiwette (${selections.length} Tipps) @${effectiveTotalOdds.toFixed(2)} für ${comboStake.toFixed(2)} Wildis`
+        : selections.length === 1
+          ? `${MARKET_LABELS[selections[0].marketType] ?? selections[0].marketType} (${selections[0].selection}) @${selections[0].oddsValue.toFixed(2)} für ${selections[0].stake.toFixed(2)} Wildis`
+          : `${selections.length} Einzelwetten für insgesamt ${totalCost.toFixed(2)} Wildis`
+
+      await Promise.allSettled(
+        adminIds.map((a) =>
+          sendPushToUser(a.id, '🎫 Neue Wette', `${placerName}: ${betSummary}`, '/admin', 'new_bet')
+        )
+      )
+    }
+  } catch (err) {
+    console.error('Admin push notification for new bet failed:', err)
   }
 
   // Authoritative Risky reclassification: the row(s) just inserted used
