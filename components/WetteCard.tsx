@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { ReactionBar } from '@/components/ReactionBar'
 import { CommentSection, type CommentData } from '@/components/CommentSection'
 import { wildiLabel } from '@/components/WildiIcon'
-import { oddsColorClass } from '@/lib/betDisplay'
+import { oddsColorClass, CUP_MARKET_LABEL } from '@/lib/betDisplay'
 import { cappedPayout } from '@/lib/payout'
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ export function WetteCard({
                     <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-snug">{leg.matchName}</div>
                     <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                       <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1 py-px rounded">
-                        {MARKET_LABEL[leg.market] ?? leg.market}
+                        {CUP_MARKET_LABEL[leg.market] ?? MARKET_LABEL[leg.market] ?? leg.market}
                       </span>
                       <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">{leg.selection}</span>
                       {leg.score && <span className="text-[10px] text-gray-400 dark:text-gray-500">· {leg.score}</span>}

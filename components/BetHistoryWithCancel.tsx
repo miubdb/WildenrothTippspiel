@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus } from '@/components/WetteCard'
+import { cupSelectionLabel } from '@/lib/betDisplay'
 
 type Bet = {
   id: string
@@ -73,7 +74,10 @@ function selLabel(marketType: string, sel: string, players?: Record<number, stri
     const name = players?.[id] ?? `Spieler #${id}`
     return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
   }
-  return SELECTION_LABELS[sel] ?? sel
+  // Cup markets checked first — SELECTION_LABELS is keyed by selection code
+  // alone (not market_type), so a cup_comeback_advance 'yes' would otherwise
+  // wrongly match btts's "Beide treffen".
+  return cupSelectionLabel(marketType, sel) ?? SELECTION_LABELS[sel] ?? sel
 }
 
 function betMatchName(bet: Bet): string {

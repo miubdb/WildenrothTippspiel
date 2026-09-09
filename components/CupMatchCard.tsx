@@ -5,6 +5,7 @@ import type { Match, OddsData } from '@/types'
 import { useBetSlip } from '@/context/BetSlipContext'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
 import { TeamLogo } from '@/components/TeamLogo'
+import { CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
 
 type GoalscorerRow = {
   player_id: number
@@ -74,6 +75,11 @@ export function CupMatchCard({
   function isSelected(marketType: string, selection: string) {
     return selections.some((s) => s.matchId === match.id && s.marketType === marketType && s.selection === selection)
   }
+
+  // Shared display labels (lib/betDisplay.ts) — keeps the BetSlip pill text
+  // identical to offene Wetten / Wetthistorie / Admin for the same market.
+  const ml = (marketType: string) => CUP_MARKET_LABEL[marketType] ?? marketType
+  const sl = (marketType: string, selection: string) => cupSelectionLabel(marketType, selection) ?? selection
 
   function add(marketType: string, marketLabel: string, selection: string, selectionLabel: string, oddsValue: number) {
     if (isAgainstWildenroth(marketType, selection)) {
@@ -219,13 +225,13 @@ export function CupMatchCard({
           {tab === 'specials' && (
             <div className="bg-amber-50/80 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800 rounded-xl p-2.5 space-y-3">
               <MarketBlock title="🏆 Wer kommt weiter?" subtitle="">
-                {renderOddsButton('cup_advance', 'Wer kommt weiter?', 'home', homeName, odds.cup_advance_home)}
-                {renderOddsButton('cup_advance', 'Wer kommt weiter?', 'away', awayName, odds.cup_advance_away)}
+                {renderOddsButton('cup_advance', ml('cup_advance'), 'home', sl('cup_advance', 'home'), odds.cup_advance_home)}
+                {renderOddsButton('cup_advance', ml('cup_advance'), 'away', sl('cup_advance', 'away'), odds.cup_advance_away)}
               </MarketBlock>
 
               <MarketBlock title="🧤 Wann fällt die Entscheidung?" subtitle="90 Min. oder Elfmeterschießen">
-                {renderOddsButton('cup_decision', 'Wie fällt die Entscheidung?', 'regulation', 'Nach 90 Minuten', odds.cup_decision_regulation)}
-                {renderOddsButton('cup_decision', 'Wie fällt die Entscheidung?', 'shootout', 'Elfmeterschießen', odds.cup_decision_shootout)}
+                {renderOddsButton('cup_decision', ml('cup_decision'), 'regulation', sl('cup_decision', 'regulation'), odds.cup_decision_regulation)}
+                {renderOddsButton('cup_decision', ml('cup_decision'), 'shootout', sl('cup_decision', 'shootout'), odds.cup_decision_shootout)}
               </MarketBlock>
 
               {/* These 3 specials are deliberately offered as single-outcome
@@ -233,12 +239,12 @@ export function CupMatchCard({
                   exists in the odds/settlement model for any bet placed
                   before this change, it's just no longer a NEW-bet button
                   here. See renderCupPropButton below. */}
-              {renderCupPropButton('cup_halftime_lead_advance', 'Wildenroth führt zur Halbzeit & kommt weiter', '🔥 HZ-Führung & Weiter', `HZ-Führung ${homeName} + Weiterkommen`, odds.cup_halftime_lead_advance_yes)}
-              {renderCupPropButton('cup_comeback_advance', 'Geiselbullach führt – Wildenroth kommt trotzdem weiter', '🔄 Comeback & Weiter', `${awayName} führt, ${homeName} kommt weiter`, odds.cup_comeback_advance_yes)}
-              {renderCupPropButton('cup_shootout_advance', 'Elfmeterschießen – Wildenroth kommt weiter', '🎯 Im Elfmeterschießen weiter', 'Remis nach 90 + Wildenroth gewinnt', odds.cup_shootout_advance_yes)}
+              {renderCupPropButton('cup_halftime_lead_advance', ml('cup_halftime_lead_advance'), '🔥 HZ-Führung & Weiter', sl('cup_halftime_lead_advance', 'yes'), odds.cup_halftime_lead_advance_yes)}
+              {renderCupPropButton('cup_comeback_advance', ml('cup_comeback_advance'), '🔄 Comeback & Weiter', sl('cup_comeback_advance', 'yes'), odds.cup_comeback_advance_yes)}
+              {renderCupPropButton('cup_shootout_advance', ml('cup_shootout_advance'), '🎯 Im Elfmeterschießen weiter', sl('cup_shootout_advance', 'yes'), odds.cup_shootout_advance_yes)}
               <MarketBlock title="⚡ Frühes Tor" subtitle="Erstes Tor in Min. 1–15">
-                {renderOddsButton('cup_early_goal', 'Frühes Tor Min. 1-15', 'yes', 'Ja', odds.cup_early_goal_yes)}
-                {renderOddsButton('cup_early_goal', 'Frühes Tor Min. 1-15', 'no', 'Nein', odds.cup_early_goal_no)}
+                {renderOddsButton('cup_early_goal', ml('cup_early_goal'), 'yes', sl('cup_early_goal', 'yes'), odds.cup_early_goal_yes)}
+                {renderOddsButton('cup_early_goal', ml('cup_early_goal'), 'no', sl('cup_early_goal', 'no'), odds.cup_early_goal_no)}
               </MarketBlock>
 
               <div className="text-[10px] text-amber-800/80 dark:text-amber-300/80 leading-snug pt-0.5">
@@ -252,9 +258,9 @@ export function CupMatchCard({
           {tab === 'spiel' && (
             <div className="space-y-3">
               <MarketBlock title="⚽ Erstes Tor" subtitle="Nur reguläre Spielzeit">
-                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'home', homeName, odds.cup_first_goal_home)}
-                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'away', awayName, odds.cup_first_goal_away)}
-                {renderOddsButton('cup_first_goal', 'Wer erzielt das erste Tor?', 'none', 'Kein Tor in 90 Min.', odds.cup_first_goal_none)}
+                {renderOddsButton('cup_first_goal', ml('cup_first_goal'), 'home', sl('cup_first_goal', 'home'), odds.cup_first_goal_home)}
+                {renderOddsButton('cup_first_goal', ml('cup_first_goal'), 'away', sl('cup_first_goal', 'away'), odds.cup_first_goal_away)}
+                {renderOddsButton('cup_first_goal', ml('cup_first_goal'), 'none', sl('cup_first_goal', 'none'), odds.cup_first_goal_none)}
               </MarketBlock>
 
               <MarketBlock title="🤝 Beide treffen" subtitle="Nur reguläre Spielzeit">
@@ -263,9 +269,9 @@ export function CupMatchCard({
               </MarketBlock>
 
               <MarketBlock title="⏱️ In welcher Halbzeit fallen mehr Tore?" subtitle="Alle Tore beider Mannschaften zusammen">
-                {renderOddsButton('cup_ht_more_goals', 'Mehr Tore in welcher Halbzeit?', 'h1', '1. Halbzeit', odds.cup_ht_more_goals_h1)}
-                {renderOddsButton('cup_ht_more_goals', 'Mehr Tore in welcher Halbzeit?', 'h2', '2. Halbzeit', odds.cup_ht_more_goals_h2)}
-                {renderOddsButton('cup_ht_more_goals', 'Mehr Tore in welcher Halbzeit?', 'equal', 'Gleich viele', odds.cup_ht_more_goals_equal)}
+                {renderOddsButton('cup_ht_more_goals', ml('cup_ht_more_goals'), 'h1', sl('cup_ht_more_goals', 'h1'), odds.cup_ht_more_goals_h1)}
+                {renderOddsButton('cup_ht_more_goals', ml('cup_ht_more_goals'), 'h2', sl('cup_ht_more_goals', 'h2'), odds.cup_ht_more_goals_h2)}
+                {renderOddsButton('cup_ht_more_goals', ml('cup_ht_more_goals'), 'equal', sl('cup_ht_more_goals', 'equal'), odds.cup_ht_more_goals_equal)}
               </MarketBlock>
 
               {offeredScorers.length > 0 && (
@@ -285,7 +291,7 @@ export function CupMatchCard({
                         name={g.player_name}
                         position={g.position}
                         oddsValue={g.odds_score}
-                        onClick={() => add('goalscorer', 'Torschütze', String(g.player_id), g.player_name, g.odds_score)}
+                        onClick={() => add('goalscorer', 'Wildenroth-Torschütze', String(g.player_id), g.player_name, g.odds_score)}
                       />
                     ))}
                   </div>

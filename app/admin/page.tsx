@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
-import { oddsColorClass } from '@/lib/betDisplay'
+import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
 
 // Matchday numbers repeat across seasons — without this filter the admin
 // match list (and everything fed by it: "Abgerechnete Spiele", the Spieltag
@@ -1782,7 +1782,10 @@ function selLabel(marketType: string, selection: string, players?: Record<number
     const name = players?.[id] ?? `Spieler #${id}`
     return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
   }
-  return SELECTION_LABELS[selection] ?? selection
+  // Cup markets checked first — SELECTION_LABELS is keyed by selection code
+  // alone, so a cup_comeback_advance 'yes' would otherwise wrongly match
+  // btts's "Beide treffen".
+  return cupSelectionLabel(marketType, selection) ?? SELECTION_LABELS[selection] ?? selection
 }
 
 function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
@@ -1882,7 +1885,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                         <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5 pl-2">
                           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-500' : leg.status === 'void' ? 'bg-gray-300' : 'bg-yellow-400'}`} />
                           <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
-                          <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
+                          <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{CUP_MARKET_LABEL[leg.market_type] ?? MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
                           <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection, playerMap)}</span>
                           <span className={`font-bold ml-auto ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                         </div>
@@ -1893,7 +1896,7 @@ function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
                 return (
                   <div key={bet.id} className="px-4 py-2.5 flex items-center gap-2 text-xs">
                     <span className="text-gray-400">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
-                    <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
+                    <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{CUP_MARKET_LABEL[bet.market_type] ?? MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
                     <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
                     {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
                     <span className={`font-bold ml-auto ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>

@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { fmtWildi, wildiLabel } from '@/components/WildiIcon'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
-import { oddsColorClass } from '@/lib/betDisplay'
+import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
 import type { Match } from '@/types'
 
 export const revalidate = 60
@@ -37,7 +37,10 @@ function selLabel(marketType: string, selection: string, players: Record<number,
     const name = players[id] ?? `Spieler #${id}`
     return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
   }
-  return SEL_LABEL[marketType]?.[selection] ?? selection
+  // Cup markets checked first — SEL_LABEL is keyed by selection code alone,
+  // so a cup_comeback_advance 'yes' would otherwise wrongly match btts's
+  // "Beide treffen".
+  return cupSelectionLabel(marketType, selection) ?? SEL_LABEL[marketType]?.[selection] ?? selection
 }
 
 function fmt(n: number) { return fmtWildi(n) }
@@ -229,7 +232,7 @@ export default async function ErgebnisPage({
                       {bet.is_risky && (
                         <span className="text-[10px] font-semibold text-purple-600 dark:text-purple-400 mr-1">🎲 Risky</span>
                       )}
-                      <span className="text-[10px] text-gray-400 dark:text-gray-500">{MKT_LABEL[bet.market_type] ?? bet.market_type}</span>
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500">{CUP_MARKET_LABEL[bet.market_type] ?? MKT_LABEL[bet.market_type] ?? bet.market_type}</span>
                       <div className="font-semibold text-sm text-gray-900 dark:text-gray-100 mt-0.5">
                         {selLabel(bet.market_type, bet.selection, players)}
                       </div>

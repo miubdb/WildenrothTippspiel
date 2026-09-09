@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus, type WetteLeg } from '@/components/WetteCard'
+import { cupSelectionLabel } from '@/lib/betDisplay'
 
 type Leg = {
   id: number
@@ -58,7 +59,10 @@ function selLabel(marketType: string, selection: string, players?: Record<number
     const name = players?.[id] ?? `Spieler #${id}`
     return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
   }
-  return SEL_LABELS[marketType]?.[selection] ?? selection
+  // Cup markets checked first — their selection codes (e.g. 'yes'/'home')
+  // must never fall through to the generic league SEL_LABELS below (a
+  // cup_comeback_advance 'yes' must not render as btts's "Beide treffen").
+  return cupSelectionLabel(marketType, selection) ?? SEL_LABELS[marketType]?.[selection] ?? selection
 }
 
 function legToWetteLeg(leg: Leg, matchMap: Record<number, { home: string; away: string }>, players?: Record<number, string>): WetteLeg {
