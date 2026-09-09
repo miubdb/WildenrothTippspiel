@@ -28,6 +28,13 @@ export const ODDS_COLUMN: Record<string, Record<string, string>> = {
   // else, so these columns are simply never matched for a normal match.
   cup_advance: { home: 'cup_advance_home', away: 'cup_advance_away' },
   cup_first_goal: { home: 'cup_first_goal_home', away: 'cup_first_goal_away', none: 'cup_first_goal_none' },
+  // The 3 Monte-Carlo-derived cup specials + decision-method market (see
+  // lib/odds.ts#cupSpecialMarketOddsFromXG / lib/cupSimulation.ts) — same
+  // "only ever populated on the one cup fixture's odds row" story as above.
+  cup_decision: { regulation: 'cup_decision_regulation', shootout: 'cup_decision_shootout' },
+  cup_halftime_lead_advance: { yes: 'cup_halftime_lead_advance_yes', no: 'cup_halftime_lead_advance_no' },
+  cup_comeback_advance: { yes: 'cup_comeback_advance_yes', no: 'cup_comeback_advance_no' },
+  cup_shootout_advance: { yes: 'cup_shootout_advance_yes', no: 'cup_shootout_advance_no' },
 }
 
 /**

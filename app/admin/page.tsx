@@ -57,7 +57,7 @@ export default function AdminPage() {
   const [scores, setScores] = useState<Record<number, { home: string; away: string }>>({})
   // Cup-only manual settlement inputs (see app/api/admin/settle/route.ts) —
   // only ever read/sent for a match with competition_type='cup'.
-  const [cupInputs, setCupInputs] = useState<Record<number, { shootoutWinner: string; firstGoalTeam: string }>>({})
+  const [cupInputs, setCupInputs] = useState<Record<number, { shootoutWinner: string; firstGoalTeam: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }>>({})
   const [loading, setLoading] = useState(false)
   const [settleLoading, setSettleLoading] = useState<number | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -278,6 +278,14 @@ export default function AdminPage() {
       setMessage('Unentschieden nach 90 Minuten — bitte zuerst den Elfmeterschießen-Sieger angeben.')
       return
     }
+    if (match?.competition_type === 'cup' && (cup?.halftimeHome === '' || cup?.halftimeHome == null || cup?.halftimeAway === '' || cup?.halftimeAway == null)) {
+      setMessage('Bitte zuerst den Halbzeitstand angeben (für „Wildenroth führt zur Halbzeit & kommt weiter“).')
+      return
+    }
+    if (match?.competition_type === 'cup' && !cup?.awayTeamLed) {
+      setMessage('Bitte zuerst angeben, ob Geiselbullach im Spielverlauf in Führung war.')
+      return
+    }
 
     setSettleLoading(matchId)
     setMessage(null)
@@ -290,6 +298,9 @@ export default function AdminPage() {
         ...(match?.competition_type === 'cup' ? {
           cupShootoutWinner: cup?.shootoutWinner || null,
           cupFirstGoalTeam: cup?.firstGoalTeam || null,
+          cupHalftimeHomeGoals: cup?.halftimeHome !== '' ? parseInt(cup?.halftimeHome ?? '') : null,
+          cupHalftimeAwayGoals: cup?.halftimeAway !== '' ? parseInt(cup?.halftimeAway ?? '') : null,
+          cupAwayTeamLed: cup?.awayTeamLed === 'yes' ? true : cup?.awayTeamLed === 'no' ? false : null,
         } : {}),
       }),
     })
@@ -593,8 +604,8 @@ export default function AdminPage() {
                       match={match}
                       score={scores[match.id] ?? { home: '', away: '' }}
                       onChange={(side, val) => handleScoreChange(match.id, side, val)}
-                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '' }}
-                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '' }), [field]: val } }))}
+                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }}
+                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }), [field]: val } }))}
                       onSettle={() => settleMatch(match.id)}
                       onPostpone={() => postponeMatch(match.id)}
                       loading={settleLoading === match.id}
@@ -646,8 +657,8 @@ export default function AdminPage() {
                       match={match}
                       score={scores[match.id] ?? { home: '', away: '' }}
                       onChange={(side, val) => handleScoreChange(match.id, side, val)}
-                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '' }}
-                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '' }), [field]: val } }))}
+                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }}
+                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }), [field]: val } }))}
                       onSettle={() => settleMatch(match.id)}
                       onPostpone={() => postponeMatch(match.id)}
                       loading={settleLoading === match.id}
@@ -1925,8 +1936,8 @@ function MatchSettleCard({
   match: MatchRow
   score: { home: string; away: string }
   onChange: (side: 'home' | 'away', val: string) => void
-  cupInput?: { shootoutWinner: string; firstGoalTeam: string }
-  onCupInputChange?: (field: 'shootoutWinner' | 'firstGoalTeam', val: string) => void
+  cupInput?: { shootoutWinner: string; firstGoalTeam: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }
+  onCupInputChange?: (field: 'shootoutWinner' | 'firstGoalTeam' | 'halftimeHome' | 'halftimeAway' | 'awayTeamLed', val: string) => void
   onSettle: () => void
   onPostpone?: () => void
   loading: boolean
@@ -2033,6 +2044,40 @@ function MatchSettleCard({
               <option value="away">{match.away_team?.name ?? 'Gast'}</option>
               <option value="none">Kein Tor (0:0)</option>
             </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 flex-shrink-0 w-28">Halbzeitstand:</span>
+            <input
+              type="number" min={0} inputMode="numeric"
+              value={cupInput?.halftimeHome ?? ''}
+              onChange={(e) => onCupInputChange('halftimeHome', e.target.value)}
+              placeholder={match.home_team?.short_name ?? 'Heim'}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1 w-16"
+            />
+            <span className="text-xs text-gray-400">:</span>
+            <input
+              type="number" min={0} inputMode="numeric"
+              value={cupInput?.halftimeAway ?? ''}
+              onChange={(e) => onCupInputChange('halftimeAway', e.target.value)}
+              placeholder={match.away_team?.short_name ?? 'Gast'}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1 w-16"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 flex-shrink-0 w-28">{match.away_team?.short_name ?? 'Gast'} führte:</span>
+            <select
+              value={cupInput?.awayTeamLed ?? ''}
+              onChange={(e) => onCupInputChange('awayTeamLed', e.target.value)}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1 flex-1"
+            >
+              <option value="">— auswählen —</option>
+              <option value="yes">Ja, war irgendwann in Führung</option>
+              <option value="no">Nein, nie in Führung</option>
+            </select>
+          </div>
+          <div className="text-[10px] text-gray-400">
+            Halbzeitstand &amp; &bdquo;{match.away_team?.short_name ?? 'Gast'} führte&ldquo; werden für die
+            Pokal-Spezialmärkte benötigt und müssen vor dem Abrechnen ausgefüllt sein.
           </div>
         </div>
       )}

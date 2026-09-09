@@ -1,4 +1,4 @@
-export type MarketType = '1x2' | 'double_chance' | 'over_under' | 'over_under_3_5' | 'over_under_5_5' | 'over_under_7_5' | 'btts' | 'exact_score' | 'handicap' | 'goalscorer' | 'goalscorer_2plus' | 'cup_advance' | 'cup_first_goal'
+export type MarketType = '1x2' | 'double_chance' | 'over_under' | 'over_under_3_5' | 'over_under_5_5' | 'over_under_7_5' | 'btts' | 'exact_score' | 'handicap' | 'goalscorer' | 'goalscorer_2plus' | 'cup_advance' | 'cup_first_goal' | 'cup_decision' | 'cup_halftime_lead_advance' | 'cup_comeback_advance' | 'cup_shootout_advance'
 
 export type MatchStatus = 'scheduled' | 'live' | 'finished' | 'cancelled' | 'postponed'
 
@@ -42,6 +42,19 @@ export interface Match {
    *  Tor?" market — match_goalscorers has no minute column, so which side
    *  scored first cannot be derived automatically. */
   cup_first_goal_team?: 'home' | 'away' | 'none' | null
+  /** Manual admin settlement input: half-time score, for
+   *  cup_halftime_lead_advance. Null for every league match and unset until
+   *  an admin enters it for a finished cup match. */
+  cup_halftime_home_goals?: number | null
+  cup_halftime_away_goals?: number | null
+  /** Manual admin settlement input: did the AWAY side lead by goals at any
+   *  point during regulation (90 min + stoppage)? Deliberately a plain
+   *  boolean rather than derived from match_goalscorers (see
+   *  lib/odds.ts#cupSpecialMarketOddsFromXG doc / round-2 spec) — this
+   *  dataset has no reliable per-goal minute data to derive "who led when"
+   *  automatically, and a wrong auto-derivation would settle real Wildis
+   *  incorrectly. Only for cup_comeback_advance. */
+  cup_away_team_led?: boolean | null
 }
 
 
@@ -164,4 +177,15 @@ export interface OddsData {
   cup_first_goal_home?: number
   cup_first_goal_away?: number
   cup_first_goal_none?: number
+  /** The 3 Monte-Carlo-derived cup specials (see
+   *  lib/odds.ts#cupSpecialMarketOddsFromXG) plus the decision-method market
+   *  — undefined for every normal league match. */
+  cup_decision_regulation?: number
+  cup_decision_shootout?: number
+  cup_halftime_lead_advance_yes?: number
+  cup_halftime_lead_advance_no?: number
+  cup_comeback_advance_yes?: number
+  cup_comeback_advance_no?: number
+  cup_shootout_advance_yes?: number
+  cup_shootout_advance_no?: number
 }

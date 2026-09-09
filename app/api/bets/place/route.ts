@@ -35,6 +35,10 @@ const MARKET_LABELS: Record<string, string> = {
   goalscorer_2plus: 'Torschütze (mind. 2 Tore)',
   cup_advance: 'Wer kommt weiter?',
   cup_first_goal: 'Wer erzielt das erste Tor?',
+  cup_decision: 'Wie fällt die Entscheidung?',
+  cup_halftime_lead_advance: 'Wildenroth führt zur Halbzeit & kommt weiter',
+  cup_comeback_advance: 'Geiselbullach führt – Wildenroth kommt trotzdem weiter',
+  cup_shootout_advance: 'Elfmeterschießen – Wildenroth kommt weiter',
 }
 
 interface PlaceBetSelection {
@@ -206,20 +210,21 @@ export async function POST(request: NextRequest) {
   }
 
   // Pokal-Spezial (competition_type='cup', see CupMatchCard) intentionally
-  // offers only 4 markets — never the normal 1X2/Doppelte-Chance/Over-Under/
+  // offers only 8 markets — never the normal 1X2/Doppelte-Chance/Over-Under/
   // Handicap/Exact-Score set, even though the standard odds columns on its
   // `odds` row are also populated (the normal per-matchday freeze pipeline
   // computes them as a harmless byproduct; nothing else reads them). The UI
   // never renders those buttons for a cup match, but ODDS_COLUMN validation
   // below is market-agnostic and would otherwise accept a replayed/crafted
   // request for them — reject explicitly here instead of relying on the UI.
-  const CUP_ALLOWED_MARKETS = new Set(['cup_advance', 'cup_first_goal', 'btts', 'goalscorer'])
+  const CUP_ONLY_MARKETS = ['cup_advance', 'cup_first_goal', 'cup_decision', 'cup_halftime_lead_advance', 'cup_comeback_advance', 'cup_shootout_advance']
+  const CUP_ALLOWED_MARKETS = new Set(['btts', 'goalscorer', ...CUP_ONLY_MARKETS])
   const cupMatchIds = new Set(matches.filter(m => m.competition_type === 'cup').map(m => m.id))
   for (const s of selections) {
     if (cupMatchIds.has(s.matchId) && !CUP_ALLOWED_MARKETS.has(s.marketType)) {
       return NextResponse.json({ error: 'Dieser Markt wird für das Pokalspiel nicht angeboten.' }, { status: 400 })
     }
-    if (!cupMatchIds.has(s.matchId) && (s.marketType === 'cup_advance' || s.marketType === 'cup_first_goal')) {
+    if (!cupMatchIds.has(s.matchId) && CUP_ONLY_MARKETS.includes(s.marketType)) {
       return NextResponse.json({ error: 'Dieser Markt ist nur für das Pokalspiel verfügbar.' }, { status: 400 })
     }
   }

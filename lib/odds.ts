@@ -1,4 +1,5 @@
 import type { Match, OddsData, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
+import { simulateCupMatch } from './cupSimulation'
 
 // ---------- Constants ----------
 
@@ -1070,7 +1071,10 @@ export function getFullExactScoreMatrix(homeXG: number, awayXG: number, maxGoals
 // is a conservative, openly-approximate heuristic, not a fitted model.
 const SHOOTOUT_STRENGTH_DIFF_CAP = 0.3
 const SHOOTOUT_TILT_FACTOR = 0.2
-function shootoutHomeWinProb(homeXG: number, awayXG: number): number {
+/** Exported so lib/cupSimulation.ts's Monte Carlo shootout draw uses the
+ *  EXACT same heuristic as the closed-form cup_advance market instead of a
+ *  second, potentially-drifting reimplementation. */
+export function shootoutHomeWinProb(homeXG: number, awayXG: number): number {
   const totalXG = homeXG + awayXG
   if (totalXG <= 0) return 0.5
   const diffRatio = (homeXG - awayXG) / totalXG
@@ -1084,6 +1088,25 @@ export interface CupMarketOdds {
   cup_first_goal_home: number
   cup_first_goal_away: number
   cup_first_goal_none: number
+}
+
+/**
+ * The 3 correlated/path-dependent cup specials (Halbzeitführung & Weiterkommen,
+ * Comeback & Weiterkommen, Elfmeterschießen & Weiterkommen) plus "Wie fällt
+ * die Entscheidung?" (90 Minuten vs. Elfmeterschießen — a simple partition of
+ * cup_advance's own draw probability, no simulation needed for that one).
+ * "home"/"away" match cup_advance's own convention (home = Wildenroth on
+ * match 573). See lib/cupSimulation.ts for the Monte Carlo methodology.
+ */
+export interface CupSpecialMarketOdds {
+  cup_decision_regulation: number
+  cup_decision_shootout: number
+  cup_halftime_lead_advance_yes: number
+  cup_halftime_lead_advance_no: number
+  cup_comeback_advance_yes: number
+  cup_comeback_advance_no: number
+  cup_shootout_advance_yes: number
+  cup_shootout_advance_no: number
 }
 
 /**
@@ -1130,6 +1153,48 @@ export function cupMarketOddsFromXG(homeXG: number, awayXG: number): CupMarketOd
     cup_first_goal_home: toOdds(pFirstHome),
     cup_first_goal_away: toOdds(pFirstAway),
     cup_first_goal_none: toOdds(pNoGoal),
+  }
+}
+
+// Simulation count: 50,000-100,000 was the target range in the spec; 80,000
+// was chosen as the fixed point — comfortably inside a Next.js server route's
+// render budget (benchmarked at well under 100ms in this repo's runtime for
+// this match's xG, negligible next to the rest of the freeze pipeline, which
+// already touches the DB per match) while keeping simulation noise small.
+// Standard error of a simulated probability p over N=80,000 draws is
+// sqrt(p*(1-p)/N); worst case p=0.5 gives ~0.18 percentage points (95% CI
+// ~±0.35pp) — far tighter than the odds are rounded to (2 decimals) or than
+// the underlying xG estimate's own uncertainty, so simulation noise is not a
+// meaningful source of error here.
+export const CUP_SIMULATION_RUNS = 80000
+
+/**
+ * The 3 correlated cup specials, via Monte Carlo match simulation (see
+ * lib/cupSimulation.ts), plus "Wie fällt die Entscheidung?" which is a plain
+ * partition of cup_advance's own 90-minute draw probability and needs no
+ * simulation. Same (homeXG, awayXG) as cupMarketOddsFromXG and every other
+ * market on this fixture — call both from the same xG so they can never
+ * disagree. `numSims` is exposed only for tests (cross-checking against the
+ * closed form at lower run counts); production callers should always use the
+ * default.
+ */
+export function cupSpecialMarketOddsFromXG(
+  homeXG: number,
+  awayXG: number,
+  numSims: number = CUP_SIMULATION_RUNS
+): CupSpecialMarketOdds & { diagnostics: ReturnType<typeof simulateCupMatch> } {
+  const sim = simulateCupMatch(homeXG, awayXG, numSims)
+
+  return {
+    cup_decision_regulation: toOdds(sim.pDecidedIn90),
+    cup_decision_shootout: toOdds(sim.pDecidedInShootout),
+    cup_halftime_lead_advance_yes: toOdds(sim.pHomeHtLeadAndAdvance),
+    cup_halftime_lead_advance_no: toOdds(1 - sim.pHomeHtLeadAndAdvance),
+    cup_comeback_advance_yes: toOdds(sim.pAwayEverLedAndHomeAdvances),
+    cup_comeback_advance_no: toOdds(1 - sim.pAwayEverLedAndHomeAdvances),
+    cup_shootout_advance_yes: toOdds(sim.pShootoutAndHomeAdvances),
+    cup_shootout_advance_no: toOdds(1 - sim.pShootoutAndHomeAdvances),
+    diagnostics: sim,
   }
 }
 

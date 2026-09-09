@@ -44,6 +44,32 @@ export function isAgainstWildenroth(
   // win: Wildenroth can concede the first goal, or the opponent can score at
   // all, and still go on to win the match/advance.
 
+  // Cup-only "Wie fällt die Entscheidung?" — names no side (regulation vs.
+  // shootout is a spectacle detail, not a result), so it's never blocked,
+  // same reasoning as cup_first_goal/btts above.
+  if (marketType === 'cup_decision') {
+    return false
+  }
+
+  // The 3 correlated cup specials (see lib/cupSimulation.ts /
+  // lib/odds.ts#cupSpecialMarketOddsFromXG) are all phrased "home/Wildenroth
+  // advances AND <condition>" for 'yes'. 'yes' strictly requires a Wildenroth
+  // win/advance — never blocked, same as cup_advance's own home-side
+  // selection. 'no' is the general complement: true whenever Wildenroth
+  // fails to advance under that specific path (e.g. a plain non-comeback
+  // win, a regulation loss, a shootout loss) but ALSO true in some scenarios
+  // where Wildenroth wins another way — it does not strictly require a
+  // Wildenroth win, matching the away_plus_*/home_plus_* handicap reasoning
+  // above, so it's blocked unconditionally whenever the match involves
+  // Wildenroth (regardless of home/away side).
+  if (
+    marketType === 'cup_halftime_lead_advance' ||
+    marketType === 'cup_comeback_advance' ||
+    marketType === 'cup_shootout_advance'
+  ) {
+    return selection === 'no'
+  }
+
   if (marketType === 'exact_score') {
     const [h, a] = selection.split(':').map(Number)
     if (!Number.isFinite(h) || !Number.isFinite(a)) return false

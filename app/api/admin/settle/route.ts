@@ -8,13 +8,34 @@ import { cappedPayout } from '@/lib/payout'
 
 /**
  * cupShootoutWinner: 'home'|'away'|null — who won the penalty shootout on a
- * cup match's 90-minute draw (irrelevant/null otherwise). Only consulted for
- * market 'cup_advance'.
+ * cup match's 90-minute draw (irrelevant/null otherwise). Consulted for
+ * 'cup_advance' and the 3 correlated specials below.
  * cupFirstGoalTeam: 'home'|'away'|'none'|null — which side scored first in
  * regular time + stoppage on a cup match (match_goalscorers has no minute
  * column, so this can't be derived automatically). Only consulted for
  * market 'cup_first_goal'.
+ * cupHalftimeHomeGoals/cupHalftimeAwayGoals: manual admin half-time score
+ * input. Only consulted for 'cup_halftime_lead_advance'.
+ * cupAwayTeamLed: manual admin boolean — did the away side lead by goals at
+ * any point in regulation? Only consulted for 'cup_comeback_advance'. See
+ * types/index.ts#cup_away_team_led for why this is a plain manual boolean
+ * rather than derived from match_goalscorers.
+ *
+ * advances(): shared "who actually went through" resolver — the SAME
+ * 90-minute-result-then-shootout logic 'cup_advance' already uses, reused by
+ * every correlated special below so they can never disagree with
+ * 'cup_advance' about who won.
  */
+function cupAdvanceWinner(
+  homeScore: number,
+  awayScore: number,
+  cupShootoutWinner?: 'home' | 'away' | null,
+): 'home' | 'away' | null {
+  if (homeScore > awayScore) return 'home'
+  if (awayScore > homeScore) return 'away'
+  return cupShootoutWinner ?? null
+}
+
 function settleBet(
   marketType: string,
   selection: string,
@@ -22,6 +43,9 @@ function settleBet(
   awayScore: number,
   cupShootoutWinner?: 'home' | 'away' | null,
   cupFirstGoalTeam?: 'home' | 'away' | 'none' | null,
+  cupHalftimeHomeGoals?: number | null,
+  cupHalftimeAwayGoals?: number | null,
+  cupAwayTeamLed?: boolean | null,
 ): 'won' | 'lost' {
   switch (marketType) {
     case 'cup_advance': {
@@ -30,12 +54,46 @@ function settleBet(
       // shootout winner decides. A draw with no shootout winner recorded yet
       // can't be settled correctly — fail safe as 'lost' rather than
       // guessing; the admin must enter the shootout winner before settling.
-      if (homeScore > awayScore) return selection === 'home' ? 'won' : 'lost'
-      if (awayScore > homeScore) return selection === 'away' ? 'won' : 'lost'
-      return selection === cupShootoutWinner ? 'won' : 'lost'
+      const winner = cupAdvanceWinner(homeScore, awayScore, cupShootoutWinner)
+      return selection === winner ? 'won' : 'lost'
     }
     case 'cup_first_goal': {
       return cupFirstGoalTeam != null && selection === cupFirstGoalTeam ? 'won' : 'lost'
+    }
+    case 'cup_decision': {
+      // Unentschieden nach 90 -> Elfmeterschießen entscheidet; sonst 90 Minuten.
+      const decidedInShootout = homeScore === awayScore
+      const won = decidedInShootout ? selection === 'shootout' : selection === 'regulation'
+      return won ? 'won' : 'lost'
+    }
+    case 'cup_halftime_lead_advance': {
+      // "Ja" nur wenn (1) Wildenroth (home) führt zur Halbzeit UND (2)
+      // Wildenroth erreicht anschließend die nächste Runde. Fail-safe: no
+      // half-time score recorded yet -> can't be 'yes', still gradeable as
+      // 'lost' for a 'yes' selection (never silently wins on missing data);
+      // 'no' still settles correctly off the final winner alone in that case
+      // since a missing HT score can never make the "yes" condition true.
+      const winner = cupAdvanceWinner(homeScore, awayScore, cupShootoutWinner)
+      const homeLedAtHt = cupHalftimeHomeGoals != null && cupHalftimeAwayGoals != null &&
+        cupHalftimeHomeGoals > cupHalftimeAwayGoals
+      const yes = homeLedAtHt && winner === 'home'
+      const won = selection === 'yes' ? yes : !yes
+      return won ? 'won' : 'lost'
+    }
+    case 'cup_comeback_advance': {
+      // "Ja": Geiselbullach (away) führte während der regulären Spielzeit
+      // mindestens einmal nach Toren UND Wildenroth (home) kommt trotzdem weiter.
+      const winner = cupAdvanceWinner(homeScore, awayScore, cupShootoutWinner)
+      const yes = (cupAwayTeamLed ?? false) && winner === 'home'
+      const won = selection === 'yes' ? yes : !yes
+      return won ? 'won' : 'lost'
+    }
+    case 'cup_shootout_advance': {
+      // "Ja": Remis nach 90 Minuten UND Wildenroth (home) gewinnt das Elfmeterschießen.
+      const decidedInShootout = homeScore === awayScore
+      const yes = decidedInShootout && cupShootoutWinner === 'home'
+      const won = selection === 'yes' ? yes : !yes
+      return won ? 'won' : 'lost'
     }
     case '1x2': {
       if (homeScore > awayScore && selection === 'home') return 'won'
@@ -138,6 +196,9 @@ export async function POST(request: NextRequest) {
      *  for a normal league match. */
     cupShootoutWinner?: 'home' | 'away' | null
     cupFirstGoalTeam?: 'home' | 'away' | 'none' | null
+    cupHalftimeHomeGoals?: number | null
+    cupHalftimeAwayGoals?: number | null
+    cupAwayTeamLed?: boolean | null
   }
   try {
     body = await request.json()
@@ -145,7 +206,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
 
-  const { matchId, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam } = body
+  const {
+    matchId, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam,
+    cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed,
+  } = body
 
   if (
     typeof matchId !== 'number' ||
@@ -182,6 +246,27 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // cup_halftime_lead_advance needs the half-time score and cup_comeback_advance
+  // needs the manual "Geiselbullach led at some point" boolean — both must be
+  // settled unambiguously (see user spec: never settle a special market that
+  // could later only be interpreted subjectively). Refuse rather than
+  // silently defaulting to "no" for every bet on either market.
+  if (
+    existingMatch?.competition_type === 'cup' &&
+    (cupHalftimeHomeGoals == null || cupHalftimeAwayGoals == null)
+  ) {
+    return NextResponse.json(
+      { error: 'Bitte zuerst den Halbzeitstand angeben (für den Markt „Wildenroth führt zur Halbzeit & kommt weiter“).' },
+      { status: 400 }
+    )
+  }
+  if (existingMatch?.competition_type === 'cup' && cupAwayTeamLed == null) {
+    return NextResponse.json(
+      { error: 'Bitte zuerst angeben, ob Geiselbullach im Spielverlauf in Führung war (für den Markt „Geiselbullach führt – Wildenroth kommt trotzdem weiter“).' },
+      { status: 400 }
+    )
+  }
+
   // Update match
   const { error: matchError } = await supabase
     .from('matches')
@@ -192,6 +277,9 @@ export async function POST(request: NextRequest) {
       ...(existingMatch?.competition_type === 'cup' ? {
         cup_shootout_winner: homeScore === awayScore ? (cupShootoutWinner ?? null) : null,
         cup_first_goal_team: cupFirstGoalTeam ?? null,
+        cup_halftime_home_goals: cupHalftimeHomeGoals,
+        cup_halftime_away_goals: cupHalftimeAwayGoals,
+        cup_away_team_led: cupAwayTeamLed,
       } : {}),
     })
     .eq('id', matchId)
@@ -223,7 +311,7 @@ export async function POST(request: NextRequest) {
   const combosToCheck = new Set<number>()
 
   for (const bet of pendingBets) {
-    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam)
+    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam, cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed)
     let payout = 0
 
     if (result === 'won' && bet.combo_id === null) {
@@ -308,7 +396,7 @@ export async function POST(request: NextRequest) {
   const userLostCount: Record<string, number> = {}
   for (const bet of pendingBets) {
     if (bet.combo_id !== null) continue // combos handled separately below
-    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam)
+    const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam, cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed)
     if (result === 'won') userWonCount[bet.user_id] = (userWonCount[bet.user_id] ?? 0) + 1
     else userLostCount[bet.user_id] = (userLostCount[bet.user_id] ?? 0) + 1
   }

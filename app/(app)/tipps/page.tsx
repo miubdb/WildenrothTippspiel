@@ -8,7 +8,7 @@ import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { MatchdayRecap } from '@/components/MatchdayRecap'
 import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
-import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext, getFullExactScoreMatrix, mergeExactScoreOffers, cupMarketOddsFromXG } from '@/lib/odds'
+import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext, getFullExactScoreMatrix, mergeExactScoreOffers, cupMarketOddsFromXG, cupSpecialMarketOddsFromXG } from '@/lib/odds'
 import { CupMatchCard } from '@/components/CupMatchCard'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
@@ -395,6 +395,16 @@ export default async function TippsPage({
           cup_first_goal_away: Number(row.cup_first_goal_away),
           cup_first_goal_none: Number(row.cup_first_goal_none),
         } : {}),
+        ...(row.cup_decision_regulation != null ? {
+          cup_decision_regulation:       Number(row.cup_decision_regulation),
+          cup_decision_shootout:         Number(row.cup_decision_shootout),
+          cup_halftime_lead_advance_yes: Number(row.cup_halftime_lead_advance_yes),
+          cup_halftime_lead_advance_no:  Number(row.cup_halftime_lead_advance_no),
+          cup_comeback_advance_yes:      Number(row.cup_comeback_advance_yes),
+          cup_comeback_advance_no:       Number(row.cup_comeback_advance_no),
+          cup_shootout_advance_yes:      Number(row.cup_shootout_advance_yes),
+          cup_shootout_advance_no:       Number(row.cup_shootout_advance_no),
+        } : {}),
       }
       if (row.exact_score_odds) {
         exactScoreAutoMap[row.match_id] = row.exact_score_odds as Record<string, number>
@@ -436,6 +446,33 @@ export default async function TippsPage({
           }).eq('match_id', row.match_id)
         }
       }
+      if (row.cup_advance_home != null && row.cup_decision_regulation == null) {
+        // Already-frozen cup row (match 573 froze before the 3 correlated
+        // specials + decision market existed) — backfill ONLY those new
+        // columns via Monte Carlo simulation, from the SAME (homeXG, awayXG)
+        // as the already-frozen cup_advance/cup_first_goal columns above, so
+        // they can never disagree. Never rewrites any already-frozen column.
+        const m = matchdayMatches.find(x => x.id === row.match_id)
+        if (m) {
+          const { homeXG, awayXG } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+          const simResult = cupSpecialMarketOddsFromXG(homeXG, awayXG)
+          const special = {
+            cup_decision_regulation:       simResult.cup_decision_regulation,
+            cup_decision_shootout:         simResult.cup_decision_shootout,
+            cup_halftime_lead_advance_yes: simResult.cup_halftime_lead_advance_yes,
+            cup_halftime_lead_advance_no:  simResult.cup_halftime_lead_advance_no,
+            cup_comeback_advance_yes:      simResult.cup_comeback_advance_yes,
+            cup_comeback_advance_no:       simResult.cup_comeback_advance_no,
+            cup_shootout_advance_yes:      simResult.cup_shootout_advance_yes,
+            cup_shootout_advance_no:       simResult.cup_shootout_advance_no,
+          }
+          Object.assign(oddsMap[row.match_id], special)
+          await adminSupaOdds.from('odds').update({
+            ...special,
+            updated_at: new Date().toISOString(),
+          }).eq('match_id', row.match_id)
+        }
+      }
     }
 
     // Compute + persist odds for any scheduled match not yet frozen
@@ -451,6 +488,21 @@ export default async function TippsPage({
         // persisted) for every normal league match.
         const cupOdds = m.competition_type === 'cup' ? cupMarketOddsFromXG(homeXG, awayXG) : null
         if (cupOdds) Object.assign(odds, cupOdds)
+        // The 3 Monte-Carlo-derived cup specials + decision market (see
+        // lib/odds.ts#cupSpecialMarketOddsFromXG) — same (homeXG, awayXG),
+        // undefined for every normal league match.
+        const cupSpecialSim = m.competition_type === 'cup' ? cupSpecialMarketOddsFromXG(homeXG, awayXG) : null
+        const cupSpecialOdds = cupSpecialSim ? {
+          cup_decision_regulation:       cupSpecialSim.cup_decision_regulation,
+          cup_decision_shootout:         cupSpecialSim.cup_decision_shootout,
+          cup_halftime_lead_advance_yes: cupSpecialSim.cup_halftime_lead_advance_yes,
+          cup_halftime_lead_advance_no:  cupSpecialSim.cup_halftime_lead_advance_no,
+          cup_comeback_advance_yes:      cupSpecialSim.cup_comeback_advance_yes,
+          cup_comeback_advance_no:       cupSpecialSim.cup_comeback_advance_no,
+          cup_shootout_advance_yes:      cupSpecialSim.cup_shootout_advance_yes,
+          cup_shootout_advance_no:       cupSpecialSim.cup_shootout_advance_no,
+        } : null
+        if (cupSpecialOdds) Object.assign(odds, cupSpecialOdds)
         oddsMap[m.id] = odds
         // Standard markets above always use the model's own xG. The exact-score
         // grid uses the match-specific override when one exists (see comment above).
@@ -492,6 +544,7 @@ export default async function TippsPage({
           hdp_home_plus_2_5:  odds.hdp_home_plus_2_5,
           exact_score_odds: exactGrid,
           ...(cupOdds ?? {}),
+          ...(cupSpecialOdds ?? {}),
         }, { onConflict: 'match_id' })
         await persistOddsDiagnostics(adminSupaOdds, m.id, 'freeze', diagnostics)
       }
