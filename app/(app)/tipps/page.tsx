@@ -16,7 +16,7 @@ import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type Goalscorer
 import Link from 'next/link'
 import { TeamLogo } from '@/components/TeamLogo'
 import { wildiLabel } from '@/components/WildiIcon'
-import { oddsColorClass } from '@/lib/betDisplay'
+import { oddsColorClass, cupSelectionLabel } from '@/lib/betDisplay'
 import { cappedPayout } from '@/lib/payout'
 
 export const revalidate = 60
@@ -42,7 +42,10 @@ function socialSelLabel(marketType: string, selection: string, players?: Record<
     const name = players?.[id] ?? `Spieler #${id}`
     return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
   }
-  return SELECTION_DISPLAY[marketType]?.[selection] ?? selection
+  // Cup markets checked first — SELECTION_DISPLAY is keyed by selection code
+  // alone, so a cup_comeback_advance 'yes' would otherwise wrongly match
+  // btts's "Beide treffen".
+  return cupSelectionLabel(marketType, selection) ?? SELECTION_DISPLAY[marketType]?.[selection] ?? selection
 }
 
 export default async function TippsPage({
