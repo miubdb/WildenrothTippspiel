@@ -69,3 +69,33 @@ export function isCupMarket(marketType: string): boolean {
 export function cupSelectionLabel(marketType: string, selection: string): string | undefined {
   return CUP_SELECTION_LABEL[marketType]?.[selection]
 }
+
+/** Compact market prefixes for the single-line "Alle Tipps" social view
+ *  (app/(app)/tipps/page.tsx) — there's no room there for CUP_MARKET_LABEL's
+ *  full titles next to the selection, but a bare selection like "Nein"/"Ja"/
+ *  "Wildenroth" is ambiguous across the several yes/no and team-name cup
+ *  markets (e.g. "Nein" alone doesn't say whether it's HZ-Führung, Comeback,
+ *  Elfmeterschießen or Frühes Tor). Short, and placed FIRST so it survives
+ *  CSS text-truncate (which cuts from the right) even when the full label
+ *  doesn't fit. */
+const CUP_MARKET_LABEL_SHORT: Record<string, string> = {
+  cup_advance: 'Weiter',
+  cup_decision: 'Entsch.',
+  cup_halftime_lead_advance: 'HZ-Führung',
+  cup_comeback_advance: 'Comeback',
+  cup_shootout_advance: '11m & Weiter',
+  cup_first_goal: '1. Tor',
+  cup_early_goal: 'Frühes Tor',
+  cup_ht_more_goals: 'Mehr Tore',
+  cup_both_halves_btts: 'Beide HZ',
+}
+
+/** "{kurzer Markt}: {Auswahl}" for cup markets, e.g. "HZ-Führung: Nein" —
+ *  undefined for non-cup markets (callers fall back to their own generic
+ *  label map, which is unambiguous on its own for league markets). */
+export function cupSocialLabel(marketType: string, selection: string): string | undefined {
+  const prefix = CUP_MARKET_LABEL_SHORT[marketType]
+  const sel = cupSelectionLabel(marketType, selection)
+  if (!prefix || !sel) return undefined
+  return `${prefix}: ${sel}`
+}
