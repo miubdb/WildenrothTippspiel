@@ -42,7 +42,7 @@ export interface SectionDef {
 }
 
 const MARKET_OPTIONS = [
-  '1X2', 'Sieger', 'Doppelte Chance', 'Über', 'Unter', 'Handicap',
+  '1X2 / Sieger', 'Doppelte Chance', 'Über / Unter', 'Handicap',
   'Genaues Ergebnis', 'Beide Teams treffen', 'Torschützen', 'Kombiwetten', 'Spezialwetten',
 ]
 
@@ -74,7 +74,7 @@ export const SURVEY_SECTIONS: SectionDef[] = [
     questions: [
       {
         id: 'q4', type: 'single', required: true,
-        text: 'Wärst du grundsätzlich bereit, wie beim anderen Wildenroth-Tippspiel ein kleines Startgeld zu zahlen, wenn dafür am Saisonende richtige Preise ausgeschüttet werden?',
+        text: 'Wärst du grundsätzlich bereit, wie beim anderen Wildenroth-Tippspiel, ein kleines Startgeld zu zahlen, wenn dafür am Saisonende richtige Preise ausgeschüttet werden?',
         options: ['Ja', 'Nein', 'Kommt auf die Höhe an'],
       },
       {
@@ -97,7 +97,7 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       {
         id: 'q7', type: 'multi', required: true, maxSelect: 2,
         text: 'Welche Preise fändest du am attraktivsten?',
-        options: ['Bargeld', 'Gutschein', 'Wildenroth-Merchandise', 'witziges Vereins-Merch', 'Pokal', 'Trophäe', 'Sachpreise', 'Ist mir eigentlich egal'],
+        options: ['Bargeld', 'Gutschein', 'Wildenroth-Merchandise / witziges Vereins-Merch', 'Pokal / Trophäe', 'Sachpreise', 'Ist mir eigentlich egal'],
       },
       {
         id: 'q8', type: 'single', required: true,
@@ -141,24 +141,24 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       },
       {
         id: 'q13', type: 'single', required: true,
-        text: 'Die Risky-Wette benötigt aktuell mindestens Gesamtquote 20. Wie findest du die Grenze?',
+        text: 'Die Risky-Wette benötigt aktuell eine Gesamtquote von mindestens 20. Wie findest du diese Grenze?',
         options: ['Zu niedrig', 'Genau richtig', 'Zu hoch', 'Ist mir egal'],
         visible: (a) => a.q12 !== 'Könnte für mich weg',
       },
       {
         id: 'q14', type: 'single', required: true,
-        text: 'War dir bewusst, dass es pro Wettschein eine maximale Auszahlung gibt?',
+        text: 'War dir bewusst, dass es pro Wettschein eine maximale Auszahlung gibt (aktuell 10.000 Wildis, bei einer Risky-Wette 15.000 Wildis)?',
         options: ['Ja', 'Nein'],
       },
       {
         id: 'q14_follow', type: 'single', required: true,
-        text: 'Wie findest du einen solchen maximalen Auszahlungsdeckel grundsätzlich?',
+        text: 'Wie findest du diesen Auszahlungsdeckel grundsätzlich?',
         options: ['Sollte niedriger sein', 'Passt', 'Sollte höher sein', 'Sollte es gar nicht geben'],
         visible: (a) => a.q14 === 'Ja',
       },
       {
         id: 'q15', type: 'single', required: true,
-        text: 'Aktuell gibt es regelmäßig 10 Wildis Taschengeld. Wie findest du die Höhe?',
+        text: 'Nach jedem Spieltag gibt es jeden Montag automatisch 10 Wildis Taschengeld – auch damit Spieler ohne Guthaben weiterspielen können. Wie findest du die Höhe?',
         options: ['Zu wenig', 'Passt', 'Zu viel', 'Ist mir egal'],
       },
       {
@@ -182,7 +182,7 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       },
       {
         id: 'q18', type: 'single', required: true,
-        text: 'Wie stehst du dazu, wenn Spieler auf Märkte wetten könnten, die sie theoretisch selbst beeinflussen können – z. B. eigenes Tor, Karten oder bestimmte Über-/Unter-Märkte?',
+        text: 'Wie stehst du dazu, wenn Spieler auf Märkte wetten könnten, die sie theoretisch selbst beeinflussen können – z. B. eigenes Tor oder bestimmte Über-/Unter-Märkte?',
         options: [
           'Sehe ich kein Problem', 'Manche Märkte sollte man für beteiligte Spieler sperren',
           'Solche Märkte sollten für beteiligte Spieler grundsätzlich gesperrt sein', 'Ist mir egal',

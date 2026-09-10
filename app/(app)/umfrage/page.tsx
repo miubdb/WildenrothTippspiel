@@ -78,20 +78,33 @@ export default function UmfragePage() {
     setStarted(true)
   }
 
+  // The app's actual scroll container is <main id="app-main"> (overflow-y-auto),
+  // not necessarily window/document — on some engines a flex child with
+  // overflow-y-auto doesn't get a bounded height and the window scrolls
+  // instead. Reset every possible scroll container (same set as
+  // components/ScrollToTopOnNavigate.tsx) so whichever one actually scrolled
+  // snaps back to the top when moving between sections.
+  function scrollToTop() {
+    document.getElementById('app-main')?.scrollTo({ top: 0, behavior: 'smooth' })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+  }
+
   async function goNext() {
     const section = SURVEY_SECTIONS[sectionIdx]
     if (!isSectionComplete(section, answers)) return
     await save('save')
     if (sectionIdx < SURVEY_SECTIONS.length - 1) {
       setSectionIdx((i) => i + 1)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      scrollToTop()
     }
   }
 
   function goBack() {
     if (sectionIdx > 0) {
       setSectionIdx((i) => i - 1)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      scrollToTop()
     }
   }
 
