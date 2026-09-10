@@ -61,6 +61,10 @@ export async function GET() {
     settings: {
       surveyMode: settings.get('survey_mode') ?? 'hidden',
       allowReset: settings.get('survey_admin_allow_reset') === 'true',
+      // UI-only signal so the button can be disabled/explained proactively —
+      // the POST /reset_all handler enforces this itself server-side
+      // regardless of what the client shows or sends.
+      isProduction: process.env.VERCEL_ENV === 'production',
     },
     overview,
     perQuestion,
@@ -101,6 +105,22 @@ export async function POST(req: Request) {
   }
 
   if (action === 'reset_all') {
+    // Two independent server-side gates, both required — this can never be
+    // bypassed by hiding/disabling the button client-side alone:
+    // 1) survey_admin_allow_reset must be explicitly 'true' (admin toggle,
+    //    per-environment via app_settings — same DB row on every
+    //    environment, so this alone doesn't distinguish integration/main).
+    // 2) VERCEL_ENV must NOT be 'production' — main's Vercel Production
+    //    Deployment is the only surface where this matters (see CLAUDE.md
+    //    "Branch- und Deployment-Strategie": main → Production, integration
+    //    → Preview). Undefined VERCEL_ENV (e.g. local dev) is treated as
+    //    non-production, matching how this repo is normally run.
+    if (process.env.VERCEL_ENV === 'production') {
+      return NextResponse.json(
+        { error: 'Bulk-Reset ist in der Produktionsumgebung deaktiviert.' },
+        { status: 403 }
+      )
+    }
     const { data: allowSetting } = await admin.from('app_settings').select('value').eq('key', 'survey_admin_allow_reset').maybeSingle()
     if (allowSetting?.value !== 'true') {
       return NextResponse.json({ error: 'Bulk-Reset ist deaktiviert (survey_admin_allow_reset = false).' }, { status: 403 })

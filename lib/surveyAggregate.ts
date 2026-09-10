@@ -4,7 +4,7 @@
 // rows passed in. Kept in its own file (rather than inline in the API route)
 // so the per-question / cross-tab math is easy to unit-reason-about and to
 // reuse between the aggregate endpoint and the CSV export if needed.
-import { ALL_QUESTIONS, QUESTION_BY_ID, type Answers, type QuestionDef } from './survey'
+import { ALL_QUESTIONS, QUESTION_BY_ID, isQuestionVisible, type Answers, type QuestionDef } from './survey'
 
 export interface SurveyRow {
   user_id: string
@@ -32,13 +32,32 @@ function median(nums: number[]): number | null {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
 }
 
+function isAnswerPresent(qid: string, answers: Answers): boolean {
+  const v = answers[qid]
+  if (Array.isArray(v)) return v.length > 0
+  if (typeof v === 'number') return !Number.isNaN(v)
+  return typeof v === 'string' && v.trim().length > 0
+}
+
 function answeredRows(qid: string, rows: SurveyRow[]) {
-  return rows.filter((r) => {
-    const v = r.answers[qid]
-    if (Array.isArray(v)) return v.length > 0
-    if (typeof v === 'number') return !Number.isNaN(v)
-    return typeof v === 'string' && v.trim().length > 0
-  })
+  return rows.filter((r) => isAnswerPresent(qid, r.answers))
+}
+
+/**
+ * Rows for which `q` was actually shown given jump logic (evaluated against
+ * that row's OWN final answers — e.g. q13 is "visible" for a row exactly
+ * when that row's q12 ≠ 'Könnte für mich weg'). This is the denominator every
+ * per-question stat must use, NOT "rows with a non-empty answer" — a
+ * required-when-visible question (q5, q6, q13, q14_follow, q21_follow) is
+ * always answered when visible, so this coincides with answeredRows() for
+ * those, but computing it from visibility directly (rather than inferring
+ * visibility from "has a value") is correct even if a client ever left a
+ * stale answer behind after changing an earlier answer, and it lets optional
+ * conditional free-text questions report a real response rate instead of
+ * conflating "wasn't shown" with "was shown but skipped".
+ */
+function visibleRows(q: QuestionDef, rows: SurveyRow[]) {
+  return rows.filter((r) => isQuestionVisible(q, r.answers))
 }
 
 export interface SingleChoiceStat {
@@ -49,11 +68,16 @@ export interface SingleChoiceStat {
 }
 
 function singleChoiceStats(q: QuestionDef, rows: SurveyRow[]): SingleChoiceStat {
-  const answered = answeredRows(q.id, rows)
-  const total = answered.length
+  // total = rows for which this question was actually shown (see
+  // visibleRows doc) — e.g. q13's total is "everyone for whom q12 ≠ 'Könnte
+  // für mich weg'", never the full submitted-response count, so a
+  // conditional question's option percentages are relative to the group it
+  // was actually asked of.
+  const visible = visibleRows(q, rows)
+  const total = visible.length
   const counts = new Map<string, number>()
   for (const opt of q.options ?? []) counts.set(opt, 0)
-  for (const r of answered) {
+  for (const r of visible) {
     const v = r.answers[q.id]
     if (typeof v === 'string') counts.set(v, (counts.get(v) ?? 0) + 1)
   }
@@ -78,9 +102,11 @@ export interface ScaleStat {
 }
 
 function scaleStats(q: QuestionDef, rows: SurveyRow[]): ScaleStat {
-  const answered = answeredRows(q.id, rows)
-  const nums = answered.map((r) => r.answers[q.id] as number).filter((n) => typeof n === 'number')
-  const total = nums.length
+  // total = rows for which this question was shown (see visibleRows doc),
+  // not just rows with a numeric value — same reasoning as singleChoiceStats.
+  const visible = visibleRows(q, rows)
+  const nums = visible.map((r) => r.answers[q.id]).filter((n): n is number => typeof n === 'number')
+  const total = visible.length
   const min = q.scaleMin ?? 1
   const max = q.scaleMax ?? 5
   const distMap = new Map<number, number>()
@@ -126,11 +152,22 @@ function multiStats(q: QuestionDef, rows: SurveyRow[]): MultiStat {
 }
 
 export interface FreetextEntry { userId: string; user: string; answer: string; date: string }
-export interface FreetextStat { questionId: string; text: string; entries: FreetextEntry[] }
+export interface FreetextStat {
+  questionId: string
+  text: string
+  entries: FreetextEntry[]
+  /** Rows this (always-optional) question was actually shown to — lets the
+   *  admin see a real response rate (entries.length / visibleCount) instead
+   *  of conflating "question wasn't shown" with "shown but left blank". For
+   *  an unconditionally-visible free-text question this equals the total
+   *  submitted-response count. */
+  visibleCount: number
+}
 
 function freetextStats(q: QuestionDef, rows: SurveyRow[], profileMap: Map<string, ProfileLite>): FreetextStat {
+  const visible = visibleRows(q, rows)
   const entries: FreetextEntry[] = []
-  for (const r of rows) {
+  for (const r of visible) {
     const v = r.answers[q.id]
     if (typeof v === 'string' && v.trim().length > 0) {
       const p = profileMap.get(r.user_id)
@@ -143,7 +180,7 @@ function freetextStats(q: QuestionDef, rows: SurveyRow[], profileMap: Map<string
     }
   }
   entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-  return { questionId: q.id, text: q.text, entries }
+  return { questionId: q.id, text: q.text, entries, visibleCount: visible.length }
 }
 
 export type QuestionStat =

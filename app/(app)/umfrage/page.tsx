@@ -152,9 +152,9 @@ export default function UmfragePage() {
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-5 py-4 text-sm text-gray-600 dark:text-gray-300 space-y-2">
           <p>
-            Dein Feedback hilft uns, das Wettspiel weiterzuentwickeln. Die Antworten werden vertraulich
-            behandelt und nicht öffentlich einzelnen Personen zugeordnet. Die Umfrage dauert ungefähr
-            4–6 Minuten.
+            Deine Antworten werden ausschließlich zur Weiterentwicklung des Tippspiels verwendet und
+            sind für andere Teilnehmer nicht sichtbar. Freitextangaben sind freiwillig. Die Umfrage
+            dauert ungefähr 4–6 Minuten.
           </p>
         </div>
         <button

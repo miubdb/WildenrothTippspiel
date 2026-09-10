@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { SURVEY_SECTIONS, visibleQuestionsForAnswers, type Answers } from '@/lib/survey'
+import { SURVEY_SECTIONS, SURVEY_VERSION, visibleQuestionsForAnswers, type Answers } from '@/lib/survey'
 import type {
   SurveyOverview, QuestionStat, SurveyCrossTabs, SingleChoiceStat, ScaleStat, MultiStat, FreetextStat,
 } from '@/lib/surveyAggregate'
@@ -17,7 +17,7 @@ interface Participant {
 }
 
 interface SurveyData {
-  settings: { surveyMode: string; allowReset: boolean }
+  settings: { surveyMode: string; allowReset: boolean; isProduction: boolean }
   overview: SurveyOverview
   perQuestion: QuestionStat[]
   crossTabs: SurveyCrossTabs
@@ -259,15 +259,20 @@ export function SurveyTab() {
       <div className="border border-red-200 rounded-2xl p-4 bg-red-50">
         <h4 className="font-bold text-red-800 mb-1 text-sm">Testphase — Alle Antworten löschen</h4>
         <p className="text-xs text-red-700 mb-3">
-          Löscht alle Umfrageantworten der Version winter_2026_v1 unwiderruflich. Nur für die Testphase gedacht —
+          Löscht alle Umfrageantworten der Version {SURVEY_VERSION} unwiderruflich. Nur für die Testphase gedacht —
           über „Bulk-Reset erlaubt&rdquo; oben deaktivierbar, bevor die Winterpause beginnt.
         </p>
+        {settings.isProduction && (
+          <p className="text-xs font-semibold text-red-800 mb-3">
+            ⚠️ Auf Production (main) ist der Bulk-Reset immer gesperrt, unabhängig vom Schalter oben — Schutz gegen versehentliches Löschen echter Antworten.
+          </p>
+        )}
         <button
           onClick={() => setConfirmResetAll(true)}
-          disabled={!settings.allowReset || busy}
+          disabled={!settings.allowReset || settings.isProduction || busy}
           className="w-full py-2.5 bg-red-700 hover:bg-red-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors text-sm"
         >
-          {settings.allowReset ? 'Alle Testantworten löschen' : 'Bulk-Reset deaktiviert'}
+          {settings.isProduction ? 'Auf Production gesperrt' : settings.allowReset ? 'Alle Testantworten löschen' : 'Bulk-Reset deaktiviert'}
         </button>
       </div>
 
@@ -287,7 +292,7 @@ export function SurveyTab() {
       {confirmResetAll && (
         <ConfirmDialog
           title="Wirklich alle Antworten löschen?"
-          text="Wirklich alle Antworten der Umfrage winter_2026_v1 löschen?"
+          text={`Wirklich alle Antworten der Umfrage ${SURVEY_VERSION} löschen?`}
           confirmLabel="Alle löschen"
           busy={busy}
           onCancel={() => setConfirmResetAll(false)}
@@ -397,7 +402,9 @@ function FreetextBlock({ stat }: { stat: FreetextStat }) {
   return (
     <div>
       <div className="text-sm font-semibold text-gray-800 mb-1.5">{stat.text}</div>
-      <div className="text-[11px] text-gray-400 mb-1.5">{stat.entries.length} Antworten (freiwillig)</div>
+      <div className="text-[11px] text-gray-400 mb-1.5">
+        {stat.entries.length} Antworten (freiwillig) · Frage war für {stat.visibleCount} Teilnehmer sichtbar
+      </div>
       {stat.entries.length === 0 ? (
         <p className="text-xs text-gray-400 italic">Keine Antworten.</p>
       ) : (

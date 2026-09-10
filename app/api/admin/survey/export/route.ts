@@ -4,9 +4,21 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { SURVEY_VERSION, ALL_QUESTIONS, visibleQuestionsForAnswers } from '@/lib/survey'
 import type { Answers } from '@/lib/survey'
 
+// Formula-injection guard: a cell starting with =, +, -, or @ is executed as
+// a formula by Excel/LibreOffice/Google Sheets when the file is opened — a
+// free-text answer like "=HYPERLINK(...)" or "+cmd|...!A1" must never reach
+// the file verbatim. Prefixing with a leading apostrophe is the standard
+// mitigation (OWASP CSV Injection): every affected app treats a leading `'`
+// as "force text" and never renders it as part of the visible value.
+const FORMULA_TRIGGER_CHARS = ['=', '+', '-', '@']
+function neutralizeFormula(v: string): string {
+  return FORMULA_TRIGGER_CHARS.includes(v[0]) ? `'${v}` : v
+}
+
 function csvEscape(v: string): string {
-  if (/[",\n;]/.test(v)) return `"${v.replace(/"/g, '""')}"`
-  return v
+  const safe = neutralizeFormula(v)
+  if (/[",\n;]/.test(safe)) return `"${safe.replace(/"/g, '""')}"`
+  return safe
 }
 
 function answerToText(v: Answers[string]): string {
