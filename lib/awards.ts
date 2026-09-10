@@ -40,7 +40,7 @@ export const AWARD_META: Record<AwardType, { title: string; icon: string; descri
   // Spieltagskönig-flavored story (several legs contributing), so scoping
   // this to single bets keeps it a genuinely different category instead of
   // usually crowning the same person as Spieltagskönig for the same reason.
-  grosser_wurf:        { icon: '💰', title: 'Großer Wurf',           description: 'Höchster Gewinn mit einer Einzelwette am Spieltag' },
+  grosser_wurf:        { icon: '🎯', title: 'Volltreffer',           description: 'Höchster Gewinn mit einer Einzelwette am Spieltag' },
   torschuetzen_koenig: { icon: '⚽', title: 'Torschützen-König',     description: 'Meiste richtige Torschützen-Tipps am Spieltag' },
   last_minute_tipper:  { icon: '⏱️', title: 'Last-Minute-Tipper',   description: 'Gewonnene Wette, weniger als 1 Std. vor Anpfiff platziert' },
 }
@@ -103,7 +103,13 @@ export async function computeAndPersistMatchdayAwards(
   admin: SupabaseClient,
   season: string,
   matchday: number,
-  matchIds: number[]
+  matchIds: number[],
+  // Scopes persistence to exactly these award types — every category is
+  // still computed (cheap, no side effects), but only these get written.
+  // Used by the admin backfill route to add newly-introduced categories to
+  // already-settled Spieltage WITHOUT touching (deleting/reinserting) the
+  // original 7 awards' already-persisted rows for those same Spieltage.
+  onlyTypes?: AwardType[]
 ): Promise<number> {
   if (matchday === 999 || matchIds.length === 0) return 0
 
@@ -355,6 +361,7 @@ export async function computeAndPersistMatchdayAwards(
     })
   }
 
-  await persistAwards(admin, season, matchday, awardInputs)
-  return awardInputs.length
+  const toPersist = onlyTypes ? awardInputs.filter(a => onlyTypes.includes(a.award_type)) : awardInputs
+  await persistAwards(admin, season, matchday, toPersist)
+  return toPersist.length
 }

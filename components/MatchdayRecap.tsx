@@ -277,13 +277,13 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
         </div>
       )}
 
-      {/* Row 4: Großer Wurf + Torschützen-König + Last-Minute-Tipper */}
+      {/* Row 4: Volltreffer + Torschützen-König + Last-Minute-Tipper */}
       {(grosserWurf || torschuetzenKoenig || lastMinuteTipper) && (
         <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
           {grosserWurf && (
             <HighlightCard
-              emoji="💰"
-              title="Großer Wurf"
+              emoji="🎯"
+              title="Volltreffer"
               name={grosserWurf.name}
               value={<>+{fmtAmt(grosserWurf.amount)} <WildiIcon size={20} /></>}
               detail="Höchster Gewinn mit einer Einzelwette am Spieltag"

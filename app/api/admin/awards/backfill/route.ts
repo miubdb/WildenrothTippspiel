@@ -2,19 +2,29 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildEffectiveMatchdayIndex, recapMatchdayOf } from '@/lib/season'
-import { computeAndPersistMatchdayAwards } from '@/lib/awards'
+import { computeAndPersistMatchdayAwards, type AwardType } from '@/lib/awards'
 import type { Match } from '@/types'
 
 const SEASON_START = '2026-08-01'
 const CURRENT_SEASON = '26/27'
 
+// The 3 categories added after go-live — deliberately scoped so this route
+// only ever backfills THESE, never the original 7. computeAndPersistMatchdayAwards
+// still computes every category internally (cheap), but onlyTypes restricts
+// what actually gets persisted — persistAwards' delete-then-reinsert step
+// only touches (season, matchday, award_type) rows for types present in what
+// it's given, so the original 7 awards' already-persisted rows are never
+// deleted or recomputed by this route.
+const BACKFILL_ONLY_TYPES: AwardType[] = ['grosser_wurf', 'torschuetzen_koenig', 'last_minute_tipper']
+
 /**
- * Admin-only manual trigger: recomputes and persists ALL awards (including
- * the 3 added after go-live — grosser_wurf, torschuetzen_koenig,
- * zocker_des_spieltags) for every past recap-Spieltag of the current season
- * that has at least one settled (won/lost) bet. Safe to re-run —
+ * Admin-only manual trigger: persists the 3 new award categories (added
+ * after go-live) for every past recap-Spieltag of the current season that
+ * has at least one settled (won/lost) bet. Never touches the original 7
+ * awards — see BACKFILL_ONLY_TYPES above. Safe to re-run for these 3 —
  * persistAwards deletes-then-reinserts per (season, matchday, award_type),
- * so this can't duplicate or disturb the existing 7 awards' winners.
+ * so re-running can't duplicate a winner, only correct it if underlying
+ * data changed.
  */
 export async function POST() {
   const supabase = await createClient()
@@ -71,7 +81,7 @@ export async function POST() {
 
   for (const [matchday, matchIds] of matchIdsByRecapMd) {
     if (!matchIds.some((id) => settledMatchIds.has(id))) continue
-    const written = await computeAndPersistMatchdayAwards(admin, CURRENT_SEASON, matchday, matchIds)
+    const written = await computeAndPersistMatchdayAwards(admin, CURRENT_SEASON, matchday, matchIds, BACKFILL_ONLY_TYPES)
     processedMatchdays.push(matchday)
     totalAwardsWritten += written
   }
