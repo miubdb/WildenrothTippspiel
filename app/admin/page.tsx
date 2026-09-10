@@ -610,7 +610,7 @@ export default function AdminPage() {
 
             {/* Tipps — accordion (moved up front: seeing today's bets at a
                 glance is the admin's primary daily use case) */}
-            <TippsAccordion matches={matches} />
+            <TippsAccordion matches={matches} mdIndex={mdIndex} currentMatchday={currentMatchday} />
 
             {/* B-Klasse Topspiel selection */}
             {(() => {
@@ -1023,7 +1023,7 @@ function VerwaltungSection({
   )
 }
 
-function TippsAccordion({ matches }: { matches: MatchRow[] }) {
+function TippsAccordion({ matches, mdIndex, currentMatchday }: { matches: MatchRow[]; mdIndex: EffectiveMatchdayIndex; currentMatchday: number | null }) {
   // Defaults open — seeing today's bets at a glance is the admin's primary
   // daily use case, so it shouldn't require a click after a page load. Still
   // collapsible for when it's not needed.
@@ -1041,7 +1041,7 @@ function TippsAccordion({ matches }: { matches: MatchRow[] }) {
       </button>
       {open && (
         <div className="px-4 pb-4 border-t border-gray-50">
-          <AdminBetsTab matches={matches} />
+          <AdminBetsTab matches={matches} mdIndex={mdIndex} currentMatchday={currentMatchday} />
         </div>
       )}
     </div>
@@ -1860,10 +1860,28 @@ function selLabel(marketType: string, selection: string, players?: Record<number
   return cupSelectionLabel(marketType, selection) ?? SELECTION_LABELS[selection] ?? selection
 }
 
-function AdminBetsTab({ matches }: { matches: MatchRow[] }) {
-  const allMatchdays = [...new Set(matches.map(m => m.matchday))].sort((a, b) => a - b)
-  const firstScheduled = matches.find(m => m.status === 'scheduled')?.matchday
-  const [selectedMd, setSelectedMd] = useState<number>(firstScheduled ?? allMatchdays[allMatchdays.length - 1] ?? 1)
+function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow[]; mdIndex: EffectiveMatchdayIndex; currentMatchday: number | null }) {
+  // Effective (not raw) matchday numbers — /api/admin/bets filters by
+  // effectiveMatchdayOf, so the picker buttons and the fetched data must use
+  // the same numbering, or a rescheduled match's raw matchday could pick a
+  // button that silently fetches the wrong (or empty) Spieltag's bets.
+  const allMatchdays = [...new Set(
+    matches.map(m => effectiveMatchdayOf(m as unknown as Match, mdIndex)).filter((md): md is number => md !== null)
+  )].sort((a, b) => a - b)
+  // matches (and therefore currentMatchday) is still empty on this
+  // component's very first render — the parent fetches it async and there's
+  // no loading gate before <TippsAccordion> mounts — so a plain useState
+  // initializer would freeze at the "1"/last-matchday fallback forever, even
+  // once currentMatchday later becomes available. Same guarded-effect
+  // pattern as the parent's mdFilter (B3): sync once when currentMatchday
+  // first arrives, never again after that so a manual pick always wins.
+  const [selectedMd, setSelectedMd] = useState<number>(currentMatchday ?? allMatchdays[allMatchdays.length - 1] ?? 1)
+  const [selectedMdInitialized, setSelectedMdInitialized] = useState(currentMatchday != null)
+  useEffect(() => {
+    if (selectedMdInitialized || currentMatchday == null) return
+    setSelectedMd(currentMatchday)
+    setSelectedMdInitialized(true)
+  }, [currentMatchday, selectedMdInitialized])
   const [bets, setBets] = useState<{ id: string; user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; is_risky: boolean; stake: number | null }[]>([])
   const [profiles, setProfiles] = useState<{ id: string; display_name: string | null; username: string }[]>([])
   const [matchMap, setMatchMap] = useState<Record<number, { home: string; away: string }>>({})
