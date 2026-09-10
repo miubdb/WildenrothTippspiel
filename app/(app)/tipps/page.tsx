@@ -117,6 +117,7 @@ export default async function TippsPage({
   // account for that by hand. A Spieltag without an explicit entry falls back
   // to the dynamic computation unchanged.
   const explicitBettingOpens = parseBettingOpenOverrides(appSettings)
+  const surveyMode = appSettings.get('survey_mode') ?? 'hidden'
 
   const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
     ...m,
@@ -1329,6 +1330,24 @@ export default async function TippsPage({
           <span>☀️</span>
           <span><strong>Sommerpause</strong> — wir kommen bald wieder!</span>
         </div>
+      )}
+
+      {/* Prominent survey banner — only rendered once app_settings.survey_mode
+          is switched to 'prominent' (currently 'help_only', see CLAUDE.md /
+          the survey feature spec). Built now so flipping the config flag
+          alone is enough later. */}
+      {surveyMode === 'prominent' && (
+        <Link
+          href="/umfrage"
+          className="block bg-gradient-to-br from-amber-500 to-amber-600 text-white rounded-2xl px-5 py-4 shadow-sm"
+        >
+          <div className="font-bold text-sm leading-snug">
+            📣 Halbzeit! Hilf mit, das Wildenroth-Wettspiel für die Rückrunde und nächste Saison zu verbessern.
+          </div>
+          <div className="mt-2 inline-block bg-white/20 rounded-lg px-3 py-1.5 text-sm font-bold">
+            Umfrage starten →
+          </div>
+        </Link>
       )}
 
       {/* Matchday Header */}

@@ -1,9 +1,28 @@
 import Link from 'next/link'
 import { HelpAccordion } from '@/components/HelpAccordion'
+import { createClient } from '@/lib/supabase/server'
+import { SURVEY_VERSION } from '@/lib/survey'
 
 export const revalidate = 86400
 
-export default function AnleitungPage() {
+export default async function AnleitungPage() {
+  // Own survey status only — RLS scopes this to the caller's row, so no
+  // separate admin check is needed here. Rendering stays dynamic (this
+  // Server Component already needs cookies() via createClient()) even though
+  // `revalidate` is set for the mostly-static content above it.
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  let surveyMode = 'hidden'
+  let surveyStatus: 'not_started' | 'started' | 'submitted' = 'not_started'
+  if (user) {
+    const [{ data: modeSetting }, { data: response }] = await Promise.all([
+      supabase.from('app_settings').select('value').eq('key', 'survey_mode').maybeSingle(),
+      supabase.from('survey_responses').select('submitted_at').eq('user_id', user.id).eq('survey_version', SURVEY_VERSION).maybeSingle(),
+    ])
+    surveyMode = modeSetting?.value ?? 'hidden'
+    if (response) surveyStatus = response.submitted_at ? 'submitted' : 'started'
+  }
+
   return (
     <div className="px-4 py-4 space-y-3">
       <div className="bg-red-700 text-white rounded-2xl px-5 py-4">
@@ -251,6 +270,46 @@ export default function AnleitungPage() {
           <AwardRow emoji="🔥" title="On Fire" desc="Die meisten gewonnenen Wettscheine (mind. 2)" />
         </div>
       </HelpAccordion>
+
+      {/* Feedback & Umfrage — deliberately placed at the very bottom (help_only
+          rollout mode), so it's only findable, not pushed on anyone yet. */}
+      {surveyMode !== 'hidden' && (
+        <HelpAccordion title="Feedback & Umfrage" emoji="📝">
+          {surveyStatus === 'submitted' ? (
+            <>
+              <p className="text-green-700 dark:text-green-400 font-semibold">
+                ✅ Danke für dein Feedback – Antworten ansehen oder ändern
+              </p>
+              <Link
+                href="/umfrage"
+                className="mt-2 block text-center py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white font-bold transition-colors"
+              >
+                Zur Umfrage
+              </Link>
+            </>
+          ) : surveyStatus === 'started' ? (
+            <>
+              <p>Du hast die Umfrage schon begonnen — mach gerne weiter, wo du aufgehört hast.</p>
+              <Link
+                href="/umfrage"
+                className="mt-2 block text-center py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white font-bold transition-colors"
+              >
+                Umfrage weiter ausfüllen
+              </Link>
+            </>
+          ) : (
+            <>
+              <p>Hilf mit, das Wettspiel besser zu machen.</p>
+              <Link
+                href="/umfrage"
+                className="mt-2 block text-center py-2.5 rounded-xl bg-red-700 hover:bg-red-800 text-white font-bold transition-colors"
+              >
+                Zur Umfrage
+              </Link>
+            </>
+          )}
+        </HelpAccordion>
+      )}
 
       {/* Support — direct WhatsApp contact for bugs/questions not covered above */}
       <a

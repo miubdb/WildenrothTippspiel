@@ -6,6 +6,7 @@ import { mergeExactScoreOffers } from '@/lib/odds'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
 import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, type EffectiveMatchdayIndex } from '@/lib/season'
+import { SurveyTab } from '@/components/admin/SurveyTab'
 import type { Match } from '@/types'
 
 // Matchday numbers repeat across seasons — without this filter the admin
@@ -52,7 +53,7 @@ interface AdminUser {
   created_at: string
 }
 
-type Tab = 'spieltag' | 'quoten' | 'verwaltung'
+type Tab = 'spieltag' | 'quoten' | 'verwaltung' | 'umfrage'
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('spieltag')
@@ -529,7 +530,7 @@ export default function AdminPage() {
 
         {/* Tab Bar */}
         <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm overflow-x-auto">
-          {(['spieltag', 'quoten', 'verwaltung'] as Tab[]).map((t) => (
+          {(['spieltag', 'quoten', 'verwaltung', 'umfrage'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -537,7 +538,7 @@ export default function AdminPage() {
                 tab === t ? 'bg-red-700 text-white shadow' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {t === 'spieltag' ? 'Spieltag' : t === 'quoten' ? 'Quoten' : 'Verwaltung'}
+              {t === 'spieltag' ? 'Spieltag' : t === 'quoten' ? 'Quoten' : t === 'verwaltung' ? 'Verwaltung' : 'Umfrage'}
               {t === 'verwaltung' && newUserCount > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center">
                   {newUserCount}
@@ -992,6 +993,9 @@ export default function AdminPage() {
 
           </div>
         )}
+
+        {/* Umfrage Tab */}
+        {tab === 'umfrage' && <SurveyTab />}
       </div>
     </div>
   )
