@@ -1046,7 +1046,7 @@ export default async function TippsPage({
   if (isMatchdayComplete && matchdayMatchIds.length > 0) {
     const { data: recapBets } = await supabase
       .from('bets')
-      .select('id, user_id, match_id, market_type, selection, stake, odds_value, payout, status, combo_id, is_risky')
+      .select('id, user_id, match_id, market_type, selection, stake, odds_value, payout, status, combo_id, is_risky, created_at')
       .in('match_id', matchdayMatchIds)
       .in('status', ['won', 'lost'])
 
@@ -1055,22 +1055,34 @@ export default async function TippsPage({
       const comboLegBets = recapBets.filter(b => b.combo_id)
       const comboIds = [...new Set(comboLegBets.map(b => Number(b.combo_id)))]
 
-      let recapCombos: { id: number; user_id: string; stake: number; total_odds: number; payout: number; status: string }[] = []
-      let allComboLegs: { id: number; combo_id: number; status: string }[] = []
+      let recapCombos: { id: number; user_id: string; stake: number; total_odds: number; payout: number; status: string; created_at: string }[] = []
+      let allComboLegs: { id: number; combo_id: number; status: string; match_id: number }[] = []
 
       if (comboIds.length > 0) {
         const { data: comboRows } = await supabase
           .from('combo_bets')
-          .select('id, user_id, stake, total_odds, payout, status')
+          .select('id, user_id, stake, total_odds, payout, status, created_at')
           .in('id', comboIds)
           .in('status', ['won', 'lost'])
         recapCombos = comboRows ?? []
 
         const { data: legRows } = await supabase
           .from('bets')
-          .select('id, combo_id, status')
+          .select('id, combo_id, status, match_id')
           .in('combo_id', comboIds)
         allComboLegs = (legRows ?? []).map(l => ({ ...l, combo_id: Number(l.combo_id) }))
+      }
+
+      // Kickoff lookups for Last-Minute-Tipper: single bets use their own
+      // match's kickoff; combos use the EARLIEST kickoff among all their
+      // legs (that's when the whole slip stops being placeable).
+      const matchDateMap = new Map<number, string>(matchdayMatches.map(m => [m.id, m.match_date]))
+      const comboEarliestKickoff = new Map<number, string>()
+      for (const l of allComboLegs) {
+        const d = matchDateMap.get(l.match_id)
+        if (!d) continue
+        const cur = comboEarliestKickoff.get(l.combo_id)
+        if (!cur || d < cur) comboEarliestKickoff.set(l.combo_id, d)
       }
 
       const recapUserIds = [...new Set([...recapBets.map(b => b.user_id), ...recapCombos.map(c => c.user_id)])]
@@ -1233,42 +1245,57 @@ export default async function TippsPage({
         ? { name: pMap[fireEntry[0]] ?? 'Unbekannt', count: fireEntry[1].count, pnl: fireEntry[1].pnl }
         : null
 
-      // 8. Großer Wurf — single highest NET win among all won bets
-      const netWinCandidates = [
-        ...wonSingles.map(b => ({ user_id: b.user_id, net: (b.payout ?? 0) - b.stake, isCombo: false })),
-        ...wonCombos.map(c => ({ user_id: c.user_id, net: c.payout - c.stake, isCombo: true })),
-      ].sort((a, b) => b.net - a.net)
+      // 8. Großer Wurf — highest NET win among won SINGLE bets only (no
+      // combos — a combo win is really Spieltagskönig's story, several legs
+      // contributing together; scoping this to Einzelwetten keeps it a
+      // genuinely different category instead of usually crowning the same
+      // person as Spieltagskönig for the same reason).
+      const netWinCandidates = wonSingles.map(b => ({ user_id: b.user_id, net: (b.payout ?? 0) - b.stake })).sort((a, b) => b.net - a.net)
       const grosserWurf: RecapData['grosserWurf'] = netWinCandidates[0]
-        ? { name: pMap[netWinCandidates[0].user_id] ?? 'Unbekannt', amount: netWinCandidates[0].net, isCombo: netWinCandidates[0].isCombo }
+        ? { name: pMap[netWinCandidates[0].user_id] ?? 'Unbekannt', amount: netWinCandidates[0].net }
         : null
 
-      // 9. Torschützen-König — most won goalscorer bets by one user
+      // 9. Torschützen-König — most won goalscorer bets by one user.
+      // Tiebreak: higher odds among their won goalscorer picks (not summed
+      // payout) — a rarer/bolder correct pick should win the tie.
       const goalscorerWon = [...wonSingles, ...comboLegBets.filter(b => b.status === 'won')].filter(
         b => b.market_type === 'goalscorer' || b.market_type === 'goalscorer_2plus'
       )
-      const goalscorerByUser: Record<string, { count: number; payout: number }> = {}
+      const goalscorerByUser: Record<string, { count: number; maxOdds: number }> = {}
       for (const b of goalscorerWon) {
-        const e = goalscorerByUser[b.user_id] ?? { count: 0, payout: 0 }
-        goalscorerByUser[b.user_id] = { count: e.count + 1, payout: e.payout + (b.payout ?? 0) }
+        const e = goalscorerByUser[b.user_id] ?? { count: 0, maxOdds: 0 }
+        goalscorerByUser[b.user_id] = { count: e.count + 1, maxOdds: Math.max(e.maxOdds, b.odds_value) }
       }
       const torschuetzenEntry = Object.entries(goalscorerByUser)
         .filter(([, { count }]) => count >= 1)
-        .sort((a, b) => b[1].count - a[1].count || b[1].payout - a[1].payout)[0]
+        .sort((a, b) => b[1].count - a[1].count || b[1].maxOdds - a[1].maxOdds)[0]
       const torschuetzenKoenig: RecapData['torschuetzenKoenig'] = torschuetzenEntry
         ? { name: pMap[torschuetzenEntry[0]] ?? 'Unbekannt', count: torschuetzenEntry[1].count }
         : null
 
-      // 10. Zocker des Spieltags — highest payout of a won risky bet
-      const riskyWonCandidates = [
-        ...wonSingles.filter(b => !!b.is_risky).map(b => ({ user_id: b.user_id, payout: b.payout ?? 0, odds: b.odds_value })),
-        ...wonCombos.filter(c => comboIsRiskyMap.get(c.id)).map(c => ({ user_id: c.user_id, payout: c.payout, odds: c.total_odds })),
-      ].sort((a, b) => b.payout - a.payout)
-      const zockerDesSpieltags: RecapData['zockerDesSpieltags'] = riskyWonCandidates[0]
-        ? { name: pMap[riskyWonCandidates[0].user_id] ?? 'Unbekannt', payout: riskyWonCandidates[0].payout, odds: riskyWonCandidates[0].odds }
+      // 10. Last-Minute-Tipper — won bet placed less than 1h before its own
+      // kickoff. Tiebreak: smallest gap to kickoff wins.
+      const ONE_HOUR_MS = 60 * 60 * 1000
+      const lastMinuteCandidates: { user_id: string; gapMs: number }[] = []
+      for (const b of wonSingles) {
+        const kickoff = matchDateMap.get(b.match_id)
+        if (!kickoff) continue
+        const gapMs = new Date(kickoff).getTime() - new Date(b.created_at).getTime()
+        if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs })
+      }
+      for (const c of wonCombos) {
+        const kickoff = comboEarliestKickoff.get(c.id)
+        if (!kickoff) continue
+        const gapMs = new Date(kickoff).getTime() - new Date(c.created_at).getTime()
+        if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: c.user_id, gapMs })
+      }
+      lastMinuteCandidates.sort((a, b) => a.gapMs - b.gapMs)
+      const lastMinuteTipper: RecapData['lastMinuteTipper'] = lastMinuteCandidates[0]
+        ? { name: pMap[lastMinuteCandidates[0].user_id] ?? 'Unbekannt', gapMin: Math.round(lastMinuteCandidates[0].gapMs / 60000) }
         : null
 
-      if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || zockerDesSpieltags) {
-        recapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, zockerDesSpieltags }
+      if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper) {
+        recapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, lastMinuteTipper }
       }
     }
   }

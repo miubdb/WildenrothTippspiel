@@ -26,7 +26,7 @@ export type AwardType =
   | 'on_fire'
   | 'grosser_wurf'
   | 'torschuetzen_koenig'
-  | 'zocker_des_spieltags'
+  | 'last_minute_tipper'
 
 export const AWARD_META: Record<AwardType, { title: string; icon: string; description: string }> = {
   spieltagskoenig: { icon: '🏆', title: 'Spieltagskönig',    description: 'Bester Spieltagssaldo' },
@@ -36,9 +36,13 @@ export const AWARD_META: Record<AwardType, { title: string; icon: string; descri
   griff_ins_klo:   { icon: '🚽', title: 'Griff ins Klo',     description: 'Schlechtester Netto-Saldo am Spieltag' },
   betonmischer:    { icon: '🧱', title: 'Betonmischer',       description: 'Sicherster gewonnener Tipp' },
   on_fire:         { icon: '🔥', title: 'On Fire',            description: 'Meiste gewonnene Wettscheine' },
-  grosser_wurf:        { icon: '💰', title: 'Großer Wurf',           description: 'Höchster Einzelgewinn am Spieltag' },
+  // Deliberately Einzelwette-only (no combos) — a combo's win is really a
+  // Spieltagskönig-flavored story (several legs contributing), so scoping
+  // this to single bets keeps it a genuinely different category instead of
+  // usually crowning the same person as Spieltagskönig for the same reason.
+  grosser_wurf:        { icon: '💰', title: 'Großer Wurf',           description: 'Höchster Gewinn mit einer Einzelwette am Spieltag' },
   torschuetzen_koenig: { icon: '⚽', title: 'Torschützen-König',     description: 'Meiste richtige Torschützen-Tipps am Spieltag' },
-  zocker_des_spieltags: { icon: '🎲', title: 'Zocker des Spieltags', description: 'Höchste Auszahlung einer Risky-Wette am Spieltag' },
+  last_minute_tipper:  { icon: '⏱️', title: 'Last-Minute-Tipper',   description: 'Gewonnene Wette, weniger als 1 Std. vor Anpfiff platziert' },
 }
 
 export interface AwardInput {
@@ -105,23 +109,32 @@ export async function computeAndPersistMatchdayAwards(
 
   const { data: rawBets } = await admin
     .from('bets')
-    .select('user_id, match_id, stake, odds_value, payout, status, is_risky, combo_id, market_type, selection')
+    .select('user_id, match_id, stake, odds_value, payout, status, is_risky, combo_id, market_type, selection, created_at')
     .in('match_id', matchIds)
     .in('status', ['won', 'lost'])
   const allBets = rawBets ?? []
+
+  // Kickoff times for this Spieltag's own matches — needed for Last-Minute-
+  // Tipper's "placed < 1h before kickoff" check on single bets.
+  const { data: mdMatchesRaw } = await admin.from('matches').select('id, match_date').in('id', matchIds)
+  const matchDateMap = new Map<number, string>((mdMatchesRaw ?? []).map((m) => [m.id, m.match_date]))
   const singleBets = allBets.filter((b: { combo_id: unknown }) => !b.combo_id)
   const legBets = allBets.filter((b: { combo_id: unknown }) => b.combo_id)
   const comboIds = [...new Set(legBets.map((b: { combo_id: unknown }) => Number(b.combo_id)))]
 
   // Fetch all combo_bets (won + lost) for these combos
-  type CB = { id: number; user_id: string; stake: number; total_odds: number; payout: number; status: string }
+  type CB = { id: number; user_id: string; stake: number; total_odds: number; payout: number; status: string; created_at: string }
   let comboBets: CB[] = []
   // Also fetch ALL legs of these combos (may include legs outside this matchday)
   let allLegs: { combo_id: number; status: string }[] = []
+  // Earliest kickoff among ALL of a combo's legs (may include matches outside
+  // this Spieltag) — betting on the whole combo closes once the FIRST leg's
+  // match starts, so that's the relevant deadline for Last-Minute-Tipper.
+  const comboEarliestKickoff = new Map<number, string>()
   if (comboIds.length > 0) {
     const { data: cbData } = await admin
       .from('combo_bets')
-      .select('id, user_id, stake, total_odds, payout, status')
+      .select('id, user_id, stake, total_odds, payout, status, created_at')
       .in('id', comboIds)
       .in('status', ['won', 'lost'])
     comboBets = (cbData ?? []) as CB[]
@@ -143,6 +156,14 @@ export async function computeAndPersistMatchdayAwards(
       .from('matches')
       .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
       .in('id', legMatchIds)
+    const legMatchDateMap = new Map<number, string>((legMatchesRaw ?? []).map((m) => [m.id, m.match_date as string]))
+    for (const l of legData ?? []) {
+      const d = legMatchDateMap.get(l.match_id as number)
+      if (!d) continue
+      const cid = Number(l.combo_id)
+      const cur = comboEarliestKickoff.get(cid)
+      if (!cur || d < cur) comboEarliestKickoff.set(cid, d)
+    }
     const { data: seasonMatchesRaw } = await admin
       .from('matches')
       .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
@@ -267,29 +288,33 @@ export async function computeAndPersistMatchdayAwards(
     awardInputs.push({ user_id: fireEntry[0], award_type: 'on_fire', value: fireEntry[1].count, value_text: `${fireEntry[1].count} Wettscheine gewonnen` })
   }
 
-  // 8. Großer Wurf — single highest NET win among all won bets (singles + combos)
-  const netWinCandidates = [
-    ...wonSingles.map((b: { user_id: string; payout: number; stake: number }) => ({ user_id: b.user_id, net: (b.payout ?? 0) - b.stake })),
-    ...wonCombos.map(c => ({ user_id: c.user_id, net: c.payout - c.stake })),
-  ]
+  // 8. Großer Wurf — highest NET win among won SINGLE bets only (no combos).
+  // Deliberately excludes combos: a combo win is really several legs
+  // contributing together, which is what Spieltagskönig already celebrates —
+  // scoping this to Einzelwetten keeps it a genuinely different category
+  // instead of usually crowning the same person for the same reason.
+  const netWinCandidates = wonSingles.map((b: { user_id: string; payout: number; stake: number }) => ({ user_id: b.user_id, net: (b.payout ?? 0) - b.stake }))
   if (netWinCandidates.length > 0) {
     netWinCandidates.sort((a, b) => b.net - a.net)
     const grosserWurf = netWinCandidates[0]
     awardInputs.push({ user_id: grosserWurf.user_id, award_type: 'grosser_wurf', value: grosserWurf.net, value_text: `+${grosserWurf.net.toFixed(2)} ${wildiLabel(grosserWurf.net)}` })
   }
 
-  // 9. Torschützen-König — most won goalscorer bets by one user this Spieltag
+  // 9. Torschützen-König — most won goalscorer bets by one user this Spieltag.
+  // Tiebreak: higher odds among their won goalscorer picks (not summed
+  // payout) — a rarer/bolder correct pick should win the tie, not just
+  // whoever staked more.
   const goalscorerWon = [...wonSingles, ...legBets].filter(
     (b: { market_type: string; status: string }) => (b.market_type === 'goalscorer' || b.market_type === 'goalscorer_2plus') && b.status === 'won'
   )
-  const goalscorerByUser: Record<string, { count: number; payout: number }> = {}
-  for (const b of goalscorerWon as { user_id: string; payout: number }[]) {
-    const e = goalscorerByUser[b.user_id] ?? { count: 0, payout: 0 }
-    goalscorerByUser[b.user_id] = { count: e.count + 1, payout: e.payout + (b.payout ?? 0) }
+  const goalscorerByUser: Record<string, { count: number; maxOdds: number }> = {}
+  for (const b of goalscorerWon as { user_id: string; odds_value: number }[]) {
+    const e = goalscorerByUser[b.user_id] ?? { count: 0, maxOdds: 0 }
+    goalscorerByUser[b.user_id] = { count: e.count + 1, maxOdds: Math.max(e.maxOdds, b.odds_value) }
   }
   const torschuetzenEntry = Object.entries(goalscorerByUser)
     .filter(([, { count }]) => count >= 1)
-    .sort((a, b) => b[1].count - a[1].count || b[1].payout - a[1].payout)[0]
+    .sort((a, b) => b[1].count - a[1].count || b[1].maxOdds - a[1].maxOdds)[0]
   if (torschuetzenEntry) {
     const count = torschuetzenEntry[1].count
     awardInputs.push({
@@ -300,19 +325,33 @@ export async function computeAndPersistMatchdayAwards(
     })
   }
 
-  // 10. Zocker des Spieltags — highest payout of a won risky bet (singles + combos)
-  const riskyWonCandidates = [
-    ...wonSingles.filter((b: { is_risky?: boolean }) => !!b.is_risky).map((b: { user_id: string; payout: number; odds_value: number }) => ({ user_id: b.user_id, payout: b.payout ?? 0, odds: b.odds_value })),
-    ...wonCombos.filter(c => comboIsRiskyMap.get(c.id)).map(c => ({ user_id: c.user_id, payout: c.payout, odds: c.total_odds })),
-  ]
-  if (riskyWonCandidates.length > 0) {
-    riskyWonCandidates.sort((a, b) => b.payout - a.payout)
-    const zocker = riskyWonCandidates[0]
+  // 10. Last-Minute-Tipper — won bet placed less than 1h before its own
+  // kickoff (single: the match's own kickoff; combo: the EARLIEST kickoff
+  // among its legs, since that's when the whole slip stops being placeable).
+  // Tiebreak: smallest gap to kickoff wins (most last-minute).
+  const ONE_HOUR_MS = 60 * 60 * 1000
+  const lastMinuteCandidates: { user_id: string; gapMs: number; kickoff: string }[] = []
+  for (const b of wonSingles as { user_id: string; match_id: number; created_at: string }[]) {
+    const kickoff = matchDateMap.get(b.match_id)
+    if (!kickoff) continue
+    const gapMs = new Date(kickoff).getTime() - new Date(b.created_at).getTime()
+    if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs, kickoff })
+  }
+  for (const c of wonCombos as (CB & { created_at: string })[]) {
+    const kickoff = comboEarliestKickoff.get(c.id)
+    if (!kickoff) continue
+    const gapMs = new Date(kickoff).getTime() - new Date(c.created_at).getTime()
+    if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: c.user_id, gapMs, kickoff })
+  }
+  if (lastMinuteCandidates.length > 0) {
+    lastMinuteCandidates.sort((a, b) => a.gapMs - b.gapMs)
+    const lm = lastMinuteCandidates[0]
+    const gapMin = Math.round(lm.gapMs / 60000)
     awardInputs.push({
-      user_id: zocker.user_id,
-      award_type: 'zocker_des_spieltags',
-      value: zocker.payout,
-      value_text: `${zocker.payout.toFixed(2)} ${wildiLabel(zocker.payout)} bei Quote @${zocker.odds.toFixed(2).replace('.', ',')}`,
+      user_id: lm.user_id,
+      award_type: 'last_minute_tipper',
+      value: gapMin,
+      value_text: `${gapMin} Min. vor Anpfiff gewettet — und gewonnen`,
     })
   }
 

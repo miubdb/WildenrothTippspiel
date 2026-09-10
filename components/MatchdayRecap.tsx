@@ -24,9 +24,10 @@ export type RecapData = {
   griffInsKlo: { name: string; loss: number } | null
   betonmischer: { name: string; odds: number; stake: number; payout: number; isCombo: boolean } | null
   onFire: { name: string; count: number; pnl: number } | null
-  grosserWurf: { name: string; amount: number; isCombo: boolean } | null
+  // Einzelwette-only (see lib/awards.ts) — never a combo, so no isCombo flag.
+  grosserWurf: { name: string; amount: number } | null
   torschuetzenKoenig: { name: string; count: number } | null
-  zockerDesSpieltags: { name: string; payout: number; odds: number } | null
+  lastMinuteTipper: { name: string; gapMin: number } | null
 }
 
 function fmtAmt(n: number) { return fmtWildi(n) }
@@ -166,9 +167,9 @@ function ShareModal({ share, onClose }: { share: NonNullable<ShareState>; onClos
 
 export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: number }) {
   const [share, setShare] = useState<ShareState>(null)
-  const { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, zockerDesSpieltags } = data
+  const { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, lastMinuteTipper } = data
 
-  const hasAny = spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || zockerDesSpieltags
+  const hasAny = spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper
   if (!hasAny) return null
 
   return (
@@ -276,8 +277,8 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
         </div>
       )}
 
-      {/* Row 4: Großer Wurf + Torschützen-König + Zocker des Spieltags */}
-      {(grosserWurf || torschuetzenKoenig || zockerDesSpieltags) && (
+      {/* Row 4: Großer Wurf + Torschützen-König + Last-Minute-Tipper */}
+      {(grosserWurf || torschuetzenKoenig || lastMinuteTipper) && (
         <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
           {grosserWurf && (
             <HighlightCard
@@ -285,7 +286,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Großer Wurf"
               name={grosserWurf.name}
               value={<>+{fmtAmt(grosserWurf.amount)} <WildiIcon size={20} /></>}
-              detail={`Höchster Einzelgewinn am Spieltag${grosserWurf.isCombo ? ' · Kombi' : ''}`}
+              detail="Höchster Gewinn mit einer Einzelwette am Spieltag"
               accentBg="bg-emerald-50"
               accentBorder="border-emerald-200"
               accentText="text-emerald-600"
@@ -303,13 +304,13 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               accentText="text-sky-600"
             />
           )}
-          {zockerDesSpieltags && (
+          {lastMinuteTipper && (
             <HighlightCard
-              emoji="🎲"
-              title="Zocker des Spieltags"
-              name={zockerDesSpieltags.name}
-              value={`@${fmtOdds(zockerDesSpieltags.odds)}`}
-              detail={`Auszahlung ${fmtAmt(zockerDesSpieltags.payout)} ${wildiLabel(zockerDesSpieltags.payout)} · Risky-Wette`}
+              emoji="⏱️"
+              title="Last-Minute-Tipper"
+              name={lastMinuteTipper.name}
+              value={`${lastMinuteTipper.gapMin} Min.`}
+              detail="Vor Anpfiff gewettet — und gewonnen"
               accentBg="bg-fuchsia-50"
               accentBorder="border-fuchsia-200"
               accentText="text-fuchsia-600"
