@@ -24,6 +24,9 @@ export type AwardType =
   | 'griff_ins_klo'
   | 'betonmischer'
   | 'on_fire'
+  | 'grosser_wurf'
+  | 'torschuetzen_koenig'
+  | 'zocker_des_spieltags'
 
 export const AWARD_META: Record<AwardType, { title: string; icon: string; description: string }> = {
   spieltagskoenig: { icon: '🏆', title: 'Spieltagskönig',    description: 'Bester Spieltagssaldo' },
@@ -33,6 +36,9 @@ export const AWARD_META: Record<AwardType, { title: string; icon: string; descri
   griff_ins_klo:   { icon: '🚽', title: 'Griff ins Klo',     description: 'Schlechtester Netto-Saldo am Spieltag' },
   betonmischer:    { icon: '🧱', title: 'Betonmischer',       description: 'Sicherster gewonnener Tipp' },
   on_fire:         { icon: '🔥', title: 'On Fire',            description: 'Meiste gewonnene Wettscheine' },
+  grosser_wurf:        { icon: '💰', title: 'Großer Wurf',           description: 'Höchster Einzelgewinn am Spieltag' },
+  torschuetzen_koenig: { icon: '⚽', title: 'Torschützen-König',     description: 'Meiste richtige Torschützen-Tipps am Spieltag' },
+  zocker_des_spieltags: { icon: '🎲', title: 'Zocker des Spieltags', description: 'Höchste Auszahlung einer Risky-Wette am Spieltag' },
 }
 
 export interface AwardInput {
@@ -94,8 +100,8 @@ export async function computeAndPersistMatchdayAwards(
   season: string,
   matchday: number,
   matchIds: number[]
-) {
-  if (matchday === 999 || matchIds.length === 0) return
+): Promise<number> {
+  if (matchday === 999 || matchIds.length === 0) return 0
 
   const { data: rawBets } = await admin
     .from('bets')
@@ -261,5 +267,55 @@ export async function computeAndPersistMatchdayAwards(
     awardInputs.push({ user_id: fireEntry[0], award_type: 'on_fire', value: fireEntry[1].count, value_text: `${fireEntry[1].count} Wettscheine gewonnen` })
   }
 
+  // 8. Großer Wurf — single highest NET win among all won bets (singles + combos)
+  const netWinCandidates = [
+    ...wonSingles.map((b: { user_id: string; payout: number; stake: number }) => ({ user_id: b.user_id, net: (b.payout ?? 0) - b.stake })),
+    ...wonCombos.map(c => ({ user_id: c.user_id, net: c.payout - c.stake })),
+  ]
+  if (netWinCandidates.length > 0) {
+    netWinCandidates.sort((a, b) => b.net - a.net)
+    const grosserWurf = netWinCandidates[0]
+    awardInputs.push({ user_id: grosserWurf.user_id, award_type: 'grosser_wurf', value: grosserWurf.net, value_text: `+${grosserWurf.net.toFixed(2)} ${wildiLabel(grosserWurf.net)}` })
+  }
+
+  // 9. Torschützen-König — most won goalscorer bets by one user this Spieltag
+  const goalscorerWon = [...wonSingles, ...legBets].filter(
+    (b: { market_type: string; status: string }) => (b.market_type === 'goalscorer' || b.market_type === 'goalscorer_2plus') && b.status === 'won'
+  )
+  const goalscorerByUser: Record<string, { count: number; payout: number }> = {}
+  for (const b of goalscorerWon as { user_id: string; payout: number }[]) {
+    const e = goalscorerByUser[b.user_id] ?? { count: 0, payout: 0 }
+    goalscorerByUser[b.user_id] = { count: e.count + 1, payout: e.payout + (b.payout ?? 0) }
+  }
+  const torschuetzenEntry = Object.entries(goalscorerByUser)
+    .filter(([, { count }]) => count >= 1)
+    .sort((a, b) => b[1].count - a[1].count || b[1].payout - a[1].payout)[0]
+  if (torschuetzenEntry) {
+    const count = torschuetzenEntry[1].count
+    awardInputs.push({
+      user_id: torschuetzenEntry[0],
+      award_type: 'torschuetzen_koenig',
+      value: count,
+      value_text: `${count} richtige${count === 1 ? 'r Torschützen-Tipp' : ' Torschützen-Tipps'}`,
+    })
+  }
+
+  // 10. Zocker des Spieltags — highest payout of a won risky bet (singles + combos)
+  const riskyWonCandidates = [
+    ...wonSingles.filter((b: { is_risky?: boolean }) => !!b.is_risky).map((b: { user_id: string; payout: number; odds_value: number }) => ({ user_id: b.user_id, payout: b.payout ?? 0, odds: b.odds_value })),
+    ...wonCombos.filter(c => comboIsRiskyMap.get(c.id)).map(c => ({ user_id: c.user_id, payout: c.payout, odds: c.total_odds })),
+  ]
+  if (riskyWonCandidates.length > 0) {
+    riskyWonCandidates.sort((a, b) => b.payout - a.payout)
+    const zocker = riskyWonCandidates[0]
+    awardInputs.push({
+      user_id: zocker.user_id,
+      award_type: 'zocker_des_spieltags',
+      value: zocker.payout,
+      value_text: `${zocker.payout.toFixed(2)} ${wildiLabel(zocker.payout)} bei Quote @${zocker.odds.toFixed(2).replace('.', ',')}`,
+    })
+  }
+
   await persistAwards(admin, season, matchday, awardInputs)
+  return awardInputs.length
 }

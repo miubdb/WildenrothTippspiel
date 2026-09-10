@@ -40,6 +40,7 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url)
   const requestedMd = url.searchParams.get('matchday')
+  const requestedMatchId = url.searchParams.get('matchId')
 
   const { data: allMatchesRaw } = await supabase
     .from('matches')
@@ -58,6 +59,29 @@ export async function GET(request: Request) {
   }))
 
   const matchdays = [...new Set(allMatches.map((m) => m.matchday))].sort((a, b) => a - b)
+
+  // Single-match mode (per-card inline "Warum diese Quote?" in the Quoten
+  // tab) — scoped to exactly one match instead of "pick a matchday, show all
+  // its matches".
+  if (requestedMatchId) {
+    const matchIdNum = parseInt(requestedMatchId, 10)
+    const m = allMatches.find((mm) => mm.id === matchIdNum)
+    if (!m) return NextResponse.json({ matchday: null, matchdays, matches: [] })
+    const [{ data: oddsRows }, { data: diagRows }] = await Promise.all([
+      supabase.from('odds').select('match_id, home_win, draw, away_win, frozen_at').eq('match_id', matchIdNum),
+      supabase.from('odds_diagnostics').select('*').eq('match_id', matchIdNum).order('computed_at', { ascending: false }).limit(1),
+    ])
+    const matches = [{
+      match_id: m.id,
+      matchday: m.matchday,
+      match_date: m.match_date,
+      home_team: m.home_team?.name ?? '?',
+      away_team: m.away_team?.name ?? '?',
+      odds: (oddsRows ?? [])[0] ?? null,
+      diagnostics: ((diagRows ?? []) as DiagnosticsRow[])[0] ?? null,
+    }]
+    return NextResponse.json({ matchday: m.matchday, matchdays, matches })
+  }
 
   const defaultMd = allMatches.filter((m) => m.status === 'scheduled').map((m) => m.matchday).sort((a, b) => a - b)[0]
   const targetMd = requestedMd ? parseInt(requestedMd, 10) : defaultMd

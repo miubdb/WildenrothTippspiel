@@ -1,10 +1,12 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
 import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, type EffectiveMatchdayIndex } from '@/lib/season'
+import type { Match } from '@/types'
 
 // Matchday numbers repeat across seasons — without this filter the admin
 // match list (and everything fed by it: "Abgerechnete Spiele", the Spieltag
@@ -25,6 +27,7 @@ interface MatchRow {
   match_category: string | null
   is_topspiel: boolean
   competition_type?: string | null
+  tippspiel_matchday?: number | null
 }
 
 /** Draft row for the inline Spieltag-tab scorer entry — mirrors the shape
@@ -49,7 +52,7 @@ interface AdminUser {
   created_at: string
 }
 
-type Tab = 'spieltag' | 'quoten' | 'erklaerung' | 'verwaltung'
+type Tab = 'spieltag' | 'quoten' | 'verwaltung'
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('spieltag')
@@ -84,8 +87,37 @@ export default function AdminPage() {
   // matches in the Spieltag tab — keyed by matchId, mirrors the `scores` state
   // pattern below so both submit together from the same "Ergebnis & abrechnen".
   const [scorers, setScorers] = useState<Record<number, ScorerDraft[]>>({})
+  // Verwaltung tab: Spieler-Verwaltung search filter (display_name/username)
+  const [userSearch, setUserSearch] = useState('')
+  // Verwaltung tab: awards backfill button (Part A)
+  const [awardsBackfillLoading, setAwardsBackfillLoading] = useState(false)
+  // Tracks whether mdFilter's default (see below) has already been applied
+  // once matches load, so we don't fight a manual dropdown change afterward.
+  const [mdFilterInitialized, setMdFilterInitialized] = useState(false)
 
   const supabase = createClient()
+
+  // Effective-Spieltag index over the currently loaded matches — used to scope
+  // the B-Klasse-Topspiel candidate list (B2), the "Bevorstehende Spiele"
+  // default filter (B3), and the Torschützen section's default match (B4) to
+  // the Spieltag the admin is actually working on, instead of a raw date
+  // window or "always the season's first fixture".
+  const mdIndex = useMemo(() => buildEffectiveMatchdayIndex(matches as unknown as Match[]), [matches])
+  // The earliest Kreisliga Spieltag (in display order) that still has an
+  // unsettled match — i.e. "the Spieltag the admin is currently working on".
+  // Falls back to the last Spieltag once every Kreisliga match is finished.
+  const currentMatchday = useMemo(() => {
+    for (const md of mdIndex.kreisligaMatchdaysDisplayOrder) {
+      const hasUnsettled = matches.some((m) =>
+        (!m.match_category || m.match_category === 'kreisliga') &&
+        m.matchday !== 999 &&
+        effectiveMatchdayOf(m as unknown as Match, mdIndex) === md &&
+        m.status !== 'finished'
+      )
+      if (hasUnsettled) return md
+    }
+    return mdIndex.kreisligaMatchdaysDisplayOrder[mdIndex.kreisligaMatchdaysDisplayOrder.length - 1] ?? null
+  }, [matches, mdIndex])
 
   const fetchSeasonData = useCallback(async () => {
     // Users go through /api/admin/users (service-role) — profiles.email isn't
@@ -198,7 +230,7 @@ export default function AdminPage() {
     const { data } = await supabase
       .from('matches')
       .select(
-        `id, match_number, matchday, match_date, status, home_score, away_score, match_category, is_topspiel, competition_type,
+        `id, match_number, matchday, match_date, status, home_score, away_score, match_category, is_topspiel, competition_type, tippspiel_matchday,
          home_team:teams!matches_home_team_id_fkey(name, short_name),
          away_team:teams!matches_away_team_id_fkey(name, short_name)`
       )
@@ -218,6 +250,16 @@ export default function AdminPage() {
   useEffect(() => {
     fetchMatches()
   }, [fetchMatches])
+
+  // B3: default "Bevorstehende Spiele" to the current Spieltag instead of
+  // 'all' — applied once, the first time matches (and therefore
+  // currentMatchday) become available, so it never fights a manual dropdown
+  // change made afterward.
+  useEffect(() => {
+    if (mdFilterInitialized || matches.length === 0) return
+    if (currentMatchday != null) setMdFilter(currentMatchday)
+    setMdFilterInitialized(true)
+  }, [matches, currentMatchday, mdFilterInitialized])
 
   useEffect(() => {
     supabase.from('league_players').select('name').then(({ data }) => {
@@ -380,6 +422,19 @@ export default function AdminPage() {
     }
   }
 
+  async function backfillAwards() {
+    setAwardsBackfillLoading(true)
+    setMessage(null)
+    const res = await fetch('/api/admin/awards/backfill', { method: 'POST' })
+    const data = await res.json()
+    setAwardsBackfillLoading(false)
+    if (res.ok) {
+      setMessage(`Awards rückwirkend berechnet: ${data.processedMatchdays.length} Spieltage, ${data.totalAwardsWritten} Auszeichnungen geschrieben.`)
+    } else {
+      setMessage(`Fehler: ${data.error}`)
+    }
+  }
+
   async function resetSeasonBalances() {
     if (!confirm('Alle Guthaben auf 1.000 Wildis zurücksetzen? Das kann nicht rückgängig gemacht werden.')) return
     setSeasonResetLoading(true)
@@ -474,7 +529,7 @@ export default function AdminPage() {
 
         {/* Tab Bar */}
         <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm overflow-x-auto">
-          {(['spieltag', 'quoten', 'erklaerung', 'verwaltung'] as Tab[]).map((t) => (
+          {(['spieltag', 'quoten', 'verwaltung'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -482,7 +537,7 @@ export default function AdminPage() {
                 tab === t ? 'bg-red-700 text-white shadow' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {t === 'spieltag' ? 'Spieltag' : t === 'quoten' ? 'Quoten' : t === 'erklaerung' ? 'Erklärung' : 'Verwaltung'}
+              {t === 'spieltag' ? 'Spieltag' : t === 'quoten' ? 'Quoten' : 'Verwaltung'}
               {t === 'verwaltung' && newUserCount > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center">
                   {newUserCount}
@@ -553,13 +608,30 @@ export default function AdminPage() {
               )
             })()}
 
+            {/* Tipps — accordion (moved up front: seeing today's bets at a
+                glance is the admin's primary daily use case) */}
+            <TippsAccordion matches={matches} />
+
             {/* B-Klasse Topspiel selection */}
             {(() => {
               const now = new Date()
-              const in21Days = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000)
+              // Scope candidates to the Spieltag the admin is currently
+              // working on (currentMatchday) rather than a raw forward-looking
+              // date window — a plain B-Klasse match has no effective Spieltag
+              // of its own (effectiveMatchdayOf returns null unless already
+              // flagged Topspiel), so fall back to date-proximity to that
+              // Spieltag's own median kickoff date (matchdayAnchorDate) with a
+              // roughly one-week tolerance (same as EFFECTIVE_OUTLIER_DAYS),
+              // instead of a hardcoded "21 days from today" firehose that let
+              // a later Spieltag's B-Klasse fixtures show up too.
+              const anchor = currentMatchday != null ? mdIndex.matchdayAnchorDate.get(currentMatchday) : null
+              const anchorWindowMs = 7 * 24 * 60 * 60 * 1000
               const bklasseUpcoming = matches
-                .filter(m => m.match_category === 'b-klasse' && m.status === 'scheduled'
-                  && new Date(m.match_date) >= now && new Date(m.match_date) <= in21Days)
+                .filter(m => m.match_category === 'b-klasse' && m.status === 'scheduled' && new Date(m.match_date) >= now)
+                .filter(m => {
+                  if (anchor == null) return true // no Spieltag anchor known yet — don't hide everything
+                  return Math.abs(new Date(m.match_date).getTime() - anchor) <= anchorWindowMs
+                })
                 .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
               const currentTopspiel = matches.find(m => m.match_category === 'b-klasse' && m.is_topspiel && m.status === 'scheduled')
               if (bklasseUpcoming.length === 0 && !currentTopspiel) return null
@@ -706,9 +778,6 @@ export default function AdminPage() {
             {loading && (
               <div className="text-center py-8 text-gray-400">Lade Spiele...</div>
             )}
-
-            {/* Tipps — accordion */}
-            <TippsAccordion matches={matches} />
           </div>
         )}
 
@@ -759,26 +828,30 @@ export default function AdminPage() {
             {/* Goalscorers section */}
             <div className="space-y-4">
               <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Torschützen</h2>
-              <GoalscorersTab matches={matches} onMessage={setMessage} />
+              <GoalscorersTab matches={matches} onMessage={setMessage} matchday={previewMd} mdIndex={mdIndex} />
             </div>
           </div>
         )}
 
-        {/* Erklärung Tab — read-only "Warum diese Quote?" view */}
-        {tab === 'erklaerung' && <OddsExplainSection />}
-
         {/* Verwaltung Tab */}
         {tab === 'verwaltung' && (
-          <div className="space-y-4">
+          <div className="space-y-3">
 
-            {/* Spieler */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="font-bold text-gray-900 mb-1">Spieler</h3>
-              <p className="text-sm text-gray-500 mb-3">
-                Saison-Berechtigung und Wildenroth-Flag verwalten.
-              </p>
+            {/* Spieler-Verwaltung */}
+            <VerwaltungSection title="Spieler-Verwaltung" subtitle="Accounts: Rolle, Guthaben, Berechtigung, Löschen/Reaktivieren" defaultOpen>
+              <input
+                type="text"
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                placeholder="Suche nach Name…"
+                className="w-full mb-3 text-sm py-2 px-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
               <div className="space-y-2">
-                {users.map((u) => (
+                {users.filter((u) => {
+                  const q = userSearch.trim().toLowerCase()
+                  if (!q) return true
+                  return (u.display_name ?? '').toLowerCase().includes(q) || u.username.toLowerCase().includes(q)
+                }).map((u) => (
                   <div key={u.id} className={`flex items-center gap-2 flex-wrap rounded-xl px-3 py-2.5 ${u.deleted_at ? 'bg-red-50 opacity-70' : 'bg-gray-50'}`}>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold text-gray-900 flex items-center gap-1 flex-wrap">
@@ -837,15 +910,23 @@ export default function AdminPage() {
                   </div>
                 ))}
                 {users.length === 0 && <div className="text-sm text-gray-400 text-center py-4">Keine Spieler geladen.</div>}
+                {users.length > 0 && users.filter((u) => {
+                  const q = userSearch.trim().toLowerCase()
+                  if (!q) return true
+                  return (u.display_name ?? '').toLowerCase().includes(q) || u.username.toLowerCase().includes(q)
+                }).length === 0 && (
+                  <div className="text-sm text-gray-400 text-center py-4">Keine Treffer für &quot;{userSearch}&quot;.</div>
+                )}
               </div>
-            </div>
+            </VerwaltungSection>
 
             {/* Kader & Transfers */}
-            <KaderSection />
+            <VerwaltungSection title="Kader & Transfers" subtitle="Kaderdaten, Transfers, Spielerstatus (reale Roster-Daten)" defaultOpen>
+              <KaderSection />
+            </VerwaltungSection>
 
-            {/* Saison */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="font-bold text-gray-900 mb-3">Saison</h3>
+            {/* Saison-Verwaltung */}
+            <VerwaltungSection title="Saison-Verwaltung" subtitle="Saisonstart-Flag & Guthaben-Reset" defaultOpen>
               {/* Start-Flag */}
               <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 mb-3">
                 <div>
@@ -882,13 +963,32 @@ export default function AdminPage() {
                   </button>
                 </div>
               </details>
-            </div>
+            </VerwaltungSection>
 
-            {/* Push — kompakt */}
-            <AdminPushTab />
+            {/* Sonstiges — infrequent utility actions */}
+            <VerwaltungSection title="Sonstiges" subtitle="Push-Benachrichtigungen, Test-Spieltag, Awards-Backfill">
+              <div className="space-y-3">
+                <AdminPushTab />
+                <TestMatchdayPanel />
 
-            {/* Test-Spieltag */}
-            <TestMatchdayPanel />
+                {/* Awards-Backfill (Part A) */}
+                <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+                  <h4 className="font-bold text-gray-900 mb-1 text-sm">Awards rückwirkend berechnen</h4>
+                  <p className="text-xs text-gray-500 mb-3">
+                    Berechnet alle Pokal-Kategorien (inkl. der 3 neuen: Großer Wurf, Torschützen-König,
+                    Zocker des Spieltags) für jeden bereits abgerechneten Spieltag der aktuellen Saison neu.
+                    Gefahrlos wiederholbar.
+                  </p>
+                  <button
+                    onClick={backfillAwards}
+                    disabled={awardsBackfillLoading}
+                    className="w-full py-2.5 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-lg transition-colors text-sm"
+                  >
+                    {awardsBackfillLoading ? 'Wird berechnet…' : 'Awards rückwirkend berechnen (inkl. 3 neue Kategorien)'}
+                  </button>
+                </div>
+              </div>
+            </VerwaltungSection>
 
           </div>
         )}
@@ -897,8 +997,37 @@ export default function AdminPage() {
   )
 }
 
+/** Collapsible, visually-separated section wrapper for the Verwaltung tab
+ *  (B6) — groups related admin actions under a clear heading instead of one
+ *  long flat stack. */
+function VerwaltungSection({
+  title, subtitle, defaultOpen = false, children,
+}: {
+  title: string; subtitle?: string; defaultOpen?: boolean; children: ReactNode
+}) {
+  return (
+    <details open={defaultOpen} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden group">
+      <summary className="cursor-pointer select-none list-none px-5 py-4 flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="font-bold text-gray-900">{title}</h3>
+          {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+        </div>
+        <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </summary>
+      <div className="px-5 pb-5 border-t border-gray-50 pt-4">
+        {children}
+      </div>
+    </details>
+  )
+}
+
 function TippsAccordion({ matches }: { matches: MatchRow[] }) {
-  const [open, setOpen] = useState(false)
+  // Defaults open — seeing today's bets at a glance is the admin's primary
+  // daily use case, so it shouldn't require a click after a page load. Still
+  // collapsible for when it's not needed.
+  const [open, setOpen] = useState(true)
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
       <button
@@ -1520,7 +1649,74 @@ function OddsPreviewMatchCard({
             </div>
           </div>
         )}
+
+        <InlineExplain matchId={match.match_id} />
       </div>
+    </div>
+  )
+}
+
+/** Per-match "Warum diese Quote?" — the former standalone Erklärung tab,
+ *  folded into each odds-preview card as a collapsed-by-default toggle
+ *  (occasional diagnostic tool, not primary content). Fetches from the same
+ *  read-only /api/admin/odds/explain endpoint, scoped to this one match via
+ *  ?matchId=. */
+function InlineExplain({ matchId }: { matchId: number }) {
+  const [open, setOpen] = useState(false)
+  const [data, setData] = useState<ExplainMatch | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function toggle() {
+    if (open) { setOpen(false); return }
+    setOpen(true)
+    if (data || loading) return
+    setLoading(true)
+    setError(null)
+    const res = await fetch(`/api/admin/odds/explain?matchId=${matchId}`)
+    const json: ExplainResponse | { error: string } = await res.json()
+    setLoading(false)
+    if (res.ok && 'matches' in json) {
+      setData(json.matches[0] ?? null)
+    } else if ('error' in json) {
+      setError(json.error)
+    }
+  }
+
+  return (
+    <div className="pt-1 -mx-3 -mb-3 border-t border-gray-100">
+      <button
+        onClick={toggle}
+        className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-semibold text-gray-500 hover:text-gray-700"
+      >
+        <span>🔍 Warum diese Quote?</span>
+        <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          {loading && <div className="text-xs text-gray-400 py-2 text-center">Lade…</div>}
+          {error && <div className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</div>}
+          {!loading && data && !data.diagnostics && (
+            <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Keine Diagnostik vorhanden – Quote wurde vermutlich vor Phase 1 berechnet.
+            </div>
+          )}
+          {!loading && data?.diagnostics && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <ExplainSide label={data.home_team} side="home" d={data.diagnostics} />
+                <ExplainSide label={data.away_team} side="away" d={data.diagnostics} />
+              </div>
+              <div className="text-[10px] text-gray-400 flex items-center justify-between pt-1 border-t border-gray-100">
+                <span>Quelle: {SOURCE_LABEL[data.diagnostics.source] ?? data.diagnostics.source}</span>
+                <span>{fmtDateTime(data.diagnostics.computed_at)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1576,133 +1772,9 @@ function fmtFactor(n: number): string {
   return n.toFixed(2).replace('.', ',')
 }
 
-function OddsExplainSection() {
-  const [data, setData] = useState<ExplainResponse | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [selectedMd, setSelectedMd] = useState<number | null>(null)
-
-  const load = useCallback(async (md?: number | null) => {
-    setLoading(true)
-    setError(null)
-    const qs = md != null ? `?matchday=${md}` : ''
-    const res = await fetch(`/api/admin/odds/explain${qs}`)
-    const json = await res.json()
-    setLoading(false)
-    if (res.ok) {
-      setData(json)
-      if (json.matchday != null) setSelectedMd(json.matchday)
-    } else {
-      setError(json.error ?? 'Fehler beim Laden.')
-    }
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <div className="flex items-start justify-between gap-3 mb-1">
-          <div>
-            <h3 className="font-bold text-gray-900">Warum diese Quote?</h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Rein lesende Ansicht — zeigt die zuletzt gespeicherte Diagnostik je Spiel, berechnet nichts neu.
-            </p>
-          </div>
-          <button
-            onClick={() => load(selectedMd)}
-            disabled={loading}
-            className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40 flex-shrink-0"
-          >
-            {loading ? '…' : 'Neu laden'}
-          </button>
-        </div>
-
-        {error && (
-          <div className="mt-3 px-3 py-2 bg-red-50 border border-red-100 rounded-lg text-xs text-red-700">{error}</div>
-        )}
-
-        {data?.matchdays && data.matchdays.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-3">
-            {data.matchdays.map((md) => (
-              <button
-                key={md}
-                onClick={() => { setSelectedMd(md); load(md) }}
-                className={`text-xs px-2.5 py-1 rounded-lg border ${
-                  (selectedMd ?? data.matchday) === md
-                    ? 'bg-red-700 text-white border-red-700'
-                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                ST {md}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {loading && !data && (
-        <div className="text-sm text-gray-500 py-4 text-center">Lade Erklärung…</div>
-      )}
-
-      {data && data.matches.length === 0 && (
-        <div className="text-sm text-gray-500 py-4 text-center">Kein Spieltag mit Spielen gefunden.</div>
-      )}
-
-      {data?.matches.map((m) => <ExplainCard key={m.match_id} match={m} />)}
-    </div>
-  )
-}
-
-function ExplainCard({ match }: { match: ExplainMatch }) {
-  const d = match.diagnostics
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="min-w-0">
-          <div className="font-bold text-gray-900 text-sm">
-            {match.home_team} vs {match.away_team}
-          </div>
-          <div className="text-[11px] text-gray-400 mt-0.5">
-            Spieltag {match.matchday} · {fmtDateTime(match.match_date)}
-          </div>
-        </div>
-        {match.odds && (
-          <div className="flex gap-1 flex-shrink-0 text-xs font-bold">
-            <span className="bg-gray-100 text-gray-700 rounded px-1.5 py-0.5">1: {fmtFactor(match.odds.home_win)}</span>
-            <span className="bg-gray-100 text-gray-700 rounded px-1.5 py-0.5">X: {fmtFactor(match.odds.draw)}</span>
-            <span className="bg-gray-100 text-gray-700 rounded px-1.5 py-0.5">2: {fmtFactor(match.odds.away_win)}</span>
-          </div>
-        )}
-      </div>
-
-      {!match.odds && (
-        <div className="text-xs text-gray-400 italic py-2">Keine Quote vorhanden.</div>
-      )}
-
-      {match.odds && !d && (
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-          Keine Diagnostik vorhanden – Quote wurde vermutlich vor Phase 1 berechnet.
-        </div>
-      )}
-
-      {match.odds && d && (
-        <div className="space-y-2">
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <ExplainSide label={match.home_team} side="home" d={d} />
-            <ExplainSide label={match.away_team} side="away" d={d} />
-          </div>
-
-          <div className="text-[10px] text-gray-400 flex items-center justify-between pt-1 border-t border-gray-100">
-            <span>Quelle: {SOURCE_LABEL[d.source] ?? d.source}</span>
-            <span>{fmtDateTime(d.computed_at)}</span>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+// The former standalone Erklärung tab's list/grouping UI (OddsExplainSection,
+// ExplainCard) was removed — this diagnostic is now available per-match via
+// InlineExplain inside each Quoten-tab odds-preview card (above).
 
 function ExplainSide({ label, side, d }: { label: string; side: 'home' | 'away'; d: ExplainDiagnostics }) {
   const gamesPlayed = side === 'home' ? d.home_games_played : d.away_games_played
@@ -2703,12 +2775,26 @@ const STATUS_LABELS: Record<string, string> = {
   injured: 'Verletzt', suspended: 'Gesperrt', not_bettable: 'Nicht wettbar',
 }
 
-function GoalscorersTab({ matches, onMessage }: { matches: MatchRow[]; onMessage: (m: string | null) => void }) {
+function GoalscorersTab({ matches, onMessage, matchday, mdIndex }: { matches: MatchRow[]; onMessage: (m: string | null) => void; matchday: number | null; mdIndex: EffectiveMatchdayIndex }) {
   // Wildenroth match filter: matches whose teams contain "Wildenroth"
   const wildenrothMatches = matches.filter(m =>
     (m.home_team?.name?.includes('Wildenroth') || m.away_team?.name?.includes('Wildenroth'))
   )
-  const [selectedMatchId, setSelectedMatchId] = useState<number | null>(wildenrothMatches[0]?.id ?? null)
+  // Default to the Wildenroth match belonging to the currently-selected
+  // matchday (mirrors the odds-preview section above, `previewMd` in the
+  // parent) — falling back to the season's first Wildenroth match if none
+  // exists for that Spieltag. Only auto-follows when `matchday` itself
+  // changes (see effect below), so it never fights a manual dropdown pick.
+  const matchForMatchday = (md: number | null) =>
+    (md != null ? wildenrothMatches.find(m => effectiveMatchdayOf(m as unknown as Match, mdIndex) === md) : null) ?? wildenrothMatches[0]
+  const [selectedMatchId, setSelectedMatchId] = useState<number | null>(matchForMatchday(matchday)?.id ?? null)
+  const lastAutoMatchday = useRef<number | null>(matchday)
+  useEffect(() => {
+    if (matchday === lastAutoMatchday.current) return
+    lastAutoMatchday.current = matchday
+    setSelectedMatchId(matchForMatchday(matchday)?.id ?? null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchday])
   const [rows, setRows] = useState<GsRow[]>([])
   const [scorers, setScorers] = useState<ScorerRow[]>([])
   const [loading, setLoading] = useState(false)

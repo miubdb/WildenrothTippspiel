@@ -589,8 +589,42 @@ export default async function LeaderboardPage({
         pnl: netGain[onFireEntry[0]] ?? 0,
       } : null
 
-      if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire) {
-        leaderboardRecapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire }
+      // 💰 Großer Wurf: single highest NET win among all won bets
+      const netWinCandidates = [
+        ...wonSingles.map(b => ({ user_id: b.user_id, net: (b.payout ?? 0) - (b.stake ?? 0), isCombo: false })),
+        ...wonCombos.map(c => ({ user_id: c.user_id, net: c.payout - c.stake, isCombo: true })),
+      ].sort((a, b) => b.net - a.net)
+      const grosserWurf: RecapData['grosserWurf'] = netWinCandidates[0]
+        ? { name: pMap[netWinCandidates[0].user_id] ?? 'Unbekannt', amount: netWinCandidates[0].net, isCombo: netWinCandidates[0].isCombo }
+        : null
+
+      // ⚽ Torschützen-König: most won goalscorer bets by one user
+      const goalscorerWon = [...wonSingles, ...recapComboLegBets.filter(b => b.status === 'won')].filter(
+        b => b.market_type === 'goalscorer' || b.market_type === 'goalscorer_2plus'
+      )
+      const goalscorerByUser: Record<string, { count: number; payout: number }> = {}
+      for (const b of goalscorerWon) {
+        const e = goalscorerByUser[b.user_id] ?? { count: 0, payout: 0 }
+        goalscorerByUser[b.user_id] = { count: e.count + 1, payout: e.payout + (b.payout ?? 0) }
+      }
+      const torschuetzenEntry = Object.entries(goalscorerByUser)
+        .filter(([, { count }]) => count >= 1)
+        .sort((a, b) => b[1].count - a[1].count || b[1].payout - a[1].payout)[0]
+      const torschuetzenKoenig: RecapData['torschuetzenKoenig'] = torschuetzenEntry
+        ? { name: pMap[torschuetzenEntry[0]] ?? 'Unbekannt', count: torschuetzenEntry[1].count }
+        : null
+
+      // 🎲 Zocker des Spieltags: highest payout of a won risky bet
+      const riskyWonCandidates = [
+        ...wonSingles.filter(b => !!b.is_risky).map(b => ({ user_id: b.user_id, payout: b.payout ?? 0, odds: b.odds_value })),
+        ...wonCombos.filter(c => comboIsRiskyMap.get(c.id)).map(c => ({ user_id: c.user_id, payout: c.payout, odds: c.total_odds })),
+      ].sort((a, b) => b.payout - a.payout)
+      const zockerDesSpieltags: RecapData['zockerDesSpieltags'] = riskyWonCandidates[0]
+        ? { name: pMap[riskyWonCandidates[0].user_id] ?? 'Unbekannt', payout: riskyWonCandidates[0].payout, odds: riskyWonCandidates[0].odds }
+        : null
+
+      if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || zockerDesSpieltags) {
+        leaderboardRecapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, zockerDesSpieltags }
       }
     }
   }

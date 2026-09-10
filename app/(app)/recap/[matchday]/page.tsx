@@ -178,7 +178,7 @@ export default async function RecapPage({
     .eq('matchday', matchday)
 
   // Sort by display order
-  const AWARD_ORDER: AwardType[] = ['spieltagskoenig', 'eier_aus_stahl', 'unlucky_bastard', 'ergebnis_orakel', 'griff_ins_klo', 'betonmischer', 'on_fire']
+  const AWARD_ORDER: AwardType[] = ['spieltagskoenig', 'eier_aus_stahl', 'unlucky_bastard', 'ergebnis_orakel', 'griff_ins_klo', 'betonmischer', 'on_fire', 'grosser_wurf', 'torschuetzen_koenig', 'zocker_des_spieltags']
   const awards = (awardRows ?? [])
     .filter(a => a.award_type in AWARD_META)
     .sort((a, b) => AWARD_ORDER.indexOf(a.award_type as AwardType) - AWARD_ORDER.indexOf(b.award_type as AwardType))

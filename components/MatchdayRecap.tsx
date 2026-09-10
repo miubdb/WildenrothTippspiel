@@ -24,6 +24,9 @@ export type RecapData = {
   griffInsKlo: { name: string; loss: number } | null
   betonmischer: { name: string; odds: number; stake: number; payout: number; isCombo: boolean } | null
   onFire: { name: string; count: number; pnl: number } | null
+  grosserWurf: { name: string; amount: number; isCombo: boolean } | null
+  torschuetzenKoenig: { name: string; count: number } | null
+  zockerDesSpieltags: { name: string; payout: number; odds: number } | null
 }
 
 function fmtAmt(n: number) { return fmtWildi(n) }
@@ -163,9 +166,9 @@ function ShareModal({ share, onClose }: { share: NonNullable<ShareState>; onClos
 
 export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: number }) {
   const [share, setShare] = useState<ShareState>(null)
-  const { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire } = data
+  const { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, zockerDesSpieltags } = data
 
-  const hasAny = spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire
+  const hasAny = spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || zockerDesSpieltags
   if (!hasAny) return null
 
   return (
@@ -268,6 +271,48 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               accentBg="bg-stone-50"
               accentBorder="border-stone-200"
               accentText="text-stone-600"
+            />
+          )}
+        </div>
+      )}
+
+      {/* Row 4: Großer Wurf + Torschützen-König + Zocker des Spieltags */}
+      {(grosserWurf || torschuetzenKoenig || zockerDesSpieltags) && (
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
+          {grosserWurf && (
+            <HighlightCard
+              emoji="💰"
+              title="Großer Wurf"
+              name={grosserWurf.name}
+              value={<>+{fmtAmt(grosserWurf.amount)} <WildiIcon size={20} /></>}
+              detail={`Höchster Einzelgewinn am Spieltag${grosserWurf.isCombo ? ' · Kombi' : ''}`}
+              accentBg="bg-emerald-50"
+              accentBorder="border-emerald-200"
+              accentText="text-emerald-600"
+            />
+          )}
+          {torschuetzenKoenig && (
+            <HighlightCard
+              emoji="⚽"
+              title="Torschützen-König"
+              name={torschuetzenKoenig.name}
+              value={`${torschuetzenKoenig.count}x`}
+              detail={`${torschuetzenKoenig.count} richtige${torschuetzenKoenig.count === 1 ? 'r Torschützen-Tipp' : ' Torschützen-Tipps'}`}
+              accentBg="bg-sky-50"
+              accentBorder="border-sky-200"
+              accentText="text-sky-600"
+            />
+          )}
+          {zockerDesSpieltags && (
+            <HighlightCard
+              emoji="🎲"
+              title="Zocker des Spieltags"
+              name={zockerDesSpieltags.name}
+              value={`@${fmtOdds(zockerDesSpieltags.odds)}`}
+              detail={`Auszahlung ${fmtAmt(zockerDesSpieltags.payout)} ${wildiLabel(zockerDesSpieltags.payout)} · Risky-Wette`}
+              accentBg="bg-fuchsia-50"
+              accentBorder="border-fuchsia-200"
+              accentText="text-fuchsia-600"
             />
           )}
         </div>
