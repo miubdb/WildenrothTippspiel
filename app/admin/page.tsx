@@ -53,10 +53,10 @@ interface AdminUser {
   created_at: string
 }
 
-type Tab = 'spieltag' | 'quoten' | 'verwaltung' | 'umfrage'
+type Tab = 'ergebnisse' | 'spieltag' | 'quoten' | 'verwaltung' | 'umfrage'
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<Tab>('spieltag')
+  const [tab, setTab] = useState<Tab>('ergebnisse')
   const [matches, setMatches] = useState<MatchRow[]>([])
   const [scores, setScores] = useState<Record<number, { home: string; away: string }>>({})
   // Cup-only manual settlement inputs (see app/api/admin/settle/route.ts) —
@@ -530,7 +530,7 @@ export default function AdminPage() {
 
         {/* Tab Bar */}
         <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm overflow-x-auto">
-          {(['spieltag', 'quoten', 'verwaltung', 'umfrage'] as Tab[]).map((t) => (
+          {(['ergebnisse', 'spieltag', 'quoten', 'verwaltung', 'umfrage'] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -538,7 +538,7 @@ export default function AdminPage() {
                 tab === t ? 'bg-red-700 text-white shadow' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {t === 'spieltag' ? 'Spieltag' : t === 'quoten' ? 'Quoten' : t === 'verwaltung' ? 'Verwaltung' : 'Umfrage'}
+              {t === 'ergebnisse' ? 'Ergebnisse' : t === 'spieltag' ? 'Spieltag' : t === 'quoten' ? 'Quoten' : t === 'verwaltung' ? 'Verwaltung' : 'Umfrage'}
               {t === 'verwaltung' && newUserCount > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center">
                   {newUserCount}
@@ -548,8 +548,10 @@ export default function AdminPage() {
           ))}
         </div>
 
-        {/* Spieltag Tab */}
-        {tab === 'spieltag' && (
+        {/* Ergebnisse Tab — result entry is the admin's most frequent daily
+            action, so it gets its own tab up front instead of being buried
+            below the Tipps overview and B-Klasse-Topspiel picker. */}
+        {tab === 'ergebnisse' && (
           <div className="space-y-4">
             {/* Competition filter */}
             <div className="flex bg-white border border-gray-200 rounded-xl p-1 shadow-sm overflow-x-auto">
@@ -604,69 +606,6 @@ export default function AdminPage() {
                   <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-3 text-center">
                     <div className="text-2xl font-black text-blue-600">{openBets}</div>
                     <div className="text-[10px] text-blue-700 font-semibold mt-0.5 leading-tight">offene Wetten</div>
-                  </div>
-                </div>
-              )
-            })()}
-
-            {/* Tipps — accordion (moved up front: seeing today's bets at a
-                glance is the admin's primary daily use case) */}
-            <TippsAccordion matches={matches} mdIndex={mdIndex} currentMatchday={currentMatchday} />
-
-            {/* B-Klasse Topspiel selection */}
-            {(() => {
-              const now = new Date()
-              // Scope candidates to the Spieltag the admin is currently
-              // working on (currentMatchday) rather than a raw forward-looking
-              // date window — a plain B-Klasse match has no effective Spieltag
-              // of its own (effectiveMatchdayOf returns null unless already
-              // flagged Topspiel), so fall back to date-proximity to that
-              // Spieltag's own median kickoff date (matchdayAnchorDate) with a
-              // roughly one-week tolerance (same as EFFECTIVE_OUTLIER_DAYS),
-              // instead of a hardcoded "21 days from today" firehose that let
-              // a later Spieltag's B-Klasse fixtures show up too.
-              const anchor = currentMatchday != null ? mdIndex.matchdayAnchorDate.get(currentMatchday) : null
-              const anchorWindowMs = 7 * 24 * 60 * 60 * 1000
-              const bklasseUpcoming = matches
-                .filter(m => m.match_category === 'b-klasse' && m.status === 'scheduled' && new Date(m.match_date) >= now)
-                .filter(m => {
-                  if (anchor == null) return true // no Spieltag anchor known yet — don't hide everything
-                  return Math.abs(new Date(m.match_date).getTime() - anchor) <= anchorWindowMs
-                })
-                .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
-              const currentTopspiel = matches.find(m => m.match_category === 'b-klasse' && m.is_topspiel && m.status === 'scheduled')
-              if (bklasseUpcoming.length === 0 && !currentTopspiel) return null
-              return (
-                <div>
-                  <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-1">
-                    B-Klasse-Topspiel der Woche
-                  </h2>
-                  <p className="text-xs text-gray-400 mb-2">
-                    Genau ein B-Klasse-Spiel pro Woche kann als zusätzliches, wettbares Topspiel markiert werden.
-                  </p>
-                  <div className="space-y-1.5">
-                    {(currentTopspiel && !bklasseUpcoming.some(m => m.id === currentTopspiel.id) ? [currentTopspiel, ...bklasseUpcoming] : bklasseUpcoming).map((match) => (
-                      <label
-                        key={match.id}
-                        className={`flex items-start gap-2 rounded-xl px-3 py-2 border cursor-pointer ${match.is_topspiel ? 'bg-yellow-50 border-yellow-300' : 'bg-white border-gray-200'}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={match.is_topspiel}
-                          onChange={(e) => toggleTopspiel(match.id, e.target.checked)}
-                          className="w-4 h-4 accent-yellow-500 flex-shrink-0 mt-0.5"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-gray-800">
-                            {match.home_team?.name ?? '?'} – {match.away_team?.name ?? '?'}
-                          </div>
-                          <div className="text-xs text-gray-400">
-                            {new Date(match.match_date).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                          </div>
-                        </div>
-                        {match.is_topspiel && <span className="text-xs flex-shrink-0">⭐</span>}
-                      </label>
-                    ))}
                   </div>
                 </div>
               )
@@ -779,6 +718,74 @@ export default function AdminPage() {
             {loading && (
               <div className="text-center py-8 text-gray-400">Lade Spiele...</div>
             )}
+          </div>
+        )}
+
+        {/* Spieltag Tab */}
+        {tab === 'spieltag' && (
+          <div className="space-y-4">
+            {/* Tipps — accordion (seeing today's bets at a glance is a
+                frequent admin use case) */}
+            <TippsAccordion matches={matches} mdIndex={mdIndex} currentMatchday={currentMatchday} />
+
+            {/* B-Klasse Topspiel selection */}
+            {(() => {
+              const now = new Date()
+              // Scope candidates to the Spieltag the admin is currently
+              // working on (currentMatchday) rather than a raw forward-looking
+              // date window — a plain B-Klasse match has no effective Spieltag
+              // of its own (effectiveMatchdayOf returns null unless already
+              // flagged Topspiel), so fall back to date-proximity to that
+              // Spieltag's own median kickoff date (matchdayAnchorDate) with a
+              // roughly one-week tolerance (same as EFFECTIVE_OUTLIER_DAYS),
+              // instead of a hardcoded "21 days from today" firehose that let
+              // a later Spieltag's B-Klasse fixtures show up too.
+              const anchor = currentMatchday != null ? mdIndex.matchdayAnchorDate.get(currentMatchday) : null
+              const anchorWindowMs = 7 * 24 * 60 * 60 * 1000
+              const bklasseUpcoming = matches
+                .filter(m => m.match_category === 'b-klasse' && m.status === 'scheduled' && new Date(m.match_date) >= now)
+                .filter(m => {
+                  if (anchor == null) return true // no Spieltag anchor known yet — don't hide everything
+                  return Math.abs(new Date(m.match_date).getTime() - anchor) <= anchorWindowMs
+                })
+                .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+              const currentTopspiel = matches.find(m => m.match_category === 'b-klasse' && m.is_topspiel && m.status === 'scheduled')
+              if (bklasseUpcoming.length === 0 && !currentTopspiel) return null
+              return (
+                <div>
+                  <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-1">
+                    B-Klasse-Topspiel der Woche
+                  </h2>
+                  <p className="text-xs text-gray-400 mb-2">
+                    Genau ein B-Klasse-Spiel pro Woche kann als zusätzliches, wettbares Topspiel markiert werden.
+                  </p>
+                  <div className="space-y-1.5">
+                    {(currentTopspiel && !bklasseUpcoming.some(m => m.id === currentTopspiel.id) ? [currentTopspiel, ...bklasseUpcoming] : bklasseUpcoming).map((match) => (
+                      <label
+                        key={match.id}
+                        className={`flex items-start gap-2 rounded-xl px-3 py-2 border cursor-pointer ${match.is_topspiel ? 'bg-yellow-50 border-yellow-300' : 'bg-white border-gray-200'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={match.is_topspiel}
+                          onChange={(e) => toggleTopspiel(match.id, e.target.checked)}
+                          className="w-4 h-4 accent-yellow-500 flex-shrink-0 mt-0.5"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-gray-800">
+                            {match.home_team?.name ?? '?'} – {match.away_team?.name ?? '?'}
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            {new Date(match.match_date).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}
+                          </div>
+                        </div>
+                        {match.is_topspiel && <span className="text-xs flex-shrink-0">⭐</span>}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         )}
 
