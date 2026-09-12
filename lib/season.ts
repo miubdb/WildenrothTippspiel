@@ -148,7 +148,11 @@ export function buildEffectiveMatchdayIndex(seasonMatches: Match[]): EffectiveMa
   return { kreisligaMatchdaysSorted, kreisligaMatchdaysDisplayOrder, matchdayMinDate, matchdayAnchorDate }
 }
 
-function nearestMatchdayByDate(t: number, index: EffectiveMatchdayIndex): number | null {
+/** Public so admin tooling can place a match that `effectiveMatchdayOf`
+ *  itself leaves unassigned (a plain, non-Topspiel B-Klasse match — see
+ *  below) onto the Kreisliga Spieltag it's chronologically nearest to,
+ *  rather than a raw, unrelated `matchday` number comparison. */
+export function nearestMatchdayByDate(t: number, index: EffectiveMatchdayIndex): number | null {
   if (index.kreisligaMatchdaysSorted.length === 0) return null
   let best: number = index.kreisligaMatchdaysSorted[0]
   let bestDist = Infinity

@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
 import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, type EffectiveMatchdayIndex } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, type EffectiveMatchdayIndex } from '@/lib/season'
 import { SurveyTab } from '@/components/admin/SurveyTab'
 import type { Match } from '@/types'
 
@@ -475,11 +475,31 @@ export default function AdminPage() {
     // 'b-klasse' filter covers plain B-Klasse matches and the flagged Topspiel/bklasse_topspiel category
     return m.match_category === 'b-klasse' || m.match_category === 'bklasse_topspiel'
   }
-  // Raw `matchday` column, not the effective Tippspiel-Spieltag — this is a
-  // pure admin data-entry filter over the fixture list as BFV numbers it, not
-  // the bettor-facing grouping (see lib/season.ts for why those two differ).
-  const availableMatchdays = [...new Set(matches.map(m => m.matchday))].sort((a, b) => a - b)
-  const filteredMatches = matches.filter(m => matchesCompFilter(m) && (mdFilter === 'all' || m.matchday === mdFilter))
+  // Kreisliga defines the Tippspiel-Spieltag structure (lib/season.ts) — the
+  // filter must group EVERY match, including Wildenroth II and B-Klasse, by
+  // that same effective Spieltag (date-based), not each category's own raw
+  // `matchday` column. Wildenroth II/Topspiel-flagged B-Klasse matches run on
+  // independent BFV numbering that only coincidentally overlaps Kreisliga's,
+  // and plain (non-Topspiel) B-Klasse matches have no Spieltag of their own
+  // at all — comparing raw `matchday` values previously showed unrelated
+  // B-Klasse fixtures under a given "Spieltag N".
+  function matchdayForFilter(m: MatchRow): number | null {
+    // `tippspiel_matchday` is the club's hand-set date-block override — every
+    // Wildenroth-II/B-Klasse match currently carries one (fixed ahead of
+    // go-live), and it's more authoritative than a date-nearest heuristic
+    // when present. effectiveMatchdayOf only reads it for Kreisliga/
+    // Wildenroth-II/flagged-Topspiel matches (see lib/season.ts), so check it
+    // directly here first to also cover plain (non-Topspiel) B-Klasse matches.
+    if (m.tippspiel_matchday != null) return m.tippspiel_matchday
+    const eff = effectiveMatchdayOf(m as unknown as Match, mdIndex)
+    if (eff != null) return eff
+    return nearestMatchdayByDate(new Date(m.match_date).getTime(), mdIndex)
+  }
+  const availableMatchdays = [
+    ...mdIndex.kreisligaMatchdaysDisplayOrder,
+    ...(matches.some(m => m.matchday === 999) ? [999] : []),
+  ]
+  const filteredMatches = matches.filter(m => matchesCompFilter(m) && (mdFilter === 'all' || matchdayForFilter(m) === mdFilter))
 
   const settledMatchesAll = filteredMatches.filter((m) => m.status === 'finished')
   const settledMatches = [...settledMatchesAll].reverse() // most recent first
