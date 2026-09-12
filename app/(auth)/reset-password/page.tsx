@@ -1,44 +1,89 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
 type Phase = 'checking' | 'ready' | 'invalid' | 'success'
 
 /**
- * Other half of the "Passwort vergessen" flow. The recovery link's ?code=
- * is exchanged into a session automatically by the browser client
- * (detectSessionInUrl), which then fires a PASSWORD_RECOVERY auth event —
- * that event, not just "is there a session", is what gates the form, so a
- * normal logged-in user browsing here directly can't change their password
- * without going through the email link.
+ * Other half of the "Passwort vergessen" flow. Two ways a valid recovery
+ * session can arrive here, both handled:
+ *
+ * 1. The email link points straight here with "?code=" (Supabase's default
+ *    template) — the browser client auto-exchanges it (detectSessionInUrl)
+ *    and fires a PASSWORD_RECOVERY event. Same-device/browser only — PKCE's
+ *    code verifier lives in that browser's local storage.
+ * 2. The email link points at /auth/confirm?token_hash=...&type=recovery
+ *    (the server-side token_hash flow Supabase documents for @supabase/ssr
+ *    apps — see app/auth/confirm/route.ts), which verifies server-side and
+ *    redirects here with the session already set via cookies. No event
+ *    fires for that case, so we also check getClaims() on mount for a
+ *    session whose most recent auth method is "recovery" — this is what
+ *    makes the link work across devices (e.g. requested on desktop, opened
+ *    on a phone), and only works once the Dashboard email template is
+ *    switched to the /auth/confirm link (see deployment report).
+ *
+ * Either way, gating on the recovery auth method (not just "is there a
+ * session") is what stops an already logged-in user from reaching this form
+ * by simply navigating here directly.
  */
 export default function ResetPasswordPage() {
-  const [phase, setPhase] = useState<Phase>('checking')
+  return (
+    <Suspense fallback={null}>
+      <ResetPasswordForm />
+    </Suspense>
+  )
+}
+
+function ResetPasswordForm() {
+  const searchParams = useSearchParams()
+  const [phase, setPhase] = useState<Phase>(() => (searchParams.get('error') ? 'invalid' : 'checking'))
   const [password, setPassword] = useState('')
   const [passwordRepeat, setPasswordRepeat] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    if (searchParams.get('error')) {
+      return
+    }
+
     const supabase = createClient()
+    let settled = false
+
+    async function checkExistingRecoverySession() {
+      const { data } = await supabase.auth.getClaims()
+      const amr = data?.claims?.amr as { method?: string }[] | undefined
+      const isRecovery = amr?.some((entry) => entry.method === 'recovery')
+      if (isRecovery && !settled) {
+        settled = true
+        setPhase('ready')
+      }
+    }
+
+    checkExistingRecoverySession()
 
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
+      if (event === 'PASSWORD_RECOVERY' && !settled) {
+        settled = true
         setPhase('ready')
       }
     })
 
     const timeout = setTimeout(() => {
-      setPhase((current) => (current === 'checking' ? 'invalid' : current))
+      if (!settled) {
+        settled = true
+        setPhase('invalid')
+      }
     }, 4000)
 
     return () => {
       listener.subscription.unsubscribe()
       clearTimeout(timeout)
     }
-  }, [])
+  }, [searchParams])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
