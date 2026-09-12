@@ -94,7 +94,21 @@ export default function UmfragePage() {
   async function goNext() {
     const section = SURVEY_SECTIONS[sectionIdx]
     if (!isSectionComplete(section, answers)) return
-    await save('save')
+    // Cancel the debounced autosave before firing our own save for this
+    // click — without this, a save() from THIS click and the pending
+    // 900ms-later debounce timer can both fire (e.g. answering the last
+    // question of a section, then clicking "Weiter" within 900ms), sending
+    // two overlapping POSTs for the same row.
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    const result = await save('save')
+    // Bug found during testing (section 7 → 8): this used to advance the
+    // section unconditionally, discarding save()'s result — a failed save
+    // (network blip, transient 5xx) silently dropped the user's answers
+    // for that section while the UI moved on as if nothing happened. Now
+    // the section only advances once the save is confirmed to have
+    // succeeded; on failure the user stays put with their answers intact
+    // and sees a retry affordance (see saveError below).
+    if (!result.ok) return
     if (sectionIdx < SURVEY_SECTIONS.length - 1) {
       setSectionIdx((i) => i + 1)
       scrollToTop()
@@ -110,11 +124,15 @@ export default function UmfragePage() {
 
   async function handleSubmit() {
     if (!isSurveyComplete(answers)) return
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     const result = await save('submit')
     if (result.ok) {
       setSubmittedAt(new Date().toISOString())
       setJustSubmitted(true)
     }
+    // On failure: stay on the last section with answers intact (state
+    // already reflects this — save() only ever mutates saveState, never
+    // answers), same as goNext. The error banner below covers retry.
   }
 
   if (loadState === 'loading') {
@@ -201,6 +219,20 @@ export default function UmfragePage() {
       {submittedAt && (
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg px-3 py-2 text-xs text-blue-700 dark:text-blue-300">
           Du bearbeitest deine bereits abgegebene Umfrage. Änderungen werden automatisch gespeichert.
+        </div>
+      )}
+
+      {saveState === 'error' && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 space-y-2">
+          <p className="text-sm text-red-700 dark:text-red-300">
+            Die Antworten konnten gerade nicht gespeichert werden. Bitte versuche es noch einmal.
+          </p>
+          <button
+            onClick={() => { isLast ? handleSubmit() : goNext() }}
+            className="w-full py-2 rounded-lg bg-red-700 hover:bg-red-800 text-white text-sm font-bold transition-colors"
+          >
+            Erneut versuchen
+          </button>
         </div>
       )}
 
@@ -329,10 +361,18 @@ function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: strin
   function toggle(opt: string) {
     if (selected.includes(opt)) {
       onChange(selected.filter((o) => o !== opt))
-    } else {
-      if (q.maxSelect && selected.length >= q.maxSelect) return
-      onChange([...selected, opt])
+      return
     }
+    // Exclusive option (e.g. "würde sich nichts ändern"): selecting it clears
+    // every other selection; selecting anything else while it's active
+    // drops it first — the two states can never coexist.
+    if (q.exclusiveOption && opt === q.exclusiveOption) {
+      onChange([opt])
+      return
+    }
+    if (q.maxSelect && selected.length >= q.maxSelect) return
+    const withoutExclusive = q.exclusiveOption ? selected.filter((o) => o !== q.exclusiveOption) : selected
+    onChange([...withoutExclusive, opt])
   }
   return (
     <div>

@@ -305,7 +305,7 @@ const STATUS_QUO_OPTIONS: Record<string, string[]> = {
   q11: ['Genau richtig', 'Ich wusste nicht, dass es diese Begrenzung gibt'],
   q12: ['Sehr gut', 'Ganz nett'],
   q13: ['Genau richtig', 'Ist mir egal'],
-  q14_follow: ['Passt'],
+  q14_follow: ['Passt so', 'Ist mir egal'],
   q15: ['Passt', 'Ist mir egal'],
   q16: ['Motiviert mich tatsächlich mitzumachen', 'Finde ich fair', 'Ist mir ziemlich egal'],
 }
@@ -330,17 +330,29 @@ function computeMechanikOverview(rows: SurveyRow[]): MechanikRow[] {
 export interface KommunikationOverview {
   q20: SingleChoiceStat
   pushProblemPct: number
-  q21: SingleChoiceStat
+  /** "Wusstest du, dass die Recaps auch in der App sind?" */
+  recapKnown: SingleChoiceStat
+  /** "Wo liest du die Recaps normalerweise?" */
+  recapChannel: SingleChoiceStat
+  /** Share of recapChannel answers that are "Ich lese sie nur selten" or
+   *  "Ich lese sie eigentlich gar nicht" — the "kaum/nie Leser"-Anteil. */
+  recapRarelyOrNeverPct: number
   q22: SingleChoiceStat
 }
+
+const RECAP_RARE_OR_NEVER = new Set(['Ich lese sie nur selten', 'Ich lese sie eigentlich gar nicht'])
 
 function computeKommunikationOverview(rows: SurveyRow[]): KommunikationOverview {
   const q20 = singleChoiceStats(QUESTION_BY_ID.get('q20')!, rows)
   const problem = q20.options.find((o) => o.option === 'Hat bei mir nicht funktioniert')
+  const recapChannel = singleChoiceStats(QUESTION_BY_ID.get('q21_recap_channel')!, rows)
+  const rareOrNeverCount = recapChannel.options.filter((o) => RECAP_RARE_OR_NEVER.has(o.option)).reduce((a, o) => a + o.count, 0)
   return {
     q20,
     pushProblemPct: q20.total > 0 && problem ? (problem.count / q20.total) * 100 : 0,
-    q21: singleChoiceStats(QUESTION_BY_ID.get('q21')!, rows),
+    recapKnown: singleChoiceStats(QUESTION_BY_ID.get('q21_recap_known')!, rows),
+    recapChannel,
+    recapRarelyOrNeverPct: recapChannel.total > 0 ? (rareOrNeverCount / recapChannel.total) * 100 : 0,
     q22: singleChoiceStats(QUESTION_BY_ID.get('q22')!, rows),
   }
 }
@@ -363,23 +375,98 @@ function computeStatsMarketsOverview(rows: SurveyRow[], profileMap: Map<string, 
   }
 }
 
+export interface WettoeffnungSummary {
+  frueherPct: number   // "Eher zu spät" + "Viel zu spät" — Spieltage sollten früher öffnen
+  passtPct: number      // "Genau richtig"
+  spaeterPct: number    // "Eher zu früh" + "Viel zu früh" — sollten später öffnen
+  total: number
+}
+
+function computeWettoeffnungSummary(rows: SurveyRow[]): WettoeffnungSummary {
+  const stat = singleChoiceStats(QUESTION_BY_ID.get('q3')!, rows)
+  const pct = (opts: string[]) => {
+    const count = stat.options.filter((o) => opts.includes(o.option)).reduce((a, o) => a + o.count, 0)
+    return stat.total > 0 ? (count / stat.total) * 100 : 0
+  }
+  return {
+    frueherPct: pct(['Eher zu spät', 'Viel zu spät']),
+    passtPct: pct(['Genau richtig']),
+    spaeterPct: pct(['Eher zu früh', 'Viel zu früh']),
+    total: stat.total,
+  }
+}
+
+export interface AuszahlungsdeckelCrossTab {
+  bekanntheit: SingleChoiceStat   // q14: Ja/Nein
+  bewertung: SingleChoiceStat     // q14_follow: distribution over all respondents
+  /** Bewertung split by whether the respondent already knew about the cap
+   *  (q14 = Ja) vs. not (q14 = Nein) — each a full option-count breakdown. */
+  bewertungByBekanntheit: { knew: SingleChoiceStat['options']; didNotKnow: SingleChoiceStat['options'] }
+}
+
+function computeAuszahlungsdeckelCrossTab(rows: SurveyRow[]): AuszahlungsdeckelCrossTab {
+  const bekanntheit = singleChoiceStats(QUESTION_BY_ID.get('q14')!, rows)
+  const bewertung = singleChoiceStats(QUESTION_BY_ID.get('q14_follow')!, rows)
+  const knewRows = rows.filter((r) => r.answers.q14 === 'Ja')
+  const didNotKnowRows = rows.filter((r) => r.answers.q14 === 'Nein')
+  return {
+    bekanntheit,
+    bewertung,
+    bewertungByBekanntheit: {
+      knew: singleChoiceStats(QUESTION_BY_ID.get('q14_follow')!, knewRows).options,
+      didNotKnow: singleChoiceStats(QUESTION_BY_ID.get('q14_follow')!, didNotKnowRows).options,
+    },
+  }
+}
+
+export interface BKlasseSummary {
+  wenigerPct: number   // "Nur das Spiel von Wildenroth II"
+  aktuellPct: number   // "Wildenroth II + ein ausgewähltes B-Klasse-Topspiel wie aktuell"
+  mehrPct: number       // "Wildenroth II + mehrere ausgewählte B-Klasse-Spiele"
+  komplettPct: number   // "Möglichst alle Spiele der B-Klasse"
+  total: number
+  raw: SingleChoiceStat
+}
+
+function computeBKlasseSummary(rows: SurveyRow[]): BKlasseSummary {
+  const stat = singleChoiceStats(QUESTION_BY_ID.get('q28')!, rows)
+  const pctOf = (opt: string) => {
+    const found = stat.options.find((o) => o.option === opt)
+    return found && stat.total > 0 ? (found.count / stat.total) * 100 : 0
+  }
+  return {
+    wenigerPct: pctOf('Nur das Spiel von Wildenroth II'),
+    aktuellPct: pctOf('Wildenroth II + ein ausgewähltes B-Klasse-Topspiel wie aktuell'),
+    mehrPct: pctOf('Wildenroth II + mehrere ausgewählte B-Klasse-Spiele'),
+    komplettPct: pctOf('Möglichst alle Spiele der B-Klasse'),
+    total: stat.total,
+    raw: stat,
+  }
+}
+
 export interface SurveyCrossTabs {
+  wettoeffnung: WettoeffnungSummary
   startgeld: StartgeldCrossTab
   preise: PreiseCrossTab
   teilnahme: TeilnahmeCrossTab
   mechanik: MechanikRow[]
+  auszahlungsdeckel: AuszahlungsdeckelCrossTab
   kommunikation: KommunikationOverview
   statsMarkets: StatsMarketsOverview
+  bKlasse: BKlasseSummary
 }
 
 export function computeCrossTabs(rows: SurveyRow[], profileMap: Map<string, ProfileLite>): SurveyCrossTabs {
   return {
+    wettoeffnung: computeWettoeffnungSummary(rows),
     startgeld: computeStartgeldCrossTab(rows),
     preise: computePreiseCrossTab(rows),
     teilnahme: computeTeilnahmeCrossTab(rows),
     mechanik: computeMechanikOverview(rows),
+    auszahlungsdeckel: computeAuszahlungsdeckelCrossTab(rows),
     kommunikation: computeKommunikationOverview(rows),
     statsMarkets: computeStatsMarketsOverview(rows, profileMap),
+    bKlasse: computeBKlasseSummary(rows),
   }
 }
 

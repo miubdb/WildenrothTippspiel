@@ -25,6 +25,11 @@ export interface QuestionDef {
   required: boolean
   options?: string[]
   maxSelect?: number
+  /** For a multi-select question: if this option is set, selecting it clears
+   *  every other selection, and selecting any other option deselects it —
+   *  the two are mutually exclusive (e.g. "nothing would change" vs. any
+   *  concrete effect). Must be one of `options`. */
+  exclusiveOption?: string
   scaleMin?: number
   scaleMax?: number
   scaleMinLabel?: string
@@ -63,8 +68,8 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       },
       {
         id: 'q3', type: 'single', required: true,
-        text: 'Werden die Spieltage für dich früh genug zum Wetten geöffnet?',
-        options: ['Ja, passt genau', 'Meistens schon', 'Eher zu spät', 'Viel zu spät', 'Teilweise sogar zu früh', 'Ist mir egal'],
+        text: 'Wie findest du den Zeitpunkt, zu dem neue Spieltage zum Wetten geöffnet werden?',
+        options: ['Viel zu früh', 'Eher zu früh', 'Genau richtig', 'Eher zu spät', 'Viel zu spät', 'Ist mir egal'],
       },
     ],
   },
@@ -84,14 +89,17 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         visible: (a) => a.q4 === 'Ja' || a.q4 === 'Kommt auf die Höhe an',
       },
       {
-        id: 'q6', type: 'single', required: true,
-        text: 'Würde ein Startgeld verändern, wie du spielst?',
+        id: 'q6', type: 'multi', required: true,
+        text: 'Was würde sich für dich durch ein echtes Startgeld wahrscheinlich verändern?',
         options: [
-          'Nein, ich würde genauso mitmachen wie bisher',
-          'Ich würde etwas vorsichtiger wetten',
+          'Ich würde konsequenter / häufiger mitmachen',
+          'Ich würde mich intensiver mit meinen Wetten beschäftigen',
+          'Ich würde vorsichtiger bzw. strategischer wetten',
+          'Für mich würde sich eigentlich nichts ändern',
           'Ich würde vermutlich seltener mitmachen',
-          'Bei echtem Startgeld würde ich wahrscheinlich nicht mehr teilnehmen',
+          'Ich würde wahrscheinlich gar nicht mehr teilnehmen',
         ],
+        exclusiveOption: 'Für mich würde sich eigentlich nichts ändern',
         visible: (a) => a.q4 === 'Ja' || a.q4 === 'Kommt auf die Höhe an',
       },
       {
@@ -152,9 +160,12 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       },
       {
         id: 'q14_follow', type: 'single', required: true,
-        text: 'Wie findest du diesen Auszahlungsdeckel grundsätzlich?',
-        options: ['Sollte niedriger sein', 'Passt', 'Sollte höher sein', 'Sollte es gar nicht geben'],
-        visible: (a) => a.q14 === 'Ja',
+        text: 'Jetzt wo du die aktuellen Grenzen kennst: Wie findest du den Auszahlungsdeckel?',
+        options: ['Sollte niedriger sein', 'Passt so', 'Sollte höher sein', 'Sollte es gar nicht geben', 'Ist mir egal'],
+        // No jump logic here on purpose — Q14 itself already told every
+        // respondent the actual numbers (10.000 / 15.000 Wildis), so someone
+        // who answered "Nein" to Q14 now knows them too and can rate the cap
+        // just as well as someone who already knew.
       },
       {
         id: 'q15', type: 'single', required: true,
@@ -178,7 +189,13 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       {
         id: 'q17', type: 'single', required: true,
         text: 'Wildenroth-Spieler und Trainer dürfen nicht gegen das eigene Team wetten. Wie findest du diese Regel?',
-        options: ['Genau richtig', 'Eher sinnvoll', 'Zu streng', 'Ist mir egal'],
+        options: [
+          'Sollte auf jeden Fall so bleiben',
+          'Grundsätzlich sinnvoll, aber Ausnahmen wären für mich okay',
+          'Finde ich zu streng',
+          'Die Regel sollte es nicht geben',
+          'Ist mir egal',
+        ],
       },
       {
         id: 'q18', type: 'single', required: true,
@@ -218,15 +235,17 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         visible: (a) => a.q20 === 'Hat bei mir nicht funktioniert',
       },
       {
-        id: 'q21', type: 'single', required: true,
-        text: 'Wie oft liest du die Spieltags-Recaps in der WhatsApp-Gruppe?',
-        options: ['Fast immer', 'Häufig', 'Manchmal', 'Selten', 'Nie'],
+        id: 'q21_recap_known', type: 'single', required: true,
+        text: 'Wusstest du, dass die Spieltags-Recaps auch direkt in der App verfügbar sind?',
+        options: ['Ja', 'Nein'],
       },
       {
-        id: 'q21_follow', type: 'single', required: true,
-        text: 'Wie findest du die Recaps grundsätzlich?',
-        options: ['Gehören für mich dazu', 'Ganz interessant', 'Könnten kürzer sein', 'Könnten ausführlicher sein', 'Sind mir eigentlich egal'],
-        visible: (a) => a.q21 !== undefined && a.q21 !== 'Nie',
+        id: 'q21_recap_channel', type: 'single', required: true,
+        text: 'Wo liest du die Spieltags-Recaps normalerweise?',
+        options: [
+          'Hauptsächlich in WhatsApp', 'Hauptsächlich in der App', 'Sowohl in WhatsApp als auch in der App',
+          'Ich lese sie nur selten', 'Ich lese sie eigentlich gar nicht',
+        ],
       },
       {
         id: 'q22', type: 'single', required: true,
@@ -277,17 +296,31 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         text: 'Gibt es eine Wettart oder Spezialwette, die dir bisher fehlt?',
       },
       {
+        // Options deliberately ordered large offering → small offering (see
+        // lib/surveyAggregate.ts computeSpielumfangSummary, which relies on
+        // this exact order to render "großes Angebot → kleines Angebot").
         id: 'q27', type: 'single', required: true,
-        text: 'Wie viele Spiele sollten an einem normalen Spieltag ungefähr tippbar sein?',
+        text: 'Welche Spiele möchtest du an einem normalen Spieltag zum Wetten angeboten bekommen?',
         options: [
-          'Möglichst alle Ligaspiele wie bisher', 'Wildenroth I + II und einige interessante Topspiele',
-          'Hauptsächlich Spiele mit Wildenroth-Beteiligung', 'Lieber nur wenige ausgewählte Spiele', 'Ist mir egal',
+          'Möglichst alle Kreisliga-Spiele – inklusive aller Spiele von Wildenroth I und II',
+          'Wildenroth I und II + einige ausgewählte interessante Topspiele aus den Ligen',
+          'Hauptsächlich Spiele mit Beteiligung von Wildenroth I oder II',
+          'Wildenroth I und II + nur wenige ausgewählte weitere Spiele',
+          'Am liebsten nur Spiele mit Wildenroth-Beteiligung',
+          'Ist mir egal',
         ],
       },
       {
         id: 'q28', type: 'single', required: true,
-        text: 'Wie findest du die aktuelle Einbindung der B-Klasse mit Wildenroth II und ausgewählten weiteren Spielen?',
-        options: ['Genau richtig', 'Ich hätte gerne mehr B-Klasse', 'Ich hätte gerne weniger B-Klasse', 'Interessiert mich kaum', 'Ist mir egal'],
+        text: 'Welche B-Klasse-Spiele sollten deiner Meinung nach pro Spieltag zum Wetten angeboten werden?',
+        options: [
+          'Nur das Spiel von Wildenroth II',
+          'Wildenroth II + ein ausgewähltes B-Klasse-Topspiel wie aktuell',
+          'Wildenroth II + mehrere ausgewählte B-Klasse-Spiele',
+          'Möglichst alle Spiele der B-Klasse',
+          'Die B-Klasse interessiert mich außer Wildenroth II kaum',
+          'Ist mir egal',
+        ],
       },
     ],
   },

@@ -422,11 +422,35 @@ function FreetextBlock({ stat }: { stat: FreetextStat }) {
 }
 
 function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
-  const { startgeld, preise, teilnahme, mechanik, kommunikation, statsMarkets } = crossTabs
+  const { wettoeffnung, startgeld, preise, teilnahme, mechanik, auszahlungsdeckel, kommunikation, statsMarkets, bKlasse } = crossTabs
   return (
     <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
       <h3 className="font-bold text-gray-900 mb-3">Kombinierte Auswertungen</h3>
       <div className="space-y-4">
+        <details className="group border border-gray-100 rounded-xl overflow-hidden" open>
+          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
+            <span className="font-semibold text-sm text-gray-800">Wettöffnung (Q3)</span>
+            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+          </summary>
+          <div className="p-4 text-xs">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-gray-50 rounded-lg px-2 py-2 text-center">
+                <div className="text-lg font-bold text-gray-700">{fmtPct(wettoeffnung.frueherPct)}</div>
+                <div className="text-[9px] text-gray-400">wollen früher öffnen</div>
+              </div>
+              <div className="bg-gray-50 rounded-lg px-2 py-2 text-center">
+                <div className="text-lg font-bold text-gray-700">{fmtPct(wettoeffnung.passtPct)}</div>
+                <div className="text-[9px] text-gray-400">passt genau</div>
+              </div>
+              <div className="bg-gray-50 rounded-lg px-2 py-2 text-center">
+                <div className="text-lg font-bold text-gray-700">{fmtPct(wettoeffnung.spaeterPct)}</div>
+                <div className="text-[9px] text-gray-400">wollen später öffnen</div>
+              </div>
+            </div>
+            <div className="text-[10px] text-gray-400 mt-1.5">n={wettoeffnung.total} — die vollständige Optionsverteilung steht unten bei den Einzelfragen (Abschnitt 1).</div>
+          </div>
+        </details>
+
         <details className="group border border-gray-100 rounded-xl overflow-hidden" open>
           <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
             <span className="font-semibold text-sm text-gray-800">Startgeld</span>
@@ -584,6 +608,72 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
 
         <details className="group border border-gray-100 rounded-xl overflow-hidden">
           <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
+            <span className="font-semibold text-sm text-gray-800">Auszahlungsdeckel</span>
+            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+          </summary>
+          <div className="p-4 space-y-3 text-xs">
+            <div>
+              <div className="font-semibold text-gray-600 mb-1">Bekanntheit (Q14)</div>
+              <SingleBlock stat={auszahlungsdeckel.bekanntheit} />
+            </div>
+            <div>
+              <div className="font-semibold text-gray-600 mb-1">Bewertung — alle (Q14_follow)</div>
+              <SingleBlock stat={auszahlungsdeckel.bewertung} />
+            </div>
+            <div>
+              <div className="font-semibold text-gray-600 mb-1">Bewertung — kannte den Deckel vorher (Ja)</div>
+              {auszahlungsdeckel.bewertungByBekanntheit.knew.map((o) => (
+                <div key={o.option} className="flex items-center gap-2 mb-1">
+                  <span className="w-36 flex-shrink-0 text-gray-600">{o.option}</span>
+                  <Bar pct={o.pct} />
+                  <span className="w-16 text-right text-gray-500">{o.count} ({fmtPct(o.pct)})</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="font-semibold text-gray-600 mb-1">Bewertung — kannte den Deckel vorher nicht (Nein)</div>
+              {auszahlungsdeckel.bewertungByBekanntheit.didNotKnow.map((o) => (
+                <div key={o.option} className="flex items-center gap-2 mb-1">
+                  <span className="w-36 flex-shrink-0 text-gray-600">{o.option}</span>
+                  <Bar pct={o.pct} />
+                  <span className="w-16 text-right text-gray-500">{o.count} ({fmtPct(o.pct)})</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </details>
+
+        <details className="group border border-gray-100 rounded-xl overflow-hidden">
+          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
+            <span className="font-semibold text-sm text-gray-800">B-Klasse (Q28)</span>
+            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+          </summary>
+          <div className="p-4 text-xs">
+            <div className="grid grid-cols-4 gap-1.5 mb-2">
+              <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
+                <div className="text-sm font-bold text-gray-700">{fmtPct(bKlasse.wenigerPct)}</div>
+                <div className="text-[9px] text-gray-400">weniger als aktuell</div>
+              </div>
+              <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
+                <div className="text-sm font-bold text-gray-700">{fmtPct(bKlasse.aktuellPct)}</div>
+                <div className="text-[9px] text-gray-400">aktuelles Modell</div>
+              </div>
+              <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
+                <div className="text-sm font-bold text-gray-700">{fmtPct(bKlasse.mehrPct)}</div>
+                <div className="text-[9px] text-gray-400">mehr als aktuell</div>
+              </div>
+              <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
+                <div className="text-sm font-bold text-gray-700">{fmtPct(bKlasse.komplettPct)}</div>
+                <div className="text-[9px] text-gray-400">komplette B-Klasse</div>
+              </div>
+            </div>
+            <div className="text-[10px] text-gray-400 mb-2">n={bKlasse.total} — restliche Antworten ("interessiert mich kaum" / "egal") sind hier nicht mitgezählt, volle Verteilung unten:</div>
+            <SingleBlock stat={bKlasse.raw} />
+          </div>
+        </details>
+
+        <details className="group border border-gray-100 rounded-xl overflow-hidden">
+          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
             <span className="font-semibold text-sm text-gray-800">Kommunikation</span>
             <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
           </summary>
@@ -591,8 +681,18 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800">
               {fmtPct(kommunikation.pushProblemPct)} hatten Probleme mit Push-Benachrichtigungen.
             </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-blue-800">
+              {fmtPct(kommunikation.recapRarelyOrNeverPct)} lesen die Spieltags-Recaps selten oder gar nicht.
+            </div>
             <SingleBlock stat={kommunikation.q20} />
-            <SingleBlock stat={kommunikation.q21} />
+            <div>
+              <div className="font-semibold text-gray-600 mb-1">Wusste, dass Recaps auch in der App sind</div>
+              <SingleBlock stat={kommunikation.recapKnown} />
+            </div>
+            <div>
+              <div className="font-semibold text-gray-600 mb-1">Tatsächlicher Nutzungskanal</div>
+              <SingleBlock stat={kommunikation.recapChannel} />
+            </div>
             <SingleBlock stat={kommunikation.q22} />
           </div>
         </details>
