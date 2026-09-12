@@ -653,6 +653,7 @@ export default function AdminPage() {
                       onCategoryChange={handleCategoryChange}
                       scorerDraft={scorers[match.id]}
                       onScorersChange={(draft) => handleScorersChange(match.id, draft)}
+                      effectiveMatchday={matchdayForFilter(match)}
                     />
                   ))}
                 </div>
@@ -707,6 +708,7 @@ export default function AdminPage() {
                       onCategoryChange={handleCategoryChange}
                       scorerDraft={scorers[match.id]}
                       onScorersChange={(draft) => handleScorersChange(match.id, draft)}
+                      effectiveMatchday={matchdayForFilter(match)}
                     />
                   ))}
                 </div>
@@ -721,7 +723,7 @@ export default function AdminPage() {
                 </h2>
                 <div className="space-y-2">
                   {settledMatches.slice(0, settledShown).map((match) => (
-                    <MatchRow key={match.id} match={match} playerSuggestions={playerSuggestions} />
+                    <MatchRow key={match.id} match={match} playerSuggestions={playerSuggestions} effectiveMatchday={matchdayForFilter(match)} />
                   ))}
                 </div>
                 {settledShown < settledMatches.length && (
@@ -2132,6 +2134,7 @@ function MatchSettleCard({
   onCategoryChange,
   scorerDraft,
   onScorersChange,
+  effectiveMatchday,
 }: {
   match: MatchRow
   score: { home: string; away: string }
@@ -2146,6 +2149,12 @@ function MatchSettleCard({
   onCategoryChange?: (matchId: number, category: string) => void
   scorerDraft?: ScorerDraft[]
   onScorersChange?: (draft: ScorerDraft[]) => void
+  /** Tippspiel-Spieltag this match is actually filtered/grouped under (see
+   *  matchdayForFilter) — for Wildenroth II/B-Klasse this differs from the
+   *  card's own raw `match.matchday` (their own independent BFV numbering),
+   *  so the badge must show this one or the admin sees a different Spieltag
+   *  here than the one just selected in the filter dropdown above. */
+  effectiveMatchday?: number | null
 }) {
   const matchDate = new Date(match.match_date)
   const dateStr = matchDate.toLocaleDateString('de-DE', {
@@ -2158,7 +2167,11 @@ function MatchSettleCard({
     <div className={`bg-white rounded-xl border shadow-sm p-4 ${isUpcoming ? 'border-blue-200' : 'border-orange-200'}`}>
       <div className="flex items-center justify-between mb-3">
         <div className={`text-xs font-medium px-2 py-1 rounded-lg ${isUpcoming ? 'text-blue-600 bg-blue-50' : 'text-orange-600 bg-orange-50'}`}>
-          Spieltag {match.matchday}{isUpcoming ? ' · Verlegt?' : ''}
+          Spieltag {effectiveMatchday ?? match.matchday}
+          {effectiveMatchday != null && effectiveMatchday !== match.matchday && (
+            <span className="opacity-70"> (eigener Spieltag {match.matchday})</span>
+          )}
+          {isUpcoming ? ' · Verlegt?' : ''}
         </div>
         <div className="flex items-center gap-2">
           {pendingBets != null && pendingBets > 0 && (
@@ -2505,7 +2518,7 @@ function PostponedMatchCard({
   )
 }
 
-function MatchRow({ match, playerSuggestions }: { match: MatchRow; playerSuggestions?: string[] }) {
+function MatchRow({ match, playerSuggestions, effectiveMatchday }: { match: MatchRow; playerSuggestions?: string[]; effectiveMatchday?: number | null }) {
   const matchDate = new Date(match.match_date)
   const dateStr = matchDate.toLocaleDateString('de-DE', {
     weekday: 'short',
@@ -2527,7 +2540,10 @@ function MatchRow({ match, playerSuggestions }: { match: MatchRow; playerSuggest
       <div className="px-4 py-3 flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400">ST {match.matchday}</span>
+            <span className="text-xs text-gray-400">
+              ST {effectiveMatchday ?? match.matchday}
+              {effectiveMatchday != null && effectiveMatchday !== match.matchday && ` (eigener ST ${match.matchday})`}
+            </span>
             <span className="text-xs text-gray-300">·</span>
             <span className="text-xs text-gray-400">
               {dateStr} {timeStr}
