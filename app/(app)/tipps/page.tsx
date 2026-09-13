@@ -16,7 +16,7 @@ import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type Goalscorer
 import Link from 'next/link'
 import { TeamLogo } from '@/components/TeamLogo'
 import { wildiLabel } from '@/components/WildiIcon'
-import { oddsColorClass, cupSocialLabel } from '@/lib/betDisplay'
+import { oddsColorClass, cupSocialLabel, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
 import { cappedPayout } from '@/lib/payout'
 
 export const revalidate = 60
@@ -1186,10 +1186,10 @@ export default async function TippsPage({
           const sel = l.market_type === 'exact_score' ? l.selection
             : (l.market_type === 'goalscorer' || l.market_type === 'goalscorer_2plus')
               ? (playerNameMap[parseInt(l.selection, 10)] ?? l.selection)
-              : (RECAP_SEL_LBL[l.market_type]?.[l.selection] ?? l.selection)
+              : (RECAP_SEL_LBL[l.market_type]?.[l.selection] ?? cupSelectionLabel(l.market_type, l.selection) ?? l.selection)
           return {
             matchName: `${ht?.name ?? '?'} – ${at?.name ?? '?'}`,
-            market: RECAP_MKT_LBL[l.market_type] ?? l.market_type,
+            market: RECAP_MKT_LBL[l.market_type] ?? CUP_MARKET_LABEL[l.market_type] ?? l.market_type,
             selection: sel,
             odds: l.odds_value,
             status: l.status as 'won' | 'lost' | 'pending',
@@ -1296,7 +1296,11 @@ export default async function TippsPage({
       }
       lastMinuteCandidates.sort((a, b) => a.gapMs - b.gapMs)
       const lastMinuteTipper: RecapData['lastMinuteTipper'] = lastMinuteCandidates[0]
-        ? { name: pMap[lastMinuteCandidates[0].user_id] ?? 'Unbekannt', gapMin: Math.round(lastMinuteCandidates[0].gapMs / 60000) }
+        ? {
+            name: pMap[lastMinuteCandidates[0].user_id] ?? 'Unbekannt',
+            gapMin: Math.round(lastMinuteCandidates[0].gapMs / 60000),
+            gapSec: Math.round(lastMinuteCandidates[0].gapMs / 1000),
+          }
         : null
 
       if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper) {

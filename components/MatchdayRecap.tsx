@@ -27,7 +27,7 @@ export type RecapData = {
   // Einzelwette-only (see lib/awards.ts) — never a combo, so no isCombo flag.
   grosserWurf: { name: string; amount: number } | null
   torschuetzenKoenig: { name: string; count: number } | null
-  lastMinuteTipper: { name: string; gapMin: number } | null
+  lastMinuteTipper: { name: string; gapMin: number; gapSec: number } | null
 }
 
 function fmtAmt(n: number) { return fmtWildi(n) }
@@ -309,7 +309,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               emoji="⏱️"
               title="Last-Minute-Tipper"
               name={lastMinuteTipper.name}
-              value={`${lastMinuteTipper.gapMin} Min.`}
+              value={lastMinuteTipper.gapSec < 60 ? `${lastMinuteTipper.gapSec} Sek.` : `${lastMinuteTipper.gapMin} Min.`}
               detail="Vor Anpfiff gewettet — und gewonnen"
               accentBg="bg-fuchsia-50"
               accentBorder="border-fuchsia-200"

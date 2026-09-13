@@ -353,11 +353,16 @@ export async function computeAndPersistMatchdayAwards(
     lastMinuteCandidates.sort((a, b) => a.gapMs - b.gapMs)
     const lm = lastMinuteCandidates[0]
     const gapMin = Math.round(lm.gapMs / 60000)
+    // Under a minute, "0 Min." reads as a rounding error rather than the
+    // extreme (most last-minute) case it actually is — switch to seconds so
+    // e.g. an 18-second-before-kickoff bet shows as "18 Sek.", not "0 Min.".
+    const gapSec = Math.round(lm.gapMs / 1000)
+    const timeText = gapSec < 60 ? `${gapSec} Sek.` : `${gapMin} Min.`
     awardInputs.push({
       user_id: lm.user_id,
       award_type: 'last_minute_tipper',
       value: gapMin,
-      value_text: `${gapMin} Min. vor Anpfiff gewettet — und gewonnen`,
+      value_text: `${timeText} vor Anpfiff gewettet — und gewonnen`,
     })
   }
 
