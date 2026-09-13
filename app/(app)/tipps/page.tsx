@@ -898,13 +898,14 @@ export default async function TippsPage({
   type OwnBet = {
     id: number; match_id: number; market_type: string; selection: string
     odds_value: number; stake: number | null; status: string; combo_id: number | null; is_risky: boolean
+    is_bonus: boolean
   }
   type OwnCombo = { id: number; stake: number; status: string; legs: OwnBet[] }
 
   const [{ data: userProfile }, ownBetsResult] = await Promise.all([
     user ? supabase.from('profiles').select('is_wildenroth, is_wildenroth_ii, eligible_for_current_season, is_admin').eq('id', user.id).single() : Promise.resolve({ data: null }),
     user && matchdayMatchIds.length > 0
-      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky').eq('user_id', user.id).in('match_id', matchdayMatchIds).neq('status', 'void')
+      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky, is_bonus').eq('user_id', user.id).in('match_id', matchdayMatchIds).neq('status', 'void')
       : Promise.resolve({ data: [] }),
   ])
 
@@ -941,19 +942,22 @@ export default async function TippsPage({
       // Counts come from the actually stored is_risky flag (set once, server-side,
       // at placement — see /api/bets/place) rather than re-derived from odds here.
       // A combo's legs all share one is_risky value, so any leg reflects the
-      // whole combo's slot. Only PENDING bets occupy a slot in this on-page
-      // counter — a settled bet no longer counts here (this is a lighter,
-      // display-only tally; the actual limit enforced at placement in
-      // /api/bets/place also blocks re-betting a slot freed by early
-      // settlement, see the comment there). A cancelled bet (status 'void',
-      // not deleted — see /api/bets/cancel) is excluded either way since
-      // it's never 'pending'.
-      const pendingSingles = userSingles.filter(b => b.status === 'pending')
-      const pendingCombos = userCombos.filter(c => c.status === 'pending')
-      const riskySingles = pendingSingles.filter(b => b.is_risky).length
-      const riskyCombos = pendingCombos.filter(c => c.legs[0]?.is_risky).length
+      // whole combo's slot. Slot counting here must match the actual limit
+      // enforced at placement (/api/bets/place): PENDING *and* already-settled
+      // ('won'/'lost') bets occupy a slot — a slip settling early does not
+      // free that slot back up, so the header must keep showing it as used
+      // instead of dropping back to 0 and implying another normal/risky bet
+      // is still available. `ownBetsResult` already excludes 'void' (cancelled)
+      // bets via its `.neq('status', 'void')` fetch, so userSingles/userCombos
+      // here are already exactly "pending + won + lost" — no extra filter needed.
+      // The Pokal-Bonus slip (bets.is_bonus, see /api/bets/place) never
+      // occupies a normal/risky slot either — same exclusion as the actual
+      // limit enforcement (which filters `!b.is_bonus` before counting).
+      const nonBonusSingles = userSingles.filter(b => !b.is_bonus)
+      const riskySingles = nonBonusSingles.filter(b => b.is_risky).length
+      const riskyCombos = userCombos.filter(c => c.legs[0]?.is_risky).length
       riskyBetCount = riskySingles + riskyCombos
-      normalBetCount = (pendingSingles.length - riskySingles) + (pendingCombos.length - riskyCombos)
+      normalBetCount = (nonBonusSingles.length - riskySingles) + (userCombos.length - riskyCombos)
     }
   }
 
