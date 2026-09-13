@@ -49,9 +49,33 @@ export function ProfileEditForm({
   const [success, setSuccess] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Mirrors the `avatars` Storage bucket's server-side allowed_mime_types —
+  // the bucket now rejects anything else, but validating here too gives an
+  // immediate, friendly error instead of a failed-upload round trip. The
+  // canonical extension (not whatever the original filename happened to
+  // have — a client can name a file anything) is derived from this same
+  // map, so the stored object's extension always matches its real MIME
+  // type; no SVG (can carry embedded script) or arbitrary types.
+  const ALLOWED_AVATAR_TYPES: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+  }
+  const MAX_AVATAR_BYTES = 5 * 1024 * 1024 // 5 MiB — matches the bucket's file_size_limit
+
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+    if (!ALLOWED_AVATAR_TYPES[file.type]) {
+      setProfileError('Nur JPEG-, PNG- oder WebP-Bilder sind erlaubt.')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setProfileError('Das Bild darf maximal 5 MB groß sein.')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
     setPendingFile(file)
     setPreviewUrl(URL.createObjectURL(file))
     setProfileSuccess(null)
@@ -67,7 +91,14 @@ export function ProfileEditForm({
       let newAvatarUrl = avatarUrl
 
       if (pendingFile) {
-        const ext = (pendingFile.name.split('.').pop() || 'png').toLowerCase()
+        const ext = ALLOWED_AVATAR_TYPES[pendingFile.type]
+        if (!ext) {
+          setProfileError('Nur JPEG-, PNG- oder WebP-Bilder sind erlaubt.')
+          setSaving(false)
+          return
+        }
+        // Fixed filename per user folder (no client-supplied name involved)
+        // — `upsert: true` replaces any previous avatar for this user.
         const path = `${userId}/avatar.${ext}`
         const { error: uploadError } = await supabase.storage
           .from('avatars')
@@ -223,7 +254,7 @@ export function ProfileEditForm({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp"
                   onChange={onFileChange}
                   className="hidden"
                 />

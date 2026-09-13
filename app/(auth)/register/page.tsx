@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { PASSWORD_MIN_LENGTH, PASSWORD_MIN_LENGTH_MESSAGE } from '@/lib/password'
 
 // Server-side availability check — see app/api/auth/check-display-name/route.ts.
 // A client-only SELECT can't be trusted as the uniqueness check: it's racy
@@ -183,8 +184,8 @@ export default function RegisterPage() {
       setError('Passwörter stimmen nicht überein.')
       return
     }
-    if (form.password.length < 6) {
-      setError('Das Passwort muss mindestens 6 Zeichen lang sein.')
+    if (form.password.length < PASSWORD_MIN_LENGTH) {
+      setError(PASSWORD_MIN_LENGTH_MESSAGE)
       return
     }
 
@@ -410,17 +411,18 @@ export default function RegisterPage() {
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
                 Passwort erstellen
               </label>
-              <p className="text-xs text-gray-400 mb-2">Mindestens 6 Zeichen.</p>
+              <p className="text-xs text-gray-400 mb-2">Mindestens {PASSWORD_MIN_LENGTH} Zeichen.</p>
               <input
                 id="password"
                 name="password"
                 type="password"
                 required
                 autoFocus
+                minLength={PASSWORD_MIN_LENGTH}
                 value={form.password}
                 onChange={handleChange}
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-gray-900 placeholder-gray-400 transition"
-                placeholder="Mindestens 6 Zeichen"
+                placeholder={`Mindestens ${PASSWORD_MIN_LENGTH} Zeichen`}
               />
 
               <label htmlFor="passwordConfirm" className="block text-sm font-medium text-gray-700 mb-1 mt-4">

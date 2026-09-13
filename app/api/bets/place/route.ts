@@ -530,6 +530,12 @@ export async function POST(request: NextRequest) {
   // Captured here so the recompute pass after insertion (below) doesn't have
   // to redo this lookup — same set of match ids used for both.
   const matchdayAllIds = new Map<number, number[]>()
+  // Fed into finalize_bet_placement (see below) — the atomic RPC re-verifies
+  // each of these counts under a per-(user, matchday) advisory lock right
+  // before inserting, so two truly concurrent submissions can never both
+  // succeed off the same stale read (closes a TOCTOU race the plain
+  // read-then-insert below this loop used to have).
+  const lockChecks: { matchday: number; match_ids: number[]; expected_count: number }[] = []
 
   // "4. Wettschein" Pokal-Bonus (round 6, see CLAUDE.md "TEIL 2"). The cup
   // fixture's own effective Spieltag — looked up from the FULL season match
@@ -604,6 +610,7 @@ export async function POST(request: NextRequest) {
       ...(existingLegs ?? []).filter((b) => b.combo_id == null && !b.is_bonus).map((b) => ({ id: `bet-${b.id}`, odds: Number(b.odds_value) })),
       ...existingCombos.map((c) => ({ id: `combo-${c.id}`, odds: Number(c.total_odds) })),
     ]
+    lockChecks.push({ matchday, match_ids: allMatchdayIds, expected_count: existingSlips.length })
 
     // Simulate the user's slip set for this Spieltag AFTER this request's new
     // slip(s) were added — a combo is one new slip regardless of matchday (it
@@ -706,61 +713,46 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Fehler beim Verarbeiten des Einsatzes.' }, { status: 500 })
   }
 
-  // Place bets
+  // Place bets — combo_bets/bets rows are built exactly as before (same
+  // fields, same is_risky/is_bonus decisions already made above by the
+  // existing business logic), but the actual insert now goes through the
+  // finalize_bet_placement RPC instead of two separate admin.from().insert()
+  // calls. That function re-verifies every lockChecks entry's expected_count
+  // under a per-(user, matchday) advisory lock in the SAME transaction as
+  // the insert — the only way to actually close the race, since two
+  // separate PostgREST calls (a check call, then an insert call) can't
+  // share one lock across the request boundary. See the migration
+  // add_finalize_bet_placement_atomic_function.
+  let comboRow: Record<string, unknown> | null = null
+  let betRows: Record<string, unknown>[]
+
   if (mode === 'combo') {
     const totalOdds = selections.reduce((acc, s) => acc * s.oddsValue, 1)
-
-    const { data: comboBet, error: comboError } = await admin
-      .from('combo_bets')
-      .insert({
-        user_id: user.id,
-        stake: comboStake,
-        total_odds: Math.round(totalOdds * 100) / 100,
-        status: 'pending',
-        payout: null,
-        season: betSeason,
-      })
-      .select('id')
-      .single()
-
-    if (comboError || !comboBet) {
-      console.error('combo_bets insert error:', comboError)
-      await admin.rpc('increment_balance', { p_user_id: user.id, p_amount: totalCost })
-      return NextResponse.json({ error: 'Fehler beim Erstellen der Kombiwette.' }, { status: 500 })
+    comboRow = {
+      stake: comboStake,
+      total_odds: Math.round(totalOdds * 100) / 100,
+      status: 'pending',
+      season: betSeason,
     }
-
-    const betRows = selections.map((s) => ({
-      user_id: user.id,
+    betRows = selections.map((s) => ({
       match_id: s.matchId,
       market_type: s.marketType,
       selection: s.selection,
       stake: null,
       odds_value: s.oddsValue,
       status: 'pending',
-      payout: null,
-      combo_id: comboBet.id,
       is_risky: effectiveRisky,
+      is_bonus: false,
       season: betSeason,
     }))
-
-    const { error: betsError } = await admin.from('bets').insert(betRows)
-    if (betsError) {
-      console.error('bets insert error (combo legs):', betsError)
-      await admin.rpc('increment_balance', { p_user_id: user.id, p_amount: totalCost })
-      await admin.from('combo_bets').delete().eq('id', comboBet.id)
-      return NextResponse.json({ error: 'Fehler beim Speichern der Wetten.' }, { status: 500 })
-    }
   } else {
-    const betRows = selections.map((s) => ({
-      user_id: user.id,
+    betRows = selections.map((s) => ({
       match_id: s.matchId,
       market_type: s.marketType,
       selection: s.selection,
       stake: s.stake,
       odds_value: s.oddsValue,
       status: 'pending',
-      payout: null,
-      combo_id: null,
       // Pokal-Bonus (4. Wettschein): NEVER flagged risky regardless of odds
       // (see CLAUDE.md TEIL 2) — sits entirely outside the normal risky-
       // accounting system, so it's forced false here rather than derived
@@ -770,13 +762,26 @@ export async function POST(request: NextRequest) {
       is_bonus: submissionIsBonus,
       season: betSeason,
     }))
+  }
 
-    const { error: betsError } = await admin.from('bets').insert(betRows)
-    if (betsError) {
-      console.error('bets insert error (single):', betsError)
-      await admin.rpc('increment_balance', { p_user_id: user.id, p_amount: totalCost })
-      return NextResponse.json({ error: 'Fehler beim Speichern der Wetten.' }, { status: 500 })
+  const { error: placeError } = await admin.rpc('finalize_bet_placement', {
+    p_user_id: user.id,
+    p_lock_checks: lockChecks,
+    p_combo_row: comboRow,
+    p_bet_rows: betRows,
+  })
+
+  if (placeError) {
+    await admin.rpc('increment_balance', { p_user_id: user.id, p_amount: totalCost })
+    if (placeError.message?.includes('SLOT_COUNT_CHANGED')) {
+      console.warn('finalize_bet_placement race detected for user', user.id, placeError.message)
+      return NextResponse.json(
+        { error: 'Ein anderer Wettschein wurde gerade gleichzeitig platziert. Bitte versuche es erneut.' },
+        { status: 409 }
+      )
     }
+    console.error('finalize_bet_placement error:', placeError)
+    return NextResponse.json({ error: 'Fehler beim Speichern der Wetten.' }, { status: 500 })
   }
 
   // Admin push notification: notify every admin (currently just Jani) the

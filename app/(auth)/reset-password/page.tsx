@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { PASSWORD_MIN_LENGTH, PASSWORD_MIN_LENGTH_MESSAGE } from '@/lib/password'
 
 type Phase = 'checking' | 'ready' | 'invalid' | 'success'
 
@@ -93,8 +94,8 @@ function ResetPasswordForm() {
       setFormError('Bitte beide Felder ausfüllen.')
       return
     }
-    if (password.length < 6) {
-      setFormError('Das Passwort muss mindestens 6 Zeichen lang sein.')
+    if (password.length < PASSWORD_MIN_LENGTH) {
+      setFormError(PASSWORD_MIN_LENGTH_MESSAGE)
       return
     }
     if (password !== passwordRepeat) {
@@ -180,6 +181,7 @@ function ResetPasswordForm() {
             id="password"
             type="password"
             required
+            minLength={PASSWORD_MIN_LENGTH}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-gray-900 placeholder-gray-400 transition"

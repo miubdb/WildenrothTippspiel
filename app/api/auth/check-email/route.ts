@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/admin'
 
 /**
  * POST /api/auth/check-email
  * Body: { email: string }
  *
- * Server-side availability check for registration — a client-only check
- * can't be trusted (racy, and Supabase's signUp() deliberately doesn't
- * return a clear "already exists" error for an already-registered,
- * already-confirmed email, to avoid leaking account existence). The actual
- * boundary is the trimmed/lowercased UNIQUE index on profiles.email
- * (profiles_email_trimmed_lower_unique, enforced transactionally via the
- * handle_new_user() signup trigger) — this endpoint just gives a fast,
- * friendly answer before the client attempts signUp(). Uses a SECURITY
- * DEFINER function (public.email_exists) so it never has to expose the auth
- * user list or any row data — only a boolean.
+ * Deliberately does NOT reveal whether the address is already registered —
+ * this used to call a SECURITY DEFINER `email_exists` RPC and return its
+ * result, which made the endpoint a user-enumeration oracle (any anonymous
+ * caller could probe arbitrary addresses and learn who has an account).
+ * Only format validation happens here now; the real "is this email already
+ * taken" answer comes from the trimmed/lowercased UNIQUE index on
+ * profiles.email (profiles_email_trimmed_lower_unique, enforced
+ * transactionally via the handle_new_user() signup trigger) surfacing as a
+ * signUp() error, which the registration form already handles (see
+ * app/(auth)/register/page.tsx's duplicate-email detection in
+ * handleSubmit()) — so a genuine duplicate is still caught cleanly, just at
+ * submit time instead of via a separate pre-check that could be probed.
  */
 export async function POST(request: NextRequest) {
   let body: { email?: string }
@@ -27,12 +28,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Bitte gib eine gültige E-Mail-Adresse ein.' }, { status: 400 })
   }
 
-  const admin = createAdminClient()
-  const { data, error } = await admin.rpc('email_exists', { p_email: trimmed })
-
-  if (error) {
-    return NextResponse.json({ error: 'E-Mail konnte nicht geprüft werden.' }, { status: 500 })
-  }
-
-  return NextResponse.json({ available: !data })
+  return NextResponse.json({ available: true })
 }

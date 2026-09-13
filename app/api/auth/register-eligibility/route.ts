@@ -56,16 +56,36 @@ export async function POST(req: Request) {
     is_wildenroth: isWildenroth,
     is_wildenroth_ii: isWildenrothII,
     eligible_for_current_season: true,
+    registration_finalized_at: new Date().toISOString(),
   }
   // Only override the trigger-assigned default balance when the graduated
-  // rule actually reduces it — never overwrite it back UP to 1000, in case
-  // this route were ever somehow called twice for the same user.
+  // rule actually reduces it — never overwrite it back UP to 1000.
   if (startingBalance < STARTING_BALANCE) {
     updates.balance = startingBalance
     updates.season_start_balance = startingBalance
   }
 
-  await admin.from('profiles').update(updates).eq('id', user.id)
+  // Atomic one-time finalization: `registration_finalized_at is null` is a
+  // compare-and-set guard, not just a courtesy check — Postgres serializes
+  // concurrent UPDATEs to the same row, so of two racing requests only the
+  // first can ever match the guard, the second affects zero rows regardless
+  // of timing. Without this, a user could replay this endpoint after
+  // finishing registration to re-grant eligible_for_current_season=true
+  // once an admin revoked it, or switch team role (e.g. off their own
+  // Wildenroth team) to sidestep the conflict-of-interest betting rule.
+  const { data: updated } = await admin
+    .from('profiles')
+    .update(updates)
+    .eq('id', user.id)
+    .is('registration_finalized_at', null)
+    .select('id')
+
+  if (!updated || updated.length === 0) {
+    return NextResponse.json(
+      { error: 'Registrierung wurde bereits abgeschlossen.' },
+      { status: 409 }
+    )
+  }
 
   // Notify the admin(s) that a new user registered — best-effort, must never
   // fail the registration response (sendPushToUser already swallows/logs

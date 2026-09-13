@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
+import { PASSWORD_MIN_LENGTH, PASSWORD_MIN_LENGTH_MESSAGE } from '@/lib/password'
 
 export async function PATCH(req: Request) {
   const supabase = await createClient()
@@ -22,8 +23,8 @@ export async function PATCH(req: Request) {
     if (!currentPassword) {
       return NextResponse.json({ error: 'Aktuelles Passwort erforderlich' }, { status: 400 })
     }
-    if (value.length < 6) {
-      return NextResponse.json({ error: 'Passwort muss mindestens 6 Zeichen haben' }, { status: 400 })
+    if (value.length < PASSWORD_MIN_LENGTH) {
+      return NextResponse.json({ error: PASSWORD_MIN_LENGTH_MESSAGE }, { status: 400 })
     }
 
     // Verify current password by signing in
@@ -62,20 +63,13 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: 'Das ist bereits deine aktuelle E-Mail-Adresse.' }, { status: 400 })
     }
 
-    // Server-side, race-safe availability pre-check — same SECURITY DEFINER
-    // function used at registration (app/api/auth/check-email/route.ts).
-    // The actual boundary is still profiles_email_trimmed_lower_unique.
-    const { data: alreadyExists, error: checkError } = await supabase.rpc('email_exists', { p_email: trimmed })
-    if (checkError) {
-      return NextResponse.json({ error: 'E-Mail konnte nicht geprüft werden.' }, { status: 500 })
-    }
-    if (alreadyExists) {
-      return NextResponse.json(
-        { error: 'Diese E-Mail-Adresse wird bereits verwendet. Bitte melde dich an oder verwende eine andere E-Mail-Adresse.' },
-        { status: 400 }
-      )
-    }
-
+    // No separate "is this email already taken" pre-check here (that used
+    // to call the email_exists RPC, now locked down — see the security
+    // hardening pass) — a dedicated pre-check is itself an enumeration
+    // oracle usable by any signed-in member against any other member's
+    // email. The uniqueness boundary is still fully enforced (Supabase Auth
+    // itself + the profiles_email_trimmed_lower_unique index); it just
+    // surfaces as an updateUser() error below instead of a separate probe.
     const { data: updated, error: updateAuthError } = await supabase.auth.updateUser({ email: trimmed })
     if (updateAuthError) {
       const msg = updateAuthError.message?.toLowerCase() ?? ''
