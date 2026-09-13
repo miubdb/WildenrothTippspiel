@@ -6,6 +6,9 @@ import { BetSlip } from '@/components/BetSlip'
 import { MyBets } from '@/components/MyBets'
 import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { MatchdayRecap } from '@/components/MatchdayRecap'
+import { AllTippsSection } from '@/components/AllTippsSection'
+import { BonusTipsSection } from '@/components/BonusTipsSection'
+import type { BonusTip } from '@/lib/bonusTips'
 import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
 import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext, getFullExactScoreMatrix, mergeExactScoreOffers, cupMarketOddsFromXG, cupSpecialMarketOddsFromXG, cupRound6MarketOddsFromSim } from '@/lib/odds'
@@ -14,41 +17,10 @@ import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
-import { TeamLogo } from '@/components/TeamLogo'
-import { wildiLabel } from '@/components/WildiIcon'
-import { oddsColorClass, cupSocialLabel, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
+import { CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
 import { cappedPayout } from '@/lib/payout'
 
 export const revalidate = 60
-
-const SELECTION_DISPLAY: Record<string, Record<string, string>> = {
-  '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
-  double_chance: { '1x': '1X', x2: 'X2', '12': '12' },
-  over_under: { 'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5' },
-  over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
-  over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
-  over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
-  btts: { yes: 'Beide treffen', no: 'Nicht beide' },
-  handicap: {
-    home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
-    away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5', away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
-  },
-}
-
-function socialSelLabel(marketType: string, selection: string, players?: Record<number, string>) {
-  if (marketType === 'exact_score') return selection
-  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
-    const id = parseInt(selection, 10)
-    const name = players?.[id] ?? `Spieler #${id}`
-    return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
-  }
-  // Cup markets checked first — SELECTION_DISPLAY is keyed by selection code
-  // alone, so a cup_comeback_advance 'yes' would otherwise wrongly match
-  // btts's "Beide treffen". cupSocialLabel (not plain cupSelectionLabel)
-  // since this narrow single-line row needs the market context too — a bare
-  // "Nein"/"Ja"/"Wildenroth" is ambiguous across several cup markets here.
-  return cupSocialLabel(marketType, selection) ?? SELECTION_DISPLAY[marketType]?.[selection] ?? selection
-}
 
 export default async function TippsPage({
   searchParams,
@@ -126,6 +98,25 @@ export default async function TippsPage({
   }))
 
   const priorMatches: PriorMatch[] = (priorMatchesRaw ?? []) as PriorMatch[]
+
+  // Bonus-Tipps (Sondertipps ohne Einsatz) — jeder bereits geöffnete Tipp der
+  // letzten Zeit, unabhängig vom aktuell angezeigten Spieltag (ein
+  // Langzeit-/Winterpausen-Tipp hat ohnehin keinen Spieltagsbezug). RLS
+  // erlaubt jedem eingeloggten Nutzer das Lesen aller Bonus-Tipps.
+  const { data: bonusTipsRaw } = await supabase
+    .from('bonus_tips')
+    .select('*')
+    .lte('opens_at', new Date().toISOString())
+    .order('closes_at', { ascending: false })
+    .limit(20)
+  const bonusTips: BonusTip[] = (bonusTipsRaw ?? []) as BonusTip[]
+  const bonusTipIds = bonusTips.map((t) => t.id)
+  const [{ data: myBonusAnswersRaw }, { data: myBonusPayoutsRaw }] = user && bonusTipIds.length > 0
+    ? await Promise.all([
+        supabase.from('bonus_tip_answers').select('bonus_tip_id, answer_key').eq('user_id', user.id).in('bonus_tip_id', bonusTipIds),
+        supabase.from('bonus_tip_payouts').select('bonus_tip_id, amount').eq('user_id', user.id).in('bonus_tip_id', bonusTipIds),
+      ])
+    : [{ data: [] }, { data: [] }]
 
   const teamNames = new Map<number, string>()
   for (const m of allMatches) {
@@ -1479,6 +1470,16 @@ export default async function TippsPage({
         <MatchdayRecap data={recapData} matchday={currentMatchday} />
       )}
 
+      {/* Bonus-Tipps — Sondertipps ohne Einsatz, siehe lib/bonusTips.ts */}
+      {user && bonusTips.length > 0 && (
+        <BonusTipsSection
+          tips={bonusTips}
+          myAnswers={myBonusAnswersRaw ?? []}
+          myPayouts={myBonusPayoutsRaw ?? []}
+          userId={user.id}
+        />
+      )}
+
       {/* Match Cards */}
       {!seasonStarted ? (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-6 py-10 text-center space-y-3">
@@ -1569,304 +1570,18 @@ export default async function TippsPage({
       )}
 
       {/* Social Bets — grouped by match; per-match visibility after each game's kickoff.
-          Includes the current user's own bets (labelled "Du") for one complete overview. */}
-      {user && Object.values(betCountByMatch).some(c => c > 0) && (() => {
-        const now = new Date()
-        const activeSocial = socialBets.filter(b => b.status !== 'void')
-        const profileMap = new Map(socialProfiles.map(p => [p.id, p]))
-        const nameOf = (uid: string) => {
-          if (uid === user.id) return 'Du'
-          const p = profileMap.get(uid)
-          return p ? (p.display_name || p.username) : 'Unbekannt'
-        }
-        const initialOf = (uid: string) => (uid === user.id ? 'D' : (nameOf(uid)[0] ?? '?').toUpperCase())
-        const avatarUrlOf = (uid: string) => profileMap.get(uid)?.avatar_url ?? null
-        // Shared avatar for a bettor: their profile photo when set, the initial-letter
-        // circle otherwise (bgCls/textCls pick the red single-bet or blue combo theme).
-        const renderAvatar = (uid: string, dim: 'w-4 h-4' | 'w-6 h-6', bgCls: string, textCls: string, textSize: string) => {
-          const url = avatarUrlOf(uid)
-          if (url) {
-            return (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={url} alt="" className={`${dim} rounded-full object-cover flex-shrink-0`} />
-            )
-          }
-          return (
-            <span className={`${dim} rounded-full ${bgCls} flex items-center justify-center flex-shrink-0`}>
-              <span className={`${textCls} font-bold ${textSize}`}>{initialOf(uid)}</span>
-            </span>
-          )
-        }
-        const totalTippers = new Set(activeSocial.map(b => b.user_id)).size
-
-        // Each combo gets ONE full card (avatar/name/stake/collapsible other legs), placed
-        // under its earliest-kickoff match — every other match it touches gets only a slim
-        // one-line mention (see compactComboRow below) instead of repeating the full card,
-        // which got noisy once combos routinely span 5-8 matches across a matchday.
-        const comboFirstMatchId = new Map<string, number>()
-        for (const b of activeSocial) {
-          if (!b.combo_id) continue
-          const cid = String(b.combo_id)
-          if (!comboFirstMatchId.has(cid)) {
-            comboFirstMatchId.set(cid, b.match_id)
-          } else {
-            const curMatchDate = new Date(matchMap.get(comboFirstMatchId.get(cid)!)?.match_date ?? '').getTime()
-            const thisMatchDate = new Date(matchMap.get(b.match_id)?.match_date ?? '').getTime()
-            if (thisMatchDate < curMatchDate) comboFirstMatchId.set(cid, b.match_id)
-          }
-        }
-
-        return (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-              <h2 className="font-bold text-gray-900 dark:text-gray-100">Alle Tipps</h2>
-              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                {totalTippers > 0 ? `${totalTippers} Spieler haben getippt` : 'Tipps sichtbar ab Anpfiff'}
-              </p>
-            </div>
-
-            <div className="divide-y divide-gray-100 dark:divide-gray-700">
-              {matchdayMatches.map(match => {
-                const matchKickedOff = new Date(match.match_date) <= now
-                const count = betCountByMatch[match.id] ?? 0
-
-                if (!matchKickedOff) {
-                  if (count === 0) return null
-                  return (
-                    <div key={match.id} className="px-4 py-3">
-                      <div className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-gray-100 mb-1">
-                        <TeamLogo name={match.home_team?.name ?? '?'} size="sm" />
-                        <span className="truncate">{match.home_team?.name ?? '?'}</span>
-                        <span className="text-gray-400 dark:text-gray-500 text-xs">vs</span>
-                        <span className="truncate">{match.away_team?.name ?? '?'}</span>
-                        <TeamLogo name={match.away_team?.name ?? '?'} size="sm" />
-                      </div>
-                      <p className="text-xs text-gray-400 dark:text-gray-500">
-                        🔒 {count} Wettschein{count !== 1 ? 'e' : ''} · sichtbar ab Anpfiff
-                      </p>
-                    </div>
-                  )
-                }
-
-                // Match has kicked off — show actual bet details
-                const singles = activeSocial
-                  .filter(b => !b.combo_id && b.match_id === match.id)
-                  .sort((a, b) => b.odds_value - a.odds_value)
-                // Show a combo under EVERY match it has a (started) leg on — not just its
-                // earliest-kickoff match — so a leg on an already-started match is never
-                // hidden just because an earlier leg of the same combo hasn't shown yet.
-                // Each occurrence expands its own leg for this match and collapses the rest.
-                // Sorted by this match's own leg odds, highest first — the combo most
-                // worth noticing on this particular game leads, not insertion order.
-                const legsOnThisMatch = activeSocial.filter(b => b.combo_id && b.match_id === match.id)
-                const comboIdsHere = [...new Set(legsOnThisMatch.map(b => b.combo_id as string))]
-                  .sort((a, b) => {
-                    const oa = legsOnThisMatch.find(l => l.combo_id === a)?.odds_value ?? 0
-                    const ob = legsOnThisMatch.find(l => l.combo_id === b)?.odds_value ?? 0
-                    return ob - oa
-                  })
-                if (singles.length === 0 && comboIdsHere.length === 0) return null
-
-                return (
-                  <div key={match.id} className="px-4 py-3 space-y-2">
-                    {/* Match header */}
-                    <div className="flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-gray-100 flex-wrap">
-                      <TeamLogo name={match.home_team?.name ?? '?'} size="sm" />
-                      <span>{match.home_team?.name ?? '?'}</span>
-                      <span className="text-gray-400 dark:text-gray-500 text-xs flex-shrink-0">vs</span>
-                      <span>{match.away_team?.name ?? '?'}</span>
-                      <TeamLogo name={match.away_team?.name ?? '?'} size="sm" />
-                      {match.status === 'finished' && match.home_score != null && (
-                        <span className="ml-auto text-xs font-black text-red-700 dark:text-red-400">{match.home_score}:{match.away_score}</span>
-                      )}
-                    </div>
-
-                    {/* Single bets on this match — same compact, expandable one-line
-                        row as a non-primary combo mention (see comboIdsHere below), so
-                        Einzel and Kombi take up the same amount of space in the list;
-                        stake/payout only shows once tapped open. */}
-                    {singles.map(bet => {
-                      const stake = bet.stake ?? 0
-                      const potWin = Math.round(stake * bet.odds_value * 100) / 100
-                      const edgeCls = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-                      return (
-                        <details key={bet.id} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
-                          <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
-                            {renderAvatar(bet.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
-                            <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(bet.user_id)}</span>
-                            <span className="text-[9px] font-bold bg-gray-500 dark:bg-gray-600 text-white rounded px-1 py-0.5 flex-shrink-0">EINZEL</span>
-                            <StatusDot status={bet.status} />
-                            <span className="truncate flex-1 min-w-0 text-gray-600 dark:text-gray-300">{socialSelLabel(bet.market_type, bet.selection, playerNameMap)}</span>
-                            <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
-                            <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
-                          </summary>
-                          <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 text-[11px] text-gray-500 dark:text-gray-400">
-                            {bet.status === 'pending' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
-                            {bet.status === 'won' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
-                            {bet.status === 'lost' && <span>Einsatz: <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span></span>}
-                          </div>
-                        </details>
-                      )
-                    })}
-
-                    {/* Combos with a leg on this match. The full card (below) renders only at
-                        the combo's earliest-kickoff match; every other match gets a compact
-                        one-line mention instead — see the comboFirstMatchId check inside the
-                        map. Within the full card, only the leg belonging to THIS match is
-                        shown inline, with the other legs collapsed behind a <details> toggle
-                        (no client-side state needed since this stays a server component). */}
-                    {comboIdsHere.map(comboId => {
-                      const legs = activeSocial.filter(b => b.combo_id === comboId)
-                      if (legs.length === 0) return null
-                      const owner = legs[0].user_id
-                      const cb = socialCombos[comboId]
-                      const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
-                      const stake = cb?.stake ?? 0
-                      const potWin = Math.round(stake * totalOdds * 100) / 100
-                      const dbSt = cb?.status ?? 'pending'
-                      const comboStatus = (dbSt === 'won' || dbSt === 'lost') ? dbSt
-                        : legs.some(l => l.status === 'lost') ? 'lost'
-                        : legs.every(l => l.status === 'won') ? 'won'
-                        : 'pending'
-                      const borderCls = comboStatus === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : comboStatus === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-blue-100 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10'
-                      // Left-edge accent for the compact rows: reflects the COMBO's overall
-                      // current status, not just this one leg — a combo that already lost an
-                      // earlier leg is dead regardless of what this later, not-yet-played leg
-                      // does, and the edge colour needs to say so at a glance.
-                      const edgeCls = comboStatus === 'won' ? 'border-l-green-500' : comboStatus === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-                      const ownLeg = legs.find(l => l.match_id === match.id) ?? legs[0]
-                      const otherLegs = legs.filter(l => l.id !== ownLeg.id)
-                      // This leg hasn't been decided yet, but the combo is already lost via a
-                      // different leg — still interesting to look at, but no longer relevant to
-                      // the outcome. Marked distinctly (dash, dimmed) instead of the normal
-                      // "still open" yellow dot, which would misleadingly suggest it still
-                      // matters.
-                      const ownLegMoot = ownLeg.status === 'pending' && comboStatus === 'lost'
-
-                      // A leg can individually be "won" while the combo as a whole is "lost"
-                      // (this pick was right, another leg in the same slip wasn't) — the only
-                      // direction this can diverge, since any lost leg always lost the combo
-                      // too. The caption below spells out the divergence in words, since the
-                      // green leg dot right under the combo's red status dot alone would read
-                      // as contradictory.
-                      const legWonButComboLost = ownLeg.status === 'won' && comboStatus === 'lost'
-                      const renderLeg = (leg: typeof ownLeg) => {
-                        const lm = matchMap.get(leg.match_id)
-                        const moot = leg.status === 'pending' && comboStatus === 'lost'
-                        return (
-                          // No leading status mark here — the odds value's color (via
-                          // oddsColorClass below) already says won/lost/open, a dot in
-                          // front of every leg was redundant with it.
-                          <div key={leg.id} className={`flex items-start gap-1.5 text-xs py-0.5 ${moot ? 'opacity-50' : ''}`}>
-                            <div className="flex-1 min-w-0">
-                              <span className="text-gray-400 dark:text-gray-500 text-[10px] block truncate">{lm?.home_team?.short_name ?? lm?.home_team?.name ?? '?'} – {lm?.away_team?.short_name ?? lm?.away_team?.name ?? '?'}</span>
-                              <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
-                            </div>
-                            <span className={`font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
-                          </div>
-                        )
-                      }
-
-                      // Only the combo's earliest-kickoff match gets the full card (avatar,
-                      // stake/payout, collapsible other legs). Every other match this combo
-                      // touches gets a compact, but still expandable, single line instead —
-                      // repeating the full card once per leg got noisy for combos spanning
-                      // most of a matchday. Tapping it opens the same "all legs" detail as the
-                      // full card's own toggle. The left edge colour is the combo's overall
-                      // status (see edgeCls) so an already-dead combo reads as dead here too,
-                      // not just on its primary card.
-                      if (comboFirstMatchId.get(comboId) !== match.id) {
-                        return (
-                          <details key={comboId} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
-                            <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
-                              {renderAvatar(owner, 'w-4 h-4', 'bg-blue-100 dark:bg-blue-900/30', 'text-blue-700 dark:text-blue-400', 'text-[9px]')}
-                              <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(owner)}</span>
-                              <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
-                              <LegResultMark status={ownLeg.status} moot={ownLegMoot} />
-                              <span className={`truncate flex-1 min-w-0 ${ownLegMoot ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>{socialSelLabel(ownLeg.market_type, ownLeg.selection, playerNameMap)}</span>
-                              <span className={`font-bold flex-shrink-0 ${oddsColorClass(ownLeg.status)}`}>@{ownLeg.odds_value.toFixed(2).replace('.', ',')}</span>
-                              <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
-                            </summary>
-                            <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 space-y-1.5">
-                              {ownLegMoot && (
-                                <p className="text-[10px] text-gray-400 dark:text-gray-500 italic">
-                                  Dieser Tipp ist noch offen, aber die Kombi ist bereits an anderer Stelle verloren.
-                                </p>
-                              )}
-                              <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400">
-                                <span>{legs.length} Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
-                                {stake > 0 && comboStatus === 'pending' && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
-                                {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
-                                {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
-                              </div>
-                              <div className="space-y-1">
-                                {legs.map(renderLeg)}
-                              </div>
-                            </div>
-                          </details>
-                        )
-                      }
-
-                      return (
-                        <div key={comboId} className={`rounded-xl border overflow-hidden ${borderCls}`}>
-                          {/* Name row: avatar/badge/name get the full row width to themselves so
-                              a long name never competes for space with the stake/payout text
-                              (which, for a pending bet, is itself long — "X Wildis → Y Wildis" —
-                              and used to squeeze the name down to a couple of letters). */}
-                          <div className="flex items-center gap-2 px-3 pt-2">
-                            {renderAvatar(owner, 'w-6 h-6', 'bg-blue-100 dark:bg-blue-900/30', 'text-blue-700 dark:text-blue-400', 'text-[10px]')}
-                            <StatusDot status={comboStatus} />
-                            <span className="text-[10px] font-bold bg-blue-600 text-white rounded px-1.5 py-0.5 flex-shrink-0">KOMBI</span>
-                            <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0 flex-1">{nameOf(owner)}</span>
-                          </div>
-                          {/* Info row: tips-count/odds and stake/payout each get their own
-                              side, wrapping onto a second line (flex-wrap) instead of
-                              truncating when the stake/payout text runs long. */}
-                          <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 px-3 pb-2 pt-0.5 text-[11px]">
-                            <span className="text-gray-500 dark:text-gray-400">{legs.length} Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
-                            <div className="ml-auto text-right">
-                              {stake > 0 && comboStatus === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
-                              {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
-                              {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
-                            </div>
-                          </div>
-                          <div className="border-t border-black/5 dark:border-white/5 px-3 py-1.5">
-                            {renderLeg(ownLeg)}
-                            {legWonButComboLost && (
-                              <p className="text-[10px] text-gray-400 dark:text-gray-500 italic pl-4 pt-0.5">
-                                Dieser Tipp war richtig, die Kombi ist aber an anderer Stelle verloren.
-                              </p>
-                            )}
-                            {otherLegs.length > 0 && (
-                              <details className="mt-0.5">
-                                <summary className="text-[10px] text-blue-700 dark:text-blue-400 font-semibold cursor-pointer py-1 select-none">
-                                  +{otherLegs.length} weitere{otherLegs.length === 1 ? 'r' : ''} Tipp{otherLegs.length !== 1 ? 'e' : ''} in dieser Kombi
-                                </summary>
-                                <div className="space-y-1 pt-0.5">
-                                  {otherLegs.map(renderLeg)}
-                                </div>
-                              </details>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })()}
-
-      {/* Own placed bets */}
-      {user && (userSingles.length > 0 || userCombos.length > 0) && (
-        <MyBets
-          singles={userSingles}
-          combos={userCombos}
-          matchMap={userMatchMap}
-          isDeadlinePassed={isDeadlinePassed}
+          Includes the current user's own bets (labelled "Du") for one complete overview.
+          Extracted into a 'use client' component (components/AllTippsSection.tsx) so its
+          "Nur aktive Wetten" filter toggle can react instantly, without a full page reload. */}
+      {user && (
+        <AllTippsSection
+          matchdayMatches={matchdayMatches}
+          betCountByMatch={betCountByMatch}
+          socialBets={socialBets}
+          socialCombos={socialCombos}
+          socialProfiles={socialProfiles}
           playerNameMap={playerNameMap}
+          userId={user.id}
         />
       )}
 
@@ -1890,33 +1605,4 @@ export default async function TippsPage({
       <BetSlip />
     </div>
   )
-}
-
-function StatusDot({ status }: { status: string }) {
-  return (
-    <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${
-      status === 'won' ? 'bg-green-500' :
-      status === 'lost' ? 'bg-red-400' : 'bg-yellow-400'
-    }`} />
-  )
-}
-
-// Deliberately NOT a colored dot like StatusDot — this marks the result of one
-// leg inside a combo card, right below the combo-level StatusDot (which shows
-// the whole slip's outcome). Two same-shaped dots in different colors read as
-// contradictory when a leg won but the combo still lost; a check/cross reads
-// unambiguously as "this pick" regardless of the combo's own color above it.
-function LegResultMark({ status, moot }: { status: string; moot?: boolean }) {
-  // Same 🟡/🟢/🔴 dot convention as StatusDot everywhere else — a leg that
-  // individually won while its combo overall lost is disambiguated via the
-  // "Dieser Tipp war richtig, die Kombi ist aber an anderer Stelle verloren."
-  // caption next to it, not via a different mark shape.
-  //
-  // "moot" = still pending on its own, but the combo it belongs to is already lost via a
-  // different leg — a plain "still open" yellow dot would misleadingly suggest it still
-  // matters, so this gets its own neutral, dimmed mark instead.
-  if (moot) return <span className="text-gray-400 dark:text-gray-500 font-bold text-[11px] leading-4 flex-shrink-0" aria-label="Nicht mehr relevant">–</span>
-  if (status === 'won') return <span className="inline-block w-2 h-2 rounded-full bg-green-500 flex-shrink-0 mt-1" aria-label="Tipp richtig" />
-  if (status === 'lost') return <span className="inline-block w-2 h-2 rounded-full bg-red-400 flex-shrink-0 mt-1" aria-label="Tipp falsch" />
-  return <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0 mt-1" aria-label="Tipp offen" />
 }

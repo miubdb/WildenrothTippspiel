@@ -7,6 +7,7 @@ import { homeHandicapFavored } from '@/lib/oddsMarkets'
 import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, type EffectiveMatchdayIndex } from '@/lib/season'
 import { SurveyTab } from '@/components/admin/SurveyTab'
+import { BonusTipsAdmin } from '@/components/admin/BonusTipsAdmin'
 import type { Match } from '@/types'
 
 // Matchday numbers repeat across seasons — without this filter the admin
@@ -1018,6 +1019,10 @@ export default function AdminPage() {
                   </button>
                 </div>
               </div>
+            </VerwaltungSection>
+
+            <VerwaltungSection title="Bonus-Tipps" subtitle="Sondertipps ohne Einsatz: erstellen, verwalten, auswerten">
+              <BonusTipsAdmin />
             </VerwaltungSection>
 
           </div>

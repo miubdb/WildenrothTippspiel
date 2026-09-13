@@ -155,6 +155,7 @@ export interface UserBetStats {
 
   bestWinAmount: number | null
   bestWinType: 'single' | 'combo' | null
+  bestWinDetail: { label: string; odds: number; stake: number } | null
 
   /** Häufigster Markt nach Tipp-Zahl (jedes Kombi-Leg zählt einzeln). */
   favoriteMarket: MarketTipStat | null
@@ -185,6 +186,13 @@ export interface UserBetStats {
    *  (ältester zuerst, neuester zuletzt) — so liest sich eine Punkte-Reihe
    *  links-nach-rechts mit dem aktuellsten Ergebnis ganz rechts. */
   recentForm: ('won' | 'lost')[]
+
+  /** Ø Quote nur der ABGESCHLOSSENEN Einzelwetten bzw. nur der
+   *  Gesamtquoten abgeschlossener Kombis — für die Kombi-Anteil-Detailansicht. */
+  avgOddsSingle: number | null
+  avgOddsCombo: number | null
+  singleHitRate: number | null
+  comboHitRate: number | null
 }
 
 function marketTipStatsFrom(rows: { market_type: string; status: string }[]): MarketTipStat[] {
@@ -243,42 +251,17 @@ function computeStreaks(chronological: { status: 'won' | 'lost'; created_at: str
 }
 
 /**
- * Lädt alle nicht-stornierten Wettscheine (Einzel + Kombi) eines Users für
- * eine Saison und berechnet die komplette UserBetStats-Struktur. Ein
- * einziger DB-Roundtrip-Satz, egal ob für das eigene Profil, ein fremdes
- * Profil oder einen künftigen Vergleich aufgerufen.
+ * Reine Berechnungsfunktion — nimmt bereits gefilterte (richtiger User,
+ * richtige Saison, kein 'void') Bets/Combos entgegen und liefert die
+ * komplette UserBetStats-Struktur. Extrahiert aus computeUserBetStats, damit
+ * computeAllUsersBetStats (Rangliste über ALLE Spieler, für die anklickbaren
+ * Spieler-Stats-Detailansichten) dieselbe Rechnung wiederverwenden kann statt
+ * sie pro Spieler einzeln neu zu implementieren.
  */
-export async function computeUserBetStats(
-  supabase: SupabaseClient,
-  userId: string,
-  season: string = STATS_CURRENT_SEASON,
-): Promise<UserBetStats> {
-  const { data: betsRaw } = await supabase
-    .from('bets')
-    .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season')
-    .eq('user_id', userId)
-    .neq('status', 'void')
-
-  const allBets = (betsRaw ?? []) as (BetRow & { season: string | null })[]
-  // TEST (matchday 999) läuft nie in echte Statistiken ein — siehe TEST_SEASON-Kommentar oben.
-  const bets = allBets.filter(b => b.season === season)
-
+export function aggregateBetStats(bets: BetRow[], combosIn: ComboRow[]): UserBetStats {
   const singleBets = bets.filter(b => b.combo_id == null)
   const comboLegs = bets.filter(b => b.combo_id != null)
-  const comboIds = [...new Set(comboLegs.map(b => b.combo_id as number))]
-
-  let combos: ComboRow[] = []
-  if (comboIds.length > 0) {
-    const { data: comboRaw } = await supabase
-      .from('combo_bets')
-      .select('id, stake, total_odds, status, payout, created_at, season')
-      .in('id', comboIds)
-    combos = ((comboRaw ?? []) as (ComboRow & { season: string | null })[]).filter(c => c.season === season)
-  }
-  // Falls eine Kombi-ID trotz Season-Filter nicht zurückkam (z.B. season NULL
-  // in combo_bets historisch), fällt sie aus `combos` raus — die zugehörigen
-  // Legs würden dann leerlaufen. Zur Sicherheit nur Legs behalten, deren
-  // Combo tatsächlich geladen wurde.
+  const combos = combosIn
   const comboById = new Map(combos.map(c => [c.id, c]))
   const validComboLegs = comboLegs.filter(l => comboById.has(l.combo_id as number))
 
@@ -316,21 +299,29 @@ export async function computeUserBetStats(
   const hitRate = settledCount > 0 ? Math.round((won / settledCount) * 100) : null
 
   // ── Bester Gewinn (echter Netto-Gewinn, nicht Auszahlung) ───────────
-  const bestSingle = singleBets
+  const bestSingleBet = singleBets
     .filter(b => b.status === 'won' && b.payout != null)
-    .map(b => (b.payout ?? 0) - (b.stake ?? 0))
-    .sort((a, b) => b - a)[0]
-  const bestCombo = combos
+    .sort((a, b) => ((b.payout ?? 0) - (b.stake ?? 0)) - ((a.payout ?? 0) - (a.stake ?? 0)))[0]
+  const bestComboBet = combos
     .filter(c => c.status === 'won' && c.payout != null)
-    .map(c => (c.payout ?? 0) - c.stake)
-    .sort((a, b) => b - a)[0]
+    .sort((a, b) => ((b.payout ?? 0) - b.stake) - ((a.payout ?? 0) - a.stake))[0]
+  const bestSingle = bestSingleBet ? (bestSingleBet.payout ?? 0) - (bestSingleBet.stake ?? 0) : undefined
+  const bestCombo = bestComboBet ? (bestComboBet.payout ?? 0) - bestComboBet.stake : undefined
   let bestWinAmount: number | null = null
   let bestWinType: 'single' | 'combo' | null = null
+  let bestWinDetail: { label: string; odds: number; stake: number } | null = null
   if (bestSingle != null || bestCombo != null) {
-    if ((bestSingle ?? -Infinity) >= (bestCombo ?? -Infinity)) { bestWinAmount = bestSingle ?? null; bestWinType = 'single' }
-    else { bestWinAmount = bestCombo ?? null; bestWinType = 'combo' }
+    if ((bestSingle ?? -Infinity) >= (bestCombo ?? -Infinity)) {
+      bestWinAmount = bestSingle ?? null
+      bestWinType = 'single'
+      if (bestSingleBet) bestWinDetail = { label: `${MARKET_LABELS[bestSingleBet.market_type] ?? bestSingleBet.market_type}: ${selLabel(bestSingleBet.market_type, bestSingleBet.selection)}`, odds: bestSingleBet.odds_value, stake: bestSingleBet.stake ?? 0 }
+    } else {
+      bestWinAmount = bestCombo ?? null
+      bestWinType = 'combo'
+      if (bestComboBet) bestWinDetail = { label: 'Kombiwette', odds: bestComboBet.total_odds, stake: bestComboBet.stake }
+    }
   }
-  if (bestWinAmount != null && bestWinAmount <= 0) { bestWinAmount = null; bestWinType = null }
+  if (bestWinAmount != null && bestWinAmount <= 0) { bestWinAmount = null; bestWinType = null; bestWinDetail = null }
 
   // ── Lieblingsmarkt: jede einzelne Auswahl zählt, Einzel + Kombi-Legs,
   //    unabhängig vom Status (offen zählt mit) ─────────────────────────
@@ -400,13 +391,24 @@ export async function computeUserBetStats(
     combos.filter(c => c.status === 'won').length,
   )
 
+  const singleOddsSettled = singleSettled.map(b => b.odds_value)
+  const avgOddsSingle = singleOddsSettled.length > 0
+    ? Math.round((singleOddsSettled.reduce((a, o) => a + o, 0) / singleOddsSettled.length) * 100) / 100
+    : null
+  const comboOddsSettled = comboSettled.map(c => c.total_odds)
+  const avgOddsCombo = comboOddsSettled.length > 0
+    ? Math.round((comboOddsSettled.reduce((a, o) => a + o, 0) / comboOddsSettled.length) * 100) / 100
+    : null
+  const singleHitRate = singlePerformance.settled > 0 ? Math.round((singlePerformance.won / singlePerformance.settled) * 100) : null
+  const comboHitRate = comboPerformance.settled > 0 ? Math.round((comboPerformance.won / comboPerformance.settled) * 100) : null
+
   return {
     totalSlips, won, lost, pending,
     totalStaked, totalPayout,
     settledCount, settledStaked, settledPayout, realizedNet, roi,
     pendingStaked, pendingPossiblePayout,
     hitRate,
-    bestWinAmount, bestWinType,
+    bestWinAmount, bestWinType, bestWinDetail,
     favoriteMarket, marketBreakdown,
     comboSlips, comboRate,
     riskyWon, riskyLost,
@@ -414,7 +416,202 @@ export async function computeUserBetStats(
     longestWinStreak, longestLossStreak,
     singlePerformance, comboPerformance,
     recentForm,
+    avgOddsSingle, avgOddsCombo, singleHitRate, comboHitRate,
   }
+}
+
+/**
+ * Lädt alle nicht-stornierten Wettscheine (Einzel + Kombi) eines Users für
+ * eine Saison und berechnet die komplette UserBetStats-Struktur via
+ * aggregateBetStats. Ein einziger DB-Roundtrip-Satz, egal ob für das eigene
+ * Profil, ein fremdes Profil oder einen künftigen Vergleich aufgerufen.
+ */
+export async function computeUserBetStats(
+  supabase: SupabaseClient,
+  userId: string,
+  season: string = STATS_CURRENT_SEASON,
+): Promise<UserBetStats> {
+  const { data: betsRaw } = await supabase
+    .from('bets')
+    .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season')
+    .eq('user_id', userId)
+    .neq('status', 'void')
+
+  const allBets = (betsRaw ?? []) as (BetRow & { season: string | null })[]
+  // TEST (matchday 999) läuft nie in echte Statistiken ein — siehe TEST_SEASON-Kommentar oben.
+  const bets = allBets.filter(b => b.season === season)
+
+  const comboIdsForUser = [...new Set(bets.filter(b => b.combo_id != null).map(b => b.combo_id as number))]
+  let combos: ComboRow[] = []
+  if (comboIdsForUser.length > 0) {
+    const { data: comboRaw } = await supabase
+      .from('combo_bets')
+      .select('id, stake, total_odds, status, payout, created_at, season')
+      .in('id', comboIdsForUser)
+    combos = ((comboRaw ?? []) as (ComboRow & { season: string | null })[]).filter(c => c.season === season)
+  }
+  return aggregateBetStats(bets, combos)
+}
+
+/**
+ * Batched Rangliste über ALLE Nutzer für eine Saison — zwei Queries statt
+ * einer pro Spieler, damit die anklickbaren Spieler-Stats-Detailrangliste
+ * (Trefferquote, Ø Quote, Serien, …) nicht N Einzel-Roundtrips braucht.
+ * Nutzt dieselbe aggregateBetStats-Rechnung wie computeUserBetStats — kein
+ * zweiter, potenziell abweichender Rechenweg.
+ */
+export async function computeAllUsersBetStats(
+  supabase: SupabaseClient,
+  season: string = STATS_CURRENT_SEASON,
+): Promise<Map<string, UserBetStats>> {
+  const [{ data: betsRaw }, { data: combosRaw }] = await Promise.all([
+    supabase
+      .from('bets')
+      .select('id, user_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season')
+      .neq('status', 'void'),
+    supabase
+      .from('combo_bets')
+      .select('id, user_id, stake, total_odds, status, payout, created_at, season')
+      .neq('status', 'void'),
+  ])
+
+  const bets = ((betsRaw ?? []) as (BetRow & { user_id: string; season: string | null })[]).filter(b => b.season === season)
+  const combos = ((combosRaw ?? []) as (ComboRow & { user_id: string; season: string | null })[]).filter(c => c.season === season)
+
+  const betsByUser = new Map<string, BetRow[]>()
+  for (const b of bets) {
+    const arr = betsByUser.get(b.user_id) ?? []
+    arr.push(b)
+    betsByUser.set(b.user_id, arr)
+  }
+  const combosByUser = new Map<string, ComboRow[]>()
+  for (const c of combos) {
+    const arr = combosByUser.get(c.user_id) ?? []
+    arr.push(c)
+    combosByUser.set(c.user_id, arr)
+  }
+
+  const userIds = new Set([...betsByUser.keys(), ...combosByUser.keys()])
+  const result = new Map<string, UserBetStats>()
+  for (const uid of userIds) {
+    result.set(uid, aggregateBetStats(betsByUser.get(uid) ?? [], combosByUser.get(uid) ?? []))
+  }
+  return result
+}
+
+type MdSeasonMatchRow = {
+  id: number; matchday: number; tippspiel_matchday: number | null; match_date: string
+  match_category: string | null; is_topspiel: boolean | null
+  home_team_id: number; away_team_id: number; status: string
+}
+
+async function buildMatchdayLookup(supabase: SupabaseClient): Promise<(matchId: number | null) => number | null> {
+  const { buildEffectiveMatchdayIndex, effectiveMatchdayOf } = await import('./season')
+  const { data: seasonMatchesRaw } = await supabase
+    .from('matches')
+    .select('id, matchday, tippspiel_matchday, match_date, match_category, is_topspiel, home_team_id, away_team_id, status')
+    .or('match_date.gte.2026-08-01,matchday.eq.999')
+  const seasonMatches = (seasonMatchesRaw ?? []) as unknown as MdSeasonMatchRow[]
+  const mdIndex = buildEffectiveMatchdayIndex(seasonMatches as never)
+  const matchById = new Map(seasonMatches.map(m => [m.id, m]))
+  return (matchId: number | null) => {
+    if (matchId == null) return null
+    const m = matchById.get(matchId)
+    return m ? effectiveMatchdayOf(m as never, mdIndex) : null
+  }
+}
+
+export interface SlipDetail {
+  matchday: number | null
+  label: string
+  odds: number
+  stake: number
+  status: 'pending' | 'won' | 'lost'
+  /** null solange offen — noch nicht abgerechnet. */
+  net: number | null
+  isCombo: boolean
+  isRisky: boolean
+  createdAt: string
+}
+
+/**
+ * Detaillierte Liste ALLER nicht-stornierten Wettscheine (Einzel + Kombi)
+ * eines Users für eine Saison — Basis für die anklickbaren
+ * Spieler-Stats-Detailansichten "Risky-Bilanz" und "Form der letzten 10
+ * Wetten" (components/AllTippsSection-artige Detailkarten unter
+ * app/(app)/spieler/[id]/stats/[metric]/page.tsx), die pro Wettschein statt
+ * nur aggregiert Zahlen brauchen.
+ */
+export async function getUserSlipDetails(
+  supabase: SupabaseClient,
+  userId: string,
+  season: string = STATS_CURRENT_SEASON,
+): Promise<SlipDetail[]> {
+  const effMdOf = await buildMatchdayLookup(supabase)
+  const { data: betsRaw } = await supabase
+    .from('bets')
+    .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season')
+    .eq('user_id', userId)
+    .neq('status', 'void')
+  const allBets = (betsRaw ?? []) as (BetRow & { season: string | null })[]
+  const bets = allBets.filter(b => b.season === season)
+  const singleBets = bets.filter(b => b.combo_id == null)
+  const comboLegs = bets.filter(b => b.combo_id != null)
+  const comboIds = [...new Set(comboLegs.map(b => b.combo_id as number))]
+
+  let combos: ComboRow[] = []
+  if (comboIds.length > 0) {
+    const { data: comboRaw } = await supabase
+      .from('combo_bets')
+      .select('id, stake, total_odds, status, payout, created_at, season')
+      .in('id', comboIds)
+    combos = ((comboRaw ?? []) as (ComboRow & { season: string | null })[]).filter(c => c.season === season)
+  }
+  const comboById = new Map(combos.map(c => [c.id, c]))
+  const legsByCombo = new Map<number, typeof comboLegs>()
+  for (const l of comboLegs) {
+    if (!comboById.has(l.combo_id as number)) continue
+    const arr = legsByCombo.get(l.combo_id as number) ?? []
+    arr.push(l)
+    legsByCombo.set(l.combo_id as number, arr)
+  }
+
+  const details: SlipDetail[] = []
+  for (const b of singleBets) {
+    details.push({
+      matchday: effMdOf(b.match_id),
+      label: `${MARKET_LABELS[b.market_type] ?? b.market_type}: ${selLabel(b.market_type, b.selection)}`,
+      odds: b.odds_value,
+      stake: b.stake ?? 0,
+      status: b.status as 'pending' | 'won' | 'lost',
+      net: b.status === 'pending' ? null : b.status === 'won' ? (b.payout ?? 0) - (b.stake ?? 0) : -(b.stake ?? 0),
+      isCombo: false,
+      isRisky: b.is_risky,
+      createdAt: b.created_at,
+    })
+  }
+  for (const c of combos) {
+    const legs = legsByCombo.get(c.id) ?? []
+    // Frühester Leg entscheidet den angezeigten Spieltag — für eine reine
+    // Anzeigeliste reicht das min() der Legs, ohne den median-basierten
+    // Ausreißerschutz von computeBalanceHistory (der ist dort nötig, weil er
+    // Beträge einem einzigen Spieltag GUTSCHREIBT; hier wird nur angezeigt).
+    const mds = legs.map(l => effMdOf(l.match_id)).filter((m): m is number => m != null)
+    const matchday = mds.length > 0 ? Math.min(...mds) : null
+    details.push({
+      matchday,
+      label: `Kombi (${legs.length} Tipps)`,
+      odds: c.total_odds,
+      stake: c.stake,
+      status: c.status as 'pending' | 'won' | 'lost',
+      net: c.status === 'pending' ? null : c.status === 'won' ? (c.payout ?? 0) - c.stake : -c.stake,
+      isCombo: true,
+      isRisky: legs.some(l => l.is_risky),
+      createdAt: c.created_at,
+    })
+  }
+  details.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  return details
 }
 
 export interface BalancePoint {

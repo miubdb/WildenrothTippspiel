@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { fmtWildi } from '@/components/WildiIcon'
 import type { BalancePoint, UserBetStats } from '@/lib/betStats'
 import { MIN_SETTLED_FOR_STATS_CARD } from '@/lib/betStats'
@@ -99,8 +100,15 @@ export function PlayerRealizedBalance({ stats, isOwnProfile }: { stats: UserBetS
   )
 }
 
-export function PlayerStatsTiles({ stats }: { stats: UserBetStats }) {
+/**
+ * `playerId` treibt die Detail-Links jeder Kachel — je Kennzahl entweder auf
+ * eine globale Rangliste (Trefferquote, Ø Quote, Serien, …) oder eine
+ * persönliche Detailansicht (Lieblingsmarkt, Kombi-Anteil, Risky-Bilanz,
+ * Form), gerendert unter app/(app)/spieler/[id]/stats/[metric]/page.tsx.
+ */
+export function PlayerStatsTiles({ stats, playerId }: { stats: UserBetStats; playerId: string }) {
   if (stats.settledCount < MIN_SETTLED_FOR_STATS_CARD) return null
+  const href = (metric: string) => `/spieler/${playerId}/stats/${metric}`
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
       <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
@@ -109,6 +117,7 @@ export function PlayerStatsTiles({ stats }: { stats: UserBetStats }) {
       <div className="grid grid-cols-2 divide-x divide-y divide-gray-100 dark:divide-gray-700">
         {stats.hitRate !== null && (
           <StatTile
+            href={href('trefferquote')}
             emoji="🎯"
             label="Trefferquote"
             value={`${stats.hitRate} %`}
@@ -118,6 +127,7 @@ export function PlayerStatsTiles({ stats }: { stats: UserBetStats }) {
         )}
         {stats.bestWinAmount != null && (
           <StatTile
+            href={href('bester-gewinn')}
             emoji="🏅"
             label="Bester Gewinn"
             value={`+${fmtWildi(stats.bestWinAmount)} Wildis`}
@@ -127,6 +137,7 @@ export function PlayerStatsTiles({ stats }: { stats: UserBetStats }) {
         )}
         {stats.favoriteMarket && (
           <StatTile
+            href={href('lieblingsmarkt')}
             emoji="📊"
             label="Lieblingsmarkt"
             value={stats.favoriteMarket.label}
@@ -136,6 +147,7 @@ export function PlayerStatsTiles({ stats }: { stats: UserBetStats }) {
         )}
         {stats.comboRate !== null && (
           <StatTile
+            href={href('kombi-anteil')}
             emoji="🔗"
             label="Kombi-Anteil"
             value={`${stats.comboRate} %`}
@@ -143,55 +155,63 @@ export function PlayerStatsTiles({ stats }: { stats: UserBetStats }) {
             color="text-purple-700"
           />
         )}
-        {stats.riskyWon + stats.riskyLost > 0 && (
-          <StatTile
-            emoji="🎲"
-            label="Risky-Bilanz"
-            value={`${stats.riskyWon}W / ${stats.riskyLost}V`}
-            sub="Risky-Slot des Spieltags"
-            color={stats.riskyWon > stats.riskyLost ? 'text-green-600' : 'text-red-600'}
-          />
-        )}
+        {stats.riskyWon + stats.riskyLost > 0 && (() => {
+          const riskyTotal = stats.riskyWon + stats.riskyLost
+          const riskyQuote = Math.round((stats.riskyWon / riskyTotal) * 100)
+          return (
+            <StatTile
+              href={href('risky-bilanz')}
+              emoji="🎲"
+              label="Risky-Bilanz"
+              value={`${stats.riskyWon} S / ${stats.riskyLost} N`}
+              sub={`${riskyQuote} % Trefferquote`}
+              color={stats.riskyWon > stats.riskyLost ? 'text-green-600' : 'text-red-600'}
+            />
+          )
+        })()}
         {stats.avgOdds != null && (
-          <StatTile emoji="📈" label="Ø Quote" value={`@${stats.avgOdds.toFixed(2).replace('.', ',')}`} sub="abgeschlossene Scheine" color="text-gray-700 dark:text-gray-200" />
+          <StatTile href={href('avg-quote')} emoji="📈" label="Ø Quote" value={`@${stats.avgOdds.toFixed(2).replace('.', ',')}`} sub="abgeschlossene Scheine" color="text-gray-700 dark:text-gray-200" />
         )}
         {stats.highestWonOdds != null && (
-          <StatTile emoji="⚡" label="Höchste gewonnene Quote" value={`@${stats.highestWonOdds.toFixed(2).replace('.', ',')}`} sub="bisher bester Treffer" color="text-gray-700 dark:text-gray-200" />
+          <StatTile href={href('hoechste-gewonnene-quote')} emoji="⚡" label="Höchste gewonnene Quote" value={`@${stats.highestWonOdds.toFixed(2).replace('.', ',')}`} sub="bisher bester Treffer" color="text-gray-700 dark:text-gray-200" />
         )}
         {stats.avgWinningOdds != null && (
-          <StatTile emoji="📐" label="Ø Gewinnquote" value={`@${stats.avgWinningOdds.toFixed(2).replace('.', ',')}`} sub="Ø Quote gewonnener Scheine" color="text-gray-700 dark:text-gray-200" />
+          <StatTile href={href('avg-gewinnquote')} emoji="📐" label="Ø Gewinnquote" value={`@${stats.avgWinningOdds.toFixed(2).replace('.', ',')}`} sub="Ø Quote gewonnener Scheine" color="text-gray-700 dark:text-gray-200" />
         )}
         {stats.longestWinStreak.length >= 2 && (
-          <StatTile emoji="🔥" label="Längste Siegesserie" value={`${stats.longestWinStreak.length}×`} sub="in Folge gewonnen" color="text-green-600" />
+          <StatTile href={href('gewinnserie')} emoji="🔥" label="Längste Gewinnserie" value={`${stats.longestWinStreak.length}×`} sub={`${stats.longestWinStreak.length} gewonnene Wetten in Folge`} color="text-green-600" />
         )}
         {stats.longestLossStreak.length >= 2 && (
-          <StatTile emoji="🥶" label="Längste Verlustserie" value={`${stats.longestLossStreak.length}×`} sub="in Folge verloren" color="text-red-600" />
+          <StatTile href={href('verlustserie')} emoji="🥶" label="Längste Verlustserie" value={`${stats.longestLossStreak.length}×`} sub={`${stats.longestLossStreak.length} verlorene Wetten in Folge`} color="text-red-600" />
         )}
       </div>
       {stats.recentForm.length >= 3 && (
-        <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center gap-2">
-          <span className="text-xs text-gray-500 dark:text-gray-400">Form (letzte {stats.recentForm.length})</span>
+        <Link
+          href={href('form')}
+          className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors"
+        >
+          <span className="text-xs text-gray-500 dark:text-gray-400">Form der letzten {stats.recentForm.length} Wetten</span>
           <div className="flex gap-1 ml-auto">
             {stats.recentForm.map((r, i) => (
               <span key={i} className={`w-2 h-2 rounded-full ${r === 'won' ? 'bg-green-500' : 'bg-red-400'}`} />
             ))}
           </div>
-        </div>
+        </Link>
       )}
     </div>
   )
 }
 
-function StatTile({ emoji, label, value, sub, color }: { emoji: string; label: string; value: string; sub: string; color: string }) {
+function StatTile({ emoji, label, value, sub, color, href }: { emoji: string; label: string; value: string; sub: string; color: string; href: string }) {
   return (
-    <div className="px-4 py-3">
+    <Link href={href} className="px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition-colors">
       <div className="flex items-center gap-1.5 mb-1">
         <span className="text-base">{emoji}</span>
         <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>
       </div>
       <div className={`text-sm font-black ${color}`}>{value}</div>
       <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{sub}</div>
-    </div>
+    </Link>
   )
 }
 

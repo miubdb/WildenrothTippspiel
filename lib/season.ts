@@ -276,22 +276,52 @@ export function lastKickoffOfEffectiveMatchday(
  * Counts every Spieltag whose last kickoff has already passed, not just
  * consecutive ones from the start, so a lone rescheduled Spieltag can't
  * stall the count for everyone registering after it.
+ *
+ * This graduated (per-Spieltag) formula applies only through September 2026.
+ * From October 2026 onward the club switched to flat calendar-month tiers
+ * instead (see MONTHLY_STARTING_BALANCE below) — simpler to communicate once
+ * the season is well underway and per-Spieltag kickoff counting stops being
+ * a meaningful "how early did you join" signal. The month is read in
+ * Europe/Berlin local time, consistent with every other season-timing rule
+ * in this file (see bettingOpenTime above).
  */
 const MIN_STARTING_BALANCE = 800
+
+/** Flat starting balance by calendar month (Europe/Berlin) for October 2026
+ *  onward, keyed "YYYY-M". Any month at or after the last entry here (import.
+ *  January 2027 and beyond) uses MIN_MONTHLY_STARTING_BALANCE — the floor
+ *  this whole tier scheme must never drop below. */
+const MONTHLY_STARTING_BALANCE: Record<string, number> = {
+  '2026-10': 700,
+  '2026-11': 600,
+  '2026-12': 500,
+}
+const MIN_MONTHLY_STARTING_BALANCE = 500
+
+function berlinYearMonth(d: Date): { year: number; month: number } {
+  const [y, m] = d.toLocaleDateString('sv', { timeZone: 'Europe/Berlin' }).split('-').map(Number)
+  return { year: y, month: m }
+}
 
 export function startingBalanceForRegistration(
   registeredAt: Date,
   seasonMatches: Match[],
   index: EffectiveMatchdayIndex,
 ): number {
-  const t = registeredAt.getTime()
-  let kickedOffCount = 0
-  for (const md of index.kreisligaMatchdaysDisplayOrder) {
-    const last = lastKickoffOfEffectiveMatchday(md, seasonMatches, index)
-    if (last != null && last <= t) kickedOffCount++
+  const { year, month } = berlinYearMonth(registeredAt)
+  // September 2026 or earlier: unchanged graduated per-Spieltag formula.
+  if (year < 2026 || (year === 2026 && month <= 9)) {
+    const t = registeredAt.getTime()
+    let kickedOffCount = 0
+    for (const md of index.kreisligaMatchdaysDisplayOrder) {
+      const last = lastKickoffOfEffectiveMatchday(md, seasonMatches, index)
+      if (last != null && last <= t) kickedOffCount++
+    }
+    if (kickedOffCount === 0) return STARTING_BALANCE
+    if (kickedOffCount === 1) return 950
+    if (kickedOffCount === 2) return 900
+    return Math.max(MIN_STARTING_BALANCE, 900 - (kickedOffCount - 2) * 20)
   }
-  if (kickedOffCount === 0) return STARTING_BALANCE
-  if (kickedOffCount === 1) return 950
-  if (kickedOffCount === 2) return 900
-  return Math.max(MIN_STARTING_BALANCE, 900 - (kickedOffCount - 2) * 20)
+  // October 2026 onward: flat calendar-month tiers, floored at 500.
+  return MONTHLY_STARTING_BALANCE[`${year}-${month}`] ?? MIN_MONTHLY_STARTING_BALANCE
 }

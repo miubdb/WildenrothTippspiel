@@ -99,3 +99,34 @@ export function cupSocialLabel(marketType: string, selection: string): string | 
   if (!prefix || !sel) return undefined
   return `${prefix}: ${sel}`
 }
+
+/** Selection labels for the "Alle Tipps" social view and its extraction,
+ *  components/AllTippsSection.tsx — moved here (from being local to
+ *  app/(app)/tipps/page.tsx) so a 'use client' component can share it too. */
+export const SELECTION_DISPLAY: Record<string, Record<string, string>> = {
+  '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
+  double_chance: { '1x': '1X', x2: 'X2', '12': '12' },
+  over_under: { 'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5' },
+  over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
+  over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
+  over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
+  btts: { yes: 'Beide treffen', no: 'Nicht beide' },
+  handicap: {
+    home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
+    away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5', away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
+  },
+}
+
+/** "Alle Tipps"/AllTippsSection's compact one-line selection label — same
+ *  precedence as the Wetthistorie helpers above: cup markets first (a bare
+ *  selection code like 'yes' is ambiguous across several cup markets), then
+ *  goalscorer (needs a player-name lookup), then the plain league map. */
+export function socialSelLabel(marketType: string, selection: string, players?: Record<number, string>): string {
+  if (marketType === 'exact_score') return selection
+  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
+    const id = parseInt(selection, 10)
+    const name = players?.[id] ?? `Spieler #${id}`
+    return marketType === 'goalscorer_2plus' ? `${name} (2+)` : name
+  }
+  return cupSocialLabel(marketType, selection) ?? SELECTION_DISPLAY[marketType]?.[selection] ?? selection
+}

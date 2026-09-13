@@ -168,7 +168,7 @@ export default async function SpielerPage({
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm">
           <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Rang</div>
           <div className="text-lg font-black text-gray-900 dark:text-gray-100">
-            {rank ? `${rank}.` : '—'}
+            {rank ?? '—'}
             {rank && <span className="text-xs text-gray-400 font-normal"> / {totalRanked}</span>}
           </div>
         </div>
@@ -187,7 +187,7 @@ export default async function SpielerPage({
           Rang, die oben schon separat gezeigt werden). */}
       <PlayerBetSummary stats={stats} isOwnProfile={isOwnProfile} />
       <PlayerRealizedBalance stats={stats} isOwnProfile={isOwnProfile} />
-      <PlayerStatsTiles stats={stats} />
+      <PlayerStatsTiles stats={stats} playerId={id} />
 
       {balancePoints.length >= 2 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">

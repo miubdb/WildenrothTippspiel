@@ -230,7 +230,7 @@ export default async function ProfilPage({
 
       <PlayerBetSummary stats={stats} isOwnProfile={true} />
       <PlayerRealizedBalance stats={stats} isOwnProfile={true} />
-      <PlayerStatsTiles stats={stats} />
+      <PlayerStatsTiles stats={stats} playerId={user.id} />
 
       {/* Balance Chart */}
       {balancePoints.length >= 2 && (
