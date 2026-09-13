@@ -8,6 +8,7 @@ import { bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex
 import type { Match } from '@/types'
 import { cappedPayout } from '@/lib/payout'
 import { CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
+import { computeStornoChamp } from '@/lib/awards'
 
 export const revalidate = 60
 
@@ -698,8 +699,13 @@ export default async function LeaderboardPage({
           }
         : null
 
-      if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper) {
-        leaderboardRecapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, lastMinuteTipper }
+      const stornoWinner = await computeStornoChamp(adminSupa, mdMatchIdArr)
+      const stornoChamp: RecapData['stornoChamp'] = stornoWinner
+        ? { name: pMap[stornoWinner.user_id] ?? 'Unbekannt', net: stornoWinner.net, label: stornoWinner.label }
+        : null
+
+      if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper || stornoChamp) {
+        leaderboardRecapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, lastMinuteTipper, stornoChamp }
       }
     }
   }

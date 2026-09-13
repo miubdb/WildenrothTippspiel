@@ -34,6 +34,7 @@ export type RecapData = {
   grosserWurf: { name: string; amount: number; bet?: RecapBetDetail } | null
   torschuetzenKoenig: { name: string; count: number; playerName?: string } | null
   lastMinuteTipper: { name: string; gapMin: number; gapSec: number; matchName?: string } | null
+  stornoChamp: { name: string; net: number; label: string } | null
 }
 
 function fmtAmt(n: number) { return fmtWildi(n) }
@@ -173,9 +174,9 @@ function ShareModal({ share, onClose }: { share: NonNullable<ShareState>; onClos
 
 export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: number }) {
   const [share, setShare] = useState<ShareState>(null)
-  const { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, lastMinuteTipper } = data
+  const { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, lastMinuteTipper, stornoChamp } = data
 
-  const hasAny = spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper
+  const hasAny = spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper || stornoChamp
   if (!hasAny) return null
 
   return (
@@ -328,6 +329,23 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               accentText="text-fuchsia-600"
             />
           )}
+        </div>
+      )}
+
+      {/* Row 5: Storno-Champ */}
+      {stornoChamp && (
+        <div className="grid gap-3 grid-cols-1">
+          <HighlightCard
+            emoji="🏆"
+            title="Storno-Champ"
+            name={stornoChamp.name}
+            value={<>+{fmtAmt(stornoChamp.net)} <WildiIcon size={20} /> verschenkt</>}
+            detail="Diese stornierte Wette wäre aufgegangen"
+            sub={stornoChamp.label}
+            accentBg="bg-orange-50"
+            accentBorder="border-orange-200"
+            accentText="text-orange-600"
+          />
         </div>
       )}
 

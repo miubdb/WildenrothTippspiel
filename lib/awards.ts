@@ -369,107 +369,151 @@ export async function computeAndPersistMatchdayAwards(
     })
   }
 
-  // 11. Storno-Champ — highest FORGONE net profit among slips the user
-  // cancelled (status='void') that, per the actual final results, would have
-  // won outright. Never credits Wildis — pure recap/award, reconstructed
-  // entirely from the selection/odds/stake still preserved on the void row
-  // (see app/api/bets/cancel/route.ts's soft-cancel comment: cancellation
-  // never touches those columns, only `status`). A combo counts only if
-  // EVERY leg would have won, evaluated with the exact same settleBet()
-  // switch the real settlement route uses, so this can never disagree with
-  // how a real bet on the same market/selection would have been graded.
-  {
-    const { data: voidSinglesRaw } = await admin
-      .from('bets')
-      .select('user_id, match_id, market_type, selection, odds_value, stake, is_risky, combo_id')
-      .in('match_id', matchIds)
-      .eq('status', 'void')
-      .is('combo_id', null)
-    const voidSingles = (voidSinglesRaw ?? []) as { user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; stake: number | null; is_risky: boolean }[]
-
-    const { data: voidComboLegsHere } = await admin
-      .from('bets')
-      .select('combo_id')
-      .in('match_id', matchIds)
-      .eq('status', 'void')
-      .not('combo_id', 'is', null)
-    const voidComboIdsHere = [...new Set((voidComboLegsHere ?? []).map((l) => Number(l.combo_id)))]
-
-    type VoidCombo = { id: number; user_id: string; stake: number; total_odds: number }
-    let voidCombos: VoidCombo[] = []
-    let voidComboAllLegs: { combo_id: number; match_id: number; market_type: string; selection: string; is_risky: boolean }[] = []
-    if (voidComboIdsHere.length > 0) {
-      const { data: cbData } = await admin
-        .from('combo_bets')
-        .select('id, user_id, stake, total_odds, status')
-        .in('id', voidComboIdsHere)
-        .eq('status', 'void')
-      voidCombos = (cbData ?? []) as VoidCombo[]
-      const ownedIds = new Set(voidCombos.map((c) => c.id))
-      const { data: legData } = await admin
-        .from('bets')
-        .select('combo_id, match_id, market_type, selection, is_risky')
-        .in('combo_id', voidComboIdsHere)
-      voidComboAllLegs = ((legData ?? []) as { combo_id: number; match_id: number; market_type: string; selection: string; is_risky: boolean }[])
-        .filter((l) => ownedIds.has(Number(l.combo_id)))
-    }
-
-    // Match data to evaluate every leg — may span matches OUTSIDE this
-    // Spieltag for a cross-Spieltag combo, so fetch by the actual ids used,
-    // not just matchIds.
-    const evalMatchIds = [...new Set([
-      ...voidSingles.map((b) => b.match_id),
-      ...voidComboAllLegs.map((l) => l.match_id),
-    ])]
-    const { data: evalMatchesRaw } = evalMatchIds.length > 0
-      ? await admin
-          .from('matches')
-          .select('id, home_score, away_score, status, cup_shootout_winner, cup_first_goal_team, cup_halftime_home_goals, cup_halftime_away_goals, cup_away_team_led, cup_first_goal_minute')
-          .in('id', evalMatchIds)
-      : { data: [] as never[] }
-    const evalMatchById = new Map((evalMatchesRaw ?? []).map((m) => [m.id, m]))
-
-    function wouldWin(marketType: string, selection: string, matchId: number): boolean | null {
-      const m = evalMatchById.get(matchId)
-      if (!m || m.status !== 'finished' || m.home_score == null || m.away_score == null) return null
-      return settleBet(
-        marketType, selection, m.home_score, m.away_score,
-        m.cup_shootout_winner as 'home' | 'away' | null | undefined,
-        m.cup_first_goal_team as 'home' | 'away' | 'none' | null | undefined,
-        m.cup_halftime_home_goals, m.cup_halftime_away_goals,
-        m.cup_away_team_led, m.cup_first_goal_minute,
-      ) === 'won'
-    }
-
-    const stornoCandidates: { user_id: string; net: number; label: string }[] = []
-    for (const b of voidSingles) {
-      if (wouldWin(b.market_type, b.selection, b.match_id) !== true) continue
-      const payout = cappedPayout(b.stake ?? 0, b.odds_value, b.is_risky)
-      const net = payout - (b.stake ?? 0)
-      if (net > 0) stornoCandidates.push({ user_id: b.user_id, net, label: `@${b.odds_value.toFixed(2).replace('.', ',')}` })
-    }
-    for (const c of voidCombos) {
-      const legs = voidComboAllLegs.filter((l) => Number(l.combo_id) === c.id)
-      if (legs.length === 0) continue
-      const allWon = legs.every((l) => wouldWin(l.market_type, l.selection, l.match_id) === true)
-      if (!allWon) continue
-      const isRisky = legs.some((l) => l.is_risky)
-      const payout = cappedPayout(c.stake, c.total_odds, isRisky)
-      const net = payout - c.stake
-      if (net > 0) stornoCandidates.push({ user_id: c.user_id, net, label: `Kombi (${legs.length} Tipps)` })
-    }
-    const stornoWinner = stornoCandidates.sort((a, b) => b.net - a.net)[0]
-    if (stornoWinner) {
-      awardInputs.push({
-        user_id: stornoWinner.user_id,
-        award_type: 'storno_champ',
-        value: stornoWinner.net,
-        value_text: `+${Math.round(stornoWinner.net)} ${wildiLabel(stornoWinner.net)} verschenkt — diese stornierte Wette (${stornoWinner.label}) wäre aufgegangen`,
-      })
-    }
+  // 11. Storno-Champ — see computeStornoChamp() below (shared with the live
+  // recap preview on tipps/page.tsx and leaderboard/page.tsx, so persisted
+  // award, live preview and Pokalschrank can never disagree).
+  const stornoWinner = await computeStornoChamp(admin, matchIds)
+  if (stornoWinner) {
+    awardInputs.push({
+      user_id: stornoWinner.user_id,
+      award_type: 'storno_champ',
+      value: stornoWinner.net,
+      value_text: `+${Math.round(stornoWinner.net)} ${wildiLabel(stornoWinner.net)} verschenkt — diese stornierte Wette (${stornoWinner.label}) wäre aufgegangen`,
+    })
   }
 
   const toPersist = onlyTypes ? awardInputs.filter(a => onlyTypes.includes(a.award_type)) : awardInputs
   await persistAwards(admin, season, matchday, toPersist)
   return toPersist.length
+}
+
+/**
+ * Storno-Champ: highest FORGONE net profit among slips a user THEMSELVES
+ * cancelled (not any other reason a bet can end up `status='void'`) that,
+ * per the actual final results, would have won outright. Never credits
+ * Wildis — pure recap/award, reconstructed entirely from the
+ * selection/odds/stake still preserved on the void row (cancellation never
+ * touches those columns, only `status`/`void_reason`).
+ *
+ * `status='void'` is NOT by itself proof of a user-initiated storno —
+ * app/api/admin/goalscorers/cancel-player/route.ts sets the exact same
+ * status when an admin marks a goalscorer as no longer available, which
+ * auto-cancels every bet (and, for a combo, ALL its legs regardless of
+ * market) touching that player. Both write paths now stamp `void_reason`
+ * ('user_cancelled' vs. 'admin_goalscorer_unavailable') going forward — see
+ * migration add_void_reason_to_bets_and_combo_bets. For rows voided BEFORE
+ * that column existed (`void_reason IS NULL`), reason is reconstructed via
+ * `isReliableUserCancel` below from an exhaustive audit of both write
+ * paths, not a guess:
+ *  - a void SINGLE bet on a non-goalscorer market can only ever come from
+ *    the user-cancel route (the admin route only ever singles out
+ *    goalscorer/goalscorer_2plus bets) — reliable.
+ *  - a void SINGLE bet ON a goalscorer market is ambiguous (either route
+ *    could have produced it) — excluded.
+ *  - a void COMBO with NO goalscorer-market leg among ALL its legs can only
+ *    have come from the user-cancel route (the admin route only ever
+ *    triggers via a goalscorer-market leg being present, but then voids
+ *    every leg of that combo regardless of market) — reliable.
+ *  - a void COMBO with AT LEAST ONE goalscorer-market leg is ambiguous —
+ *    excluded entirely, conservatively, even if it also has unrelated legs.
+ *
+ * A combo counts only if EVERY leg would have won, evaluated with the exact
+ * same settleBet() switch the real settlement route uses, so this can never
+ * disagree with how a real bet on the same market/selection would have been
+ * graded. Returns null if no reliably-user-cancelled slip would have won —
+ * including, naturally, while the relevant matches haven't finished yet
+ * (wouldWin() returns null/not-true for anything not yet decided), so a
+ * live-preview caller mid-Spieltag simply gets "no award yet" rather than a
+ * false/premature one.
+ */
+export async function computeStornoChamp(
+  admin: SupabaseClient,
+  matchIds: number[],
+): Promise<{ user_id: string; net: number; label: string } | null> {
+  if (matchIds.length === 0) return null
+  const GOALSCORER_MARKETS = ['goalscorer', 'goalscorer_2plus']
+
+  const { data: voidSinglesRaw } = await admin
+    .from('bets')
+    .select('user_id, match_id, market_type, selection, odds_value, stake, is_risky, combo_id, void_reason')
+    .in('match_id', matchIds)
+    .eq('status', 'void')
+    .is('combo_id', null)
+  const voidSingles = (voidSinglesRaw ?? []) as { user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; stake: number | null; is_risky: boolean; void_reason: string | null }[]
+
+  const { data: voidComboLegsHere } = await admin
+    .from('bets')
+    .select('combo_id')
+    .in('match_id', matchIds)
+    .eq('status', 'void')
+    .not('combo_id', 'is', null)
+  const voidComboIdsHere = [...new Set((voidComboLegsHere ?? []).map((l) => Number(l.combo_id)))]
+
+  type VoidCombo = { id: number; user_id: string; stake: number; total_odds: number; void_reason: string | null }
+  let voidCombos: VoidCombo[] = []
+  let voidComboAllLegs: { combo_id: number; match_id: number; market_type: string; selection: string; is_risky: boolean }[] = []
+  if (voidComboIdsHere.length > 0) {
+    const { data: cbData } = await admin
+      .from('combo_bets')
+      .select('id, user_id, stake, total_odds, status, void_reason')
+      .in('id', voidComboIdsHere)
+      .eq('status', 'void')
+    voidCombos = (cbData ?? []) as VoidCombo[]
+    const ownedIds = new Set(voidCombos.map((c) => c.id))
+    const { data: legData } = await admin
+      .from('bets')
+      .select('combo_id, match_id, market_type, selection, is_risky')
+      .in('combo_id', voidComboIdsHere)
+    voidComboAllLegs = ((legData ?? []) as { combo_id: number; match_id: number; market_type: string; selection: string; is_risky: boolean }[])
+      .filter((l) => ownedIds.has(Number(l.combo_id)))
+  }
+
+  const evalMatchIds = [...new Set([
+    ...voidSingles.map((b) => b.match_id),
+    ...voidComboAllLegs.map((l) => l.match_id),
+  ])]
+  const { data: evalMatchesRaw } = evalMatchIds.length > 0
+    ? await admin
+        .from('matches')
+        .select('id, home_score, away_score, status, cup_shootout_winner, cup_first_goal_team, cup_halftime_home_goals, cup_halftime_away_goals, cup_away_team_led, cup_first_goal_minute')
+        .in('id', evalMatchIds)
+    : { data: [] as never[] }
+  const evalMatchById = new Map((evalMatchesRaw ?? []).map((m) => [m.id, m]))
+
+  function wouldWin(marketType: string, selection: string, matchId: number): boolean | null {
+    const m = evalMatchById.get(matchId)
+    if (!m || m.status !== 'finished' || m.home_score == null || m.away_score == null) return null
+    return settleBet(
+      marketType, selection, m.home_score, m.away_score,
+      m.cup_shootout_winner as 'home' | 'away' | null | undefined,
+      m.cup_first_goal_team as 'home' | 'away' | 'none' | null | undefined,
+      m.cup_halftime_home_goals, m.cup_halftime_away_goals,
+      m.cup_away_team_led, m.cup_first_goal_minute,
+    ) === 'won'
+  }
+
+  const stornoCandidates: { user_id: string; net: number; label: string }[] = []
+  for (const b of voidSingles) {
+    const isGoalscorer = GOALSCORER_MARKETS.includes(b.market_type)
+    const reliable = b.void_reason === 'user_cancelled' ? true : b.void_reason != null ? false : !isGoalscorer
+    if (!reliable) continue
+    if (wouldWin(b.market_type, b.selection, b.match_id) !== true) continue
+    const payout = cappedPayout(b.stake ?? 0, b.odds_value, b.is_risky)
+    const net = payout - (b.stake ?? 0)
+    if (net > 0) stornoCandidates.push({ user_id: b.user_id, net, label: `@${b.odds_value.toFixed(2).replace('.', ',')}` })
+  }
+  for (const c of voidCombos) {
+    const legs = voidComboAllLegs.filter((l) => Number(l.combo_id) === c.id)
+    if (legs.length === 0) continue
+    const hasGoalscorerLeg = legs.some((l) => GOALSCORER_MARKETS.includes(l.market_type))
+    const reliable = c.void_reason === 'user_cancelled' ? true : c.void_reason != null ? false : !hasGoalscorerLeg
+    if (!reliable) continue
+    const allWon = legs.every((l) => wouldWin(l.market_type, l.selection, l.match_id) === true)
+    if (!allWon) continue
+    const isRisky = legs.some((l) => l.is_risky)
+    const payout = cappedPayout(c.stake, c.total_odds, isRisky)
+    const net = payout - c.stake
+    if (net > 0) stornoCandidates.push({ user_id: c.user_id, net, label: `Kombi (${legs.length} Tipps)` })
+  }
+  return stornoCandidates.sort((a, b) => b.net - a.net)[0] ?? null
 }

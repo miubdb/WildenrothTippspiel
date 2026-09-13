@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
 
   // Cancel single bets
   if (cancelledSingles.length > 0) {
-    await admin.from('bets').update({ status: 'void' }).in('id', cancelledSingles)
+    await admin.from('bets').update({ status: 'void', void_reason: 'admin_goalscorer_unavailable' }).in('id', cancelledSingles)
   }
 
   // Cancel combos (refund the full combo stake to the user)
@@ -86,8 +86,8 @@ export async function POST(request: NextRequest) {
     const { data: combo } = await admin
       .from('combo_bets').select('id, user_id, stake').eq('id', comboId).single()
     if (!combo) continue
-    await admin.from('bets').update({ status: 'void' }).eq('combo_id', comboId)
-    await admin.from('combo_bets').update({ status: 'void' }).eq('id', comboId)
+    await admin.from('bets').update({ status: 'void', void_reason: 'admin_goalscorer_unavailable' }).eq('combo_id', comboId)
+    await admin.from('combo_bets').update({ status: 'void', void_reason: 'admin_goalscorer_unavailable' }).eq('id', comboId)
     refunds.push({ userId: combo.user_id, amount: Number(combo.stake) })
   }
 

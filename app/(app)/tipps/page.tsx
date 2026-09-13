@@ -18,6 +18,7 @@ import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffec
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
 import { CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
+import { computeStornoChamp } from '@/lib/awards'
 import { cappedPayout } from '@/lib/payout'
 
 export const revalidate = 60
@@ -965,7 +966,7 @@ export default async function TippsPage({
   type SocialCombo = { id: number; stake: number; total_odds: number; status: string; payout: number | null }
   type SocialProfile = { id: string; display_name: string | null; username: string; avatar_url: string | null }
   let socialBets: SocialBet[] = []
-  let socialCombos: Record<string, SocialCombo> = {}
+  const socialCombos: Record<string, SocialCombo> = {}
   let socialProfiles: SocialProfile[] = []
   // Count of other users' bet slips per match (always fetched via admin for placeholder display)
   const betCountByMatch: Record<number, number> = {}
@@ -1025,9 +1026,6 @@ export default async function TippsPage({
       for (const cb of cbResult.data ?? []) socialCombos[String(cb.id)] = cb
     }
   }
-
-  // Build match label map for social section
-  const matchMap = new Map(matchdayMatches.map(m => [m.id, m]))
 
   // Spieltags-Recap: complete when all non-postponed matches are finished (≥1 must be finished).
   // Matchday 999 is the reserved test matchday — excluded here too, matching
@@ -1330,8 +1328,18 @@ export default async function TippsPage({
           }
         : null
 
-      if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper) {
-        recapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, lastMinuteTipper }
+      // Storno-Champ: same shared computeStornoChamp() as the persisted award
+      // (lib/awards.ts) — naturally returns null while the relevant matches
+      // haven't all finished yet, so this never shows a premature/wrong
+      // answer mid-Spieltag, without any extra "is this Spieltag done" check
+      // needed here.
+      const stornoWinner = await computeStornoChamp(createAdminClient(), matchdayMatchIds)
+      const stornoChamp: RecapData['stornoChamp'] = stornoWinner
+        ? { name: pMap[stornoWinner.user_id] ?? 'Unbekannt', net: stornoWinner.net, label: stornoWinner.label }
+        : null
+
+      if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper || stornoChamp) {
+        recapData = { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, lastMinuteTipper, stornoChamp }
       }
     }
   }
@@ -1582,6 +1590,17 @@ export default async function TippsPage({
           socialProfiles={socialProfiles}
           playerNameMap={playerNameMap}
           userId={user.id}
+        />
+      )}
+
+      {/* Own placed bets */}
+      {user && (userSingles.length > 0 || userCombos.length > 0) && (
+        <MyBets
+          singles={userSingles}
+          combos={userCombos}
+          matchMap={userMatchMap}
+          isDeadlinePassed={isDeadlinePassed}
+          playerNameMap={playerNameMap}
         />
       )}
 

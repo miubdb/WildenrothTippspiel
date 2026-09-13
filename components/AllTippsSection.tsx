@@ -12,7 +12,7 @@ type SocialProfile = { id: string; display_name: string | null; username: string
 
 /**
  * "Alle Tipps" — extracted from app/(app)/tipps/page.tsx (a Server Component)
- * into its own 'use client' component so the "Nur aktive Wetten" filter
+ * into its own 'use client' component so the "Verlorene ausblenden" filter
  * toggle below can react instantly without a full page navigation/refetch.
  * All data is passed down already-fetched from the server; this component
  * does no data fetching of its own.
@@ -79,7 +79,7 @@ export function AllTippsSection({
 
   const totalTippers = new Set(nonVoidSocial.map(b => b.user_id)).size
 
-  // "Nur aktive Wetten": grün (gewonnen) + gelb (offen) bleiben, rot
+  // "Verlorene ausblenden": grün (gewonnen) + gelb (offen) bleiben, rot
   // (verloren) wird ausgeblendet — für Kombis anhand des GESAMTstatus des
   // Wettscheins, nicht pro Leg (ein einzelner falscher Leg macht die ganze
   // Kombi tot, auch wenn andere Legs schon "gewonnen" sind).
@@ -121,7 +121,7 @@ export function AllTippsSection({
               : 'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300'
           }`}
         >
-          Nur aktive Wetten
+          Verlorene ausblenden
         </button>
       </div>
 

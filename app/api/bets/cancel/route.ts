@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     // must not credit the stake.
     const { data: cancelledLegs, error: legsCancelError } = await admin
       .from('bets')
-      .update({ status: 'void' })
+      .update({ status: 'void', void_reason: 'user_cancelled' })
       .eq('combo_id', comboId)
       .eq('status', 'pending')
       .select('id')
@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Wette wurde bereits storniert oder abgerechnet.' }, { status: 409 })
     }
 
-    const { error: comboCancelError } = await admin.from('combo_bets').update({ status: 'void' }).eq('id', comboId)
+    const { error: comboCancelError } = await admin.from('combo_bets').update({ status: 'void', void_reason: 'user_cancelled' }).eq('id', comboId)
     if (comboCancelError) {
       // Legs are already cancelled (and the user is about to be refunded) —
       // log it, but don't fail the request over the parent row's own status.
@@ -198,7 +198,7 @@ export async function POST(request: NextRequest) {
     // the row may refund.
     const { data: cancelledBet, error: cancelError } = await admin
       .from('bets')
-      .update({ status: 'void' })
+      .update({ status: 'void', void_reason: 'user_cancelled' })
       .eq('id', bet.id)
       .eq('status', 'pending')
       .select('id, stake')
