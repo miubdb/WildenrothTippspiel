@@ -22,9 +22,16 @@ export default async function ProfilPage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // Explicit column list, not select('*') — Postgres requires SELECT on
+  // EVERY column of the table for a bare `SELECT *` to succeed, not just
+  // the ones actually granted; `authenticated` intentionally has no grant
+  // on profiles.email (see the security hardening pass), so `select('*')`
+  // here would fail outright and this page never actually needed email
+  // anyway (the user's own email comes from supabase.auth.getUser(), not
+  // this table — used a few lines below as `user.email`).
   const { data: profile } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, display_name, avatar_url, bio, favorite_team, created_at, balance, season_start_balance')
     .eq('id', user.id)
     .single()
   if (!profile) redirect('/login')
