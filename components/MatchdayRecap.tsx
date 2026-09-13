@@ -13,21 +13,27 @@ export type RecapLegDetail = {
   status: 'won' | 'lost' | 'pending'
 }
 
+/** The concrete match + market + selection behind a single-bet award — only
+ *  set when the award resolved to a single (non-combo) bet, since a combo's
+ *  "one match" framing doesn't make sense (see UnluckyBastardCard's own
+ *  per-leg breakdown for the combo case instead). */
+export type RecapBetDetail = { matchName: string; market: string; selection: string }
+
 export type RecapData = {
   spieltagskoenig: { name: string; profit: number } | null
-  eierAusStahl: { name: string; odds: number; stake: number; payout: number; isCombo: boolean; legs?: number } | null
+  eierAusStahl: { name: string; odds: number; stake: number; payout: number; isCombo: boolean; legs?: number; bet?: RecapBetDetail } | null
   unluckyBastard: {
     name: string; odds: number; stake: number; legs: number; wouldHavePayout: number
     legDetails: RecapLegDetail[]
   } | null
-  ergebnisOrakel: { name: string; score: string; stake: number } | null
+  ergebnisOrakel: { name: string; score: string; stake: number; matchName?: string } | null
   griffInsKlo: { name: string; loss: number } | null
-  betonmischer: { name: string; odds: number; stake: number; payout: number; isCombo: boolean } | null
+  betonmischer: { name: string; odds: number; stake: number; payout: number; isCombo: boolean; bet?: RecapBetDetail } | null
   onFire: { name: string; count: number; pnl: number } | null
   // Einzelwette-only (see lib/awards.ts) — never a combo, so no isCombo flag.
-  grosserWurf: { name: string; amount: number } | null
-  torschuetzenKoenig: { name: string; count: number } | null
-  lastMinuteTipper: { name: string; gapMin: number; gapSec: number } | null
+  grosserWurf: { name: string; amount: number; bet?: RecapBetDetail } | null
+  torschuetzenKoenig: { name: string; count: number; playerName?: string } | null
+  lastMinuteTipper: { name: string; gapMin: number; gapSec: number; matchName?: string } | null
 }
 
 function fmtAmt(n: number) { return fmtWildi(n) }
@@ -204,6 +210,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={eierAusStahl.name}
               value={`@${fmtOdds(eierAusStahl.odds)}`}
               detail={`Einsatz ${fmtAmt(eierAusStahl.stake)} ${wildiLabel(eierAusStahl.stake)} → +${fmtAmt(eierAusStahl.payout - eierAusStahl.stake)} ${wildiLabel(eierAusStahl.payout - eierAusStahl.stake)}${eierAusStahl.isCombo && eierAusStahl.legs ? ` · ${eierAusStahl.legs}er-Kombi` : ''}`}
+              sub={eierAusStahl.bet ? `${eierAusStahl.bet.matchName} · ${eierAusStahl.bet.market}: ${eierAusStahl.bet.selection}` : undefined}
               onShare={() => setShare({ type: 'risky', data: { matchday, name: eierAusStahl.name, value: `@${fmtOdds(eierAusStahl.odds)}`, subtitle: `${eierAusStahl.name} hatte Eier aus Stahl` } })}
               accentBg="bg-purple-50"
               accentBorder="border-purple-200"
@@ -238,6 +245,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={ergebnisOrakel.name}
               value={ergebnisOrakel.score}
               detail={`Einsatz ${fmtAmt(ergebnisOrakel.stake)} ${wildiLabel(ergebnisOrakel.stake)} · Exaktes Ergebnis`}
+              sub={ergebnisOrakel.matchName}
               accentBg="bg-indigo-50"
               accentBorder="border-indigo-200"
               accentText="text-indigo-700"
@@ -269,6 +277,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={betonmischer.name}
               value={`@${fmtOdds(betonmischer.odds)}`}
               detail={`Einsatz ${fmtAmt(betonmischer.stake)} ${wildiLabel(betonmischer.stake)} → +${fmtAmt(betonmischer.payout - betonmischer.stake)} ${wildiLabel(betonmischer.payout - betonmischer.stake)}`}
+              sub={betonmischer.bet ? `${betonmischer.bet.matchName} · ${betonmischer.bet.market}: ${betonmischer.bet.selection}` : undefined}
               accentBg="bg-stone-50"
               accentBorder="border-stone-200"
               accentText="text-stone-600"
@@ -287,6 +296,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={grosserWurf.name}
               value={<>+{fmtAmt(grosserWurf.amount)} <WildiIcon size={20} /></>}
               detail="Höchster Gewinn mit einer Einzelwette am Spieltag"
+              sub={grosserWurf.bet ? `${grosserWurf.bet.matchName} · ${grosserWurf.bet.market}: ${grosserWurf.bet.selection}` : undefined}
               accentBg="bg-emerald-50"
               accentBorder="border-emerald-200"
               accentText="text-emerald-600"
@@ -299,6 +309,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={torschuetzenKoenig.name}
               value={`${torschuetzenKoenig.count}x`}
               detail={`${torschuetzenKoenig.count} richtige${torschuetzenKoenig.count === 1 ? 'r Torschützen-Tipp' : ' Torschützen-Tipps'}`}
+              sub={torschuetzenKoenig.playerName}
               accentBg="bg-sky-50"
               accentBorder="border-sky-200"
               accentText="text-sky-600"
@@ -311,6 +322,7 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               name={lastMinuteTipper.name}
               value={lastMinuteTipper.gapSec < 60 ? `${lastMinuteTipper.gapSec} Sek.` : `${lastMinuteTipper.gapMin} Min.`}
               detail="Vor Anpfiff gewettet — und gewonnen"
+              sub={lastMinuteTipper.matchName}
               accentBg="bg-fuchsia-50"
               accentBorder="border-fuchsia-200"
               accentText="text-fuchsia-600"

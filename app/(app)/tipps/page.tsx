@@ -1097,6 +1097,55 @@ export default async function TippsPage({
         .in('id', recapUserIds)
       const pMap = Object.fromEntries((recapProfiles ?? []).map(p => [p.id, p.display_name || p.username || 'Unbekannt']))
 
+      const RECAP_MKT_LBL: Record<string, string> = {
+        '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
+        over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
+        btts: 'Beide treffen', handicap: 'Handicap', exact_score: 'Ergebnis',
+        goalscorer: 'Torschütze', goalscorer_2plus: 'Mind. 2 Tore',
+      }
+      const RECAP_SEL_LBL: Record<string, Record<string, string>> = {
+        '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
+        double_chance: { '1x': '1X', x2: 'X2', '12': '12' },
+        over_under: { 'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5' },
+        over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
+        over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
+        over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
+        btts: { yes: 'Beide treffen', no: 'Nicht beide' },
+        handicap: {
+          home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
+          away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5', away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
+        },
+      }
+      // Match names for the single-bet award detail lines below (Eier aus
+      // Stahl/Betonmischer/Volltreffer/Ergebnis-Orakel/Last-Minute-Tipper) —
+      // one query for this Spieltag's own matches, not per-award.
+      const recapMatchNameMap = new Map<number, string>()
+      {
+        const { data: recapMatchRows } = await supabase
+          .from('matches')
+          .select('id, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
+          .in('id', matchdayMatchIds)
+        for (const m of recapMatchRows ?? []) {
+          const ht = Array.isArray(m.home_team) ? m.home_team[0] : m.home_team
+          const at = Array.isArray(m.away_team) ? m.away_team[0] : m.away_team
+          recapMatchNameMap.set(m.id, `${ht?.name ?? '?'} – ${at?.name ?? '?'}`)
+        }
+      }
+      function recapBetDetail(b: { match_id: number | null; market_type: string; selection: string }): import('@/components/MatchdayRecap').RecapBetDetail | undefined {
+        if (!b.match_id) return undefined
+        const matchName = recapMatchNameMap.get(b.match_id)
+        if (!matchName) return undefined
+        const selection = b.market_type === 'exact_score' ? b.selection
+          : (b.market_type === 'goalscorer' || b.market_type === 'goalscorer_2plus')
+            ? (playerNameMap[parseInt(b.selection, 10)] ?? b.selection)
+            : (RECAP_SEL_LBL[b.market_type]?.[b.selection] ?? cupSelectionLabel(b.market_type, b.selection) ?? b.selection)
+        return {
+          matchName,
+          market: RECAP_MKT_LBL[b.market_type] ?? CUP_MARKET_LABEL[b.market_type] ?? b.market_type,
+          selection,
+        }
+      }
+
       // 1. Spieltagskönig — best net saldo (singles + combos)
       const netGain: Record<string, number> = {}
       for (const b of singleBets) {
@@ -1121,7 +1170,7 @@ export default async function TippsPage({
         const sO = topWonSingle?.odds_value ?? 0
         const cO = topWonCombo?.total_odds ?? 0
         if (sO >= cO && topWonSingle) {
-          eierAusStahl = { name: pMap[topWonSingle.user_id] ?? 'Unbekannt', odds: sO, stake: topWonSingle.stake, payout: topWonSingle.payout ?? 0, isCombo: false }
+          eierAusStahl = { name: pMap[topWonSingle.user_id] ?? 'Unbekannt', odds: sO, stake: topWonSingle.stake, payout: topWonSingle.payout ?? 0, isCombo: false, bet: recapBetDetail(topWonSingle) }
         } else if (topWonCombo) {
           const legsByComboEi = allComboLegs.reduce<Record<number, unknown[]>>((acc, l) => { (acc[l.combo_id] ??= []).push(l); return acc }, {})
           eierAusStahl = { name: pMap[topWonCombo.user_id] ?? 'Unbekannt', odds: cO, stake: topWonCombo.stake, payout: topWonCombo.payout, isCombo: true, legs: (legsByComboEi[topWonCombo.id] ?? []).length }
@@ -1153,25 +1202,6 @@ export default async function TippsPage({
         .sort((a, b) => (b.c.stake * b.c.total_odds) - (a.c.stake * a.c.total_odds))
       const unlucky = unluckyResults[0] ?? null
 
-      const RECAP_MKT_LBL: Record<string, string> = {
-        '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
-        over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
-        btts: 'Beide treffen', handicap: 'Handicap', exact_score: 'Ergebnis',
-        goalscorer: 'Torschütze', goalscorer_2plus: 'Mind. 2 Tore',
-      }
-      const RECAP_SEL_LBL: Record<string, Record<string, string>> = {
-        '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
-        double_chance: { '1x': '1X', x2: 'X2', '12': '12' },
-        over_under: { 'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5' },
-        over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
-        over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
-        over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
-        btts: { yes: 'Beide treffen', no: 'Nicht beide' },
-        handicap: {
-          home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
-          away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5', away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
-        },
-      }
       let unluckyLegDetails: import('@/components/MatchdayRecap').RecapLegDetail[] = []
       if (unlucky) {
         const { data: legDetailRows } = await supabase
@@ -1210,7 +1240,7 @@ export default async function TippsPage({
         .filter(b => b.market_type === 'exact_score' && b.status === 'won')
         .sort((a, b) => b.stake - a.stake)
       const ergebnisOrakel: RecapData['ergebnisOrakel'] = exactWon[0]
-        ? { name: pMap[exactWon[0].user_id] ?? 'Unbekannt', score: exactWon[0].selection, stake: exactWon[0].stake }
+        ? { name: pMap[exactWon[0].user_id] ?? 'Unbekannt', score: exactWon[0].selection, stake: exactWon[0].stake, matchName: exactWon[0].match_id ? recapMatchNameMap.get(exactWon[0].match_id) : undefined }
         : null
 
       // 5. Griff ins Klo — worst NET Spieltag saldo — the mirror image of
@@ -1226,11 +1256,11 @@ export default async function TippsPage({
 
       // 6. Betonmischer — lowest odds among won bets, tiebreak: higher stake
       const allWonForBeton = [
-        ...wonSingles.map(b => ({ user_id: b.user_id, odds: b.odds_value, stake: b.stake, payout: b.payout ?? 0, isCombo: false })),
-        ...wonCombos.map(c => ({ user_id: c.user_id, odds: c.total_odds, stake: c.stake, payout: c.payout, isCombo: true })),
+        ...wonSingles.map(b => ({ user_id: b.user_id, odds: b.odds_value, stake: b.stake, payout: b.payout ?? 0, isCombo: false, bet: b })),
+        ...wonCombos.map(c => ({ user_id: c.user_id, odds: c.total_odds, stake: c.stake, payout: c.payout, isCombo: true, bet: undefined as typeof wonSingles[number] | undefined })),
       ].sort((a, b) => a.odds - b.odds || b.stake - a.stake)
       const betonmischer: RecapData['betonmischer'] = allWonForBeton[0]
-        ? { name: pMap[allWonForBeton[0].user_id] ?? 'Unbekannt', odds: allWonForBeton[0].odds, stake: allWonForBeton[0].stake, payout: allWonForBeton[0].payout, isCombo: allWonForBeton[0].isCombo }
+        ? { name: pMap[allWonForBeton[0].user_id] ?? 'Unbekannt', odds: allWonForBeton[0].odds, stake: allWonForBeton[0].stake, payout: allWonForBeton[0].payout, isCombo: allWonForBeton[0].isCombo, bet: allWonForBeton[0].bet ? recapBetDetail(allWonForBeton[0].bet) : undefined }
         : null
 
       // 7. On Fire — most won slips (≥2), tiebreak: saldo
@@ -1255,9 +1285,9 @@ export default async function TippsPage({
       // contributing together; scoping this to Einzelwetten keeps it a
       // genuinely different category instead of usually crowning the same
       // person as Spieltagskönig for the same reason).
-      const netWinCandidates = wonSingles.map(b => ({ user_id: b.user_id, net: (b.payout ?? 0) - b.stake })).sort((a, b) => b.net - a.net)
+      const netWinCandidates = wonSingles.map(b => ({ bet: b, net: (b.payout ?? 0) - b.stake })).sort((a, b) => b.net - a.net)
       const grosserWurf: RecapData['grosserWurf'] = netWinCandidates[0]
-        ? { name: pMap[netWinCandidates[0].user_id] ?? 'Unbekannt', amount: netWinCandidates[0].net }
+        ? { name: pMap[netWinCandidates[0].bet.user_id] ?? 'Unbekannt', amount: netWinCandidates[0].net, bet: recapBetDetail(netWinCandidates[0].bet) }
         : null
 
       // 9. Torschützen-König — most won goalscorer bets by one user.
@@ -1266,27 +1296,32 @@ export default async function TippsPage({
       const goalscorerWon = [...wonSingles, ...comboLegBets.filter(b => b.status === 'won')].filter(
         b => b.market_type === 'goalscorer' || b.market_type === 'goalscorer_2plus'
       )
-      const goalscorerByUser: Record<string, { count: number; maxOdds: number }> = {}
+      const goalscorerByUser: Record<string, { count: number; maxOdds: number; bestBet: typeof goalscorerWon[number] }> = {}
       for (const b of goalscorerWon) {
-        const e = goalscorerByUser[b.user_id] ?? { count: 0, maxOdds: 0 }
-        goalscorerByUser[b.user_id] = { count: e.count + 1, maxOdds: Math.max(e.maxOdds, b.odds_value) }
+        const e = goalscorerByUser[b.user_id]
+        if (!e) { goalscorerByUser[b.user_id] = { count: 1, maxOdds: b.odds_value, bestBet: b }; continue }
+        goalscorerByUser[b.user_id] = {
+          count: e.count + 1,
+          maxOdds: Math.max(e.maxOdds, b.odds_value),
+          bestBet: b.odds_value > e.maxOdds ? b : e.bestBet,
+        }
       }
       const torschuetzenEntry = Object.entries(goalscorerByUser)
         .filter(([, { count }]) => count >= 1)
         .sort((a, b) => b[1].count - a[1].count || b[1].maxOdds - a[1].maxOdds)[0]
       const torschuetzenKoenig: RecapData['torschuetzenKoenig'] = torschuetzenEntry
-        ? { name: pMap[torschuetzenEntry[0]] ?? 'Unbekannt', count: torschuetzenEntry[1].count }
+        ? { name: pMap[torschuetzenEntry[0]] ?? 'Unbekannt', count: torschuetzenEntry[1].count, playerName: playerNameMap[parseInt(torschuetzenEntry[1].bestBet.selection, 10)] }
         : null
 
       // 10. Last-Minute-Tipper — won bet placed less than 1h before its own
       // kickoff. Tiebreak: smallest gap to kickoff wins.
       const ONE_HOUR_MS = 60 * 60 * 1000
-      const lastMinuteCandidates: { user_id: string; gapMs: number }[] = []
+      const lastMinuteCandidates: { user_id: string; gapMs: number; matchId?: number | null }[] = []
       for (const b of wonSingles) {
         const kickoff = matchDateMap.get(b.match_id)
         if (!kickoff) continue
         const gapMs = new Date(kickoff).getTime() - new Date(b.created_at).getTime()
-        if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs })
+        if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs, matchId: b.match_id })
       }
       for (const c of wonCombos) {
         const kickoff = comboEarliestKickoff.get(c.id)
@@ -1300,6 +1335,7 @@ export default async function TippsPage({
             name: pMap[lastMinuteCandidates[0].user_id] ?? 'Unbekannt',
             gapMin: Math.round(lastMinuteCandidates[0].gapMs / 60000),
             gapSec: Math.round(lastMinuteCandidates[0].gapMs / 1000),
+            matchName: lastMinuteCandidates[0].matchId != null ? recapMatchNameMap.get(lastMinuteCandidates[0].matchId) : undefined,
           }
         : null
 

@@ -468,7 +468,7 @@ export default async function LeaderboardPage({
         const sOdds = topSingle?.odds_value ?? 0
         const cOdds = topCombo?.total_odds ?? 0
         if (sOdds >= cOdds && topSingle) {
-          eierAusStahl = { name: pMap[topSingle.user_id] ?? 'Unbekannt', odds: topSingle.odds_value, stake: topSingle.stake ?? 0, payout: topSingle.payout ?? 0, isCombo: false }
+          eierAusStahl = { name: pMap[topSingle.user_id] ?? 'Unbekannt', odds: topSingle.odds_value, stake: topSingle.stake ?? 0, payout: topSingle.payout ?? 0, isCombo: false, bet: recapBetDetail(topSingle) }
         } else if (topCombo) {
           eierAusStahl = { name: pMap[topCombo.user_id] ?? 'Unbekannt', odds: topCombo.total_odds, stake: topCombo.stake, payout: topCombo.payout, isCombo: true, legs: allComboLegs.filter(l => l.combo_id === topCombo.id).length }
         }
@@ -522,6 +522,36 @@ export default async function LeaderboardPage({
       const { data: recapPlayers } = await supabase.from('wildenroth_players').select('id, name')
       for (const p of recapPlayers ?? []) recapPlayerMap[p.id] = p.name
 
+      // Match names for the single-bet award detail lines below (Eier aus
+      // Stahl/Betonmischer/Volltreffer/Ergebnis-Orakel/Last-Minute-Tipper) —
+      // one query for this Spieltag's own matches, not per-award.
+      const recapMatchNameMap = new Map<number, string>()
+      {
+        const { data: recapMatchRows } = await supabase
+          .from('matches')
+          .select('id, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
+          .in('id', mdMatchIdArr)
+        for (const m of recapMatchRows ?? []) {
+          const ht = Array.isArray(m.home_team) ? m.home_team[0] : m.home_team
+          const at = Array.isArray(m.away_team) ? m.away_team[0] : m.away_team
+          recapMatchNameMap.set(m.id, `${ht?.name ?? '?'} – ${at?.name ?? '?'}`)
+        }
+      }
+      function recapBetDetail(b: { match_id: number | null; market_type: string; selection: string }): import('@/components/MatchdayRecap').RecapBetDetail | undefined {
+        if (!b.match_id) return undefined
+        const matchName = recapMatchNameMap.get(b.match_id)
+        if (!matchName) return undefined
+        const selection = b.market_type === 'exact_score' ? b.selection
+          : (b.market_type === 'goalscorer' || b.market_type === 'goalscorer_2plus')
+            ? (recapPlayerMap[parseInt(b.selection, 10)] ?? b.selection)
+            : (RECAP_SEL_LBL[b.market_type]?.[b.selection] ?? cupSelectionLabel(b.market_type, b.selection) ?? b.selection)
+        return {
+          matchName,
+          market: RECAP_MKT_LBL[b.market_type] ?? CUP_MARKET_LABEL[b.market_type] ?? b.market_type,
+          selection,
+        }
+      }
+
       let unluckyLegDetails: import('@/components/MatchdayRecap').RecapLegDetail[] = []
       if (unlucky) {
         const { data: legDetailRows } = await supabase
@@ -564,6 +594,7 @@ export default async function LeaderboardPage({
         name: pMap[orakelBet.user_id] ?? 'Unbekannt',
         score: orakelBet.selection ?? '',
         stake: orakelBet.stake ?? 0,
+        matchName: orakelBet.match_id ? recapMatchNameMap.get(orakelBet.match_id) : undefined,
       } : null
 
       // 🚽 Griff ins Klo: worst NET Spieltag saldo — the mirror image of
@@ -583,7 +614,7 @@ export default async function LeaderboardPage({
         const sOdds = safeSingles[0]?.odds_value ?? Infinity
         const cOdds = safeCombos[0]?.total_odds ?? Infinity
         if (sOdds <= cOdds && safeSingles[0]) {
-          betonmischer = { name: pMap[safeSingles[0].user_id] ?? 'Unbekannt', odds: safeSingles[0].odds_value, stake: safeSingles[0].stake ?? 0, payout: safeSingles[0].payout ?? 0, isCombo: false }
+          betonmischer = { name: pMap[safeSingles[0].user_id] ?? 'Unbekannt', odds: safeSingles[0].odds_value, stake: safeSingles[0].stake ?? 0, payout: safeSingles[0].payout ?? 0, isCombo: false, bet: recapBetDetail(safeSingles[0]) }
         } else if (safeCombos[0]) {
           betonmischer = { name: pMap[safeCombos[0].user_id] ?? 'Unbekannt', odds: safeCombos[0].total_odds, stake: safeCombos[0].stake, payout: safeCombos[0].payout, isCombo: true }
         }
@@ -607,9 +638,9 @@ export default async function LeaderboardPage({
       // contributing together; scoping this to Einzelwetten keeps it a
       // genuinely different category instead of usually crowning the same
       // person as Spieltagskönig for the same reason).
-      const netWinCandidates = wonSingles.map(b => ({ user_id: b.user_id, net: (b.payout ?? 0) - (b.stake ?? 0) })).sort((a, b) => b.net - a.net)
+      const netWinCandidates = wonSingles.map(b => ({ bet: b, net: (b.payout ?? 0) - (b.stake ?? 0) })).sort((a, b) => b.net - a.net)
       const grosserWurf: RecapData['grosserWurf'] = netWinCandidates[0]
-        ? { name: pMap[netWinCandidates[0].user_id] ?? 'Unbekannt', amount: netWinCandidates[0].net }
+        ? { name: pMap[netWinCandidates[0].bet.user_id] ?? 'Unbekannt', amount: netWinCandidates[0].net, bet: recapBetDetail(netWinCandidates[0].bet) }
         : null
 
       // ⚽ Torschützen-König: most won goalscorer bets by one user. Tiebreak:
@@ -618,28 +649,37 @@ export default async function LeaderboardPage({
       const goalscorerWon = [...wonSingles, ...recapComboLegBets.filter(b => b.status === 'won')].filter(
         b => b.market_type === 'goalscorer' || b.market_type === 'goalscorer_2plus'
       )
-      const goalscorerByUser: Record<string, { count: number; maxOdds: number }> = {}
+      const goalscorerByUser: Record<string, { count: number; maxOdds: number; bestBet: typeof goalscorerWon[number] }> = {}
       for (const b of goalscorerWon) {
-        const e = goalscorerByUser[b.user_id] ?? { count: 0, maxOdds: 0 }
-        goalscorerByUser[b.user_id] = { count: e.count + 1, maxOdds: Math.max(e.maxOdds, b.odds_value) }
+        const e = goalscorerByUser[b.user_id]
+        if (!e) { goalscorerByUser[b.user_id] = { count: 1, maxOdds: b.odds_value, bestBet: b }; continue }
+        goalscorerByUser[b.user_id] = {
+          count: e.count + 1,
+          maxOdds: Math.max(e.maxOdds, b.odds_value),
+          bestBet: b.odds_value > e.maxOdds ? b : e.bestBet,
+        }
       }
       const torschuetzenEntry = Object.entries(goalscorerByUser)
         .filter(([, { count }]) => count >= 1)
         .sort((a, b) => b[1].count - a[1].count || b[1].maxOdds - a[1].maxOdds)[0]
       const torschuetzenKoenig: RecapData['torschuetzenKoenig'] = torschuetzenEntry
-        ? { name: pMap[torschuetzenEntry[0]] ?? 'Unbekannt', count: torschuetzenEntry[1].count }
+        ? {
+            name: pMap[torschuetzenEntry[0]] ?? 'Unbekannt',
+            count: torschuetzenEntry[1].count,
+            playerName: recapPlayerMap[parseInt(torschuetzenEntry[1].bestBet.selection, 10)],
+          }
         : null
 
       // ⏱️ Last-Minute-Tipper: won bet placed less than 1h before its own
       // kickoff. Tiebreak: smallest gap to kickoff wins.
       const ONE_HOUR_MS = 60 * 60 * 1000
-      const lastMinuteCandidates: { user_id: string; gapMs: number }[] = []
+      const lastMinuteCandidates: { user_id: string; gapMs: number; matchId?: number | null }[] = []
       for (const b of wonSingles) {
         if (!b.match_id || !b.created_at) continue
         const kickoff = matchDateMap.get(b.match_id)
         if (!kickoff) continue
         const gapMs = new Date(kickoff).getTime() - new Date(b.created_at).getTime()
-        if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs })
+        if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs, matchId: b.match_id })
       }
       for (const c of wonCombos) {
         if (!c.created_at) continue
@@ -654,6 +694,7 @@ export default async function LeaderboardPage({
             name: pMap[lastMinuteCandidates[0].user_id] ?? 'Unbekannt',
             gapMin: Math.round(lastMinuteCandidates[0].gapMs / 60000),
             gapSec: Math.round(lastMinuteCandidates[0].gapMs / 1000),
+            matchName: lastMinuteCandidates[0].matchId != null ? recapMatchNameMap.get(lastMinuteCandidates[0].matchId) : undefined,
           }
         : null
 
