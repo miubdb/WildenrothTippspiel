@@ -164,6 +164,10 @@ export async function POST(req: Request) {
     }
     // Belt-and-suspenders: also delete odds by matchday (odds table has matchday column)
     await admin.from('odds').delete().eq('matchday', TEST_MATCHDAY)
+    // Any Spieltag-Special ever created for the test matchday would otherwise be
+    // orphaned by this teardown (its included_match_ids would point at now-deleted
+    // matches) — its own bets/legs are already gone via the bets/combo_bets delete above.
+    await admin.from('matchday_specials').delete().eq('matchday', TEST_MATCHDAY)
 
     // ── 6. Delete test matches ───────────────────────────────────────────────
     await admin.from('matches').delete().eq('matchday', TEST_MATCHDAY)

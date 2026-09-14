@@ -31,6 +31,28 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
 
+  // Line/Quote are the exact numbers a placed bet's odds/settlement outcome
+  // were priced against. settleActiveMatchdaySpecials evaluates ALL bets on
+  // this Special against the row's CURRENT `line` at settlement time — so
+  // changing it after even one bet exists would silently re-grade that bet
+  // against a threshold it never saw. odds_value itself is copied onto each
+  // bets row at placement (see app/api/bets/place/route.ts) and is therefore
+  // already safe from a later `options` edit — this guard is specifically
+  // for `line`, plus `options` since an odds override commonly comes bundled
+  // with a line change and re-computed probabilities.
+  if ('line' in body || body.options) {
+    const { count: placedCount } = await supabase
+      .from('bets')
+      .select('id', { count: 'exact', head: true })
+      .eq('special_id', id)
+    if (placedCount && placedCount > 0) {
+      return NextResponse.json(
+        { error: 'Linie/Quoten können nicht mehr geändert werden — auf dieses Special wurde bereits gewettet. Bitte stornieren (Void) und bei Bedarf neu erstellen.' },
+        { status: 400 }
+      )
+    }
+  }
+
   const updates: Record<string, unknown> = {}
   // Any options edit is treated as an admin override — mark every option
   // `overridden: true` so it stays visible where the odds actually came from

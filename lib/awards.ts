@@ -442,6 +442,13 @@ export async function computeStornoChamp(
 ): Promise<{ user_id: string; net: number; label: string; betId: number | null; comboId: number | null } | null> {
   if (matchIds.length === 0) return null
 
+  // matchday_special bets are excluded here: their match_id is only the
+  // Spieltag's representative_match_id (technical FK anchor, see
+  // lib/matchdaySpecials.ts), and wouldWin() below delegates to settleBet(),
+  // which has no case for 'matchday_special' and falls through to its
+  // `default: return 'lost'` — always false, regardless of the real outcome.
+  // Rather than silently mis-grade a cancelled Special as an always-losing
+  // Storno-Champ candidate, it's excluded from candidacy entirely.
   const { data: voidSinglesRaw } = await admin
     .from('bets')
     .select('id, user_id, match_id, market_type, selection, odds_value, stake, is_risky, combo_id, void_reason')
@@ -449,6 +456,7 @@ export async function computeStornoChamp(
     .eq('status', 'void')
     .eq('void_reason', 'user_cancelled')
     .is('combo_id', null)
+    .neq('market_type', 'matchday_special')
   const voidSingles = (voidSinglesRaw ?? []) as { id: number; user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; stake: number | null; is_risky: boolean }[]
 
   const { data: voidComboLegsHere } = await admin
@@ -475,8 +483,15 @@ export async function computeStornoChamp(
       .from('bets')
       .select('combo_id, match_id, market_type, selection, is_risky')
       .in('combo_id', voidComboIdsHere)
-    voidComboAllLegs = ((legData ?? []) as { combo_id: number; match_id: number; market_type: string; selection: string; is_risky: boolean }[])
+    const allLegsForOwned = ((legData ?? []) as { combo_id: number; match_id: number; market_type: string; selection: string; is_risky: boolean }[])
       .filter((l) => ownedIds.has(Number(l.combo_id)))
+    // A combo containing a matchday_special leg can't be correctly evaluated
+    // by wouldWin() (same settleBet limitation as the singles case above) —
+    // excluding the whole combo, not just that leg, since a wrongly-graded
+    // leg would otherwise silently decide the combo's own would-win result.
+    const comboIdsWithSpecialLeg = new Set(allLegsForOwned.filter((l) => l.market_type === 'matchday_special').map((l) => l.combo_id))
+    voidCombos = voidCombos.filter((c) => !comboIdsWithSpecialLeg.has(c.id))
+    voidComboAllLegs = allLegsForOwned.filter((l) => !comboIdsWithSpecialLeg.has(l.combo_id))
   }
 
   const evalMatchIds = [...new Set([

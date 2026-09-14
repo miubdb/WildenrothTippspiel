@@ -997,6 +997,10 @@ export default async function TippsPage({
       .in('match_id', matchdayMatchIds)
       .neq('user_id', user.id)
       .neq('status', 'void')
+      // A Special bet's match_id is only its representative_match_id (technical
+      // FK anchor, see lib/matchdaySpecials.ts) — without this, a Special bet
+      // would inflate that one ordinary match's own "N Wetten auf dieses Spiel" count.
+      .neq('market_type', 'matchday_special')
     // Keyed by "matchId:comboId", not just comboId — a combo's bet slip counts as
     // one "Wettschein" on EVERY match it has a leg on, not just the one match
     // whose row happens to come first in this unordered query. A combo-id-only

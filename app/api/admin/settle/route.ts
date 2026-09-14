@@ -176,13 +176,19 @@ export async function POST(request: NextRequest) {
   }
 
   // Fetch all pending single bets for this match (skip goalscorer markets — those settle
-  // separately once the admin enters who scored, which depends on more than the final score)
+  // separately once the admin enters who scored, which depends on more than the final score).
+  // Also skip matchday_special bets/legs: their match_id is only the Spieltag's
+  // representative_match_id (technical FK anchor, see lib/matchdaySpecials.ts) — settleBet()
+  // has no case for 'matchday_special' and would fall through to its `default: return 'lost'`,
+  // wrongly and irreversibly grading every pending Special bet anchored to this match as lost
+  // regardless of the real outcome. Specials settle separately via settleActiveMatchdaySpecials
+  // (called below through finalizeMatchdayIfDone) once ALL of their own included_match_ids are final.
   const { data: pendingBets, error: betsError } = await supabase
     .from('bets')
     .select('id, user_id, market_type, selection, stake, odds_value, combo_id, is_risky')
     .eq('match_id', matchId)
     .eq('status', 'pending')
-    .not('market_type', 'in', '("goalscorer","goalscorer_2plus")')
+    .not('market_type', 'in', '("goalscorer","goalscorer_2plus","matchday_special")')
 
   if (betsError) {
     return NextResponse.json({ error: 'Fehler beim Abrufen der Wetten.' }, { status: 500 })
