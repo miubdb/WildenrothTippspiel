@@ -4,6 +4,29 @@ import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import { generateSpecialCandidates, pickDiverseSuggestions, type SpecialTemplateKey } from '@/lib/matchdaySpecials'
 import type { Match } from '@/types'
 
+/** Same match_odds_overrides lookup every other odds computation in this app
+ *  now uses (see app/(app)/tipps/page.tsx, app/api/admin/odds/route.ts,
+ *  app/api/admin/odds/preview/route.ts) — a Spieltag-Special must derive its
+ *  probabilities from the SAME final (homeXG, awayXG) as every other market
+ *  on an overridden match, never the model's raw, uncorrected output. */
+async function loadXgOverrides(supabase: Awaited<ReturnType<typeof createClient>>, matchIds: number[]) {
+  const overrides = new Map<number, { homeXG: number; awayXG: number }>()
+  if (matchIds.length === 0) return overrides
+  const { data } = await supabase
+    .from('match_odds_overrides')
+    .select('match_id, model_home_xg_override, model_away_xg_override')
+    .in('match_id', matchIds)
+  for (const row of data ?? []) {
+    if (row.model_home_xg_override != null && row.model_away_xg_override != null) {
+      overrides.set(row.match_id, {
+        homeXG: Number(row.model_home_xg_override),
+        awayXG: Number(row.model_away_xg_override),
+      })
+    }
+  }
+  return overrides
+}
+
 const SEASON_START = '2026-08-01'
 const CURRENT_SEASON = '26/27'
 
@@ -49,7 +72,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ specials: existing ?? [], candidates: [], includedMatches: [] })
   }
 
-  const candidates = generateSpecialCandidates(seasonMatches, includedMatches)
+  const xgOverrides = await loadXgOverrides(supabase, includedMatches.map((m) => m.id))
+  const candidates = generateSpecialCandidates(seasonMatches, includedMatches, xgOverrides)
   const suggested = pickDiverseSuggestions(candidates, 3).map((c) => c.templateKey)
   return NextResponse.json({
     specials: existing ?? [],
@@ -78,7 +102,8 @@ export async function POST(request: NextRequest) {
   if (includedMatches.length === 0) {
     return NextResponse.json({ error: 'Keine Spiele für diesen Spieltag gefunden.' }, { status: 400 })
   }
-  const candidates = generateSpecialCandidates(seasonMatches, includedMatches)
+  const xgOverrides = await loadXgOverrides(supabase, includedMatches.map((m) => m.id))
+  const candidates = generateSpecialCandidates(seasonMatches, includedMatches, xgOverrides)
   const candidate = candidates.find((c) => c.templateKey === templateKey)
   if (!candidate) return NextResponse.json({ error: 'Unbekannte Vorlage.' }, { status: 400 })
 

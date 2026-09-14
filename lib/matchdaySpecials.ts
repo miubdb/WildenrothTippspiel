@@ -89,9 +89,15 @@ interface MatchProb {
  *  the prior-season/roster context (optional there) — a reasonable, still
  *  Bayesian-shrunk-to-league-average approximation for a secondary market;
  *  the primary 1X2/O-U markets remain the authoritative, fully-contextual
- *  odds elsewhere in the app. */
-function buildMatchProbabilities(seasonMatches: Match[], match: Match): MatchProb {
-  const { homeXG, awayXG } = getMatchXG(seasonMatches, match.home_team_id, match.away_team_id)
+ *  odds elsewhere in the app. `xgOverride`, when given (from
+ *  match_odds_overrides.model_home/away_xg_override), is used INSTEAD of the
+ *  model's own getMatchXG output — the SAME single source of truth every
+ *  other market on that match now derives from (see app/(app)/tipps/page.tsx
+ *  and app/api/admin/odds/route.ts) — so a Spieltag-Special can never be
+ *  computed from a stale, uncorrected team-strength estimate for a match an
+ *  admin has explicitly recalibrated. */
+function buildMatchProbabilities(seasonMatches: Match[], match: Match, xgOverride?: { homeXG: number; awayXG: number }): MatchProb {
+  const { homeXG, awayXG } = xgOverride ?? getMatchXG(seasonMatches, match.home_team_id, match.away_team_id)
   const matrix = buildMatchScoreMatrix(homeXG, awayXG, MAX_GOALS)
 
   const totalGoalsPmf = new Array(2 * MAX_GOALS + 1).fill(0)
@@ -219,8 +225,12 @@ function buildYesNoOptions(pYes: number): SpecialOption[] {
  * getMatchXG's in-season goal-rate model), `includedMatches` the specific
  * Spieltag matches this special would snapshot into `included_match_ids`.
  */
-export function generateSpecialCandidates(seasonMatches: Match[], includedMatches: Match[]): SpecialCandidate[] {
-  const probs = includedMatches.map((m) => buildMatchProbabilities(seasonMatches, m))
+export function generateSpecialCandidates(
+  seasonMatches: Match[],
+  includedMatches: Match[],
+  xgOverrides?: Map<number, { homeXG: number; awayXG: number }>,
+): SpecialCandidate[] {
+  const probs = includedMatches.map((m) => buildMatchProbabilities(seasonMatches, m, xgOverrides?.get(m.id)))
   if (probs.length === 0) return []
 
   const candidates: SpecialCandidate[] = []
