@@ -554,18 +554,25 @@ export default async function TippsPage({
     if (toFreeze.length > 0) {
       const now = new Date().toISOString()
       for (const m of toFreeze) {
-        const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
-        const odds = oddsFromXG(homeXG, awayXG)
-        // Match-specific xG override (see exactScoreXgOverrideMap above) — for
-        // a cup match, applied to EVERY cup market below (not just exact
-        // score), so the whole card is derived from one single (homeXG,
-        // awayXG) snapshot — "no mixing old and new xG across markets" (see
-        // CLAUDE.md round-6 notes). Standard 1X2/O-U/BTTS columns (odds,
-        // above) still always use the model's own xG since they're never
-        // shown/bettable for a cup match anyway.
+        const { homeXG: rawHomeXG, awayXG: rawAwayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+        // Match-specific xG override (match_odds_overrides.model_home/away_xg_override)
+        // — a rare, explicit correction to the model's own team-strength estimate
+        // (see SpVgg Wildenroth – TSV 1882 Landsberg II / the Geiselbullach round-6
+        // recalibration for prior examples). MUST apply to every market derived from
+        // (homeXG, awayXG) below — 1X2, DC, O/U, BTTS, Handicap, exact score, cup
+        // markets, goalscorer — not just exact-score/cup as before: leaving 1X2/O-U/
+        // BTTS/Handicap on the raw model xG while exact-score/goalscorer used the
+        // override produced exactly the "1X2 sagt X, Handicap/BTTS sagen Y"
+        // inconsistency the whole odds model is designed to prevent.
         const modelXg = exactScoreXgOverrideMap.get(m.id)
-        const cupHomeXG = modelXg?.homeXG ?? homeXG
-        const cupAwayXG = modelXg?.awayXG ?? awayXG
+        const homeXG = modelXg?.homeXG ?? rawHomeXG
+        const awayXG = modelXg?.awayXG ?? rawAwayXG
+        const odds = oddsFromXG(homeXG, awayXG)
+        // Cup markets always use the same, possibly-overridden (homeXG, awayXG)
+        // as the standard markets above — kept as separate cupHomeXG/cupAwayXG
+        // names only because the rest of this block already refers to them.
+        const cupHomeXG = homeXG
+        const cupAwayXG = awayXG
         // Cup-only markets (see lib/odds.ts#cupMarketOddsFromXG) — derived from
         // the SAME (homeXG, awayXG) as every other market above, so they can
         // never disagree with this match's own 1X2 card. Undefined (and never

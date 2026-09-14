@@ -184,7 +184,14 @@ export async function GET(request: Request) {
 
   const previews = []
   for (const m of matchdayMatches) {
-    const { homeXG, awayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+    const { homeXG: rawHomeXG, awayXG: rawAwayXG, diagnostics } = getMatchXG(oddsMatches, m.home_team_id, m.away_team_id, priorCtx)
+    // Match-specific model xG override — MUST apply to the standard markets
+    // (odds, below) too, not just the exact-score grid further down, so the
+    // preview an admin reviews can never disagree with what freezing this
+    // match will actually produce (see app/api/admin/odds/route.ts).
+    const modelXg = exactScoreXgOverrideMap.get(m.id)
+    const homeXG = modelXg?.homeXG ?? rawHomeXG
+    const awayXG = modelXg?.awayXG ?? rawAwayXG
     const odds = oddsFromXG(homeXG, awayXG)
     await persistOddsDiagnostics(supabase, m.id, 'admin_preview', diagnostics)
 
@@ -192,7 +199,6 @@ export async function GET(request: Request) {
     // admin editor needs to be able to override any "relevant" score, including
     // ones currently > MAX_EXACT_ODDS and thus not offered to bettors.
     const persistedGrid = exactAutoMap.get(m.id)
-    const modelXg = exactScoreXgOverrideMap.get(m.id)
     const fullGrid: Record<string, number> = persistedGrid
       ?? Object.fromEntries(getFullExactScoreMatrix(modelXg?.homeXG ?? homeXG, modelXg?.awayXG ?? awayXG).map((r) => [r.score, r.odds]))
     const exact: { score: string; odds: number }[] = []

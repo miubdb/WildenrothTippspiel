@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { getMatchXG, oddsFromXG, buildPriorContext } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
@@ -109,12 +110,36 @@ export async function POST() {
   const scheduledMatches = seasonMatches.filter((m) => m.status === 'scheduled' && !frozenIds.has(m.id))
   const skippedFrozen = scheduledMatchIds.length - scheduledMatches.length
 
+  // Match-specific model xG override (match_odds_overrides.model_home/away_xg_override)
+  // — a rare, explicit correction to the model's own team-strength estimate. MUST be
+  // applied here too (not just to exact-score/goalscorer in tipps/page.tsx and the
+  // preview route) so this button can never freeze a 1X2/O-U/BTTS/Handicap card that
+  // disagrees with the corrected exact-score/goalscorer markets on the same fixture.
+  const xgOverrideMap = new Map<number, { homeXG: number; awayXG: number }>()
+  if (scheduledMatches.length > 0) {
+    const { data: xgOverrideRows } = await createAdminClient()
+      .from('match_odds_overrides')
+      .select('match_id, model_home_xg_override, model_away_xg_override')
+      .in('match_id', scheduledMatches.map((m) => m.id))
+    for (const row of xgOverrideRows ?? []) {
+      if (row.model_home_xg_override != null && row.model_away_xg_override != null) {
+        xgOverrideMap.set(row.match_id, {
+          homeXG: Number(row.model_home_xg_override),
+          awayXG: Number(row.model_away_xg_override),
+        })
+      }
+    }
+  }
+
   let upsertCount = 0
   const errors: string[] = []
 
   for (const match of scheduledMatches) {
     try {
-      const { homeXG, awayXG, diagnostics } = getMatchXG(modelMatches, match.home_team_id, match.away_team_id, priorCtx)
+      const { homeXG: rawHomeXG, awayXG: rawAwayXG, diagnostics } = getMatchXG(modelMatches, match.home_team_id, match.away_team_id, priorCtx)
+      const override = xgOverrideMap.get(match.id)
+      const homeXG = override?.homeXG ?? rawHomeXG
+      const awayXG = override?.awayXG ?? rawAwayXG
       const oddsData = oddsFromXG(homeXG, awayXG)
 
       const { error } = await supabase.from('odds').upsert(
