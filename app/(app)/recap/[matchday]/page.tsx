@@ -2,6 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { AWARD_META, type AwardType } from '@/lib/awards'
 import { wildiLabel } from '@/components/WildiIcon'
+import { AwardRow } from '@/components/AwardRow'
 import { buildEffectiveMatchdayIndex, recapMatchdayOf } from '@/lib/season'
 import type { Match } from '@/types'
 
@@ -173,7 +174,7 @@ export default async function RecapPage({
   const SEASON = '26/27'
   const { data: awardRows } = await supabase
     .from('user_awards')
-    .select('user_id, award_type, award_title, award_icon, value, value_text')
+    .select('user_id, award_type, award_title, award_icon, value, value_text, ref_bet_id, ref_combo_id')
     .eq('season', SEASON)
     .eq('matchday', matchday)
 
@@ -289,19 +290,16 @@ export default async function RecapPage({
               const meta = AWARD_META[a.award_type as AwardType]
               const name = displayName(a.user_id)
               return (
-                <div key={a.award_type} className="flex items-center gap-3 px-4 py-3">
-                  <div className="text-2xl flex-shrink-0">{a.award_icon ?? meta.icon}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide font-semibold">{a.award_title ?? meta.title}</div>
-                    <div className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{name}</div>
-                    {a.value_text && <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{a.value_text}</div>}
-                  </div>
-                  {a.value != null && (
-                    <div className="text-sm font-black text-gray-700 dark:text-gray-300 flex-shrink-0">
-                      {a.value_text ? null : a.value.toLocaleString('de-DE', { maximumFractionDigits: 2 })}
-                    </div>
-                  )}
-                </div>
+                <AwardRow
+                  key={a.award_type}
+                  icon={a.award_icon ?? meta.icon}
+                  title={a.award_title ?? meta.title}
+                  name={name}
+                  valueText={a.value_text}
+                  valueNumber={a.value}
+                  refBetId={a.ref_bet_id}
+                  refComboId={a.ref_combo_id}
+                />
               )
             })}
           </div>

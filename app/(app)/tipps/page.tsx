@@ -1335,7 +1335,7 @@ export default async function TippsPage({
       // needed here.
       const stornoWinner = await computeStornoChamp(createAdminClient(), matchdayMatchIds)
       const stornoChamp: RecapData['stornoChamp'] = stornoWinner
-        ? { name: pMap[stornoWinner.user_id] ?? 'Unbekannt', net: stornoWinner.net, label: stornoWinner.label }
+        ? { name: pMap[stornoWinner.user_id] ?? 'Unbekannt', net: stornoWinner.net, label: stornoWinner.label, betId: stornoWinner.betId, comboId: stornoWinner.comboId }
         : null
 
       if (spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper || stornoChamp) {

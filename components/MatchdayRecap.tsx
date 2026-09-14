@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { ShareCard, type ShareCardData } from './ShareCard'
 import { WildiIcon, fmtWildi, wildiLabel } from '@/components/WildiIcon'
 import { oddsColorClass } from '@/lib/betDisplay'
+import { StornoChampDetailSheet } from '@/components/StornoChampDetailSheet'
 
 export type RecapLegDetail = {
   matchName: string
@@ -34,7 +35,7 @@ export type RecapData = {
   grosserWurf: { name: string; amount: number; bet?: RecapBetDetail } | null
   torschuetzenKoenig: { name: string; count: number; playerName?: string } | null
   lastMinuteTipper: { name: string; gapMin: number; gapSec: number; matchName?: string } | null
-  stornoChamp: { name: string; net: number; label: string } | null
+  stornoChamp: { name: string; net: number; label: string; betId: number | null; comboId: number | null } | null
 }
 
 function fmtAmt(n: number) { return fmtWildi(n) }
@@ -53,13 +54,17 @@ function pickTpl(tpls: string[], name: string, odds?: number): string {
 
 function HighlightCard({
   emoji, title, name, value, detail, sub,
-  accentBg, accentBorder, accentText, onShare,
+  accentBg, accentBorder, accentText, onShare, onClick,
 }: {
   emoji: string; title: string; name: string; value: React.ReactNode; detail?: string; sub?: string
-  accentBg: string; accentBorder: string; accentText: string; onShare?: () => void
+  accentBg: string; accentBorder: string; accentText: string; onShare?: () => void; onClick?: () => void
 }) {
   return (
-    <div className={`relative rounded-2xl border ${accentBorder} ${accentBg} dark:bg-gray-800 dark:border-gray-700 px-4 py-3`}>
+    <div
+      className={`relative rounded-2xl border ${accentBorder} ${accentBg} dark:bg-gray-800 dark:border-gray-700 px-4 py-3 ${onClick ? 'cursor-pointer hover:brightness-95 dark:hover:brightness-110 transition' : ''}`}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+    >
       {onShare && <ShareButton onClick={onShare} />}
       <div className="text-xl mb-1.5">{emoji}</div>
       <div className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wide">{title}</div>
@@ -67,6 +72,7 @@ function HighlightCard({
       <div className={`font-black text-xl mt-1 flex items-center gap-1 ${accentText}`}>{value}</div>
       {detail && <div className="text-xs text-gray-600 dark:text-gray-300 font-medium mt-1 leading-snug">{detail}</div>}
       {sub && <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{sub}</div>}
+      {onClick && <div className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 mt-1.5">Details ansehen →</div>}
     </div>
   )
 }
@@ -174,6 +180,7 @@ function ShareModal({ share, onClose }: { share: NonNullable<ShareState>; onClos
 
 export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: number }) {
   const [share, setShare] = useState<ShareState>(null)
+  const [stornoDetailOpen, setStornoDetailOpen] = useState(false)
   const { spieltagskoenig, eierAusStahl, unluckyBastard, ergebnisOrakel, griffInsKlo, betonmischer, onFire, grosserWurf, torschuetzenKoenig, lastMinuteTipper, stornoChamp } = data
 
   const hasAny = spieltagskoenig || eierAusStahl || unluckyBastard || ergebnisOrakel || griffInsKlo || betonmischer || onFire || grosserWurf || torschuetzenKoenig || lastMinuteTipper || stornoChamp
@@ -345,11 +352,19 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
             accentBg="bg-orange-50"
             accentBorder="border-orange-200"
             accentText="text-orange-600"
+            onClick={(stornoChamp.betId != null || stornoChamp.comboId != null) ? () => setStornoDetailOpen(true) : undefined}
           />
         </div>
       )}
 
       {share && <ShareModal share={share} onClose={() => setShare(null)} />}
+      {stornoDetailOpen && stornoChamp && (
+        <StornoChampDetailSheet
+          betId={stornoChamp.betId}
+          comboId={stornoChamp.comboId}
+          onClose={() => setStornoDetailOpen(false)}
+        />
+      )}
     </div>
   )
 }

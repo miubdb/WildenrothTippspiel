@@ -9,6 +9,7 @@ import { fmtWildi, WildiIcon } from '@/components/WildiIcon'
 import { AvatarLightbox } from '@/components/AvatarLightbox'
 import { PlayerBetSummary, PlayerRealizedBalance, PlayerStatsTiles, BalanceHistoryChart } from '@/components/PlayerBetStatsCard'
 import { computeUserBetStats, computeBalanceHistory, STATS_CURRENT_SEASON, STATS_PREV_SEASON } from '@/lib/betStats'
+import { PokalschrankAwardTile } from '@/components/PokalschrankAwardTile'
 
 export const revalidate = 60
 
@@ -41,7 +42,7 @@ export default async function ProfilPage({
 
   const { data: awardsRaw } = await supabase
     .from('user_awards')
-    .select('award_type, award_title, award_icon, award_description, matchday, season, value, value_text')
+    .select('award_type, award_title, award_icon, award_description, matchday, season, value, value_text, ref_bet_id, ref_combo_id')
     .eq('user_id', user.id)
     // Season first, then matchday — matchday numbers reset every season, so
     // ordering by matchday alone can rank a higher-numbered Spieltag from a
@@ -253,7 +254,7 @@ export default async function ProfilPage({
       {/* Pokalschrank */}
       {(() => {
         // Group awards by award_type
-        const groupMap = new Map<string, { icon: string; title: string; description: string; count: number; latestMatchday: number; latestSeason: string; latestValueText: string | null; instances: { matchday: number; season: string; valueText: string | null }[] }>()
+        const groupMap = new Map<string, { icon: string; title: string; description: string; count: number; latestMatchday: number; latestSeason: string; latestValueText: string | null; instances: { matchday: number; season: string; valueText: string | null; refBetId: number | null; refComboId: number | null }[] }>()
         for (const a of awards) {
           const existing = groupMap.get(a.award_type)
           if (!existing) {
@@ -265,11 +266,11 @@ export default async function ProfilPage({
               latestMatchday: a.matchday,
               latestSeason: a.season,
               latestValueText: a.value_text ?? null,
-              instances: [{ matchday: a.matchday, season: a.season, valueText: a.value_text ?? null }],
+              instances: [{ matchday: a.matchday, season: a.season, valueText: a.value_text ?? null, refBetId: a.ref_bet_id, refComboId: a.ref_combo_id }],
             })
           } else {
             existing.count++
-            existing.instances.push({ matchday: a.matchday, season: a.season, valueText: a.value_text ?? null })
+            existing.instances.push({ matchday: a.matchday, season: a.season, valueText: a.value_text ?? null, refBetId: a.ref_bet_id, refComboId: a.ref_combo_id })
           }
         }
         const grouped = Array.from(groupMap.entries()).map(([award_type, v]) => ({ award_type, ...v }))
@@ -294,36 +295,17 @@ export default async function ProfilPage({
             ) : (
               <div className="p-3 grid grid-cols-2 gap-2">
                 {grouped.map((a) => (
-                  <div key={a.award_type} className="relative bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2.5">
-                    {a.count > 1 && (
-                      <span className="absolute top-1.5 right-1.5 bg-red-600 text-white text-[10px] font-bold leading-none rounded-full px-1.5 py-0.5">
-                        {a.count}×
-                      </span>
-                    )}
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-2xl flex-shrink-0">{a.icon}</span>
-                      <div className={`flex-1 min-w-0 ${a.count > 1 ? 'pr-7' : ''}`}>
-                        <div className="font-bold text-xs text-gray-900 dark:text-gray-100 leading-tight">{a.title}</div>
-                        <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{a.description}</div>
-                        {a.count === 1 && (
-                          <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">
-                            Spieltag {a.latestMatchday} · {a.latestSeason}
-                            {a.latestValueText && <span className="ml-1 font-semibold text-amber-700 dark:text-amber-400">{a.latestValueText}</span>}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    {a.count > 1 && (
-                      <div className="mt-2 pt-2 border-t border-amber-200 dark:border-amber-800/50 space-y-1">
-                        {a.instances.map((inst, i) => (
-                          <div key={i} className="text-[10px] text-gray-500 dark:text-gray-400 flex justify-between">
-                            <span>Spieltag {inst.matchday} · {inst.season}</span>
-                            {inst.valueText && <span className="font-semibold text-amber-700 dark:text-amber-400">{inst.valueText}</span>}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <PokalschrankAwardTile
+                    key={a.award_type}
+                    icon={a.icon}
+                    title={a.title}
+                    description={a.description}
+                    count={a.count}
+                    latestMatchday={a.latestMatchday}
+                    latestSeason={a.latestSeason}
+                    latestValueText={a.latestValueText}
+                    instances={a.instances}
+                  />
                 ))}
               </div>
             )}
