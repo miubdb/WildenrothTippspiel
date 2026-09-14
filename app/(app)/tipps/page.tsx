@@ -1014,19 +1014,21 @@ export default async function TippsPage({
   let socialProfiles: SocialProfile[] = []
   // Count of other users' bet slips per match (always fetched via admin for placeholder display)
   const betCountByMatch: Record<number, number> = {}
+  // Same idea, but for Spieltag-Specials — since a Special bet's match_id is
+  // excluded from betCountByMatch above (see comment there), it would
+  // otherwise show NO "🔒 N Wettscheine · sichtbar ab Anpfiff" placeholder at
+  // all while still locked (before the Spieltag's first match kicks off),
+  // silently looking as if nobody had bet on it yet.
+  let specialBetCount = 0
 
   if (user && matchdayMatchIds.length > 0) {
     const adminSupa = createAdminClient()
     const { data: countRows } = await adminSupa
       .from('bets')
-      .select('match_id, combo_id')
+      .select('id, match_id, combo_id, market_type')
       .in('match_id', matchdayMatchIds)
       .neq('user_id', user.id)
       .neq('status', 'void')
-      // A Special bet's match_id is only its representative_match_id (technical
-      // FK anchor, see lib/matchdaySpecials.ts) — without this, a Special bet
-      // would inflate that one ordinary match's own "N Wetten auf dieses Spiel" count.
-      .neq('market_type', 'matchday_special')
     // Keyed by "matchId:comboId", not just comboId — a combo's bet slip counts as
     // one "Wettschein" on EVERY match it has a leg on, not just the one match
     // whose row happens to come first in this unordered query. A combo-id-only
@@ -1035,7 +1037,20 @@ export default async function TippsPage({
     // (return null on count === 0), even though it had real, visible bets and
     // was fully bettable — this is what made SV Fuchstal – FC Issing disappear.
     const seenCountSlips = new Set<string>()
+    const seenSpecialSlips = new Set<string>()
     for (const b of countRows ?? []) {
+      if (b.market_type === 'matchday_special') {
+        // A Special bet's match_id is only its representative_match_id
+        // (technical FK anchor) — never fold it into betCountByMatch (that
+        // would inflate that one ordinary match's own count) — count it
+        // separately instead, deduped by combo the same way.
+        const key = b.combo_id ? `combo:${b.combo_id}` : `bet:${b.id}`
+        if (!seenSpecialSlips.has(key)) {
+          seenSpecialSlips.add(key)
+          specialBetCount++
+        }
+        continue
+      }
       if (!b.combo_id) {
         betCountByMatch[b.match_id] = (betCountByMatch[b.match_id] ?? 0) + 1
         continue
@@ -1662,6 +1677,7 @@ export default async function TippsPage({
         <AllTippsSection
           matchdayMatches={matchdayMatches}
           betCountByMatch={betCountByMatch}
+          specialBetCount={specialBetCount}
           socialBets={socialBets}
           socialCombos={socialCombos}
           socialProfiles={socialProfiles}

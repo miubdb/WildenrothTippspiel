@@ -20,6 +20,7 @@ type SocialProfile = { id: string; display_name: string | null; username: string
 export function AllTippsSection({
   matchdayMatches,
   betCountByMatch,
+  specialBetCount = 0,
   socialBets,
   socialCombos,
   socialProfiles,
@@ -29,6 +30,7 @@ export function AllTippsSection({
 }: {
   matchdayMatches: Match[]
   betCountByMatch: Record<number, number>
+  specialBetCount?: number
   socialBets: SocialBet[]
   socialCombos: Record<string, SocialCombo>
   socialProfiles: SocialProfile[]
@@ -122,8 +124,17 @@ export function AllTippsSection({
     .filter(b => !b.combo_id && b.market_type === 'matchday_special')
     .sort((a, b) => b.odds_value - a.odds_value)
   const hasSpecialBets = nonVoidSocial.some(b => b.market_type === 'matchday_special')
+  // specialBetCount (passed from the server, via an admin-client query not
+  // gated behind "has any match kicked off yet") can be > 0 while
+  // socialBets itself is still empty — before the Spieltag's first match
+  // (the Specials' own representative_match_id) kicks off, RLS/the page's
+  // own pre-check hides ALL social bets, Special ones included. Without
+  // this, a Special with real bets on it showed no "🔒 N Wettscheine ·
+  // sichtbar ab Anpfiff" placeholder at all — unlike every match's own
+  // section — silently looking like nobody had bet on it yet.
+  const specialsLocked = specialBetCount > 0 && !hasSpecialBets
 
-  if (!Object.values(betCountByMatch).some(c => c > 0) && !hasSpecialBets) return null
+  if (!Object.values(betCountByMatch).some(c => c > 0) && !hasSpecialBets && !specialsLocked) return null
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
@@ -147,6 +158,15 @@ export function AllTippsSection({
           Verlorene ausblenden
         </button>
       </div>
+
+      {specialsLocked && (
+        <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+          <div className="text-xs font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wide mb-1">🔥 Spieltag-Specials</div>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            🔒 {specialBetCount} Wettschein{specialBetCount !== 1 ? 'e' : ''} · sichtbar ab Anpfiff
+          </p>
+        </div>
+      )}
 
       {specialSingles.length > 0 && (
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 space-y-2">
