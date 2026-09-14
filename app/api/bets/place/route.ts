@@ -501,34 +501,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // A Spieltag-Special's outcome can be influenced by how a Wildenroth
-    // fixture within it plays out (e.g. "Unter X,5 Tore" while trying to
-    // keep your own match low-scoring) — unlike a single-match market, the
-    // exact direction of that influence isn't cleanly reducible to
-    // isAgainstWildenroth()'s per-market logic, so the conservative rule is:
-    // any flagged player/coach is blocked from every Special whose snapshot
-    // includes a match their own flagged team plays in, full stop.
-    if (specialSels.length > 0 && flaggedTeamIds.length > 0) {
-      const specialMatchIds = [...new Set([...specialsById.values()].flatMap((r) => r.included_match_ids))]
-      const { data: specialIncludedMatches } = await supabase
-        .from('matches')
-        .select('id, home_team_id, away_team_id')
-        .in('id', specialMatchIds)
-      const involvesWildenroth = new Set(
-        (specialIncludedMatches ?? [])
-          .filter((m) => flaggedTeamIds.includes(m.home_team_id) || flaggedTeamIds.includes(m.away_team_id))
-          .map((m) => m.id)
-      )
-      for (const s of specialSels) {
-        const row = specialsById.get(s.specialId!)
-        if (row && row.included_match_ids.some((mid) => involvesWildenroth.has(mid))) {
-          return NextResponse.json(
-            { error: 'Als Wildenroth-Spieler oder -Trainer darfst du nicht auf ein Spieltag-Special wetten, das ein Spiel deines eigenen Teams enthält.' },
-            { status: 400 },
-          )
-        }
-      }
-    }
+    // Spieltag-Specials are deliberately EXEMPT from the Wildenroth conflict-
+    // of-interest block: a Special's outcome is an aggregate across an entire
+    // Spieltag (e.g. "mindestens ein Team mit 5+ Toren" or "Gesamttore"), so a
+    // single flagged fixture inside it is rarely the sole/clear driver of the
+    // result the way a direct single-match selection is — and, unlike
+    // isAgainstWildenroth()'s per-market/per-direction logic, there's no clean
+    // way to tell which SIDE of a given Special selection would even be
+    // "against" the player's own team (see e.g. "Team 5+ Tore: Ja", which a
+    // Wildenroth player's own team scoring 5+ would just as well satisfy).
+    // Never block here, regardless of whether a Special's included_match_ids
+    // happens to include a match the player's flagged team plays in.
   }
 
   // Enforce Tippschluss: single bets are valid until that match's own kickoff.
