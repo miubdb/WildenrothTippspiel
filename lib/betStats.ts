@@ -38,6 +38,7 @@ export const MARKET_LABELS: Record<string, string> = {
   handicap: 'Handicap',
   goalscorer: 'Torschütze',
   goalscorer_2plus: 'Torschütze 2+',
+  matchday_special: '🔥 Spieltag-Special',
 }
 
 export const SELECTION_LABELS: Record<string, string> = {
@@ -67,8 +68,19 @@ export const SELECTION_LABELS: Record<string, string> = {
   home_plus_2_5: 'Heim +2,5',
 }
 
+/** matchday_special reuses generic keys ('over'/'under'/'yes'/'no') that
+ *  ALSO exist as full-market Ü/U-2,5 and BTTS selections above — without
+ *  this branch, a Special's plain 'yes'/'no' would silently render as
+ *  "Beide treffen"/"Nicht beide" (the BTTS labels) instead of its own
+ *  question's answer. The full "🔥 Spieltag N · <Titel> / <Über X,5>" label
+ *  (requirement 14) needs the actual Special row joined in — see
+ *  components/MyBets.tsx / AllTippsSection.tsx, which do that lookup
+ *  themselves; this is only the safe generic fallback used everywhere else. */
 export function selLabel(marketType: string, selection: string): string {
   if (marketType === 'exact_score') return selection
+  if (marketType === 'matchday_special') {
+    return selection === 'over' ? 'Über' : selection === 'under' ? 'Unter' : selection === 'yes' ? 'Ja' : selection === 'no' ? 'Nein' : selection
+  }
   return SELECTION_LABELS[selection] ?? selection
 }
 

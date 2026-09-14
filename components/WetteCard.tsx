@@ -58,6 +58,7 @@ const MARKET_LABEL: Record<string, string> = {
   handicap: 'Handicap',
   goalscorer: 'Torschütze',
   goalscorer_2plus: 'Mindestens 2 Tore',
+  matchday_special: '🔥 Spieltag-Special',
 }
 
 export function fmt(n: number) {

@@ -8,6 +8,7 @@ import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDi
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, type EffectiveMatchdayIndex } from '@/lib/season'
 import { SurveyTab } from '@/components/admin/SurveyTab'
 import { BonusTipsAdmin } from '@/components/admin/BonusTipsAdmin'
+import { SpieltagSpecialsAdmin } from '@/components/admin/SpieltagSpecialsAdmin'
 import type { Match } from '@/types'
 
 // Matchday numbers repeat across seasons — without this filter the admin
@@ -1023,6 +1024,10 @@ export default function AdminPage() {
 
             <VerwaltungSection title="Bonus-Tipps" subtitle="Sondertipps ohne Einsatz: erstellen, verwalten, auswerten">
               <BonusTipsAdmin />
+            </VerwaltungSection>
+
+            <VerwaltungSection title="Spieltag-Specials" subtitle="Spieltag-weite Wettmärkte mit Einsatz/Quote: vorschlagen, aktivieren, verwalten">
+              <SpieltagSpecialsAdmin />
             </VerwaltungSection>
 
           </div>

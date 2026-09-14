@@ -40,6 +40,7 @@ const SEL_LABELS: Record<string, Record<string, string>> = {
   over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
   over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
   btts: { yes: 'Beide treffen', no: 'Nicht beide' },
+  matchday_special: { over: 'Über', under: 'Unter', yes: 'Ja', no: 'Nein' },
   handicap: {
     home_minus_1_5: 'Heim –1,5',
     away_plus_1_5: 'Gast +1,5',
@@ -67,9 +68,13 @@ function selLabel(marketType: string, selection: string, players?: Record<number
 
 function legToWetteLeg(leg: Leg, matchMap: Record<number, { home: string; away: string }>, players?: Record<number, string>): WetteLeg {
   const m = matchMap[leg.match_id]
+  // A Special's match_id is only its technical FK anchor (representative_match_id,
+  // see lib/matchdaySpecials.ts) — showing that match's teams here would wrongly
+  // suggest the bet is about that single game.
+  const matchName = leg.market_type === 'matchday_special' ? '🔥 Spieltag-Special' : m ? `${m.home} – ${m.away}` : '—'
   return {
     id: leg.id,
-    matchName: m ? `${m.home} – ${m.away}` : '—',
+    matchName,
     market: leg.market_type,
     selection: selLabel(leg.market_type, leg.selection, players),
     odds: leg.odds_value,

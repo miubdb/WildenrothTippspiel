@@ -134,6 +134,14 @@ function toOdds(prob: number): number {
   return clamp(round2(1 / (prob * (1 + HOUSE_MARGIN))))
 }
 
+// Exported aliases for lib/matchdaySpecials.ts — Spieltag-Specials reuse the
+// EXACT same probability→odds conversion (house margin, rounding, min/max
+// clamp) and Poisson/score-matrix machinery as every other market in this
+// file, rather than inventing a second odds philosophy. See toOdds/poisson/
+// buildScoreMatrix's own doc comments above for the underlying math.
+export const oddsFromProbability = toOdds
+export { poisson as poissonPmf }
+
 /** Poisson probability mass function (log-space for numerical stability) */
 function poisson(lambda: number, k: number): number {
   if (lambda <= 0) return k === 0 ? 1 : 0
@@ -175,6 +183,10 @@ function buildScoreMatrix(homeXG: number, awayXG: number, maxGoals = SCORE_MATRI
   }
   return matrix
 }
+
+// See the export block near toOdds above for why this (and poisson) are
+// re-exported for lib/matchdaySpecials.ts's reuse.
+export { buildScoreMatrix as buildMatchScoreMatrix }
 
 // ---------- Team statistics (used in standings / form display) ----------
 

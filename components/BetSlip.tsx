@@ -74,22 +74,22 @@ export function BetSlip() {
 
   if (count === 0 && !success) return null
 
-  function key(matchId: number, marketType: MarketType, selection: string) {
-    return bsKey(matchId, marketType, selection)
+  function key(matchId: number, marketType: MarketType, selection: string, specialId?: number) {
+    return bsKey(matchId, marketType, selection, specialId)
   }
 
-  function getStake(matchId: number, marketType: MarketType, selection: string): number {
-    return stakes[key(matchId, marketType, selection)] ?? 10
+  function getStake(matchId: number, marketType: MarketType, selection: string, specialId?: number): number {
+    return stakes[key(matchId, marketType, selection, specialId)] ?? 10
   }
 
-  function getInputValue(matchId: number, marketType: MarketType, selection: string): string {
-    return inputValues[key(matchId, marketType, selection)] ?? String(getStake(matchId, marketType, selection))
+  function getInputValue(matchId: number, marketType: MarketType, selection: string, specialId?: number): string {
+    return inputValues[key(matchId, marketType, selection, specialId)] ?? String(getStake(matchId, marketType, selection, specialId))
   }
 
-  function handleStakeButton(matchId: number, marketType: MarketType, selection: string, amt: number) {
-    setStake(matchId, marketType, amt, selection)
-    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(amt) }))
-    setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection)]: '' }))
+  function handleStakeButton(matchId: number, marketType: MarketType, selection: string, amt: number, specialId?: number) {
+    setStake(matchId, marketType, amt, selection, specialId)
+    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection, specialId)]: String(amt) }))
+    setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection, specialId)]: '' }))
   }
 
   // Accepts both "9.80" and the German "9,80" — comma is the natural decimal
@@ -104,27 +104,27 @@ export function BetSlip() {
     return Math.round(n * 100) / 100
   }
 
-  function handleStakeChange(matchId: number, marketType: MarketType, selection: string, raw: string) {
-    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: raw }))
+  function handleStakeChange(matchId: number, marketType: MarketType, selection: string, raw: string, specialId?: number) {
+    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection, specialId)]: raw }))
     const n = parseStakeInput(raw)
     if (isNaN(n)) {
       // Empty/partial input while typing — allowed transiently, no clamp yet.
-      setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection)]: '' }))
+      setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection, specialId)]: '' }))
       return
     }
     if (n > MAX_STAKE) {
       // Clamp immediately, don't wait for blur.
-      setStake(matchId, marketType, MAX_STAKE, selection)
-      setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(MAX_STAKE) }))
-      setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection)]: `Maximal ${MAX_STAKE} Wildis Einsatz pro Wette.` }))
+      setStake(matchId, marketType, MAX_STAKE, selection, specialId)
+      setInputValues((v) => ({ ...v, [key(matchId, marketType, selection, specialId)]: String(MAX_STAKE) }))
+      setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection, specialId)]: `Maximal ${MAX_STAKE} Wildis Einsatz pro Wette.` }))
       return
     }
-    setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection)]: '' }))
-    if (n >= MIN_STAKE) setStake(matchId, marketType, round2(n), selection)
+    setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection, specialId)]: '' }))
+    if (n >= MIN_STAKE) setStake(matchId, marketType, round2(n), selection, specialId)
   }
 
-  function handleStakeBlur(matchId: number, marketType: MarketType, selection: string) {
-    const raw = inputValues[key(matchId, marketType, selection)] ?? ''
+  function handleStakeBlur(matchId: number, marketType: MarketType, selection: string, specialId?: number) {
+    const raw = inputValues[key(matchId, marketType, selection, specialId)] ?? ''
     const n = parseStakeInput(raw)
     let validated: number
     let hint = ''
@@ -137,9 +137,9 @@ export function BetSlip() {
     } else {
       validated = round2(n)
     }
-    setStake(matchId, marketType, validated, selection)
-    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection)]: String(validated).replace('.', ',') }))
-    setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection)]: hint }))
+    setStake(matchId, marketType, validated, selection, specialId)
+    setInputValues((v) => ({ ...v, [key(matchId, marketType, selection, specialId)]: String(validated).replace('.', ',') }))
+    setStakeHints((h) => ({ ...h, [key(matchId, marketType, selection, specialId)]: hint }))
   }
 
   function handleComboStakeChange(raw: string) {
@@ -195,7 +195,7 @@ export function BetSlip() {
   }
 
   const totalSingleStake = selections.reduce(
-    (acc, s) => acc + getStake(s.matchId, s.marketType, s.selection),
+    (acc, s) => acc + getStake(s.matchId, s.marketType, s.selection, s.specialId),
     0
   )
 
@@ -244,7 +244,8 @@ export function BetSlip() {
         marketType: s.marketType,
         selection: s.selection,
         oddsValue: s.oddsValue,
-        stake: getStake(s.matchId, s.marketType, s.selection),
+        stake: getStake(s.matchId, s.marketType, s.selection, s.specialId),
+        ...(s.specialId != null ? { specialId: s.specialId } : {}),
       })),
       mode,
       comboStake,
@@ -404,7 +405,7 @@ export function BetSlip() {
             <div className="flex-1 overflow-y-auto px-5 space-y-2 pb-2">
               {selections.map((s) => (
                 <div
-                  key={key(s.matchId, s.marketType, s.selection)}
+                  key={key(s.matchId, s.marketType, s.selection, s.specialId)}
                   className="bg-gray-50 rounded-xl p-3 border border-gray-100"
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -435,7 +436,7 @@ export function BetSlip() {
                       </span>
                       {/* Small X: removes only this selection */}
                       <button
-                        onClick={() => removeSelection(s.matchId, s.marketType, s.selection)}
+                        onClick={() => removeSelection(s.matchId, s.marketType, s.selection, s.specialId)}
                         className="w-5 h-5 flex items-center justify-center text-gray-400 hover:text-red-700 rounded-full hover:bg-red-50 transition-colors"
                         aria-label="Tipp entfernen"
                       >
@@ -452,9 +453,9 @@ export function BetSlip() {
                         {STAKE_PRESETS.map((amt) => (
                           <button
                             key={amt}
-                            onClick={() => handleStakeButton(s.matchId, s.marketType, s.selection, amt)}
+                            onClick={() => handleStakeButton(s.matchId, s.marketType, s.selection, amt, s.specialId)}
                             className={`text-xs px-2 py-1 rounded-lg font-medium transition-colors ${
-                              getStake(s.matchId, s.marketType, s.selection) === amt
+                              getStake(s.matchId, s.marketType, s.selection, s.specialId) === amt
                                 ? 'bg-red-700 text-white'
                                 : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
                             }`}
@@ -465,9 +466,9 @@ export function BetSlip() {
                         <input
                           type="text"
                           inputMode="decimal"
-                          value={getInputValue(s.matchId, s.marketType, s.selection)}
-                          onChange={(e) => handleStakeChange(s.matchId, s.marketType, s.selection, e.target.value)}
-                          onBlur={() => handleStakeBlur(s.matchId, s.marketType, s.selection)}
+                          value={getInputValue(s.matchId, s.marketType, s.selection, s.specialId)}
+                          onChange={(e) => handleStakeChange(s.matchId, s.marketType, s.selection, e.target.value, s.specialId)}
+                          onBlur={() => handleStakeBlur(s.matchId, s.marketType, s.selection, s.specialId)}
                           placeholder="eigener Betrag"
                           className="w-24 text-center py-1.5 px-1 border-2 border-red-200 rounded-lg text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
                         />
@@ -475,14 +476,14 @@ export function BetSlip() {
                       <span className="text-xs text-gray-500 ml-auto">
                         Gewinn:{' '}
                         <span className="text-green-600 font-semibold">
-                          {fmtWildi(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue)} {wildiLabel(getStake(s.matchId, s.marketType, s.selection) * s.oddsValue)}
+                          {fmtWildi(getStake(s.matchId, s.marketType, s.selection, s.specialId) * s.oddsValue)} {wildiLabel(getStake(s.matchId, s.marketType, s.selection, s.specialId) * s.oddsValue)}
                         </span>
                       </span>
                     </div>
                   )}
-                  {mode === 'single' && stakeHints[key(s.matchId, s.marketType, s.selection)] && (
+                  {mode === 'single' && stakeHints[key(s.matchId, s.marketType, s.selection, s.specialId)] && (
                     <div className="mt-1 text-[11px] text-orange-600 font-medium">
-                      {stakeHints[key(s.matchId, s.marketType, s.selection)]}
+                      {stakeHints[key(s.matchId, s.marketType, s.selection, s.specialId)]}
                     </div>
                   )}
                 </div>

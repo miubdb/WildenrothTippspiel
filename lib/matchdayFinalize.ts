@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendPushToAll } from '@/lib/push'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, recapMatchdayOf } from '@/lib/season'
 import { computeAndPersistMatchdayAwards } from '@/lib/awards'
+import { settleActiveMatchdaySpecials } from '@/lib/matchdaySpecials'
 import type { Match } from '@/types'
 
 const SEASON_START = '2026-08-01'
@@ -42,6 +43,15 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
     .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
   const seasonMatchesForMd = (seasonMatchesRaw ?? []) as Match[]
   const mdIndex = buildEffectiveMatchdayIndex(seasonMatchesForMd)
+  // Spieltag-Specials settle independently of the recap-Spieltag gating
+  // below — a Special's own included_match_ids may finish before (or
+  // regardless of) the whole recap Spieltag being done, and looking it up
+  // by this matchId sidesteps the effective-vs-recap matchday numbering
+  // mismatch entirely (see settleActiveMatchdaySpecials's doc comment).
+  try {
+    await settleActiveMatchdaySpecials(admin, matchId)
+  } catch (e) { console.error('Spieltag-Special settlement failed:', e) }
+
   const matchday = recapMatchdayOf(matchInfo as Match, mdIndex)
   if (matchday == null || matchday >= 900) return // test matchday: no recap, awards or penalty
 

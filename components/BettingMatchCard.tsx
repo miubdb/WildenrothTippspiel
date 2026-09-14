@@ -136,8 +136,11 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     // never valid); single mode only evicts a pick in the SAME market/slot on
     // this match (a different market, or a different Torschütze, coexists).
     const newKey = bsKey(match.id, marketType as MarketType, selection)
+    // Spieltag-Specials share this match only as a technical FK anchor (see
+    // BetSlipContext's comboIdentity) — a Special sitting in the combo is
+    // never evicted by a normal pick here, so it must not count as "replaced".
     const willReplace = mode === 'combo'
-      ? selections.some(s => s.matchId === match.id && bsKey(s.matchId, s.marketType, s.selection) !== newKey)
+      ? selections.some(s => s.matchId === match.id && s.marketType !== 'matchday_special' && bsKey(s.matchId, s.marketType, s.selection) !== newKey)
       : selections.some(s => bsKey(s.matchId, s.marketType, s.selection) === newKey && s.selection !== selection)
     addSelection({ matchId: match.id, matchLabel, marketType: marketType as never, marketLabel, selection, selectionLabel, oddsValue, homeTeam: homeName, awayTeam: awayName })
     if (willReplace) {

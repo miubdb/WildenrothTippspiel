@@ -20,6 +20,7 @@ import Link from 'next/link'
 import { CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
 import { cappedPayout } from '@/lib/payout'
+import { MatchdaySpecialsSection, type MatchdaySpecialForDisplay } from '@/components/MatchdaySpecialsSection'
 
 export const revalidate = 60
 
@@ -296,6 +297,23 @@ export default async function TippsPage({
 
   const SEASON_START = '2026-08-01'
   // seasonMatches already declared above as filtered by SEASON_START_TIPPS (same value)
+
+  // Spieltag-Specials: open with this Spieltag's normal betting window, closed
+  // at the first included match's kickoff (see lib/matchdaySpecials.ts +
+  // app/api/bets/place/route.ts's server-side deadline re-check — this is
+  // display-only, never the enforcement point). Draft/inactive rows never show here.
+  const CURRENT_SEASON_SPECIALS = '26/27'
+  const { data: activeSpecialsRaw } = isBettingOpen
+    ? await supabase
+        .from('matchday_specials')
+        .select('id, matchday, title, line, options, representative_match_id, closes_at')
+        .eq('season', CURRENT_SEASON_SPECIALS)
+        .eq('matchday', currentMatchday)
+        .eq('status', 'active')
+        .order('display_order', { ascending: true })
+    : { data: null }
+  const activeSpecials = ((activeSpecialsRaw ?? []) as unknown as (MatchdaySpecialForDisplay & { closes_at: string })[])
+    .filter((s) => new Date(s.closes_at) > new Date())
 
   // Odds snapshot: freeze odds at Monday 12:00 — only use matches finished before that cutoff.
   // competition_type === 'cup' (the one-off Pokal-Spezial, see CLAUDE.md) is
@@ -1575,6 +1593,11 @@ export default async function TippsPage({
             )
           })()}
         </div>
+      )}
+
+      {/* Spieltag-Specials — Spieltag-weite Wettmärkte, nach dem letzten normalen Spiel */}
+      {seasonStarted && matchdayMatches.length > 0 && (
+        <MatchdaySpecialsSection specials={activeSpecials} />
       )}
 
       {/* Social Bets — grouped by match; per-match visibility after each game's kickoff.

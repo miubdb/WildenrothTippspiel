@@ -58,6 +58,12 @@ interface PlaceBetSelection {
   selection: string
   oddsValue: number
   stake: number
+  /** Only set when marketType === 'matchday_special' — see lib/matchdaySpecials.ts.
+   *  matchId for such a selection is the Special's representative_match_id
+   *  (an FK anchor for the NOT NULL bets.match_id column and the Spieltag's
+   *  deadline — see the add_matchday_specials migration), NOT a real
+   *  per-match bet; every actual validation/settlement reads specialId. */
+  specialId?: number
 }
 
 interface PlaceBetBody {
@@ -149,11 +155,28 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Combo: reject multiple selections from the same match (all markets)
+  // Spieltag-Specials: max ONE per Kombiwette (correlation risk between
+  // several Spieltag-wide markets — see SPIELTAG-SPECIALS requirement 3).
+  if (mode === 'combo') {
+    const specialCount = selections.filter((s) => s.marketType === 'matchday_special').length
+    if (specialCount > 1) {
+      return NextResponse.json(
+        { error: 'Pro Kombi ist maximal ein Spieltag-Special möglich.' },
+        { status: 400 }
+      )
+    }
+  }
+
+  // Combo: reject multiple selections from the same match (all markets) —
+  // EXCEPT matchday_special selections, whose matchId is only a technical FK
+  // anchor (the Spieltag's earliest kickoff, shared by every Special of that
+  // Spieltag and possibly by a genuinely unrelated normal bet on that same
+  // match), not a real "same match" relationship.
   if (mode === 'combo') {
     for (let i = 0; i < selections.length; i++) {
       for (let j = i + 1; j < selections.length; j++) {
         const a = selections[i], b = selections[j]
+        if (a.marketType === 'matchday_special' || b.marketType === 'matchday_special') continue
         if (a.matchId === b.matchId) {
           return NextResponse.json(
             { error: 'Ungültige Kombiwette – in einer Kombiwette darf jedes Spiel nur einmal vorkommen.' },
@@ -303,6 +326,44 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Spieltag-Special validation: server-side source of truth is the
+  // published matchday_specials row, never the client — same pattern as the
+  // goalscorer block above (dedicated table instead of the generic `odds`
+  // table, since a Special has no single match to key an `odds` row off).
+  const specialSels = selections.filter((s) => s.marketType === 'matchday_special')
+  let specialsById = new Map<number, { id: number; status: string; closes_at: string; options: { key: string; final_odds: number }[]; included_match_ids: number[] }>()
+  if (specialSels.length > 0) {
+    const specialIds = [...new Set(specialSels.map((s) => s.specialId).filter((id): id is number => id != null))]
+    if (specialIds.length !== specialSels.length) {
+      return NextResponse.json({ error: 'Ungültiges Spieltag-Special.' }, { status: 400 })
+    }
+    const { data: specialRows } = await supabase
+      .from('matchday_specials')
+      .select('id, status, closes_at, options, included_match_ids')
+      .in('id', specialIds)
+    specialsById = new Map((specialRows ?? []).map((r) => [r.id, r]))
+
+    for (const s of specialSels) {
+      const row = specialsById.get(s.specialId!)
+      if (!row) {
+        return NextResponse.json({ error: 'Spieltag-Special nicht gefunden.' }, { status: 400 })
+      }
+      if (row.status !== 'active') {
+        return NextResponse.json({ error: 'Dieses Spieltag-Special ist nicht (mehr) wettbar.' }, { status: 400 })
+      }
+      if (new Date(row.closes_at) <= new Date()) {
+        return NextResponse.json({ error: 'Annahmeschluss für dieses Spieltag-Special ist bereits abgelaufen.' }, { status: 400 })
+      }
+      const option = row.options.find((o) => o.key === s.selection)
+      if (!option) {
+        return NextResponse.json({ error: 'Ungültige Auswahl für dieses Spieltag-Special.' }, { status: 400 })
+      }
+      if (Math.abs(option.final_odds - s.oddsValue) > 0.02) {
+        return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })
+      }
+    }
+  }
+
   // Standard-market odds validation: the client computes/displays odds but the
   // server must not trust them blindly — otherwise a direct API call could submit
   // an inflated oddsValue and get paid out at a fabricated rate. Validate against
@@ -439,6 +500,35 @@ export async function POST(request: NextRequest) {
         }
       }
     }
+
+    // A Spieltag-Special's outcome can be influenced by how a Wildenroth
+    // fixture within it plays out (e.g. "Unter X,5 Tore" while trying to
+    // keep your own match low-scoring) — unlike a single-match market, the
+    // exact direction of that influence isn't cleanly reducible to
+    // isAgainstWildenroth()'s per-market logic, so the conservative rule is:
+    // any flagged player/coach is blocked from every Special whose snapshot
+    // includes a match their own flagged team plays in, full stop.
+    if (specialSels.length > 0 && flaggedTeamIds.length > 0) {
+      const specialMatchIds = [...new Set([...specialsById.values()].flatMap((r) => r.included_match_ids))]
+      const { data: specialIncludedMatches } = await supabase
+        .from('matches')
+        .select('id, home_team_id, away_team_id')
+        .in('id', specialMatchIds)
+      const involvesWildenroth = new Set(
+        (specialIncludedMatches ?? [])
+          .filter((m) => flaggedTeamIds.includes(m.home_team_id) || flaggedTeamIds.includes(m.away_team_id))
+          .map((m) => m.id)
+      )
+      for (const s of specialSels) {
+        const row = specialsById.get(s.specialId!)
+        if (row && row.included_match_ids.some((mid) => involvesWildenroth.has(mid))) {
+          return NextResponse.json(
+            { error: 'Als Wildenroth-Spieler oder -Trainer darfst du nicht auf ein Spieltag-Special wetten, das ein Spiel deines eigenen Teams enthält.' },
+            { status: 400 },
+          )
+        }
+      }
+    }
   }
 
   // Enforce Tippschluss: single bets are valid until that match's own kickoff.
@@ -476,13 +566,19 @@ export async function POST(request: NextRequest) {
     // policy happens to currently allow the caller to see of their own rows.
     const { data: sameMarket } = await admin
       .from('bets')
-      .select('match_id, market_type, selection')
+      .select('match_id, market_type, selection, special_id')
       .eq('user_id', user.id)
       .eq('status', 'pending')
       .in('match_id', matchIds)
     for (const s of selections) {
       const conflict = (sameMarket ?? []).find(
         (b) => b.match_id === s.matchId && b.market_type === s.marketType && b.selection !== s.selection &&
+          // matchday_special: match_id is just a shared FK anchor (see
+          // PlaceBetSelection.specialId's doc comment) — two DIFFERENT
+          // Specials that happen to share it (or a normal bet on that same
+          // anchor match) are never a hedge with each other. Only the SAME
+          // Special's two option keys are genuinely opposite outcomes.
+          (b.market_type !== 'matchday_special' || b.special_id === s.specialId) &&
           // Handicap has TWO independent lines (±1.5 and ±2.5) sharing one
           // market_type — a 1.5 and a 2.5 bet on the SAME favoured side are
           // correlated, not opposite (winning the 2.5 line always wins the
@@ -493,17 +589,23 @@ export async function POST(request: NextRequest) {
           (b.market_type !== 'handicap' || HANDICAP_OPPOSITE[s.selection] === b.selection)
       )
       if (conflict) {
-        // Name the actual match + market so the user knows exactly which
-        // existing bet to cancel first, instead of a generic "this game".
-        const { data: cm } = await supabase
-          .from('matches')
-          .select('home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
-          .eq('id', conflict.match_id)
-          .single() as { data: { home_team: { name: string } | { name: string }[] | null; away_team: { name: string } | { name: string }[] | null } | null }
-        const home = Array.isArray(cm?.home_team) ? cm.home_team[0]?.name : cm?.home_team?.name
-        const away = Array.isArray(cm?.away_team) ? cm.away_team[0]?.name : cm?.away_team?.name
-        const matchLabel = home && away ? `${home} – ${away}` : 'diesem Spiel'
-        const marketLabel = MARKET_LABELS[conflict.market_type] ?? conflict.market_type
+        // Name the actual match/Special + market so the user knows exactly
+        // which existing bet to cancel first, instead of a generic "this game".
+        let matchLabel = 'diesem Spiel'
+        if (conflict.market_type === 'matchday_special' && conflict.special_id != null) {
+          const row = specialsById.get(conflict.special_id)
+          matchLabel = row ? 'diesem Spieltag-Special' : matchLabel
+        } else {
+          const { data: cm } = await supabase
+            .from('matches')
+            .select('home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
+            .eq('id', conflict.match_id)
+            .single() as { data: { home_team: { name: string } | { name: string }[] | null; away_team: { name: string } | { name: string }[] | null } | null }
+          const home = Array.isArray(cm?.home_team) ? cm.home_team[0]?.name : cm?.home_team?.name
+          const away = Array.isArray(cm?.away_team) ? cm.away_team[0]?.name : cm?.away_team?.name
+          matchLabel = home && away ? `${home} – ${away}` : matchLabel
+        }
+        const marketLabel = conflict.market_type === 'matchday_special' ? 'Spieltag-Special' : (MARKET_LABELS[conflict.market_type] ?? conflict.market_type)
         return NextResponse.json(
           { error: `Für ${matchLabel} hast du im Markt ${marketLabel} bereits eine Wette auf einen anderen Ausgang platziert. Du kannst nicht gleichzeitig auf entgegengesetzte Ausgänge desselben Markts wetten — storniere die bestehende Wette zuerst, wenn du deine Auswahl ändern möchtest.` },
           { status: 400 }
@@ -744,6 +846,7 @@ export async function POST(request: NextRequest) {
       is_risky: effectiveRisky,
       is_bonus: false,
       season: betSeason,
+      special_id: s.marketType === 'matchday_special' ? s.specialId : null,
     }))
   } else {
     betRows = selections.map((s) => ({
@@ -761,6 +864,7 @@ export async function POST(request: NextRequest) {
       is_risky: submissionIsBonus ? false : effectiveRisky,
       is_bonus: submissionIsBonus,
       season: betSeason,
+      special_id: s.marketType === 'matchday_special' ? s.specialId : null,
     }))
   }
 
