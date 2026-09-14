@@ -84,7 +84,7 @@ export function MatchdaySpecialsSection({ specials }: { specials: MatchdaySpecia
                   }`}
                 >
                   <div className="text-sm font-semibold">{opt.label}</div>
-                  <div className={`text-sm font-bold ${isSelected ? 'text-white' : 'text-red-700 dark:text-red-400'}`}>
+                  <div className={`text-sm font-bold ${isSelected ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
                     {opt.final_odds.toFixed(2).replace('.', ',')}
                   </div>
                 </button>
