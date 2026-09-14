@@ -56,7 +56,7 @@ export default async function ProfilPage({
   const { data: betsRaw } = await supabase
     .from('bets')
     .select(
-      `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id, season, is_risky,
+      `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id, season, is_risky, special_id,
        match:matches(id, matchday, match_date, home_score, away_score, status,
          home_team:teams!matches_home_team_id_fkey(name, short_name),
          away_team:teams!matches_away_team_id_fkey(name, short_name)
@@ -66,6 +66,26 @@ export default async function ProfilPage({
     .neq('status', 'void')
     .order('created_at', { ascending: false })
     .limit(120)
+
+  // Every Special referenced by these bets (any status) — a Special bet's own
+  // match_id is only representative_match_id (technical FK anchor, see
+  // lib/matchdaySpecials.ts), never derive its Wett-Historie line from that match.
+  const specialIdsInHistory = [...new Set((betsRaw ?? []).map((b) => b.special_id).filter((id): id is number => id != null))]
+  const specialsById: Record<number, { matchday: number; template_key: string; options: { key: string; label: string }[]; settlement_result: { finalStat: number; winningKey: string } | null }> = {}
+  if (specialIdsInHistory.length > 0) {
+    const { data: specialsRaw } = await supabase
+      .from('matchday_specials')
+      .select('id, matchday, template_key, options, settlement_result')
+      .in('id', specialIdsInHistory)
+    for (const s of specialsRaw ?? []) {
+      specialsById[s.id] = {
+        matchday: s.matchday,
+        template_key: s.template_key,
+        options: s.options as { key: string; label: string }[],
+        settlement_result: s.settlement_result as { finalStat: number; winningKey: string } | null,
+      }
+    }
+  }
 
   const allBets = (betsRaw ?? []).map(b => ({
     ...b,
@@ -332,7 +352,7 @@ export default async function ProfilPage({
             <div className="text-sm">Noch keine Wetten platziert</div>
           </div>
         ) : (
-          <BetHistoryWithCancel items={historyItems as never} matchdayDeadlinesPassed={matchdayDeadlinesPassed} playerNameMap={playerNameMap} highlightDedupeKey={highlight} />
+          <BetHistoryWithCancel items={historyItems as never} matchdayDeadlinesPassed={matchdayDeadlinesPassed} playerNameMap={playerNameMap} highlightDedupeKey={highlight} specialsById={specialsById} />
         )}
       </div>
 

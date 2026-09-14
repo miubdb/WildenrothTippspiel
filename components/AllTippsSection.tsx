@@ -3,10 +3,10 @@
 import { useMemo, useState } from 'react'
 import { TeamLogo } from '@/components/TeamLogo'
 import { wildiLabel } from '@/components/WildiIcon'
-import { oddsColorClass, socialSelLabel } from '@/lib/betDisplay'
+import { oddsColorClass, socialSelLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
 import type { Match } from '@/types'
 
-type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number; stake: number | null }
+type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number; stake: number | null; special_id: number | null }
 type SocialCombo = { id: number; stake: number; total_odds: number; status: string; payout: number | null }
 type SocialProfile = { id: string; display_name: string | null; username: string; avatar_url: string | null }
 
@@ -25,6 +25,7 @@ export function AllTippsSection({
   socialProfiles,
   playerNameMap,
   userId,
+  specialsById,
 }: {
   matchdayMatches: Match[]
   betCountByMatch: Record<number, number>
@@ -33,7 +34,20 @@ export function AllTippsSection({
   socialProfiles: SocialProfile[]
   playerNameMap: Record<number, string>
   userId: string
+  specialsById?: Record<number, SpecialDisplayInfo>
 }) {
+  // "🔥 Spieltag-Special" label for a bet leg — falls back to the generic
+  // socialSelLabel-style text if the Special row isn't joined for some
+  // reason, but must NEVER fall through to the representative match's own
+  // team names (see lib/betDisplay.ts's doc comment on why).
+  const specialLegLabel = (leg: { special_id: number | null; selection: string }): string => {
+    const special = leg.special_id != null ? specialsById?.[leg.special_id] : undefined
+    return special ? specialSelectionLabel(special, leg.selection) : leg.selection
+  }
+  const specialLegTitle = (leg: { special_id: number | null }): string => {
+    const special = leg.special_id != null ? specialsById?.[leg.special_id] : undefined
+    return special ? specialMarketLabel(special) : '🔥 Spieltag-Special'
+  }
   const [onlyActive, setOnlyActive] = useState(false)
   const now = useMemo(() => new Date(), [])
   const matchMap = useMemo(() => new Map(matchdayMatches.map(m => [m.id, m])), [matchdayMatches])
@@ -100,7 +114,16 @@ export function AllTippsSection({
     }
   }
 
-  if (!Object.values(betCountByMatch).some(c => c > 0)) return null
+  // Single (non-combo) Spieltag-Special bets — rendered in their OWN section
+  // below, never nested under a match card: a Special's match_id is only its
+  // representative_match_id (technical FK anchor), so grouping it under that
+  // match's header would wrongly read as a bet on that one game.
+  const specialSingles = activeSocial
+    .filter(b => !b.combo_id && b.market_type === 'matchday_special')
+    .sort((a, b) => b.odds_value - a.odds_value)
+  const hasSpecialBets = nonVoidSocial.some(b => b.market_type === 'matchday_special')
+
+  if (!Object.values(betCountByMatch).some(c => c > 0) && !hasSpecialBets) return null
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
@@ -124,6 +147,36 @@ export function AllTippsSection({
           Verlorene ausblenden
         </button>
       </div>
+
+      {specialSingles.length > 0 && (
+        <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 space-y-2">
+          <div className="text-xs font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wide">🔥 Spieltag-Specials</div>
+          {specialSingles.map(bet => {
+            const stake = bet.stake ?? 0
+            const potWin = Math.round(stake * bet.odds_value * 100) / 100
+            const edgeCls = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
+            return (
+              <details key={bet.id} className={`group rounded-lg bg-orange-50/50 dark:bg-orange-950/20 border-l-4 ${edgeCls} overflow-hidden`}>
+                <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
+                  {renderAvatar(bet.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
+                  <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(bet.user_id)}</span>
+                  <span className="truncate flex-1 min-w-0 text-gray-600 dark:text-gray-300">
+                    <span className="block text-[10px] text-orange-600 dark:text-orange-400 font-medium truncate">{specialLegTitle(bet)}</span>
+                    {specialLegLabel(bet)}
+                  </span>
+                  <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+                  <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
+                </summary>
+                <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 text-[11px] text-gray-500 dark:text-gray-400">
+                  {bet.status === 'pending' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
+                  {bet.status === 'won' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
+                  {bet.status === 'lost' && <span>Einsatz: <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span></span>}
+                </div>
+              </details>
+            )
+          })}
+        </div>
+      )}
 
       <div className="divide-y divide-gray-100 dark:divide-gray-700">
         {matchdayMatches.map(match => {
@@ -149,7 +202,7 @@ export function AllTippsSection({
           }
 
           const singles = activeSocial
-            .filter(b => !b.combo_id && b.match_id === match.id)
+            .filter(b => !b.combo_id && b.match_id === match.id && b.market_type !== 'matchday_special')
             .sort((a, b) => b.odds_value - a.odds_value)
           const legsOnThisMatch = activeSocial.filter(b => b.combo_id && b.match_id === match.id)
           const comboIdsHere = [...new Set(legsOnThisMatch.map(b => b.combo_id as string))]
@@ -213,8 +266,21 @@ export function AllTippsSection({
                 const legWonButComboLost = ownLeg.status === 'won' && comboStatus === 'lost'
 
                 const renderLeg = (leg: typeof ownLeg) => {
-                  const lm = matchMap.get(leg.match_id)
                   const moot = leg.status === 'pending' && comboStatus === 'lost'
+                  // A Special leg's match_id is only its technical FK anchor — never
+                  // show that match's teams for it, show the real Special instead.
+                  if (leg.market_type === 'matchday_special') {
+                    return (
+                      <div key={leg.id} className={`flex items-start gap-1.5 text-xs py-0.5 ${moot ? 'opacity-50' : ''}`}>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-orange-600 dark:text-orange-400 text-[10px] truncate font-medium">{specialLegTitle(leg)}</div>
+                          <div className="font-medium text-gray-800 dark:text-gray-200">{specialLegLabel(leg)}</div>
+                        </div>
+                        <span className={`font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                      </div>
+                    )
+                  }
+                  const lm = matchMap.get(leg.match_id)
                   const finished = lm?.status === 'finished' && lm.home_score != null
                   return (
                     <div key={leg.id} className={`flex items-start gap-1.5 text-xs py-0.5 ${moot ? 'opacity-50' : ''}`}>
@@ -238,7 +304,9 @@ export function AllTippsSection({
                         <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(owner)}</span>
                         <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
                         <LegResultMark moot={ownLegMoot} />
-                        <span className={`truncate flex-1 min-w-0 ${ownLegMoot ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>{socialSelLabel(ownLeg.market_type, ownLeg.selection, playerNameMap)}</span>
+                        <span className={`truncate flex-1 min-w-0 ${ownLegMoot ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>
+                          {ownLeg.market_type === 'matchday_special' ? specialLegLabel(ownLeg) : socialSelLabel(ownLeg.market_type, ownLeg.selection, playerNameMap)}
+                        </span>
                         <span className={`font-bold flex-shrink-0 ${oddsColorClass(ownLeg.status)}`}>@{ownLeg.odds_value.toFixed(2).replace('.', ',')}</span>
                         <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
                       </summary>

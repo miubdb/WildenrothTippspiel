@@ -1897,6 +1897,13 @@ function selLabel(marketType: string, selection: string, players?: Record<number
     const name = players?.[id] ?? `Spieler #${id}`
     return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
   }
+  // matchday_special checked before SELECTION_LABELS (keyed by selection code
+  // ALONE, not market_type) — a Special's plain 'yes'/'no' would otherwise
+  // wrongly match btts's "Beide treffen"/"Nicht beide". Generic fallback only
+  // (no title/line) — this admin listing doesn't join matchday_specials.
+  if (marketType === 'matchday_special') {
+    return { over: 'Über', under: 'Unter', yes: 'Ja', no: 'Nein' }[selection] ?? selection
+  }
   // Cup markets checked first — SELECTION_LABELS is keyed by selection code
   // alone, so a cup_comeback_advance 'yes' would otherwise wrongly match
   // btts's "Beide treffen".

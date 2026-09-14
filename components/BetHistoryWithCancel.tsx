@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus } from '@/components/WetteCard'
-import { cupSelectionLabel } from '@/lib/betDisplay'
+import { cupSelectionLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
 
 type Bet = {
   id: string
@@ -15,6 +15,7 @@ type Bet = {
   payout: number | null
   combo_id: string | null
   is_risky?: boolean | null
+  special_id?: number | null
   match: {
     id: number
     matchday: number
@@ -38,6 +39,7 @@ type Props = {
   matchdayDeadlinesPassed: Record<number, boolean>
   playerNameMap?: Record<number, string>
   highlightDedupeKey?: string
+  specialsById?: Record<number, SpecialDisplayInfo>
 }
 
 const SELECTION_LABELS: Record<string, string> = {
@@ -67,12 +69,18 @@ const SELECTION_LABELS: Record<string, string> = {
   home_plus_2_5: 'Heim +2,5',
 }
 
-function selLabel(marketType: string, sel: string, players?: Record<number, string>): string {
+function selLabel(marketType: string, sel: string, players?: Record<number, string>, special?: SpecialDisplayInfo): string {
   if (marketType === 'exact_score') return sel
   if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
     const id = parseInt(sel, 10)
     const name = players?.[id] ?? `Spieler #${id}`
     return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
+  }
+  // matchday_special checked before the flat SELECTION_LABELS map below (keyed
+  // by selection code ALONE, not market_type) — a Special's plain 'yes'/'no'
+  // would otherwise wrongly match btts's "Beide treffen"/"Nicht beide".
+  if (marketType === 'matchday_special') {
+    return special ? specialSelectionLabel(special, sel) : ({ over: 'Über', under: 'Unter', yes: 'Ja', no: 'Nein' }[sel] ?? sel)
   }
   // Cup markets checked first — SELECTION_LABELS is keyed by selection code
   // alone (not market_type), so a cup_comeback_advance 'yes' would otherwise
@@ -80,7 +88,13 @@ function selLabel(marketType: string, sel: string, players?: Record<number, stri
   return cupSelectionLabel(marketType, sel) ?? SELECTION_LABELS[sel] ?? sel
 }
 
-function betMatchName(bet: Bet): string {
+function betMatchName(bet: Bet, specialsById?: Record<number, SpecialDisplayInfo>): string {
+  // A Special's match_id is only its technical FK anchor (representative_match_id,
+  // see lib/matchdaySpecials.ts) — never show that match's teams for it.
+  if (bet.market_type === 'matchday_special') {
+    const special = bet.special_id != null ? specialsById?.[bet.special_id] : undefined
+    return special ? specialMarketLabel(special) : '🔥 Spieltag-Special'
+  }
   const m = bet.match
   if (!m) return 'Unbekanntes Spiel'
   return `${m.home_team?.name ?? '?'} – ${m.away_team?.name ?? '?'}`
@@ -92,9 +106,10 @@ function betScore(bet: Bet): string | null {
   return `${m.home_score}:${m.away_score}`
 }
 
-function toWetteData(item: HistoryItem, players?: Record<number, string>): WetteData {
+function toWetteData(item: HistoryItem, players?: Record<number, string>, specialsById?: Record<number, SpecialDisplayInfo>): WetteData {
   if (item.kind === 'single') {
     const b = item.bet
+    const special = b.market_type === 'matchday_special' && b.special_id != null ? specialsById?.[b.special_id] : undefined
     return {
       id: `bet-${b.id}`,
       type: 'single',
@@ -106,9 +121,9 @@ function toWetteData(item: HistoryItem, players?: Record<number, string>): Wette
       betId: parseInt(b.id),
       legs: [{
         id: parseInt(b.id),
-        matchName: betMatchName(b),
+        matchName: betMatchName(b, specialsById),
         market: b.market_type,
-        selection: selLabel(b.market_type, b.selection, players),
+        selection: selLabel(b.market_type, b.selection, players, special),
         odds: b.odds_value ?? 1,
         status: b.status as WetteStatus,
         score: betScore(b),
@@ -137,19 +152,22 @@ function toWetteData(item: HistoryItem, players?: Record<number, string>): Wette
     payout: cb?.payout,
     status,
     comboId: parseInt(item.comboId),
-    legs: legs.map(leg => ({
-      id: parseInt(leg.id),
-      matchName: betMatchName(leg),
-      market: leg.market_type,
-      selection: selLabel(leg.market_type, leg.selection, players),
-      odds: leg.odds_value ?? 1,
-      status: leg.status as WetteStatus,
-      score: betScore(leg),
-    })),
+    legs: legs.map(leg => {
+      const legSpecial = leg.market_type === 'matchday_special' && leg.special_id != null ? specialsById?.[leg.special_id] : undefined
+      return {
+        id: parseInt(leg.id),
+        matchName: betMatchName(leg, specialsById),
+        market: leg.market_type,
+        selection: selLabel(leg.market_type, leg.selection, players, legSpecial),
+        odds: leg.odds_value ?? 1,
+        status: leg.status as WetteStatus,
+        score: betScore(leg),
+      }
+    }),
   }
 }
 
-export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNameMap, highlightDedupeKey }: Props) {
+export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNameMap, highlightDedupeKey, specialsById }: Props) {
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [cancelError, setCancelError] = useState<string | null>(null)
   const router = useRouter()
@@ -223,7 +241,7 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
         </div>
       )}
       {items.map((item) => {
-        const wette = toWetteData(item, playerNameMap)
+        const wette = toWetteData(item, playerNameMap, specialsById)
         const cancellable = !cancellingId && canCancel(item)
         const ref = getHighlightRef(item)
         return (

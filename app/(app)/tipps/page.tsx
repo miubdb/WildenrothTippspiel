@@ -17,7 +17,7 @@ import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
-import { CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
+import { CUP_MARKET_LABEL, cupSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
 import { cappedPayout } from '@/lib/payout'
 import { MatchdaySpecialsSection, type MatchdaySpecialForDisplay } from '@/components/MatchdaySpecialsSection'
@@ -314,6 +314,25 @@ export default async function TippsPage({
     : { data: null }
   const activeSpecials = ((activeSpecialsRaw ?? []) as unknown as (MatchdaySpecialForDisplay & { closes_at: string })[])
     .filter((s) => new Date(s.closes_at) > new Date())
+
+  // Every Special of this Spieltag (any status, not just 'active') — needed to
+  // render an ALREADY-PLACED bet's real "🔥 Spieltag N · <Markt>: <Antwort>"
+  // label wherever bets are listed (MyBets, Alle Tipps, Recap). A Special
+  // bet's own match_id is only representative_match_id (technical FK anchor,
+  // see lib/matchdaySpecials.ts) — never derive its display from that match.
+  const { data: allSpecialsForMdRaw } = await supabase
+    .from('matchday_specials')
+    .select('id, matchday, template_key, options, settlement_result')
+    .eq('season', CURRENT_SEASON_SPECIALS)
+    .eq('matchday', currentMatchday)
+  const specialsById: Record<number, SpecialDisplayInfo> = Object.fromEntries(
+    (allSpecialsForMdRaw ?? []).map((s) => [s.id, {
+      matchday: s.matchday,
+      template_key: s.template_key,
+      options: s.options as { key: string; label: string }[],
+      settlement_result: s.settlement_result as { finalStat: number; winningKey: string } | null,
+    }])
+  )
 
   // Odds snapshot: freeze odds at Monday 12:00 — only use matches finished before that cutoff.
   // competition_type === 'cup' (the one-off Pokal-Spezial, see CLAUDE.md) is
@@ -915,14 +934,14 @@ export default async function TippsPage({
   type OwnBet = {
     id: number; match_id: number; market_type: string; selection: string
     odds_value: number; stake: number | null; status: string; combo_id: number | null; is_risky: boolean
-    is_bonus: boolean
+    is_bonus: boolean; special_id: number | null
   }
   type OwnCombo = { id: number; stake: number; status: string; legs: OwnBet[] }
 
   const [{ data: userProfile }, ownBetsResult] = await Promise.all([
     user ? supabase.from('profiles').select('is_wildenroth, is_wildenroth_ii, eligible_for_current_season, is_admin').eq('id', user.id).single() : Promise.resolve({ data: null }),
     user && matchdayMatchIds.length > 0
-      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky, is_bonus').eq('user_id', user.id).in('match_id', matchdayMatchIds).neq('status', 'void')
+      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky, is_bonus, special_id').eq('user_id', user.id).in('match_id', matchdayMatchIds).neq('status', 'void')
       : Promise.resolve({ data: [] }),
   ])
 
@@ -987,7 +1006,7 @@ export default async function TippsPage({
   )
 
   // Social bets: visible after each individual match kicks off (RLS policy allows this)
-  type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number; stake: number | null }
+  type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number; stake: number | null; special_id: number | null }
   type SocialCombo = { id: number; stake: number; total_odds: number; status: string; payout: number | null }
   type SocialProfile = { id: string; display_name: string | null; username: string; avatar_url: string | null }
   let socialBets: SocialBet[] = []
@@ -1038,7 +1057,7 @@ export default async function TippsPage({
   if (anyMatchStarted && matchdayMatchIds.length > 0) {
     const { data: rawSocial } = await supabase
       .from('bets')
-      .select('id, market_type, selection, odds_value, status, combo_id, user_id, match_id, stake')
+      .select('id, market_type, selection, odds_value, status, combo_id, user_id, match_id, stake, special_id')
       .in('match_id', matchdayMatchIds)
 
     if (rawSocial && rawSocial.length > 0) {
@@ -1069,7 +1088,7 @@ export default async function TippsPage({
   if (isMatchdayComplete && matchdayMatchIds.length > 0) {
     const { data: recapBets } = await supabase
       .from('bets')
-      .select('id, user_id, match_id, market_type, selection, stake, odds_value, payout, status, combo_id, is_risky, created_at')
+      .select('id, user_id, match_id, market_type, selection, stake, odds_value, payout, status, combo_id, is_risky, created_at, special_id')
       .in('match_id', matchdayMatchIds)
       .in('status', ['won', 'lost'])
 
@@ -1149,7 +1168,19 @@ export default async function TippsPage({
           recapMatchNameMap.set(m.id, `${ht?.name ?? '?'} – ${at?.name ?? '?'}`)
         }
       }
-      function recapBetDetail(b: { match_id: number | null; market_type: string; selection: string }): import('@/components/MatchdayRecap').RecapBetDetail | undefined {
+      function recapBetDetail(b: { match_id: number | null; market_type: string; selection: string; special_id?: number | null }): import('@/components/MatchdayRecap').RecapBetDetail | undefined {
+        // A Special's match_id is only its representative_match_id (technical
+        // FK anchor, see lib/matchdaySpecials.ts) — never resolve its recap
+        // line via recapMatchNameMap, which would show the wrong "match".
+        if (b.market_type === 'matchday_special') {
+          const special = b.special_id != null ? specialsById[b.special_id] : undefined
+          if (!special) return undefined
+          return {
+            matchName: `🔥 Spieltag ${special.matchday}`,
+            market: specialShortTitle(special.template_key),
+            selection: specialSelectionLabel(special, b.selection),
+          }
+        }
         if (!b.match_id) return undefined
         const matchName = recapMatchNameMap.get(b.match_id)
         if (!matchName) return undefined
@@ -1224,10 +1255,22 @@ export default async function TippsPage({
       if (unlucky) {
         const { data: legDetailRows } = await supabase
           .from('bets')
-          .select('market_type, selection, odds_value, status, match:matches(home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name))')
+          .select('market_type, selection, odds_value, status, special_id, match:matches(home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name))')
           .eq('combo_id', unlucky.c.id)
           .order('id')
         unluckyLegDetails = (legDetailRows ?? []).map(l => {
+          // A Special leg's match_id is only its representative_match_id —
+          // never show that joined match's teams for it.
+          if (l.market_type === 'matchday_special') {
+            const special = l.special_id != null ? specialsById[l.special_id] : undefined
+            return {
+              matchName: special ? `🔥 Spieltag ${special.matchday}` : '🔥 Spieltag-Special',
+              market: special ? specialShortTitle(special.template_key) : '',
+              selection: special ? specialSelectionLabel(special, l.selection) : l.selection,
+              odds: l.odds_value,
+              status: l.status as 'won' | 'lost' | 'pending',
+            }
+          }
           const m = Array.isArray(l.match) ? l.match[0] : l.match
           const ht = m ? (Array.isArray(m.home_team) ? m.home_team[0] : m.home_team) : null
           const at = m ? (Array.isArray(m.away_team) ? m.away_team[0] : m.away_team) : null
@@ -1624,6 +1667,7 @@ export default async function TippsPage({
           socialProfiles={socialProfiles}
           playerNameMap={playerNameMap}
           userId={user.id}
+          specialsById={specialsById}
         />
       )}
 
@@ -1635,6 +1679,7 @@ export default async function TippsPage({
           matchMap={userMatchMap}
           isDeadlinePassed={isDeadlinePassed}
           playerNameMap={playerNameMap}
+          specialsById={specialsById}
         />
       )}
 

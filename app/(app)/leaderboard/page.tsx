@@ -7,7 +7,7 @@ import type { RecapData } from '@/components/MatchdayRecap'
 import { bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, recapMatchdayOf as recapMatchdayOfShared } from '@/lib/season'
 import type { Match } from '@/types'
 import { cappedPayout } from '@/lib/payout'
-import { CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
+import { CUP_MARKET_LABEL, cupSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
 
 export const revalidate = 60
@@ -33,7 +33,7 @@ export default async function LeaderboardPage({
     supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url').or('eligible_for_current_season.eq.true,is_admin.eq.true').is('deleted_at', null).order('balance', { ascending: false }),
     supabase.auth.getUser(),
     supabase.from('matches').select('id, match_number, matchday, home_team_id, away_team_id, match_date, status, match_category, is_topspiel, tippspiel_matchday').order('match_date', { ascending: true }),
-    supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season, created_at'),
+    supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season, created_at, special_id'),
     supabase.from('combo_bets').select('id, user_id, stake, total_odds, status, payout, season, created_at'),
     supabase.from('app_settings').select('key, value'),
   ])
@@ -252,6 +252,24 @@ export default async function LeaderboardPage({
     return (a.display_name || a.username).localeCompare(b.display_name || b.username, 'de')
   })
 
+  // Every Special of the currently-selected Spieltag (any status) — a Special
+  // bet's own match_id is only representative_match_id (technical FK anchor,
+  // see lib/matchdaySpecials.ts), never derive its display from that match.
+  // Shared by the matchday-drill-down below and the recap block further down.
+  const { data: mdSpecialsRaw } = await supabase
+    .from('matchday_specials')
+    .select('id, matchday, template_key, options, settlement_result')
+    .eq('season', '26/27')
+    .eq('matchday', currentMatchday)
+  const specialsById: Record<number, SpecialDisplayInfo> = Object.fromEntries(
+    (mdSpecialsRaw ?? []).map((s) => [s.id, {
+      matchday: s.matchday,
+      template_key: s.template_key,
+      options: s.options as { key: string; label: string }[],
+      settlement_result: s.settlement_result as { finalStat: number; winningKey: string } | null,
+    }])
+  )
+
   // Bets for selected matchday
   const matchdayBets: BetRow[] = []
   const combosObj: ComboMap = {}
@@ -262,7 +280,7 @@ export default async function LeaderboardPage({
     const { data: betsRaw } = await supabase
       .from('bets')
       .select(
-        `id, user_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky,
+        `id, user_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, special_id,
          match:matches(id, match_date, home_score, away_score, status,
            home_team:teams!matches_home_team_id_fkey(name, short_name),
            away_team:teams!matches_away_team_id_fkey(name, short_name)
@@ -538,7 +556,16 @@ export default async function LeaderboardPage({
           recapMatchNameMap.set(m.id, `${ht?.name ?? '?'} – ${at?.name ?? '?'}`)
         }
       }
-      function recapBetDetail(b: { match_id: number | null; market_type: string; selection: string }): import('@/components/MatchdayRecap').RecapBetDetail | undefined {
+      function recapBetDetail(b: { match_id: number | null; market_type: string; selection: string; special_id?: number | null }): import('@/components/MatchdayRecap').RecapBetDetail | undefined {
+        if (b.market_type === 'matchday_special') {
+          const special = b.special_id != null ? specialsById[b.special_id] : undefined
+          if (!special) return undefined
+          return {
+            matchName: `🔥 Spieltag ${special.matchday}`,
+            market: specialShortTitle(special.template_key),
+            selection: specialSelectionLabel(special, b.selection),
+          }
+        }
         if (!b.match_id) return undefined
         const matchName = recapMatchNameMap.get(b.match_id)
         if (!matchName) return undefined
@@ -557,10 +584,20 @@ export default async function LeaderboardPage({
       if (unlucky) {
         const { data: legDetailRows } = await supabase
           .from('bets')
-          .select('market_type, selection, odds_value, status, match:matches(home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name))')
+          .select('market_type, selection, odds_value, status, special_id, match:matches(home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name))')
           .eq('combo_id', unlucky.c.id)
           .order('id')
         unluckyLegDetails = (legDetailRows ?? []).map(l => {
+          if (l.market_type === 'matchday_special') {
+            const special = l.special_id != null ? specialsById[l.special_id] : undefined
+            return {
+              matchName: special ? `🔥 Spieltag ${special.matchday}` : '🔥 Spieltag-Special',
+              market: special ? specialShortTitle(special.template_key) : '',
+              selection: special ? specialSelectionLabel(special, l.selection) : l.selection,
+              odds: l.odds_value,
+              status: l.status as 'won' | 'lost' | 'pending',
+            }
+          }
           const m = Array.isArray(l.match) ? l.match[0] : l.match
           const ht = m ? (Array.isArray(m.home_team) ? m.home_team[0] : m.home_team) : null
           const at = m ? (Array.isArray(m.away_team) ? m.away_team[0] : m.away_team) : null
@@ -735,6 +772,7 @@ export default async function LeaderboardPage({
       pendingStakesPerUser={pendingStakesPerUser}
       betCountsPerUser={betCountsPerUser}
       defaultTabIsSpielTag={defaultTabIsSpielTag}
+      specialsById={specialsById}
     />
   )
 }

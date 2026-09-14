@@ -8,6 +8,7 @@ import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { WetteCard, type WetteData, type WetteStatus, type WetteSocial } from '@/components/WetteCard'
 import type { CommentData } from '@/components/CommentSection'
 import { MatchdayRecap, type RecapData } from '@/components/MatchdayRecap'
+import { type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
 
 const STARTING_BALANCE = 1000
 
@@ -19,6 +20,7 @@ const SEL_LABEL: Record<string, Record<string, string>> = {
   over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
   over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
   btts: { yes: 'Beide treffen', no: 'Nicht beide' },
+  matchday_special: { over: 'Über', under: 'Unter', yes: 'Ja', no: 'Nein' },
   handicap: {
     home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
     away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5', away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
@@ -47,6 +49,7 @@ export type BetRow = {
   payout: number | null
   combo_id: number | null
   is_risky?: boolean | null
+  special_id?: number | null
   match: {
     id: number
     match_date: string
@@ -113,7 +116,7 @@ function isBetVisible(bet: BetRow, allMatchdayBets: BetRow[], now: Date): boolea
 
 type ReactionData = { target_type: string; target_id: number; emoji: string; user_id: string }
 
-function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserId, currentUserName, isAdmin, isOwnBets, isDeadlinePassed, onCancel, cancellingId: cancelId, players, hiddenCount: hiddenCountProp }: {
+function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserId, currentUserName, isAdmin, isOwnBets, isDeadlinePassed, onCancel, cancellingId: cancelId, players, hiddenCount: hiddenCountProp, specialsById }: {
   bets: BetRow[]; combos: Record<string, ComboMeta>; noDataLabel: string
   reactions: ReactionData[]; comments: CommentData[]; currentUserId: string | null
   currentUserName: string; isAdmin?: boolean
@@ -122,6 +125,7 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
   cancellingId?: string | null
   players?: Record<number, string>
   hiddenCount?: number
+  specialsById?: Record<number, SpecialDisplayInfo>
 }) {
   if (bets.length === 0 && !hiddenCountProp) return <p className="text-xs text-gray-400 italic py-1">{noDataLabel}</p>
 
@@ -136,6 +140,10 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
     if (!b.combo_id) {
       const m = b.match
       const score = m?.home_score != null ? `${m.home_score}:${m.away_score}` : null
+      // A Special's match_id is only its technical FK anchor (representative_match_id,
+      // see lib/matchdaySpecials.ts) — showing that match's teams here would wrongly
+      // suggest the bet is about that single game.
+      const special = b.market_type === 'matchday_special' && b.special_id != null ? specialsById?.[b.special_id] : undefined
       wetten.push({
         id: `bet-${b.id}`,
         type: 'single',
@@ -147,9 +155,9 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
         betId: b.id,
         legs: [{
           id: b.id,
-          matchName: m ? `${m.home_team.name} – ${m.away_team.name}` : '—',
+          matchName: special ? specialMarketLabel(special) : m ? `${m.home_team.name} – ${m.away_team.name}` : '—',
           market: b.market_type,
-          selection: selLabel(b.market_type, b.selection, players),
+          selection: special ? specialSelectionLabel(special, b.selection) : selLabel(b.market_type, b.selection, players),
           odds: b.odds_value,
           status: b.status as WetteStatus,
           score,
@@ -181,11 +189,12 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
         legs: comboLegs.map(leg => {
           const lm = leg.match
           const lscore = lm?.home_score != null ? `${lm.home_score}:${lm.away_score}` : null
+          const legSpecial = leg.market_type === 'matchday_special' && leg.special_id != null ? specialsById?.[leg.special_id] : undefined
           return {
             id: leg.id,
-            matchName: lm ? `${lm.home_team.name} – ${lm.away_team.name}` : '—',
+            matchName: legSpecial ? specialMarketLabel(legSpecial) : lm ? `${lm.home_team.name} – ${lm.away_team.name}` : '—',
             market: leg.market_type,
-            selection: selLabel(leg.market_type, leg.selection, players),
+            selection: legSpecial ? specialSelectionLabel(legSpecial, leg.selection) : selLabel(leg.market_type, leg.selection, players),
             odds: leg.odds_value,
             status: leg.status as WetteStatus,
             score: lscore,
@@ -262,7 +271,7 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
 export function LeaderboardClient({
   profiles, currentUserId, currentUserName, isAdmin, matchdayBets, matchdayNumber, allMatchdays, combos,
   isDeadlinePassed, weeklyWinners, streaks, mdStats, initialReactions, initialComments, initialRecap, playerNameMap,
-  pendingStakesPerUser, betCountsPerUser, defaultTabIsSpielTag,
+  pendingStakesPerUser, betCountsPerUser, defaultTabIsSpielTag, specialsById,
 }: {
   profiles: Profile[]
   currentUserId: string | null
@@ -283,6 +292,7 @@ export function LeaderboardClient({
   pendingStakesPerUser: Record<string, number>
   betCountsPerUser: Record<string, number>
   defaultTabIsSpielTag: boolean
+  specialsById?: Record<number, SpecialDisplayInfo>
 }) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<'rangliste' | 'spieltag'>(
@@ -446,7 +456,7 @@ export function LeaderboardClient({
                           )}
                         </div>
                       )}
-                      <UserBets bets={visibleBets} hiddenCount={hiddenBetCount} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
+                      <UserBets bets={visibleBets} hiddenCount={hiddenBetCount} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} specialsById={specialsById} />
                     </div>
                   )}
                 </div>
@@ -642,7 +652,7 @@ export function LeaderboardClient({
                   )}
                 </div>
                 <div className="px-4 py-2 space-y-1.5">
-                  <UserBets bets={visibleBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} />
+                  <UserBets bets={visibleBets} combos={combos} noDataLabel="Keine Tipps für diesen Spieltag" reactions={initialReactions} comments={initialComments} currentUserId={currentUserId} currentUserName={currentUserName} isAdmin={isAdmin} isOwnBets={isMe} isDeadlinePassed={isDeadlinePassed} onCancel={isMe ? cancelBet : undefined} cancellingId={cancellingId} players={playerNameMap} specialsById={specialsById} />
                   {Array.from({ length: hiddenSlipCount }).map((_, i) => (
                     <LockedBetRow key={`hidden-${i}`} variant={i % 2 === 0 ? 'combo' : 'single'} />
                   ))}

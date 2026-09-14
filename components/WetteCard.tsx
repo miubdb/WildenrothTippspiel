@@ -58,7 +58,10 @@ const MARKET_LABEL: Record<string, string> = {
   handicap: 'Handicap',
   goalscorer: 'Torschütze',
   goalscorer_2plus: 'Mindestens 2 Tore',
-  matchday_special: '🔥 Spieltag-Special',
+  // The matchName line above already carries "🔥 Spieltag N · <Markt>" (see
+  // lib/betDisplay.ts#specialMarketLabel) — this badge stays short so the
+  // fire emoji doesn't repeat.
+  matchday_special: 'Special',
 }
 
 export function fmt(n: number) {

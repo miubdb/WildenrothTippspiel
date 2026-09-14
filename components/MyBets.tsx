@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus, type WetteLeg } from '@/components/WetteCard'
-import { cupSelectionLabel } from '@/lib/betDisplay'
+import { cupSelectionLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel, specialResultText } from '@/lib/betDisplay'
 
 type Leg = {
   id: number
@@ -15,6 +15,7 @@ type Leg = {
   status: string
   combo_id: number | null
   is_risky: boolean
+  special_id: number | null
 }
 
 type ComboData = {
@@ -30,6 +31,7 @@ interface MyBetsProps {
   matchMap: Record<number, { home: string; away: string; kickoff?: string }>
   isDeadlinePassed: boolean
   playerNameMap?: Record<number, string>
+  specialsById?: Record<number, SpecialDisplayInfo>
 }
 
 const SEL_LABELS: Record<string, Record<string, string>> = {
@@ -66,15 +68,27 @@ function selLabel(marketType: string, selection: string, players?: Record<number
   return cupSelectionLabel(marketType, selection) ?? SEL_LABELS[marketType]?.[selection] ?? selection
 }
 
-function legToWetteLeg(leg: Leg, matchMap: Record<number, { home: string; away: string }>, players?: Record<number, string>): WetteLeg {
-  const m = matchMap[leg.match_id]
+function legToWetteLeg(leg: Leg, matchMap: Record<number, { home: string; away: string }>, players?: Record<number, string>, specialsById?: Record<number, SpecialDisplayInfo>): WetteLeg {
   // A Special's match_id is only its technical FK anchor (representative_match_id,
   // see lib/matchdaySpecials.ts) — showing that match's teams here would wrongly
-  // suggest the bet is about that single game.
-  const matchName = leg.market_type === 'matchday_special' ? '🔥 Spieltag-Special' : m ? `${m.home} – ${m.away}` : '—'
+  // suggest the bet is about that single game. Render via the real Special
+  // (matchday + template + its own option labels) instead whenever it's joined in.
+  if (leg.market_type === 'matchday_special') {
+    const special = leg.special_id != null ? specialsById?.[leg.special_id] : undefined
+    return {
+      id: leg.id,
+      matchName: special ? specialMarketLabel(special) : '🔥 Spieltag-Special',
+      market: leg.market_type,
+      selection: special ? specialSelectionLabel(special, leg.selection) : selLabel(leg.market_type, leg.selection, players),
+      odds: leg.odds_value,
+      status: leg.status as WetteStatus,
+      score: special ? specialResultText(special) : null,
+    }
+  }
+  const m = matchMap[leg.match_id]
   return {
     id: leg.id,
-    matchName,
+    matchName: m ? `${m.home} – ${m.away}` : '—',
     market: leg.market_type,
     selection: selLabel(leg.market_type, leg.selection, players),
     odds: leg.odds_value,
@@ -82,7 +96,7 @@ function legToWetteLeg(leg: Leg, matchMap: Record<number, { home: string; away: 
   }
 }
 
-export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerNameMap }: MyBetsProps) {
+export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerNameMap, specialsById }: MyBetsProps) {
   const router = useRouter()
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -140,7 +154,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
       stake: leg.stake ?? 0,
       status: leg.status as WetteStatus,
       betId: leg.id,
-      legs: [legToWetteLeg(leg, matchMap, playerNameMap)],
+      legs: [legToWetteLeg(leg, matchMap, playerNameMap, specialsById)],
       locked: isBetLocked(leg),
     })),
     ...combos.map(combo => {
@@ -159,7 +173,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
         stake: combo.stake,
         status: effectiveSt,
         comboId: combo.id,
-        legs: combo.legs.map(l => legToWetteLeg(l, matchMap, playerNameMap)),
+        legs: combo.legs.map(l => legToWetteLeg(l, matchMap, playerNameMap, specialsById)),
         locked: anyLegLocked,
       }
     }),
