@@ -51,11 +51,11 @@ export function MatchdaySpecialsSection({ specials }: { specials: MatchdaySpecia
           key={special.id}
           className="bg-white dark:bg-gray-800 rounded-2xl border border-orange-200 dark:border-orange-900/60 shadow-sm p-4"
         >
-          <div className="flex items-center gap-1.5 mb-3">
-            <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300 px-1.5 py-0.5 rounded font-bold">
+          <div className="flex flex-col items-center text-center gap-1.5 mb-3.5">
+            <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300 px-2 py-0.5 rounded-full font-bold tracking-wide">
               🔥 SPECIAL
             </span>
-            <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{special.title}</span>
+            <span className="text-sm font-bold text-gray-900 dark:text-gray-100 leading-snug max-w-xs">{special.title}</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             {special.options.map((opt) => {
@@ -77,14 +77,14 @@ export function MatchdaySpecialsSection({ specials }: { specials: MatchdaySpecia
                       specialId: special.id,
                     })
                   }
-                  className={`rounded-xl py-2.5 px-3 text-left border transition-colors ${
+                  className={`rounded-xl py-3 px-3 text-center border transition-colors ${
                     isSelected
                       ? 'bg-red-700 border-red-700 text-white'
                       : 'bg-gray-50 dark:bg-gray-900/40 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:border-red-300'
                   }`}
                 >
                   <div className="text-sm font-semibold">{opt.label}</div>
-                  <div className={`text-sm font-bold ${isSelected ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
+                  <div className={`text-sm font-bold mt-0.5 ${isSelected ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
                     {opt.final_odds.toFixed(2).replace('.', ',')}
                   </div>
                 </button>
