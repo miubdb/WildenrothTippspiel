@@ -17,7 +17,20 @@ import { sendPushToUser } from './push'
 export type SpecialTemplateKey =
   | 'total_goals' | 'draws' | 'home_wins' | 'away_wins' | 'over25_games'
   | 'btts_games' | 'clean_sheet_games' | 'teams_3plus_goals'
-  | 'biggest_win_margin' | 'any_00' | 'team_5plus_goals'
+  | 'biggest_win_margin' | 'biggest_win_margin_6plus' | 'any_00' | 'team_5plus_goals'
+  | 'teams_no_goal'
+
+/** Templates graded on "max score-margin across the Spieltag" — same
+ *  computeFinalStat, different fixed threshold (see MARGIN_THRESHOLD below)
+ *  and therefore a different `line`. Kept as two distinct template keys
+ *  (not one auto-picked threshold) so admin/user always see a stable,
+ *  named "Kantersieg 4+" vs "Kantersieg 6+" market rather than a threshold
+ *  that silently shifts Spieltag to Spieltag. */
+const MARGIN_TEMPLATE_KEYS = new Set<SpecialTemplateKey>(['biggest_win_margin', 'biggest_win_margin_6plus'])
+/** Minimum goal-difference threshold each margin template requires — stored
+ *  as `line = threshold - 0.5` so evaluateSpecial's `finalStat > line` reads
+ *  naturally as "margin >= threshold". */
+const MARGIN_THRESHOLD: Record<string, number> = { biggest_win_margin: 4, biggest_win_margin_6plus: 6 }
 
 export type SpecialCategory = 'volume' | 'structure' | 'extreme'
 
@@ -46,7 +59,9 @@ export const SPECIAL_TEMPLATES: SpecialTemplateMeta[] = [
   { key: 'btts_games', category: 'structure', title: 'Bei wie vielen Spielen treffen beide Teams?', isYesNo: false },
   { key: 'clean_sheet_games', category: 'structure', title: 'Bei wie vielen Spielen bleibt mindestens ein Team ohne eigenes Tor?', isYesNo: false },
   { key: 'teams_3plus_goals', category: 'volume', title: 'Wie viele Teams erzielen mindestens 3 Tore?', isYesNo: false },
-  { key: 'biggest_win_margin', category: 'extreme', title: 'Gibt es einen Sieg mit mindestens {X}+ Toren Unterschied?', isYesNo: true },
+  { key: 'teams_no_goal', category: 'structure', title: 'Wie viele Teams bleiben an diesem Spieltag ohne eigenes Tor?', isYesNo: false },
+  { key: 'biggest_win_margin', category: 'extreme', title: 'Gibt es einen Sieg mit mindestens 4 Toren Unterschied an diesem Spieltag?', isYesNo: true },
+  { key: 'biggest_win_margin_6plus', category: 'extreme', title: 'Gibt es einen Sieg mit mindestens 6 Toren Unterschied an diesem Spieltag?', isYesNo: true },
   { key: 'any_00', category: 'extreme', title: 'Endet mindestens ein Spiel 0:0?', isYesNo: true },
   { key: 'team_5plus_goals', category: 'extreme', title: 'Erzielt mindestens ein Team 5 oder mehr Tore?', isYesNo: true },
 ]
@@ -161,13 +176,32 @@ export interface SpecialCandidate {
   options: SpecialOption[]
 }
 
-function buildOverUnderOptions(pOver: number, line: number, unitLabel: (n: number) => string): SpecialOption[] {
+/** User-facing "29 oder mehr" / "28 oder weniger" phrasing instead of the
+ *  internal "Über/Unter X,5" — reads naturally without exposing the X,5 line
+ *  mechanics (settlement still grades against the stored X,5 `line` exactly
+ *  as before; only the displayed option label changes). `unit`, when given,
+ *  is appended as a plural noun ("Teams", "Spiele", "Heimsiege", ...) — bare
+ *  numbers (no unit) for markets whose title already establishes the count's
+ *  subject (Gesamttore, Unentschieden). The low end is spelled out as
+ *  "0 oder 1" rather than "1 oder weniger" when that reads more naturally
+ *  (a market whose under-side spans only {0, 1}). */
+function friendlyOverUnderLabels(line: number, unit?: string): { overLabel: string; underLabel: string } {
+  const overN = Math.ceil(line)
+  const underN = Math.floor(line)
+  const suffix = unit ? ` ${unit}` : ''
+  const overLabel = `${overN} oder mehr${suffix}`
+  const underLabel = underN <= 0 ? `0${suffix}` : underN === 1 ? `0 oder 1${suffix}` : `${underN} oder weniger${suffix}`
+  return { overLabel, underLabel }
+}
+
+function buildOverUnderOptions(pOver: number, line: number, unit?: string): SpecialOption[] {
   const pUnder = Math.max(0, 1 - pOver)
   const oddsOver = oddsFromProbability(pOver)
   const oddsUnder = oddsFromProbability(pUnder)
+  const { overLabel, underLabel } = friendlyOverUnderLabels(line, unit)
   return [
-    { key: 'over', label: `Über ${unitLabel(line)}`, probability: pOver, generated_odds: oddsOver, final_odds: oddsOver, overridden: false },
-    { key: 'under', label: `Unter ${unitLabel(line)}`, probability: pUnder, generated_odds: oddsUnder, final_odds: oddsUnder, overridden: false },
+    { key: 'over', label: overLabel, probability: pOver, generated_odds: oddsOver, final_odds: oddsOver, overridden: false },
+    { key: 'under', label: underLabel, probability: pUnder, generated_odds: oddsUnder, final_odds: oddsUnder, overridden: false },
   ]
 }
 
@@ -178,8 +212,6 @@ function buildYesNoOptions(pYes: number): SpecialOption[] {
     { key: 'no', label: 'Nein', probability: pNo, generated_odds: oddsFromProbability(pNo), final_odds: oddsFromProbability(pNo), overridden: false },
   ]
 }
-
-const fmtLine = (n: number) => n.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
 /**
  * Computes one candidate per template for the given set of matches. Pure —
@@ -197,43 +229,45 @@ export function generateSpecialCandidates(seasonMatches: Match[], includedMatche
   {
     const totalPmf = probs.reduce((acc, p) => (acc ? convolve(acc, p.totalGoalsPmf) : p.totalGoalsPmf), null as number[] | null)!
     const { line, pOver } = pickBalancedLine(totalPmf)
-    candidates.push({ templateKey: 'total_goals', category: 'volume', title: 'Wie viele Tore fallen an diesem Spieltag?', line, options: buildOverUnderOptions(pOver, line, fmtLine) })
+    candidates.push({ templateKey: 'total_goals', category: 'volume', title: 'Wie viele Tore fallen an diesem Spieltag?', line, options: buildOverUnderOptions(pOver, line) })
   }
   // B) Unentschieden
   {
     const pmf = poissonBinomialPmf(probs.map((p) => p.pDraw))
     const { line, pOver } = pickBalancedLine(pmf)
-    candidates.push({ templateKey: 'draws', category: 'structure', title: 'Wie viele Unentschieden gibt es an diesem Spieltag?', line, options: buildOverUnderOptions(pOver, line, fmtLine) })
+    candidates.push({ templateKey: 'draws', category: 'structure', title: 'Wie viele Unentschieden gibt es an diesem Spieltag?', line, options: buildOverUnderOptions(pOver, line) })
   }
   // C) Heimsiege
   {
     const pmf = poissonBinomialPmf(probs.map((p) => p.pHomeWin))
     const { line, pOver } = pickBalancedLine(pmf)
-    candidates.push({ templateKey: 'home_wins', category: 'structure', title: 'Wie viele Heimsiege gibt es an diesem Spieltag?', line, options: buildOverUnderOptions(pOver, line, fmtLine) })
+    candidates.push({ templateKey: 'home_wins', category: 'structure', title: 'Wie viele Heimsiege gibt es an diesem Spieltag?', line, options: buildOverUnderOptions(pOver, line, 'Heimsiege') })
   }
   // D) Auswärtssiege
   {
     const pmf = poissonBinomialPmf(probs.map((p) => p.pAwayWin))
     const { line, pOver } = pickBalancedLine(pmf)
-    candidates.push({ templateKey: 'away_wins', category: 'structure', title: 'Wie viele Auswärtssiege gibt es an diesem Spieltag?', line, options: buildOverUnderOptions(pOver, line, fmtLine) })
+    candidates.push({ templateKey: 'away_wins', category: 'structure', title: 'Wie viele Auswärtssiege gibt es an diesem Spieltag?', line, options: buildOverUnderOptions(pOver, line, 'Auswärtssiege') })
   }
   // E) Spiele über 2,5 Tore
   {
     const pmf = poissonBinomialPmf(probs.map((p) => p.pOver25))
     const { line, pOver } = pickBalancedLine(pmf)
-    candidates.push({ templateKey: 'over25_games', category: 'volume', title: 'Bei wie vielen Spielen fallen mehr als 2,5 Tore?', line, options: buildOverUnderOptions(pOver, line, fmtLine) })
+    candidates.push({ templateKey: 'over25_games', category: 'volume', title: 'Bei wie vielen Spielen fallen mehr als 2,5 Tore?', line, options: buildOverUnderOptions(pOver, line, 'Spiele') })
   }
   // F) Beide treffen
   {
     const pmf = poissonBinomialPmf(probs.map((p) => p.pBtts))
     const { line, pOver } = pickBalancedLine(pmf)
-    candidates.push({ templateKey: 'btts_games', category: 'structure', title: 'Bei wie vielen Spielen treffen beide Teams?', line, options: buildOverUnderOptions(pOver, line, fmtLine) })
+    candidates.push({ templateKey: 'btts_games', category: 'structure', title: 'Bei wie vielen Spielen treffen beide Teams?', line, options: buildOverUnderOptions(pOver, line, 'Spiele') })
   }
-  // G) "Zu Null" — mindestens ein Team ohne eigenes Tor
+  // G) "Zu Null" — mindestens ein Team ohne eigenes Tor. Counts MATCHES (not
+  // teams) — a distinct market from H2/teams_no_goal below, see the
+  // SPIELTAG-SPECIALS review: "Spiele mit torlosem Team" vs. "Teams ohne Tor".
   {
     const pmf = poissonBinomialPmf(probs.map((p) => p.pCleanSheetEither))
     const { line, pOver } = pickBalancedLine(pmf)
-    candidates.push({ templateKey: 'clean_sheet_games', category: 'structure', title: 'Bei wie vielen Spielen bleibt mindestens ein Team ohne eigenes Tor?', line, options: buildOverUnderOptions(pOver, line, fmtLine) })
+    candidates.push({ templateKey: 'clean_sheet_games', category: 'structure', title: 'Bei wie vielen Spielen bleibt mindestens ein Team ohne eigenes Tor?', line, options: buildOverUnderOptions(pOver, line, 'Spiele') })
   }
   // H) Teams mit 3+ Toren — jedes der 2N Teams einzeln als Bernoulli-Versuch.
   {
@@ -244,22 +278,35 @@ export function generateSpecialCandidates(seasonMatches: Match[], includedMatche
     }
     const pmf = poissonBinomialPmf(teamPs)
     const { line, pOver } = pickBalancedLine(pmf)
-    candidates.push({ templateKey: 'teams_3plus_goals', category: 'volume', title: 'Wie viele Teams erzielen an diesem Spieltag mindestens 3 Tore?', line, options: buildOverUnderOptions(pOver, line, fmtLine) })
+    candidates.push({ templateKey: 'teams_3plus_goals', category: 'volume', title: 'Wie viele Teams erzielen an diesem Spieltag mindestens 3 Tore?', line, options: buildOverUnderOptions(pOver, line, 'Teams') })
   }
-  // I) Höchster Sieg — Ja/Nein ab einer Tordifferenz-Schwelle, die selbst per
-  // "möglichst nah 50/50" aus den Kandidatenschwellen 1,2,3,4,5 gewählt wird.
+  // H2) Teams OHNE eigenes Tor — counts TEAMS (2N Bernoulli trials, one per
+  // team: P(team scores 0) = that team's own goalsPmf[0]), distinct from G
+  // above which counts matches. 0:0 contributes 2 to this count.
   {
-    let bestX = 3, bestDiff = Infinity, bestPYes = 0
-    for (let x = 1; x <= 6; x++) {
-      const pYes = 1 - probs.reduce((acc, p) => acc * (1 - p.pDiffGt(x)), 1)
-      const diff = Math.abs(pYes - 0.5)
-      if (diff < bestDiff) { bestDiff = diff; bestX = x; bestPYes = pYes }
+    const teamPs: number[] = []
+    for (const p of probs) {
+      teamPs.push(p.homeGoalsPmf[0] ?? 0)
+      teamPs.push(p.awayGoalsPmf[0] ?? 0)
     }
+    const pmf = poissonBinomialPmf(teamPs)
+    const { line, pOver } = pickBalancedLine(pmf)
+    candidates.push({ templateKey: 'teams_no_goal', category: 'structure', title: 'Wie viele Teams bleiben an diesem Spieltag ohne eigenes Tor?', line, options: buildOverUnderOptions(pOver, line, 'Teams') })
+  }
+  // I) Kantersieg 4+ / 6+ — Ja/Nein ab je einer FESTEN Tordifferenz-Schwelle
+  // (MARGIN_THRESHOLD above), not an auto-picked one: a stable "Kantersieg
+  // 4+" vs "Kantersieg 6+" market the admin/user can rely on Spieltag to
+  // Spieltag, per the SPIELTAG-SPECIALS review ("nicht dieselbe Template-ID
+  // verwenden", two distinct, differently-risky variants side by side).
+  for (const templateKey of ['biggest_win_margin', 'biggest_win_margin_6plus'] as const) {
+    const threshold = MARGIN_THRESHOLD[templateKey]
+    const x = threshold - 1 // pDiffGt(x) = P(diff > x) = P(diff >= x+1) = P(diff >= threshold)
+    const pYes = 1 - probs.reduce((acc, p) => acc * (1 - p.pDiffGt(x)), 1)
     candidates.push({
-      templateKey: 'biggest_win_margin', category: 'extreme',
-      title: `Gibt es einen Sieg mit mindestens ${bestX + 1}+ Toren Unterschied an diesem Spieltag?`,
-      line: bestX + 0.5,
-      options: buildYesNoOptions(bestPYes),
+      templateKey, category: 'extreme',
+      title: `Gibt es einen Sieg mit mindestens ${threshold} Toren Unterschied an diesem Spieltag?`,
+      line: x + 0.5,
+      options: buildYesNoOptions(pYes),
     })
   }
   // J) Mindestens ein 0:0
@@ -354,7 +401,16 @@ export function computeFinalStat(templateKey: SpecialTemplateKey, matches: Final
       }
       return count
     }
+    case 'teams_no_goal': {
+      let count = 0
+      for (const m of matches) {
+        if (m.home_score === 0) count++
+        if (m.away_score === 0) count++
+      }
+      return count
+    }
     case 'biggest_win_margin':
+    case 'biggest_win_margin_6plus':
       return Math.max(0, ...matches.map((m) => Math.abs(m.home_score - m.away_score)))
     case 'any_00':
       return matches.some((m) => m.home_score === 0 && m.away_score === 0) ? 1 : 0
@@ -366,12 +422,13 @@ export function computeFinalStat(templateKey: SpecialTemplateKey, matches: Final
 /** Given the special's stored `line`/`options` and the final computed stat,
  *  returns the single winning option key. Over/Under templates always use
  *  an X,5 line (no push possible); Ja/Nein templates compare the stat
- *  against the threshold baked into `line` (biggest_win_margin) or a fixed
- *  0/1 flag (any_00/team_5plus_goals, `line` is null there). */
+ *  against the threshold baked into `line` (the two margin/"Kantersieg"
+ *  templates — MARGIN_THRESHOLD above, e.g. 4+ → line 3.5, 6+ → line 5.5)
+ *  or a fixed 0/1 flag (any_00/team_5plus_goals, `line` is null there). */
 export function evaluateSpecial(templateKey: SpecialTemplateKey, line: number | null, finalStat: number): 'over' | 'under' | 'yes' | 'no' {
   const meta = SPECIAL_TEMPLATES.find((t) => t.key === templateKey)!
   if (meta.isYesNo) {
-    if (templateKey === 'biggest_win_margin') return finalStat > (line ?? 3.5) ? 'yes' : 'no'
+    if (MARGIN_TEMPLATE_KEYS.has(templateKey)) return finalStat > (line ?? MARGIN_THRESHOLD[templateKey] - 0.5) ? 'yes' : 'no'
     return finalStat >= 1 ? 'yes' : 'no'
   }
   return finalStat > (line ?? 0) ? 'over' : 'under'
