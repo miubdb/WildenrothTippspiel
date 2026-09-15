@@ -1012,7 +1012,7 @@ export default async function TippsPage({
   let socialBets: SocialBet[] = []
   const socialCombos: Record<string, SocialCombo> = {}
   let socialProfiles: SocialProfile[] = []
-  // Count of other users' bet slips per match (always fetched via admin for placeholder display)
+  // Count of ALL bet slips per match, own included (always fetched via admin for placeholder display)
   const betCountByMatch: Record<number, number> = {}
   // Same idea, but for Spieltag-Specials — since a Special bet's match_id is
   // excluded from betCountByMatch above (see comment there), it would
@@ -1027,7 +1027,6 @@ export default async function TippsPage({
       .from('bets')
       .select('id, match_id, combo_id, market_type')
       .in('match_id', matchdayMatchIds)
-      .neq('user_id', user.id)
       .neq('status', 'void')
     // Keyed by "matchId:comboId", not just comboId — a combo's bet slip counts as
     // one "Wettschein" on EVERY match it has a leg on, not just the one match
