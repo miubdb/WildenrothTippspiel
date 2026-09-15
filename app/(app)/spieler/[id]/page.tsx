@@ -95,7 +95,13 @@ export default async function SpielerPage({
   // separate from balance-vs-start-balance, which also includes weekly pocket
   // money and any inactivity penalties (see profil/page.tsx for the same split).
   const wettbilanz = stats.realizedNet
-  const balancePoints = await computeBalanceHistory(supabase, id, profile.balance, profile.season_start_balance ?? 1000, CURRENT_SEASON)
+  // displayBalance (balance + pending stakes added back), NOT the raw
+  // profile.balance — the chart's last point is guaranteed to equal exactly
+  // whatever is passed in here (see computeBalanceHistory's doc comment), so
+  // passing the raw balance would leak how much this player currently has
+  // staked in open bets to anyone viewing their profile before kickoff,
+  // defeating the same masking the header "Guthaben" tile above already does.
+  const balancePoints = await computeBalanceHistory(supabase, id, displayBalance, profile.season_start_balance ?? 1000, CURRENT_SEASON)
 
   const { data: awardsRaw } = await supabase
     .from('user_awards')
