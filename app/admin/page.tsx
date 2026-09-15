@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } fro
 import { createClient } from '@/lib/supabase/client'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
-import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
+import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel, specialMarketLabel, specialSelectionLabel, type SpecialDisplayInfo } from '@/lib/betDisplay'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, type EffectiveMatchdayIndex } from '@/lib/season'
 import { SurveyTab } from '@/components/admin/SurveyTab'
 import { BonusTipsAdmin } from '@/components/admin/BonusTipsAdmin'
@@ -1932,11 +1932,12 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
     setSelectedMd(currentMatchday)
     setSelectedMdInitialized(true)
   }, [currentMatchday, selectedMdInitialized])
-  const [bets, setBets] = useState<{ id: string; user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; is_risky: boolean; stake: number | null }[]>([])
+  const [bets, setBets] = useState<{ id: string; user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; is_risky: boolean; stake: number | null; special_id: number | null }[]>([])
   const [profiles, setProfiles] = useState<{ id: string; display_name: string | null; username: string }[]>([])
   const [matchMap, setMatchMap] = useState<Record<number, { home: string; away: string }>>({})
   const [playerMap, setPlayerMap] = useState<Record<number, string>>({})
   const [comboMap, setComboMap] = useState<Record<number, { stake: number; total_odds: number; status: string; payout: number | null }>>({})
+  const [specialsById, setSpecialsById] = useState<Record<number, SpecialDisplayInfo>>({})
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -1946,10 +1947,22 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
       .then(data => {
         setBets(data.bets ?? []); setProfiles(data.profiles ?? [])
         setMatchMap(data.matchMap ?? {}); setPlayerMap(data.playerNameMap ?? {})
-        setComboMap(data.comboMap ?? {})
+        setComboMap(data.comboMap ?? {}); setSpecialsById(data.specialsById ?? {})
       })
       .finally(() => setLoading(false))
   }, [selectedMd])
+
+  // "🔥 Spieltag N · <Markt>" / "<Antwort>" for a matchday_special leg —
+  // its match_id is only the representative_match_id (technical FK anchor),
+  // so showing that match's team names would misrepresent what was bet on.
+  const specialLegTitle = (leg: { special_id: number | null }): string => {
+    const special = leg.special_id != null ? specialsById[leg.special_id] : undefined
+    return special ? specialMarketLabel(special) : '🔥 Spieltag-Special'
+  }
+  const specialLegSelection = (leg: { special_id: number | null; selection: string }): string => {
+    const special = leg.special_id != null ? specialsById[leg.special_id] : undefined
+    return special ? specialSelectionLabel(special, leg.selection) : selLabel('matchday_special', leg.selection)
+  }
 
   const profileMap = Object.fromEntries(profiles.map(p => [p.id, p.display_name || p.username]))
   const byUser = profiles.map(p => ({
@@ -2024,9 +2037,18 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
                       {legs.map(leg => (
                         <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5 pl-2">
                           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-500' : leg.status === 'void' ? 'bg-gray-300' : 'bg-yellow-400'}`} />
-                          <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
-                          <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{CUP_MARKET_LABEL[leg.market_type] ?? MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
-                          <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection, playerMap)}</span>
+                          {leg.market_type === 'matchday_special' ? (
+                            <>
+                              <span className="text-orange-600 text-[10px] font-medium">{specialLegTitle(leg)}</span>
+                              <span className="font-medium text-gray-800">{specialLegSelection(leg)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
+                              <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{CUP_MARKET_LABEL[leg.market_type] ?? MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
+                              <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection, playerMap)}</span>
+                            </>
+                          )}
                           <span className={`font-bold ml-auto ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
                         </div>
                       ))}
@@ -2035,9 +2057,18 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
                 }
                 return (
                   <div key={bet.id} className="px-4 py-2.5 flex items-center gap-2 text-xs">
-                    <span className="text-gray-400">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
-                    <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{CUP_MARKET_LABEL[bet.market_type] ?? MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
-                    <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
+                    {bet.market_type === 'matchday_special' ? (
+                      <>
+                        <span className="text-orange-600 text-[10px] font-medium">{specialLegTitle(bet)}</span>
+                        <span className="font-medium text-gray-800">{specialLegSelection(bet)}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-gray-400">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
+                        <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{CUP_MARKET_LABEL[bet.market_type] ?? MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
+                        <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
+                      </>
+                    )}
                     {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
                     <span className={`font-bold ml-auto ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
                     <span className="text-gray-400">{bet.stake != null ? `${bet.stake} ${wl(bet.stake)}` : ''}</span>
