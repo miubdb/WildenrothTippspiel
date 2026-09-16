@@ -9,14 +9,12 @@ import type { Match } from '@/types'
 import { cappedPayout } from '@/lib/payout'
 import { CUP_MARKET_LABEL, cupSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
+import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 
-// Was `revalidate = 60` — verified (by replaying the exact P&L computation
-// below against a live data snapshot) that the ranking math itself is
-// correct, but the page kept showing stale results for many minutes/several
-// reloads after settlement despite the revalidatePath() calls added to the
-// settlement routes, well past any 60s window. Rather than keep guessing at
-// Vercel's ISR/data-cache interaction, force this page fully dynamic —
-// correctness matters far more than shaving latency on a low-traffic page.
+// Kept dynamic (was `revalidate = 60`): this page has to reflect settlement
+// results the moment they land, and the settlement routes' revalidatePath()
+// only covers settlements from here on. Recomputing per request is cheap
+// enough on a page this size and removes a whole class of staleness bugs.
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
@@ -40,9 +38,34 @@ export default async function LeaderboardPage({
   ] = await Promise.all([
     supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url').or('eligible_for_current_season.eq.true,is_admin.eq.true').is('deleted_at', null).order('balance', { ascending: false }),
     supabase.auth.getUser(),
-    supabase.from('matches').select('id, match_number, matchday, home_team_id, away_team_id, match_date, status, match_category, is_topspiel, tippspiel_matchday').order('match_date', { ascending: true }),
-    supabase.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season, created_at, special_id'),
-    supabase.from('combo_bets').select('id, user_id, stake, total_odds, status, payout, season, created_at'),
+    // These three read WHOLE tables (no match/user filter — the season split
+    // happens in JS below), so they must page through fetchAllRows: a plain
+    // .select() silently stops at PostgREST's 1000-row cap with no error and
+    // no truncation flag (see lib/supabase/paginatedSelect.ts). `bets` crossed
+    // that cap mid-season, which silently dropped every leg with an id past
+    // the cutoff — combos whose legs all fell outside it then had no entry in
+    // comboToMatchday below and vanished from the per-Spieltag P&L ranking
+    // entirely, so a Spieltag showed only the two oldest bet slips instead of
+    // all of them. Paginated by `id` (stable, unique) as fetchAllRows requires;
+    // `matches` is re-sorted by kickoff afterwards to keep its old contract.
+    fetchAllRows((from, to) => supabase
+      .from('matches')
+      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, status, match_category, is_topspiel, tippspiel_matchday')
+      .order('id')
+      .range(from, to)
+    ).then((data) => ({ data: [...data].sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime()) })),
+    fetchAllRows((from, to) => supabase
+      .from('bets')
+      .select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season, created_at, special_id')
+      .order('id')
+      .range(from, to)
+    ).then((data) => ({ data })),
+    fetchAllRows((from, to) => supabase
+      .from('combo_bets')
+      .select('id, user_id, stake, total_odds, status, payout, season, created_at')
+      .order('id')
+      .range(from, to)
+    ).then((data) => ({ data })),
     supabase.from('app_settings').select('key, value'),
   ])
 
