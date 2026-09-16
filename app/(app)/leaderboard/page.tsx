@@ -10,7 +10,15 @@ import { cappedPayout } from '@/lib/payout'
 import { CUP_MARKET_LABEL, cupSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
 
-export const revalidate = 60
+// Was `revalidate = 60` — verified (by replaying the exact P&L computation
+// below against a live data snapshot) that the ranking math itself is
+// correct, but the page kept showing stale results for many minutes/several
+// reloads after settlement despite the revalidatePath() calls added to the
+// settlement routes, well past any 60s window. Rather than keep guessing at
+// Vercel's ISR/data-cache interaction, force this page fully dynamic —
+// correctness matters far more than shaving latency on a low-traffic page.
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 type ComboMap = Record<string, ComboMeta>
 
