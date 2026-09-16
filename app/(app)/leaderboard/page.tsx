@@ -175,14 +175,39 @@ export default async function LeaderboardPage({
     return nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
   })
   const lastCompletedMd = completedMatchdays.length > 0
-    ? completedMatchdays.reduce((latest, md) => byKickoff(md, latest) > 0 ? md : latest)
+    ? completedMatchdays.reduce((latest, md) => byAnchor(md, latest) > 0 ? md : latest)
     : null
+
+  // Same "Spieltag is running but not finished yet" gap as tipps/page.tsx —
+  // keep both pages' default in sync (they've drifted apart before, see
+  // CLAUDE.md). Neither firstScheduledMd (scheduled Kreisliga matches only)
+  // nor completedMatchdays (needs every match finished) covers a Spieltag
+  // whose Kreisliga games are done while its Wildenroth-II game follows a day
+  // later, so the view fell back to the previous completed Spieltag.
+  const nowMs = Date.now()
+  const inProgressMd = [...new Set(
+    seasonMatches
+      .map((m) => effectiveMatchdayOf(m))
+      .filter((md): md is number => md != null && md !== 999)
+  )]
+    .filter((md) => {
+      const nonPostponed = seasonMatches
+        .filter((m) => effectiveMatchdayOf(m) === md && m.status !== 'postponed')
+      if (nonPostponed.length === 0) return false
+      const hasStarted = nonPostponed.some(
+        (m) => m.status === 'finished' || new Date(m.match_date).getTime() <= nowMs
+      )
+      return hasStarted && !nonPostponed.every((m) => m.status === 'finished')
+    })
+    .sort(byAnchor)
+    .at(-1) ?? null
+
   // Pre-season: no season matches → default to Spieltag 1
   const defaultMatchday = seasonMatches.length === 0
     ? 1
-    : isBeforeMondayNoon && lastCompletedMd != null
-      ? lastCompletedMd
-      : (firstScheduledMd ?? (allMatchdays.length > 0 ? allMatchdays.reduce((latest, md) => byKickoff(md, latest) > 0 ? md : latest) : null))
+    : isBeforeMondayNoon
+      ? (inProgressMd ?? lastCompletedMd ?? firstScheduledMd ?? (allMatchdays.length > 0 ? allMatchdays.reduce((latest, md) => byAnchor(md, latest) > 0 ? md : latest) : null))
+      : (firstScheduledMd ?? (allMatchdays.length > 0 ? allMatchdays.reduce((latest, md) => byAnchor(md, latest) > 0 ? md : latest) : null))
 
   const requestedMd = params.spieltag ? parseInt(params.spieltag, 10) : null
   const currentMatchday = requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday

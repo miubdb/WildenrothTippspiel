@@ -239,16 +239,46 @@ export default async function TippsPage({
   })
   const lastCompletedMd = completedMatchdays.length > 0
     ? completedMatchdays.reduce((latest, md) =>
-        (matchdayMinDate.get(md) ?? 0) > (matchdayMinDate.get(latest) ?? 0) ? md : latest
+        (mdIndex.matchdayAnchorDate.get(md) ?? 0) > (mdIndex.matchdayAnchorDate.get(latest) ?? 0) ? md : latest
       )
     : null
+
+  // A Spieltag that has already KICKED OFF but isn't finished yet fits
+  // neither bucket above: `firstScheduled` only counts Kreisliga matches that
+  // are still scheduled, and `completedMatchdays` demands every match be
+  // finished. So the evening the last Kreisliga match of a Spieltag ends while
+  // its Wildenroth-II/Topspiel game still runs the next day, the page jumped
+  // BACK to the previous fully-completed Spieltag — showing a week-old recap
+  // while the current Spieltag was still live. Takes precedence over
+  // lastCompletedMd, but only while the NEXT Spieltag's betting window is
+  // still closed: once that opens, the bettable Spieltag wins as before.
+  const nowMs = Date.now()
+  const inProgressMd = [...new Set(
+    seasonMatches
+      .map((m) => effectiveMatchdayOf(m))
+      .filter((md): md is number => md != null && md !== 999)
+  )]
+    .filter((md) => {
+      const nonPostponed = seasonMatches
+        .filter((m) => effectiveMatchdayOf(m) === md && m.status !== 'postponed')
+      if (nonPostponed.length === 0) return false
+      const hasStarted = nonPostponed.some(
+        (m) => m.status === 'finished' || new Date(m.match_date).getTime() <= nowMs
+      )
+      const allDone = nonPostponed.every((m) => m.status === 'finished')
+      return hasStarted && !allDone
+    })
+    .sort((a, b) => (mdIndex.matchdayAnchorDate.get(a) ?? 0) - (mdIndex.matchdayAnchorDate.get(b) ?? 0))
+    .at(-1) ?? null
+
+  const latestMatchdayByAnchor = () => allMatchdays.filter(md => md !== 999).reduce((latest, md) =>
+    (mdIndex.matchdayAnchorDate.get(md) ?? 0) > (mdIndex.matchdayAnchorDate.get(latest) ?? 0) ? md : latest
+  )
   const defaultMatchday = isPreSeason
     ? (hasTestMatchday ? 999 : 1)
-    : isBeforeMondayNoon && lastCompletedMd != null
-      ? lastCompletedMd
-      : (firstScheduled ?? allMatchdays.filter(md => md !== 999).reduce((latest, md) =>
-          (matchdayMinDate.get(md) ?? 0) > (matchdayMinDate.get(latest) ?? 0) ? md : latest
-        ))
+    : isBeforeMondayNoon
+      ? (inProgressMd ?? lastCompletedMd ?? firstScheduled ?? latestMatchdayByAnchor())
+      : (firstScheduled ?? latestMatchdayByAnchor())
   const requestedMd = params.matchday ? parseInt(params.matchday, 10) : null
   const currentMatchday =
     requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
