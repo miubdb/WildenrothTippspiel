@@ -180,6 +180,11 @@ export const SURVEY_SECTIONS: SectionDef[] = [
           'Nervt mich eher', 'Sollte abgeschafft werden', 'Ich wusste nichts von der Regel',
         ],
       },
+      {
+        id: 'q16_cashout', type: 'single', required: true,
+        text: 'Wie interessant fändest du eine Cashout-Funktion, mit der du eine laufende Wette bei bestimmten Spielen schon vor Spielende zu einer aktuellen Quote verkaufen könntest?',
+        options: ['Sehr interessant', 'Eher interessant', 'Unentschieden', 'Eher nicht interessant', 'Überhaupt nicht interessant'],
+      },
     ],
   },
   {

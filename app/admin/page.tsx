@@ -2047,28 +2047,30 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
                     legs.every(l => l.status === 'won') ? 'won' :
                     legs.every(l => l.status === 'void') ? 'void' :
                     'pending'
+                  const comboStake = comboMap[Number(bet.combo_id)]?.stake
                   return (
                     <div key={bet.combo_id} className="px-4 py-2.5">
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded flex-shrink-0">
                           {bet.is_risky ? '🎲 RISKY' : '🔗 KOMBI'}
                         </span>
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-gray-500 truncate">
                           {legs.length} Tipps · <span className={`font-semibold ${oddsColorClass(effectiveComboStatus)}`}>@{comboOdds.toFixed(2).replace('.', ',')}</span>
-                          {comboMap[Number(bet.combo_id)]?.stake != null && ` · ${comboMap[Number(bet.combo_id)].stake} ${wl(comboMap[Number(bet.combo_id)].stake)}`}
                         </span>
-                        {comboMap[Number(bet.combo_id)]?.stake != null && (
-                          <span className="text-[10px] text-gray-400 ml-auto">
-                            {effectiveComboStatus === 'won' && comboMap[Number(bet.combo_id)]?.payout != null
-                              ? <span className="font-bold text-green-600">+{comboMap[Number(bet.combo_id)]!.payout!.toFixed(2)} {wl(comboMap[Number(bet.combo_id)]!.payout!)}</span>
-                              : effectiveComboStatus === 'lost'
-                                ? <span className="text-red-400 line-through">{cappedPayout(comboMap[Number(bet.combo_id)]!.stake, comboOdds, bet.is_risky).toFixed(2)} {wl(cappedPayout(comboMap[Number(bet.combo_id)]!.stake, comboOdds, bet.is_risky))}</span>
-                                : <>{'→ mög. '}<span className="font-semibold text-gray-600">{cappedPayout(comboMap[Number(bet.combo_id)]!.stake, comboOdds, bet.is_risky).toFixed(2)} {wl(cappedPayout(comboMap[Number(bet.combo_id)]!.stake, comboOdds, bet.is_risky))}</span></>
-                            }
-                          </span>
-                        )}
-                        <StatusChip status={effectiveComboStatus} />
+                        <span className="ml-auto flex-shrink-0"><StatusChip status={effectiveComboStatus} /></span>
                       </div>
+                      {comboStake != null && (
+                        <div className="text-[10px] text-gray-400 mb-1.5 pl-0.5">
+                          Einsatz {comboStake} {wl(comboStake)}
+                          {' · '}
+                          {effectiveComboStatus === 'won' && comboMap[Number(bet.combo_id)]?.payout != null
+                            ? <span className="font-bold text-green-600">+{comboMap[Number(bet.combo_id)]!.payout!.toFixed(2)} {wl(comboMap[Number(bet.combo_id)]!.payout!)}</span>
+                            : effectiveComboStatus === 'lost'
+                              ? <span className="text-red-400 line-through">{cappedPayout(comboStake, comboOdds, bet.is_risky).toFixed(2)} {wl(cappedPayout(comboStake, comboOdds, bet.is_risky))}</span>
+                              : <>mög. Gewinn <span className="font-semibold text-gray-600">{cappedPayout(comboStake, comboOdds, bet.is_risky).toFixed(2)} {wl(cappedPayout(comboStake, comboOdds, bet.is_risky))}</span></>
+                          }
+                        </div>
+                      )}
                       {legs.map(leg => (
                         <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5 pl-2">
                           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-500' : leg.status === 'void' ? 'bg-gray-300' : 'bg-yellow-400'}`} />
@@ -2091,33 +2093,38 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
                   )
                 }
                 return (
-                  <div key={bet.id} className="px-4 py-2.5 flex items-center gap-2 text-xs">
-                    {bet.market_type === 'matchday_special' ? (
-                      <>
-                        <span className="text-orange-600 text-[10px] font-medium">{specialLegTitle(bet)}</span>
-                        <span className="font-medium text-gray-800">{specialLegSelection(bet)}</span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="text-gray-400">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
-                        <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px]">{CUP_MARKET_LABEL[bet.market_type] ?? MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
-                        <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
-                      </>
-                    )}
-                    {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
-                    <span className={`font-bold ml-auto ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
-                    <span className="text-gray-400">{bet.stake != null ? `${bet.stake} ${wl(bet.stake)}` : ''}</span>
+                  <div key={bet.id} className="px-4 py-2.5">
+                    <div className="flex items-center gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        {bet.market_type === 'matchday_special' ? (
+                          <>
+                            <span className="text-orange-600 text-[10px] font-medium truncate">{specialLegTitle(bet)}</span>
+                            <span className="font-medium text-gray-800 truncate">{specialLegSelection(bet)}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-gray-400 truncate">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
+                            <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px] flex-shrink-0">{CUP_MARKET_LABEL[bet.market_type] ?? MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
+                            <span className="font-medium text-gray-800 truncate">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
+                          </>
+                        )}
+                        {bet.is_risky && <span className="text-[10px] font-bold text-purple-700 flex-shrink-0">🎲</span>}
+                      </div>
+                      <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+                      <StatusChip status={bet.status} />
+                    </div>
                     {bet.stake != null && (
-                      <span className="text-[10px] text-gray-400">
+                      <div className="text-[10px] text-gray-400 mt-0.5">
+                        Einsatz {bet.stake} {wl(bet.stake)}
+                        {' · '}
                         {bet.status === 'won'
                           ? <span className="font-bold text-green-600">+{cappedPayout(bet.stake, bet.odds_value, bet.is_risky).toFixed(2)} {wl(cappedPayout(bet.stake, bet.odds_value, bet.is_risky))}</span>
                           : bet.status === 'lost'
                             ? <span className="text-red-400 line-through">{cappedPayout(bet.stake, bet.odds_value, bet.is_risky).toFixed(2)} {wl(cappedPayout(bet.stake, bet.odds_value, bet.is_risky))}</span>
-                            : <>{'→ mög. '}<span className="font-semibold text-gray-600">{cappedPayout(bet.stake, bet.odds_value, bet.is_risky).toFixed(2)} {wl(cappedPayout(bet.stake, bet.odds_value, bet.is_risky))}</span></>
+                            : <>mög. Gewinn <span className="font-semibold text-gray-600">{cappedPayout(bet.stake, bet.odds_value, bet.is_risky).toFixed(2)} {wl(cappedPayout(bet.stake, bet.odds_value, bet.is_risky))}</span></>
                         }
-                      </span>
+                      </div>
                     )}
-                    <StatusChip status={bet.status} />
                   </div>
                 )
               })}
