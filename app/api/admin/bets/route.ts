@@ -59,12 +59,14 @@ export async function GET(request: NextRequest) {
 
   // Stornierte (void) Tipps sollen im Admin-Tool gar nicht erst auftauchen —
   // gleiche Regel wie in jeder User-facing Ansicht (tipps, leaderboard).
+  // Newest first — this view is used to spot freshly placed bets, so the
+  // most recently submitted slip should be the first thing the admin sees.
   const { data: bets } = await supabase
     .from('bets')
     .select('id, user_id, match_id, market_type, selection, odds_value, status, combo_id, is_risky, stake, created_at, special_id')
     .in('match_id', matchIds)
     .neq('status', 'void')
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
 
   // Spieltag-Special legs carry `match_id` = representative_match_id (a
   // technical FK anchor, see lib/matchdaySpecials.ts) — never the real

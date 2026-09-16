@@ -898,7 +898,7 @@ export async function POST(request: NextRequest) {
 
       await Promise.allSettled(
         adminIds.map((a) =>
-          sendPushToUser(a.id, '🎫 Neue Wette', `${placerName}: ${betSummary}`, '/admin', 'new_bet')
+          sendPushToUser(a.id, '🎫 Neue Wette', `${placerName}: ${betSummary}`, '/admin?tab=spieltag', 'new_bet')
         )
       )
     }

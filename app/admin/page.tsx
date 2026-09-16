@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
 import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel, specialMarketLabel, specialSelectionLabel, type SpecialDisplayInfo } from '@/lib/betDisplay'
+import { cappedPayout } from '@/lib/payout'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, type EffectiveMatchdayIndex } from '@/lib/season'
 import { SurveyTab } from '@/components/admin/SurveyTab'
 import { BonusTipsAdmin } from '@/components/admin/BonusTipsAdmin'
@@ -57,8 +58,22 @@ interface AdminUser {
 
 type Tab = 'ergebnisse' | 'spieltag' | 'quoten' | 'verwaltung' | 'umfrage'
 
+const TAB_VALUES: Tab[] = ['ergebnisse', 'spieltag', 'quoten', 'verwaltung', 'umfrage']
+
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('ergebnisse')
+
+  // Deep-link support for the "🎫 Neue Wette" push notification — it opens
+  // /admin?tab=spieltag so tapping it lands directly on the bets view instead
+  // of the default "Ergebnisse" tab. Read via plain URLSearchParams in an
+  // effect (not useSearchParams()) since this page has no Suspense boundary
+  // and useSearchParams() would require one.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('tab')
+    if (requested && (TAB_VALUES as string[]).includes(requested)) {
+      setTab(requested as Tab)
+    }
+  }, [])
   const [matches, setMatches] = useState<MatchRow[]>([])
   const [scores, setScores] = useState<Record<number, { home: string; away: string }>>({})
   // Cup-only manual settlement inputs (see app/api/admin/settle/route.ts) —
@@ -1932,7 +1947,7 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
     setSelectedMd(currentMatchday)
     setSelectedMdInitialized(true)
   }, [currentMatchday, selectedMdInitialized])
-  const [bets, setBets] = useState<{ id: string; user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; is_risky: boolean; stake: number | null; special_id: number | null }[]>([])
+  const [bets, setBets] = useState<{ id: string; user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; is_risky: boolean; stake: number | null; special_id: number | null; created_at: string }[]>([])
   const [profiles, setProfiles] = useState<{ id: string; display_name: string | null; username: string }[]>([])
   const [matchMap, setMatchMap] = useState<Record<number, { home: string; away: string }>>({})
   const [playerMap, setPlayerMap] = useState<Record<number, string>>({})
@@ -1965,10 +1980,20 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
   }
 
   const profileMap = Object.fromEntries(profiles.map(p => [p.id, p.display_name || p.username]))
-  const byUser = profiles.map(p => ({
-    profile: p,
-    bets: bets.filter(b => b.user_id === p.id),
-  }))
+  // `bets` arrives newest-first (see /api/admin/bets's order by created_at
+  // desc) — sort the user cards themselves by their most recent bet too, so
+  // whoever just placed something bubbles to the top instead of sitting
+  // wherever the profiles query happened to return them.
+  const byUser = profiles
+    .map(p => ({
+      profile: p,
+      bets: bets.filter(b => b.user_id === p.id),
+    }))
+    .sort((a, b) => {
+      const at = a.bets[0]?.created_at ?? ''
+      const bt = b.bets[0]?.created_at ?? ''
+      return bt.localeCompare(at)
+    })
 
   return (
     <div className="space-y-4">
@@ -2032,6 +2057,16 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
                           {legs.length} Tipps · <span className={`font-semibold ${oddsColorClass(effectiveComboStatus)}`}>@{comboOdds.toFixed(2).replace('.', ',')}</span>
                           {comboMap[Number(bet.combo_id)]?.stake != null && ` · ${comboMap[Number(bet.combo_id)].stake} ${wl(comboMap[Number(bet.combo_id)].stake)}`}
                         </span>
+                        {comboMap[Number(bet.combo_id)]?.stake != null && (
+                          <span className="text-[10px] text-gray-400 ml-auto">
+                            {effectiveComboStatus === 'won' && comboMap[Number(bet.combo_id)]?.payout != null
+                              ? <span className="font-bold text-green-600">+{comboMap[Number(bet.combo_id)]!.payout!.toFixed(2)} {wl(comboMap[Number(bet.combo_id)]!.payout!)}</span>
+                              : effectiveComboStatus === 'lost'
+                                ? <span className="text-red-400 line-through">{cappedPayout(comboMap[Number(bet.combo_id)]!.stake, comboOdds, bet.is_risky).toFixed(2)} {wl(cappedPayout(comboMap[Number(bet.combo_id)]!.stake, comboOdds, bet.is_risky))}</span>
+                                : <>{'→ mög. '}<span className="font-semibold text-gray-600">{cappedPayout(comboMap[Number(bet.combo_id)]!.stake, comboOdds, bet.is_risky).toFixed(2)} {wl(cappedPayout(comboMap[Number(bet.combo_id)]!.stake, comboOdds, bet.is_risky))}</span></>
+                            }
+                          </span>
+                        )}
                         <StatusChip status={effectiveComboStatus} />
                       </div>
                       {legs.map(leg => (
@@ -2072,6 +2107,16 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
                     {bet.is_risky && <span className="text-[10px] font-bold text-purple-700">🎲</span>}
                     <span className={`font-bold ml-auto ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
                     <span className="text-gray-400">{bet.stake != null ? `${bet.stake} ${wl(bet.stake)}` : ''}</span>
+                    {bet.stake != null && (
+                      <span className="text-[10px] text-gray-400">
+                        {bet.status === 'won'
+                          ? <span className="font-bold text-green-600">+{cappedPayout(bet.stake, bet.odds_value, bet.is_risky).toFixed(2)} {wl(cappedPayout(bet.stake, bet.odds_value, bet.is_risky))}</span>
+                          : bet.status === 'lost'
+                            ? <span className="text-red-400 line-through">{cappedPayout(bet.stake, bet.odds_value, bet.is_risky).toFixed(2)} {wl(cappedPayout(bet.stake, bet.odds_value, bet.is_risky))}</span>
+                            : <>{'→ mög. '}<span className="font-semibold text-gray-600">{cappedPayout(bet.stake, bet.odds_value, bet.is_risky).toFixed(2)} {wl(cappedPayout(bet.stake, bet.odds_value, bet.is_risky))}</span></>
+                        }
+                      </span>
+                    )}
                     <StatusChip status={bet.status} />
                   </div>
                 )
