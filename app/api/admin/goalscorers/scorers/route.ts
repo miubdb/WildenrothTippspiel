@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser } from '@/lib/push'
@@ -137,6 +138,11 @@ export async function POST(request: NextRequest) {
   try {
     await finalizeMatchdayIfDone(admin, matchId)
   } catch (e) { console.error('Matchday finalization failed (goalscorer settlement):', e) }
+
+  // Same ISR-staleness fix as /api/admin/settle — see the comment there.
+  revalidatePath('/leaderboard')
+  revalidatePath('/tipps')
+  revalidatePath('/spieler/[id]', 'page')
 
   return NextResponse.json({ success: true, settled: bets?.length ?? 0, combosChecked: combosToCheck.size })
 }

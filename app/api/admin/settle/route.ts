@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser } from '@/lib/push'
@@ -345,6 +346,16 @@ export async function POST(request: NextRequest) {
   // and inactivity penalty whenever a goalscorer bet was the last thing to
   // settle for a Spieltag — see lib/matchdayFinalize.ts for the full logic.
   await finalizeMatchdayIfDone(admin, matchId)
+
+  // These pages cache their result for up to 60s (ISR, `export const
+  // revalidate = 60`) — without an explicit revalidate here, a bet that just
+  // flipped to won/lost (e.g. a combo losing the moment one leg's match is
+  // settled, well before every leg's match has kicked off) wouldn't show up
+  // anywhere until that window happened to lapse on its own, making
+  // freshly-settled results look randomly missing for up to a minute.
+  revalidatePath('/leaderboard')
+  revalidatePath('/tipps')
+  revalidatePath('/spieler/[id]', 'page')
 
   return NextResponse.json({
     success: true,
