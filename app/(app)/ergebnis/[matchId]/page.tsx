@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { fmtWildi, wildiLabel } from '@/components/WildiIcon'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
-import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
+import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel, specialMarketLabel, specialSelectionLabel, type SpecialDisplayInfo } from '@/lib/betDisplay'
 import type { Match } from '@/types'
 
 export const revalidate = 60
@@ -87,12 +87,19 @@ export default async function ErgebnisPage({
   const mdIndex = buildEffectiveMatchdayIndex((seasonMatchesRaw ?? []) as Match[])
   const backMatchday = effectiveMatchdayOf(match as Match, mdIndex) ?? match.matchday
 
+  // matchday_special excluded on purpose: a Spieltag-Special's match_id is
+  // only its representative_match_id (a technical FK anchor, see
+  // lib/matchdaySpecials.ts), NOT a bet on this fixture — listing it on this
+  // match's result page claimed the Special was won/lost by this one game.
+  // Filtering it here also keeps a combo out of this page whose only leg on
+  // this match is the Special one.
   const { data: betsRaw } = await supabase
     .from('bets')
     .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky')
     .eq('match_id', matchId)
     .eq('user_id', user.id)
     .neq('status', 'void')
+    .neq('market_type', 'matchday_special')
 
   const bets = betsRaw ?? []
   const singles = bets.filter(b => !b.combo_id)
@@ -103,10 +110,15 @@ export default async function ErgebnisPage({
   type ComboLeg = {
     id: number; match_id: number; market_type: string; selection: string
     odds_value: number; status: string; combo_id: number
+    special_id: number | null
     matchName: { home: string | null; away: string | null }
   }
   const combos: ComboRow[] = []
   const comboLegsMap: Record<number, ComboLeg[]> = {}
+  // Joined Spieltag-Specials for any Special leg inside these combos — a
+  // Special leg must show its own market/answer, never the anchor match's
+  // team names (see lib/betDisplay.ts).
+  const specialsById: Record<number, SpecialDisplayInfo> = {}
 
   if (comboIds.length > 0) {
     const { data: cbRows } = await supabase
@@ -118,7 +130,7 @@ export default async function ErgebnisPage({
     // Fetch ALL legs of each combo (other matches too, for display)
     const { data: allLegsRaw } = await supabase
       .from('bets')
-      .select(`id, match_id, market_type, selection, odds_value, status, combo_id,
+      .select(`id, match_id, market_type, selection, odds_value, status, combo_id, special_id,
                match:matches(home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name))`)
       .in('combo_id', comboIds.map(Number))
     for (const raw of allLegsRaw ?? []) {
@@ -135,8 +147,29 @@ export default async function ErgebnisPage({
         odds_value: raw.odds_value,
         status: raw.status,
         combo_id: cid,
+        special_id: (raw.special_id as number | null) ?? null,
         matchName: { home: hTeam?.name ?? null, away: aTeam?.name ?? null },
       })
+    }
+
+    const specialIds = [...new Set(
+      Object.values(comboLegsMap).flat()
+        .map((l) => l.special_id)
+        .filter((id): id is number => id != null)
+    )]
+    if (specialIds.length > 0) {
+      const { data: specialRows } = await supabase
+        .from('matchday_specials')
+        .select('id, matchday, template_key, options, settlement_result')
+        .in('id', specialIds)
+      for (const s of specialRows ?? []) {
+        specialsById[s.id as number] = {
+          matchday: s.matchday as number,
+          template_key: s.template_key as string,
+          options: s.options as { key: string; label: string }[],
+          settlement_result: s.settlement_result as { finalStat: number; winningKey: string } | null,
+        }
+      }
     }
   }
 
@@ -305,17 +338,28 @@ export default async function ErgebnisPage({
                 const lHome = leg.matchName.home
                 const lAway = leg.matchName.away
                 const dotCls = leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-amber-400'
-                const isThisMatch = leg.match_id === matchId
+                // A Special leg only shares this match's id as a technical
+                // anchor — it is neither "this match" nor described by its
+                // teams, so it gets its own label and no "← dieses Spiel".
+                const special = leg.market_type === 'matchday_special' && leg.special_id != null
+                  ? specialsById[leg.special_id]
+                  : undefined
+                const isSpecialLeg = leg.market_type === 'matchday_special'
+                const isThisMatch = !isSpecialLeg && leg.match_id === matchId
                 return (
                   <div key={leg.id} className={`flex items-start gap-2 px-4 py-2.5 ${isThisMatch ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
                     <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5 ${dotCls}`} />
                     <div className="flex-1 min-w-0">
                       <div className="text-[10px] text-gray-400 dark:text-gray-500">
-                        {lHome ?? '?'} – {lAway ?? '?'}
+                        {isSpecialLeg
+                          ? (special ? specialMarketLabel(special) : 'Spieltag-Special')
+                          : <>{lHome ?? '?'} – {lAway ?? '?'}</>}
                         {isThisMatch && <span className="ml-1 text-blue-500">← dieses Spiel</span>}
                       </div>
                       <div className="text-xs font-medium text-gray-800 dark:text-gray-200">
-                        {selLabel(leg.market_type, leg.selection, players)}
+                        {isSpecialLeg
+                          ? (special ? specialSelectionLabel(special, leg.selection) : leg.selection)
+                          : selLabel(leg.market_type, leg.selection, players)}
                       </div>
                     </div>
                     <span className={`text-xs font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>

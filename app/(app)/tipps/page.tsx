@@ -1101,7 +1101,7 @@ export default async function TippsPage({
   if (anyMatchStarted && matchdayMatchIds.length > 0) {
     const { data: rawSocial } = await supabase
       .from('bets')
-      .select('id, market_type, selection, odds_value, status, combo_id, user_id, match_id, stake, special_id')
+      .select('id, market_type, selection, odds_value, status, combo_id, user_id, match_id, stake, special_id, is_risky')
       .in('match_id', matchdayMatchIds)
 
     if (rawSocial && rawSocial.length > 0) {
