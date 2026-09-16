@@ -140,9 +140,12 @@ export async function POST(request: NextRequest) {
   } catch (e) { console.error('Matchday finalization failed (goalscorer settlement):', e) }
 
   // Same ISR-staleness fix as /api/admin/settle — see the comment there.
-  revalidatePath('/leaderboard')
-  revalidatePath('/tipps')
-  revalidatePath('/spieler/[id]', 'page')
+  // Wrapped for the same reason: payouts are already booked at this point.
+  try {
+    revalidatePath('/leaderboard')
+    revalidatePath('/tipps')
+    revalidatePath('/spieler/[id]', 'page')
+  } catch (e) { console.error('revalidatePath after goalscorer settlement failed:', e) }
 
   return NextResponse.json({ success: true, settled: bets?.length ?? 0, combosChecked: combosToCheck.size })
 }

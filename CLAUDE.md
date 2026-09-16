@@ -123,6 +123,20 @@ player/coach can't place a bet whose payout depends on their own team not winnin
 **Season filter:** only matches with `match_date >= SEASON_START` (currently `'2026-08-01'`) count
 for odds and standings — this constant is duplicated per-file, not shared config.
 
+**The 1000-row cap (silent data loss):** every Supabase `.select()` stops at PostgREST's
+server-side row limit (1000) with **no error and no truncation flag** — a truncated result is
+indistinguishable from a complete one. `bets` (1128 rows), `match_lineups` and
+`prior_season_matches` are already at or past that line and every table here only grows. Any query
+that is **not** narrowed to a handful of rows (`.eq('id', …)`, `.eq('user_id', …)`,
+`.in('match_id', <one matchday>)`, `.single()`, `.limit(n)`) **must** page through
+`fetchAllRows` (`lib/supabase/paginatedSelect.ts`) with a stable unique `.order('id')` before
+`.range(from, to)`. Filters like `.eq('season', …)`, `.neq('status', 'void')` or
+`.eq('status', 'pending')` do **not** count as narrowing — they still return whole-table-sized
+result sets. This has already caused one silent production bug: the Spieltag-Rangliste dropped
+11 of 13 bet slips because the leg rows past row 1000 never arrived, so those combos had no
+Spieltag mapping and were skipped. When touching any query over `bets`/`combo_bets`/`matches`,
+check the current row count first (`select count(*)`), don't assume it's small.
+
 ### Matchday scheduling quirk
 
 The BFV (district football association) sometimes schedules a matchday's actual kickoff well out

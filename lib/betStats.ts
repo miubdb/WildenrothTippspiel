@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { cappedPayout } from './payout'
+import { fetchAllRows } from './supabase/paginatedSelect'
 
 /**
  * Single source of truth for spielerbezogene Wett-Statistiken. Profil,
@@ -476,15 +477,26 @@ export async function computeAllUsersBetStats(
   supabase: SupabaseClient,
   season: string = STATS_CURRENT_SEASON,
 ): Promise<Map<string, UserBetStats>> {
-  const [{ data: betsRaw }, { data: combosRaw }] = await Promise.all([
-    supabase
+  // Whole-table reads (the season split happens in JS below), so they have to
+  // page through fetchAllRows — a plain .select() silently stops at
+  // PostgREST's 1000-row cap, and `bets` is already past it. Truncation here
+  // wouldn't error, it would just quietly compute every player's Trefferquote,
+  // Ø-Quote and Serien from a partial history.
+  const [betsRaw, combosRaw] = await Promise.all([
+    fetchAllRows((from, to) => supabase
       .from('bets')
       .select('id, user_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season')
-      .neq('status', 'void'),
-    supabase
+      .neq('status', 'void')
+      .order('id')
+      .range(from, to)
+    ),
+    fetchAllRows((from, to) => supabase
       .from('combo_bets')
       .select('id, user_id, stake, total_odds, status, payout, created_at, season')
-      .neq('status', 'void'),
+      .neq('status', 'void')
+      .order('id')
+      .range(from, to)
+    ),
   ])
 
   const bets = ((betsRaw ?? []) as (BetRow & { user_id: string; season: string | null })[]).filter(b => b.season === season)

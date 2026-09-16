@@ -347,15 +347,17 @@ export async function POST(request: NextRequest) {
   // settle for a Spieltag — see lib/matchdayFinalize.ts for the full logic.
   await finalizeMatchdayIfDone(admin, matchId)
 
-  // These pages cache their result for up to 60s (ISR, `export const
-  // revalidate = 60`) — without an explicit revalidate here, a bet that just
-  // flipped to won/lost (e.g. a combo losing the moment one leg's match is
-  // settled, well before every leg's match has kicked off) wouldn't show up
-  // anywhere until that window happened to lapse on its own, making
-  // freshly-settled results look randomly missing for up to a minute.
-  revalidatePath('/leaderboard')
-  revalidatePath('/tipps')
-  revalidatePath('/spieler/[id]', 'page')
+  // These pages cache their result (ISR) — without an explicit revalidate
+  // here, a bet that just flipped to won/lost (e.g. a combo losing the moment
+  // one leg's match is settled, well before every leg's match has kicked off)
+  // wouldn't show up until that window happened to lapse on its own.
+  // Wrapped: the balances and bet rows are already written at this point, so a
+  // cache-API hiccup must never surface as a failed settlement to the admin.
+  try {
+    revalidatePath('/leaderboard')
+    revalidatePath('/tipps')
+    revalidatePath('/spieler/[id]', 'page')
+  } catch (e) { console.error('revalidatePath after settlement failed:', e) }
 
   return NextResponse.json({
     success: true,

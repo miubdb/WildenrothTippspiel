@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildEffectiveMatchdayIndex, recapMatchdayOf } from '@/lib/season'
 import { computeAndPersistMatchdayAwards, type AwardType } from '@/lib/awards'
+import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import type { Match } from '@/types'
 
 const SEASON_START = '2026-08-01'
@@ -69,11 +70,16 @@ export async function POST() {
   }
 
   // Only process recap-Spieltage that actually have at least one settled bet.
-  const { data: settledBets } = await admin
+  // Season-wide read → fetchAllRows, otherwise PostgREST's silent 1000-row cap
+  // would hide later Spieltage's bets and skip those matchdays entirely.
+  const settledBets = await fetchAllRows((from, to) => admin
     .from('bets')
     .select('match_id')
     .eq('season', CURRENT_SEASON)
     .in('status', ['won', 'lost'])
+    .order('id')
+    .range(from, to)
+  )
   const settledMatchIds = new Set((settledBets ?? []).map((b) => b.match_id as number))
 
   const processedMatchdays: number[] = []
