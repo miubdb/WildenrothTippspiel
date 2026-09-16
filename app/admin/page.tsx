@@ -121,16 +121,23 @@ export default function AdminPage() {
   // the Spieltag the admin is actually working on, instead of a raw date
   // window or "always the season's first fixture".
   const mdIndex = useMemo(() => buildEffectiveMatchdayIndex(matches as unknown as Match[]), [matches])
-  // The earliest Kreisliga Spieltag (in display order) that still has an
-  // unsettled match — i.e. "the Spieltag the admin is currently working on".
-  // Falls back to the last Spieltag once every Kreisliga match is finished.
+  // The earliest Spieltag (in display order) that still has a match waiting to
+  // be settled — i.e. "the Spieltag the admin is currently working on".
+  // Deliberately NOT limited to Kreisliga: a Spieltag whose Kreisliga games are
+  // done while its Wildenroth-II/Topspiel game follows the next evening still
+  // needs its result entered, and restricting this to Kreisliga made the whole
+  // admin area jump to the next Spieltag the moment the last Kreisliga match
+  // finished. effectiveMatchdayOf returns null for a plain (non-Topspiel)
+  // B-Klasse match, so those never pin a Spieltag open.
+  // 'postponed' doesn't count as outstanding either — otherwise one indefinitely
+  // postponed match would park the admin on an old Spieltag forever.
   const currentMatchday = useMemo(() => {
     for (const md of mdIndex.kreisligaMatchdaysDisplayOrder) {
       const hasUnsettled = matches.some((m) =>
-        (!m.match_category || m.match_category === 'kreisliga') &&
         m.matchday !== 999 &&
         effectiveMatchdayOf(m as unknown as Match, mdIndex) === md &&
-        m.status !== 'finished'
+        m.status !== 'finished' &&
+        m.status !== 'postponed'
       )
       if (hasUnsettled) return md
     }
