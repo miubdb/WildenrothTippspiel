@@ -105,7 +105,13 @@ export function AllTippsSection({
 
   const comboFirstMatchId = new Map<string, number>()
   for (const b of activeSocial) {
-    if (!b.combo_id) continue
+    // Never let a Spieltag-Special leg decide (or even count toward) which
+    // match "hosts" a combo card — its match_id is only representative_match_id
+    // (technical FK anchor), and a combo can hold at most one Special leg
+    // alongside at least one real-match leg (see MatchdaySpecialsSection's
+    // "max 1 Special pro Kombi" rule), so skipping it here always still
+    // leaves a real match to anchor on.
+    if (!b.combo_id || b.market_type === 'matchday_special') continue
     const cid = String(b.combo_id)
     if (!comboFirstMatchId.has(cid)) {
       comboFirstMatchId.set(cid, b.match_id)
@@ -224,7 +230,7 @@ export function AllTippsSection({
           const singles = activeSocial
             .filter(b => !b.combo_id && b.match_id === match.id && b.market_type !== 'matchday_special')
             .sort((a, b) => b.odds_value - a.odds_value)
-          const legsOnThisMatch = activeSocial.filter(b => b.combo_id && b.match_id === match.id)
+          const legsOnThisMatch = activeSocial.filter(b => b.combo_id && b.match_id === match.id && b.market_type !== 'matchday_special')
           const comboIdsHere = [...new Set(legsOnThisMatch.map(b => b.combo_id as string))]
             .sort((a, b) => {
               const oa = legsOnThisMatch.find(l => l.combo_id === a)?.odds_value ?? 0
