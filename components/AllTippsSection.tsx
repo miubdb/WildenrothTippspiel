@@ -129,6 +129,21 @@ export function AllTippsSection({
   const specialSingles = activeSocial
     .filter(b => !b.combo_id && b.market_type === 'matchday_special')
     .sort((a, b) => b.odds_value - a.odds_value)
+  // Combos that hold a Spieltag-Special leg — same idea as specialSingles,
+  // but for the combo case: a combo with a Special leg only ever showed up
+  // under whichever REAL match hosts it (comboFirstMatchId, computed purely
+  // from its real legs), buried behind "+N weitere Tipps" — there was no
+  // place a Special-bet-at-a-glance view like specialSingles gets. Listed
+  // here too (dedup by combo_id — the app only ever allows one Special leg
+  // per combo, see MatchdaySpecialsSection's "max 1 pro Kombi" rule) so a
+  // combo's Special pick is just as visible as a match's own bets are.
+  const specialComboLegs = [
+    ...new Map(
+      activeSocial
+        .filter(b => b.combo_id && b.market_type === 'matchday_special')
+        .map(b => [b.combo_id as string, b])
+    ).values(),
+  ].sort((a, b) => b.odds_value - a.odds_value)
   const hasSpecialBets = nonVoidSocial.some(b => b.market_type === 'matchday_special')
   // specialBetCount (passed from the server, via an admin-client query not
   // gated behind "has any match kicked off yet") can be > 0 while
@@ -174,7 +189,7 @@ export function AllTippsSection({
         </div>
       )}
 
-      {specialSingles.length > 0 && (
+      {(specialSingles.length > 0 || specialComboLegs.length > 0) && (
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 space-y-2">
           <div className="text-xs font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wide">🔥 Spieltag-Specials</div>
           {specialSingles.map(bet => {
@@ -197,6 +212,66 @@ export function AllTippsSection({
                   {bet.status === 'pending' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                   {bet.status === 'won' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                   {bet.status === 'lost' && <span>Einsatz: <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span></span>}
+                </div>
+              </details>
+            )
+          })}
+          {specialComboLegs.map(specialLeg => {
+            const comboId = specialLeg.combo_id as string
+            const legs = activeSocial.filter(b => b.combo_id === comboId)
+            const otherLegs = legs.filter(l => l.id !== specialLeg.id)
+            const cb = socialCombos[comboId]
+            const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
+            const stake = cb?.stake ?? 0
+            const potWin = Math.round(stake * totalOdds * 100) / 100
+            const comboStatus = comboStatusOf(comboId)
+            const edgeCls = comboStatus === 'won' ? 'border-l-green-500' : comboStatus === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
+            const legMoot = specialLeg.status === 'pending' && comboStatus === 'lost'
+            return (
+              <details key={comboId} className={`group rounded-lg bg-orange-50/50 dark:bg-orange-950/20 border-l-4 ${edgeCls} overflow-hidden`}>
+                <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
+                  {renderAvatar(specialLeg.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
+                  <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(specialLeg.user_id)}</span>
+                  <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
+                  <LegResultMark moot={legMoot} />
+                  <span className={`truncate flex-1 min-w-0 ${legMoot ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>
+                    <span className="block text-[10px] text-orange-600 dark:text-orange-400 font-medium truncate">{specialLegTitle(specialLeg)}</span>
+                    {specialLegLabel(specialLeg)}
+                  </span>
+                  <span className={`font-bold flex-shrink-0 ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span>
+                  <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
+                </summary>
+                <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 space-y-1.5">
+                  {legMoot && (
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 italic">
+                      Dieser Tipp ist noch offen, aber die Kombi ist bereits an anderer Stelle verloren.
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400">
+                    <span>{legs.length} Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                    {stake > 0 && comboStatus === 'pending' && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
+                    {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
+                    {comboStatus === 'lost' && stake > 0 && <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>}
+                  </div>
+                  <div className="space-y-1">
+                    {otherLegs.map(leg => {
+                      const moot = leg.status === 'pending' && comboStatus === 'lost'
+                      const lm = matchMap.get(leg.match_id)
+                      const finished = lm?.status === 'finished' && lm.home_score != null
+                      return (
+                        <div key={leg.id} className={`flex items-start gap-1.5 text-xs py-0.5 ${moot ? 'opacity-50' : ''}`}>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-1">
+                              <span className="text-gray-400 dark:text-gray-500 text-[10px] truncate">{lm?.home_team?.short_name ?? lm?.home_team?.name ?? '?'} – {lm?.away_team?.short_name ?? lm?.away_team?.name ?? '?'}</span>
+                              {finished && <span className="text-gray-400 dark:text-gray-500 text-[10px] font-bold flex-shrink-0">{lm!.home_score}:{lm!.away_score}</span>}
+                            </div>
+                            <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
+                          </div>
+                          <span className={`font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               </details>
             )
