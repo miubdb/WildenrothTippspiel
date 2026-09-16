@@ -219,6 +219,10 @@ export function AllTippsSection({
           {specialComboLegs.map(specialLeg => {
             const comboId = specialLeg.combo_id as string
             const legs = activeSocial.filter(b => b.combo_id === comboId)
+            // Special leg rendered as just another leg at the bottom of the
+            // list (see below), not spotlighted in the header — matches how
+            // every other combo leg looks, keeps the header focused on the
+            // combo itself rather than mixing in one leg's own answer/odds.
             const otherLegs = legs.filter(l => l.id !== specialLeg.id)
             const cb = socialCombos[comboId]
             const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
@@ -235,10 +239,9 @@ export function AllTippsSection({
                   <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
                   <LegResultMark moot={legMoot} />
                   <span className={`truncate flex-1 min-w-0 ${legMoot ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>
-                    <span className="block text-[10px] text-orange-600 dark:text-orange-400 font-medium truncate">{specialLegTitle(specialLeg)}</span>
-                    {specialLegLabel(specialLeg)}
+                    {specialLegTitle(specialLeg)}
                   </span>
-                  <span className={`font-bold flex-shrink-0 ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span>
+                  <span className={`font-bold flex-shrink-0 ${oddsColorClass(specialLeg.status)}`}>@{specialLeg.odds_value.toFixed(2).replace('.', ',')}</span>
                   <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
                 </summary>
                 <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 space-y-1.5">
@@ -271,6 +274,15 @@ export function AllTippsSection({
                         </div>
                       )
                     })}
+                    {/* Special leg last, plain — same neutral row style as
+                        every other leg above, no orange spotlighting. */}
+                    <div className={`flex items-start gap-1.5 text-xs py-0.5 ${legMoot ? 'opacity-50' : ''}`}>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-gray-400 dark:text-gray-500 text-[10px] truncate">{specialLegTitle(specialLeg)}</div>
+                        <div className="font-medium text-gray-800 dark:text-gray-200">{specialLegLabel(specialLeg)}</div>
+                      </div>
+                      <span className={`font-bold flex-shrink-0 ${oddsColorClass(specialLeg.status)}`}>@{specialLeg.odds_value.toFixed(2).replace('.', ',')}</span>
+                    </div>
                   </div>
                 </div>
               </details>
