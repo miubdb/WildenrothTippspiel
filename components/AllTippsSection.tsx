@@ -286,7 +286,14 @@ export function AllTippsSection({
                 const comboStatus = comboStatusOf(comboId)
                 const borderCls = comboStatus === 'won' ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20' : comboStatus === 'lost' ? 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20' : 'border-blue-100 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10'
                 const edgeCls = comboStatus === 'won' ? 'border-l-green-500' : comboStatus === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
-                const ownLeg = legs.find(l => l.match_id === match.id) ?? legs[0]
+                // Prefer a REAL leg on this match over a Special leg that
+                // happens to share the same match_id — a combo can contain
+                // BOTH a genuine bet on the representative match itself AND
+                // a Spieltag-Special leg (whose match_id is that same
+                // representative match, purely as a technical FK anchor).
+                // Picking the Special leg here would show its answer (e.g.
+                // "Ja") as if it were this match's own tip.
+                const ownLeg = legs.find(l => l.match_id === match.id && l.market_type !== 'matchday_special') ?? legs[0]
                 const otherLegs = legs.filter(l => l.id !== ownLeg.id)
                 const ownLegMoot = ownLeg.status === 'pending' && comboStatus === 'lost'
                 const legWonButComboLost = ownLeg.status === 'won' && comboStatus === 'lost'
