@@ -198,15 +198,15 @@ export function AllTippsSection({
             const edgeCls = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
             return (
               <details key={bet.id} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
-                <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
-                  {renderAvatar(bet.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
-                  <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(bet.user_id)}</span>
-                  <span className="truncate flex-1 min-w-0 text-gray-600 dark:text-gray-300">
-                    <span className="block text-[10px] text-gray-400 dark:text-gray-500 font-medium truncate">{specialLegTitle(bet)}</span>
-                    {specialLegLabel(bet)}
-                  </span>
-                  <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
-                  <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
+                <summary className="px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
+                  <div className="flex items-center gap-1.5 text-xs">
+                    {renderAvatar(bet.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
+                    <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(bet.user_id)}</span>
+                    <span className="truncate flex-1 min-w-0 text-gray-600 dark:text-gray-300">{specialLegLabel(bet)}</span>
+                    <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
+                  </div>
+                  <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 pl-[1.375rem]">{specialLegTitle(bet)}</div>
                 </summary>
                 <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 text-[11px] text-gray-500 dark:text-gray-400">
                   {bet.status === 'pending' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
@@ -233,16 +233,16 @@ export function AllTippsSection({
             const legMoot = specialLeg.status === 'pending' && comboStatus === 'lost'
             return (
               <details key={comboId} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
-                <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
-                  {renderAvatar(specialLeg.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
-                  <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(specialLeg.user_id)}</span>
-                  <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
-                  <LegResultMark moot={legMoot} />
-                  <span className={`truncate flex-1 min-w-0 ${legMoot ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>
-                    {specialLegTitle(specialLeg)}
-                  </span>
-                  <span className={`font-bold flex-shrink-0 ${oddsColorClass(specialLeg.status)}`}>@{specialLeg.odds_value.toFixed(2).replace('.', ',')}</span>
-                  <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
+                <summary className="px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
+                  <div className="flex items-center gap-1.5 text-xs">
+                    {renderAvatar(specialLeg.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
+                    <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(specialLeg.user_id)}</span>
+                    <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
+                    <LegResultMark moot={legMoot} />
+                    <span className={`font-bold ml-auto flex-shrink-0 ${oddsColorClass(specialLeg.status)}`}>@{specialLeg.odds_value.toFixed(2).replace('.', ',')}</span>
+                    <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
+                  </div>
+                  <div className={`text-[10px] mt-0.5 pl-[1.375rem] ${legMoot ? 'text-gray-300 dark:text-gray-600' : 'text-gray-400 dark:text-gray-500'}`}>{specialLegTitle(specialLeg)}</div>
                 </summary>
                 <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 space-y-1.5">
                   {legMoot && (
