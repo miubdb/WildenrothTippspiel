@@ -316,7 +316,7 @@ export default async function TippsPage({
     .map((s) => ({ ...s, closed: new Date(s.closes_at) <= new Date() }))
 
   // Every Special of this Spieltag (any status, not just 'active') — needed to
-  // render an ALREADY-PLACED bet's real "🔥 Spieltag N · <Markt>: <Antwort>"
+  // render an ALREADY-PLACED bet's real "Spieltag N · <Markt>: <Antwort>"
   // label wherever bets are listed (MyBets, Alle Tipps, Recap). A Special
   // bet's own match_id is only representative_match_id (technical FK anchor,
   // see lib/matchdaySpecials.ts) — never derive its display from that match.
@@ -1190,7 +1190,7 @@ export default async function TippsPage({
           const special = b.special_id != null ? specialsById[b.special_id] : undefined
           if (!special) return undefined
           return {
-            matchName: `🔥 Spieltag ${special.matchday}`,
+            matchName: `Spieltag ${special.matchday}`,
             market: specialShortTitle(special.template_key),
             selection: specialSelectionLabel(special, b.selection),
           }
@@ -1278,7 +1278,7 @@ export default async function TippsPage({
           if (l.market_type === 'matchday_special') {
             const special = l.special_id != null ? specialsById[l.special_id] : undefined
             return {
-              matchName: special ? `🔥 Spieltag ${special.matchday}` : '🔥 Spieltag-Special',
+              matchName: special ? `Spieltag ${special.matchday}` : 'Spieltag-Special',
               market: special ? specialShortTitle(special.template_key) : '',
               selection: special ? specialSelectionLabel(special, l.selection) : l.selection,
               odds: l.odds_value,

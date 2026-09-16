@@ -38,7 +38,7 @@ export function AllTippsSection({
   userId: string
   specialsById?: Record<number, SpecialDisplayInfo>
 }) {
-  // "🔥 Spieltag-Special" label for a bet leg — falls back to the generic
+  // "Spieltag-Special" label for a bet leg — falls back to the generic
   // socialSelLabel-style text if the Special row isn't joined for some
   // reason, but must NEVER fall through to the representative match's own
   // team names (see lib/betDisplay.ts's doc comment on why).
@@ -48,7 +48,7 @@ export function AllTippsSection({
   }
   const specialLegTitle = (leg: { special_id: number | null }): string => {
     const special = leg.special_id != null ? specialsById?.[leg.special_id] : undefined
-    return special ? specialMarketLabel(special) : '🔥 Spieltag-Special'
+    return special ? specialMarketLabel(special) : 'Spieltag-Special'
   }
   const [onlyActive, setOnlyActive] = useState(false)
   const now = useMemo(() => new Date(), [])
@@ -182,7 +182,7 @@ export function AllTippsSection({
 
       {specialsLocked && (
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-          <div className="text-xs font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wide mb-1">🔥 Spieltag-Specials</div>
+          <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Spieltag-Specials</div>
           <p className="text-xs text-gray-400 dark:text-gray-500">
             🔒 {specialBetCount} Wettschein{specialBetCount !== 1 ? 'e' : ''} · sichtbar ab Anpfiff
           </p>
@@ -191,18 +191,18 @@ export function AllTippsSection({
 
       {(specialSingles.length > 0 || specialComboLegs.length > 0) && (
         <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 space-y-2">
-          <div className="text-xs font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wide">🔥 Spieltag-Specials</div>
+          <div className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Spieltag-Specials</div>
           {specialSingles.map(bet => {
             const stake = bet.stake ?? 0
             const potWin = Math.round(stake * bet.odds_value * 100) / 100
             const edgeCls = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
             return (
-              <details key={bet.id} className={`group rounded-lg bg-orange-50/50 dark:bg-orange-950/20 border-l-4 ${edgeCls} overflow-hidden`}>
+              <details key={bet.id} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
                 <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
                   {renderAvatar(bet.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
                   <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(bet.user_id)}</span>
                   <span className="truncate flex-1 min-w-0 text-gray-600 dark:text-gray-300">
-                    <span className="block text-[10px] text-orange-600 dark:text-orange-400 font-medium truncate">{specialLegTitle(bet)}</span>
+                    <span className="block text-[10px] text-gray-400 dark:text-gray-500 font-medium truncate">{specialLegTitle(bet)}</span>
                     {specialLegLabel(bet)}
                   </span>
                   <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
@@ -232,7 +232,7 @@ export function AllTippsSection({
             const edgeCls = comboStatus === 'won' ? 'border-l-green-500' : comboStatus === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
             const legMoot = specialLeg.status === 'pending' && comboStatus === 'lost'
             return (
-              <details key={comboId} className={`group rounded-lg bg-orange-50/50 dark:bg-orange-950/20 border-l-4 ${edgeCls} overflow-hidden`}>
+              <details key={comboId} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
                 <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
                   {renderAvatar(specialLeg.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
                   <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(specialLeg.user_id)}</span>
@@ -393,7 +393,7 @@ export function AllTippsSection({
                     return (
                       <div key={leg.id} className={`flex items-start gap-1.5 text-xs py-0.5 ${moot ? 'opacity-50' : ''}`}>
                         <div className="flex-1 min-w-0">
-                          <div className="text-orange-600 dark:text-orange-400 text-[10px] truncate font-medium">{specialLegTitle(leg)}</div>
+                          <div className="text-gray-400 dark:text-gray-500 text-[10px] truncate">{specialLegTitle(leg)}</div>
                           <div className="font-medium text-gray-800 dark:text-gray-200">{specialLegLabel(leg)}</div>
                         </div>
                         <span className={`font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>

@@ -77,7 +77,7 @@ function legToWetteLeg(leg: Leg, matchMap: Record<number, { home: string; away: 
     const special = leg.special_id != null ? specialsById?.[leg.special_id] : undefined
     return {
       id: leg.id,
-      matchName: special ? specialMarketLabel(special) : '🔥 Spieltag-Special',
+      matchName: special ? specialMarketLabel(special) : 'Spieltag-Special',
       market: leg.market_type,
       selection: special ? specialSelectionLabel(special, leg.selection) : selLabel(leg.market_type, leg.selection, players),
       odds: leg.odds_value,

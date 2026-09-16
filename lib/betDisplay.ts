@@ -183,10 +183,10 @@ export function specialShortTitle(templateKey: string): string {
   return SPECIAL_SHORT_TITLE[templateKey] ?? templateKey
 }
 
-/** "🔥 Spieltag 2 · Gesamttore" — replaces the normal "Heim – Gast" match
+/** "Spieltag 2 · Gesamttore" — replaces the normal "Heim – Gast" match
  *  line for a Special bet everywhere it's shown. */
 export function specialMarketLabel(special: Pick<SpecialDisplayInfo, 'matchday' | 'template_key'>): string {
-  return `🔥 Spieltag ${special.matchday} · ${specialShortTitle(special.template_key)}`
+  return `Spieltag ${special.matchday} · ${specialShortTitle(special.template_key)}`
 }
 
 /** The natural-language answer text ("27 oder mehr", "Ja", ...) for the

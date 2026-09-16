@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
   // Spieltag-Special legs carry `match_id` = representative_match_id (a
   // technical FK anchor, see lib/matchdaySpecials.ts) — never the real
   // subject of the bet. Join matchday_specials so the UI can render the
-  // actual "🔥 Spieltag N · <Markt>: <Antwort>" instead of that anchor
+  // actual "Spieltag N · <Markt>: <Antwort>" instead of that anchor
   // match's team names (see lib/betDisplay.ts's doc comment on why).
   const CURRENT_SEASON_SPECIALS = '26/27'
   const { data: specialsRaw } = await supabase

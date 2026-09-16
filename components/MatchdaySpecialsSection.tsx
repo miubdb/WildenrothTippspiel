@@ -23,7 +23,7 @@ export interface MatchdaySpecialForDisplay {
 }
 
 /**
- * "🔥 SPIELTAG-SPECIALS" — normal, stake/odds-bearing bets whose outcome
+ * "SPIELTAG-SPECIALS" — normal, stake/odds-bearing bets whose outcome
  * spans the whole Spieltag rather than one match (see lib/matchdaySpecials.ts
  * for the engine). Rendered after the last normal match card on /tipps.
  * `representative_match_id` is only a technical FK anchor for the shared
@@ -41,12 +41,12 @@ export function MatchdaySpecialsSection({ specials }: { specials: MatchdaySpecia
     <div className="space-y-3 pt-2">
       <div className="flex items-center gap-2 pt-1">
         <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
-        <span className="text-xs text-orange-500 font-bold uppercase tracking-wide">🔥 Spieltag-Specials</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400 font-bold uppercase tracking-wide">Spieltag-Specials</span>
         <div className="flex-1 h-px bg-gray-200 dark:bg-gray-700" />
       </div>
 
       {mode === 'combo' && hasSpecialInSlip && (
-        <div className="text-xs text-orange-700 bg-orange-50 dark:bg-orange-950/40 dark:text-orange-300 rounded-xl px-3 py-2 font-medium">
+        <div className="text-xs text-gray-600 bg-gray-100 dark:bg-gray-800 dark:text-gray-300 rounded-xl px-3 py-2 font-medium">
           Pro Kombi ist maximal ein Spieltag-Special möglich.
         </div>
       )}
@@ -55,12 +55,12 @@ export function MatchdaySpecialsSection({ specials }: { specials: MatchdaySpecia
         <div
           key={special.id}
           className={`bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-4 ${
-            special.closed ? 'border-gray-200 dark:border-gray-700 opacity-60' : 'border-orange-200 dark:border-orange-900/60'
+            special.closed ? 'border-gray-200 dark:border-gray-700 opacity-60' : 'border-gray-200 dark:border-gray-700'
           }`}
         >
           <div className="flex flex-col items-center text-center gap-1.5 mb-3.5">
-            <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300 px-2 py-0.5 rounded-full font-bold tracking-wide">
-              🔥 SPECIAL
+            <span className="text-xs bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 px-2 py-0.5 rounded-full font-bold tracking-wide">
+              SPECIAL
             </span>
             <span className="text-sm font-bold text-gray-900 dark:text-gray-100 leading-snug max-w-xs">{special.title}</span>
           </div>

@@ -1967,12 +1967,12 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
       .finally(() => setLoading(false))
   }, [selectedMd])
 
-  // "🔥 Spieltag N · <Markt>" / "<Antwort>" for a matchday_special leg —
+  // "Spieltag N · <Markt>" / "<Antwort>" for a matchday_special leg —
   // its match_id is only the representative_match_id (technical FK anchor),
   // so showing that match's team names would misrepresent what was bet on.
   const specialLegTitle = (leg: { special_id: number | null }): string => {
     const special = leg.special_id != null ? specialsById[leg.special_id] : undefined
-    return special ? specialMarketLabel(special) : '🔥 Spieltag-Special'
+    return special ? specialMarketLabel(special) : 'Spieltag-Special'
   }
   const specialLegSelection = (leg: { special_id: number | null; selection: string }): string => {
     const special = leg.special_id != null ? specialsById[leg.special_id] : undefined
@@ -2076,7 +2076,7 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
                           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-500' : leg.status === 'void' ? 'bg-gray-300' : 'bg-yellow-400'}`} />
                           {leg.market_type === 'matchday_special' ? (
                             <>
-                              <span className="text-orange-600 text-[10px] font-medium">{specialLegTitle(leg)}</span>
+                              <span className="text-gray-400 text-[10px]">{specialLegTitle(leg)}</span>
                               <span className="font-medium text-gray-800">{specialLegSelection(leg)}</span>
                             </>
                           ) : (
@@ -2094,23 +2094,21 @@ function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow
                 }
                 return (
                   <div key={bet.id} className="px-4 py-2.5">
-                    <div className="flex items-center gap-2 text-xs">
-                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                        {bet.market_type === 'matchday_special' ? (
-                          <>
-                            <span className="text-orange-600 text-[10px] font-medium truncate">{specialLegTitle(bet)}</span>
-                            <span className="font-medium text-gray-800 truncate">{specialLegSelection(bet)}</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="text-gray-400 truncate">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
-                            <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px] flex-shrink-0">{CUP_MARKET_LABEL[bet.market_type] ?? MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
-                            <span className="font-medium text-gray-800 truncate">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
-                          </>
-                        )}
-                        {bet.is_risky && <span className="text-[10px] font-bold text-purple-700 flex-shrink-0">🎲</span>}
-                      </div>
-                      <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+                    <div className="flex items-start gap-1.5 text-xs flex-wrap">
+                      {bet.market_type === 'matchday_special' ? (
+                        <>
+                          <span className="text-gray-400 text-[10px]">{specialLegTitle(bet)}</span>
+                          <span className="font-medium text-gray-800">{specialLegSelection(bet)}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-gray-400">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
+                          <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px] flex-shrink-0">{CUP_MARKET_LABEL[bet.market_type] ?? MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
+                          <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
+                        </>
+                      )}
+                      {bet.is_risky && <span className="text-[10px] font-bold text-purple-700 flex-shrink-0">🎲</span>}
+                      <span className={`font-bold ml-auto flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
                       <StatusChip status={bet.status} />
                     </div>
                     {bet.stake != null && (

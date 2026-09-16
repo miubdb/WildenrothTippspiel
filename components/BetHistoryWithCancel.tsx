@@ -93,7 +93,7 @@ function betMatchName(bet: Bet, specialsById?: Record<number, SpecialDisplayInfo
   // see lib/matchdaySpecials.ts) — never show that match's teams for it.
   if (bet.market_type === 'matchday_special') {
     const special = bet.special_id != null ? specialsById?.[bet.special_id] : undefined
-    return special ? specialMarketLabel(special) : '🔥 Spieltag-Special'
+    return special ? specialMarketLabel(special) : 'Spieltag-Special'
   }
   const m = bet.match
   if (!m) return 'Unbekanntes Spiel'

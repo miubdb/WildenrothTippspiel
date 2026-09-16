@@ -38,7 +38,7 @@ export const MARKET_LABELS: Record<string, string> = {
   handicap: 'Handicap',
   goalscorer: 'Torschütze',
   goalscorer_2plus: 'Torschütze 2+',
-  matchday_special: '🔥 Spieltag-Special',
+  matchday_special: 'Spieltag-Special',
 }
 
 export const SELECTION_LABELS: Record<string, string> = {
