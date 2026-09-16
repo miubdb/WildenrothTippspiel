@@ -658,8 +658,9 @@ export interface BalancePoint {
  * einem Punkt aggregiert.
  *
  * Es gibt in dieser App keine Buchungshistorie mit Zeitstempel für
- * Taschengeld/Strafen (weekly_pocket_money_log verzeichnet nur, OB eine
- * Woche ausgezahlt wurde, nicht an wen/wie viel) — die Summe aus allen
+ * Taschengeld/Strafen (beide werden pro Spieltag direkt auf das Guthaben
+ * gebucht, siehe lib/matchdayFinalize.ts — festgehalten wird nur, DASS ein
+ * Spieltag verbucht wurde, nicht an wen/wie viel) — die Summe aus allen
  * Nicht-Wett-Buchungen wird deshalb bewusst NICHT über die Zeitachse
  * verteilt (das wäre Raten), sondern als EIN letzter, klar beschrifteter
  * Schritt angehängt.

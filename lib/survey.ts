@@ -169,7 +169,7 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       },
       {
         id: 'q15', type: 'single', required: true,
-        text: 'Nach jedem Spieltag gibt es jeden Montag automatisch 10 Wildis Taschengeld – auch damit Spieler ohne Guthaben weiterspielen können. Wie findest du die Höhe?',
+        text: 'Nach jedem abgerechneten Spieltag gibt es automatisch 10 Wildis Taschengeld – auch damit Spieler ohne Guthaben weiterspielen können. Wie findest du die Höhe?',
         options: ['Zu wenig', 'Passt', 'Zu viel', 'Ist mir egal'],
       },
       {

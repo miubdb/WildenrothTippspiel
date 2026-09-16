@@ -8,11 +8,20 @@ import type { Match } from '@/types'
 const SEASON_START = '2026-08-01'
 const CURRENT_SEASON = '26/27'
 const INACTIVITY_PENALTY = 50
+/** Credited to every eligible player once per completed Spieltag — the
+ *  counterpart to INACTIVITY_PENALTY, which is also charged per Spieltag.
+ *  Replaced the old weekly Monday-noon cron (add_weekly_pocket_money) so both
+ *  sides of the balance now follow the same rhythm: no Spieltag, no booking
+ *  (e.g. during the winter break), and a midweek catch-up Spieltag pays out
+ *  like any other. Paid regardless of whether the player bet — its purpose is
+ *  letting someone who ran out of Wildis back into the game. */
+const POCKET_MONEY_PER_MATCHDAY = 10
 
 /**
  * "Did settling this one match just complete its whole Spieltag's story?" —
- * if so, persist awards, send the recap push, and apply the inactivity
- * penalty, each exactly once. Called from BOTH app/api/admin/settle/route.ts
+ * if so, persist awards, send the recap push, apply the inactivity penalty
+ * and credit the per-Spieltag pocket money, each exactly once. Called from
+ * BOTH app/api/admin/settle/route.ts
  * (after a match's score is entered) and
  * app/api/admin/goalscorers/scorers/route.ts (after goalscorer bets settle,
  * which can be the LAST thing to resolve for a Spieltag — a goalscorer-only
@@ -134,5 +143,30 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
           .map((p) => admin.rpc('apply_penalty', { p_user_id: p.id, p_amount: INACTIVITY_PENALTY }))
       )
     }
+  }
+
+  // Pocket money — same per-Spieltag rhythm and the same
+  // insert-as-dedup-lock pattern as the penalty above, but its OWN lock row:
+  // keeping them separate means one can't silently swallow the other if the
+  // penalty block was already recorded for this Spieltag (e.g. by an earlier
+  // deploy) while this one hadn't run yet.
+  const { error: pocketMoneyDedupError } = await admin
+    .from('push_reminders')
+    .insert({ type: 'pocket_money', matchday, season: CURRENT_SEASON })
+  if (!pocketMoneyDedupError) {
+    // Everyone allowed to play this season, whether they bet or not — a
+    // player sitting at 0 Wildis is exactly who this is for. Ineligible
+    // accounts are excluded for the same reason they're excluded from the
+    // penalty: they were never able to take part.
+    const { data: payoutProfiles } = await admin
+      .from('profiles')
+      .select('id')
+      .or('eligible_for_current_season.eq.true,is_admin.eq.true')
+
+    await Promise.allSettled(
+      (payoutProfiles ?? []).map((p) =>
+        admin.rpc('increment_balance', { p_user_id: p.id, p_amount: POCKET_MONEY_PER_MATCHDAY })
+      )
+    )
   }
 }
