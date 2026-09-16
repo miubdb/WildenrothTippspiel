@@ -313,7 +313,7 @@ export default async function TippsPage({
         .order('display_order', { ascending: true })
     : { data: null }
   const activeSpecials = ((activeSpecialsRaw ?? []) as unknown as (MatchdaySpecialForDisplay & { closes_at: string })[])
-    .filter((s) => new Date(s.closes_at) > new Date())
+    .map((s) => ({ ...s, closed: new Date(s.closes_at) <= new Date() }))
 
   // Every Special of this Spieltag (any status, not just 'active') — needed to
   // render an ALREADY-PLACED bet's real "🔥 Spieltag N · <Markt>: <Antwort>"

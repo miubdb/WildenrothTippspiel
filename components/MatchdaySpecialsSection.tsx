@@ -15,6 +15,11 @@ export interface MatchdaySpecialForDisplay {
   line: number | null
   options: SpecialOption[]
   representative_match_id: number
+  /** True once closes_at has passed — mirrors BettingMatchCard's own
+   *  kickoff-passed treatment (grayed out, "keine Tipps mehr möglich") rather
+   *  than vanishing outright, so a Special stays visible/checkable the same
+   *  way a normal match card does after its own kickoff. */
+  closed?: boolean
 }
 
 /**
@@ -49,7 +54,9 @@ export function MatchdaySpecialsSection({ specials }: { specials: MatchdaySpecia
       {specials.map((special) => (
         <div
           key={special.id}
-          className="bg-white dark:bg-gray-800 rounded-2xl border border-orange-200 dark:border-orange-900/60 shadow-sm p-4"
+          className={`bg-white dark:bg-gray-800 rounded-2xl border shadow-sm p-4 ${
+            special.closed ? 'border-gray-200 dark:border-gray-700 opacity-60' : 'border-orange-200 dark:border-orange-900/60'
+          }`}
         >
           <div className="flex flex-col items-center text-center gap-1.5 mb-3.5">
             <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/50 dark:text-orange-300 px-2 py-0.5 rounded-full font-bold tracking-wide">
@@ -65,6 +72,7 @@ export function MatchdaySpecialsSection({ specials }: { specials: MatchdaySpecia
               return (
                 <button
                   key={opt.key}
+                  disabled={special.closed}
                   onClick={() =>
                     addSelection({
                       matchId: special.representative_match_id,
@@ -78,19 +86,26 @@ export function MatchdaySpecialsSection({ specials }: { specials: MatchdaySpecia
                     })
                   }
                   className={`rounded-xl py-3 px-3 text-center border transition-colors ${
-                    isSelected
-                      ? 'bg-red-700 border-red-700 text-white'
-                      : 'bg-gray-50 dark:bg-gray-900/40 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:border-red-300'
+                    special.closed
+                      ? 'bg-gray-50 dark:bg-gray-900/40 border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                      : isSelected
+                        ? 'bg-red-700 border-red-700 text-white'
+                        : 'bg-gray-50 dark:bg-gray-900/40 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:border-red-300'
                   }`}
                 >
                   <div className="text-sm font-semibold">{opt.label}</div>
-                  <div className={`text-sm font-bold mt-0.5 ${isSelected ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
+                  <div className={`text-sm font-bold mt-0.5 ${!special.closed && isSelected ? 'text-white' : 'text-gray-900 dark:text-gray-100'}`}>
                     {opt.final_odds.toFixed(2).replace('.', ',')}
                   </div>
                 </button>
               )
             })}
           </div>
+          {special.closed && (
+            <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+              <span className="text-xs font-medium text-gray-400 dark:text-gray-500">Wettschluss erreicht – keine Tipps mehr möglich</span>
+            </div>
+          )}
         </div>
       ))}
     </div>
