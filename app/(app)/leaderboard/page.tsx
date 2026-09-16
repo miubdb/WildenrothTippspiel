@@ -11,12 +11,11 @@ import { CUP_MARKET_LABEL, cupSelectionLabel, type SpecialDisplayInfo, specialSh
 import { computeStornoChamp } from '@/lib/awards'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 
-// Kept dynamic (was `revalidate = 60`): this page has to reflect settlement
-// results the moment they land, and the settlement routes' revalidatePath()
-// only covers settlements from here on. Recomputing per request is cheap
-// enough on a page this size and removes a whole class of staleness bugs.
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+// Short cache instead of the previous 60s: settlement results have to show up
+// promptly, and both settlement routes call revalidatePath('/leaderboard')
+// right after writing, so this window is only a backstop for anything that
+// changes without going through them.
+export const revalidate = 5
 
 type ComboMap = Record<string, ComboMeta>
 
