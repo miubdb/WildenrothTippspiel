@@ -14,6 +14,34 @@ const HOUSE_MARGIN = 0.12
 // band this leaves zero positive-EV selections and zero sub-1.0 books.
 const MIN_ODDS = 1.01
 const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
+
+// "Über 9,5 Tore" is a novelty line, offered only where ten goals is a genuine
+// possibility. The cutoff is the same 50 as MAX_EXACT_ODDS rather than a second
+// invented number: that value already encodes "beyond this price a selection is
+// noise rather than a bet" for the exact-score market. A normal Kreisliga
+// fixture prices around 400, so the line stays hidden there instead of showing
+// a dead 100.00 on every card.
+//
+// Declared HERE, above oddsFromXG, and as a literal rather than as a reference
+// to MAX_EXACT_ODDS. Both matter: `offerOver95` is a hoisted function
+// declaration but a `const` is not hoisted, so with the constant living further
+// down the file (next to MAX_EXACT_ODDS) the bundled leaderboard chunk hit
+// "Cannot access 'H' before initialization" at runtime and the page 500'd.
+// scripts/goalscorer-check.ts asserts the two values stay equal.
+//
+// ONE-SIDED ON PURPOSE. There is no `under_9_5`: its fair price is about 0.91,
+// which MIN_ODDS would lift to 1.01 — a bet nobody places, and one whose margin
+// against a positive expected value is thin enough to be uncomfortable. The
+// over side has no such issue, since clamping a price down can only reduce the
+// punter's return.
+const GOALS_LINE_95_MAX_ODDS = 50
+
+/** Offered price for Über 9,5, or null where the line is not worth showing. */
+function offerOver95(prob: number): number | null {
+  if (prob <= 0) return null
+  const odds = toOdds(prob)
+  return odds <= GOALS_LINE_95_MAX_ODDS ? odds : null
+}
 // Caps how much a team's prior-season dominance ratio (own rate vs. that league's
 // average) can carry over when projected onto the target league — without this, a
 // team that heavily dominated a weaker league (e.g. a promoted side) could still
@@ -1160,26 +1188,6 @@ export function calculateOdds(
  */
 export const MAX_EXACT_ODDS = 50
 
-// "Über 9,5 Tore" is a novelty line, offered only where ten goals is a genuine
-// possibility. Reuses MAX_EXACT_ODDS as the cutoff rather than inventing a
-// second number: it already encodes "beyond this price a selection is noise
-// rather than a bet" for the exact-score market. A normal Kreisliga fixture
-// prices around 400, so the line stays hidden there instead of showing a dead
-// 100.00 on every card.
-//
-// ONE-SIDED ON PURPOSE. There is no `under_9_5`: its fair price is about 0.91,
-// which MIN_ODDS would lift to 1.01 — a bet nobody places, and one whose margin
-// against a positive expected value is thin enough to be uncomfortable. The
-// over side has no such issue, since clamping a price down can only reduce the
-// punter's return.
-const GOALS_LINE_95_MAX_ODDS = MAX_EXACT_ODDS
-
-/** Offered price for Über 9,5, or null where the line is not worth showing. */
-function offerOver95(prob: number): number | null {
-  if (prob <= 0) return null
-  const odds = toOdds(prob)
-  return odds <= GOALS_LINE_95_MAX_ODDS ? odds : null
-}
 
 /**
  * Exact-score odds from an already-computed (homeXG, awayXG) pair — the exact

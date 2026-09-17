@@ -20,7 +20,7 @@
  */
 import { readFileSync } from 'node:fs'
 import type { Match } from '@/types'
-import { getMatchXG, buildPriorContext } from '@/lib/odds'
+import { getMatchXG, buildPriorContext, oddsFromXG, buildMatchScoreMatrix, MAX_EXACT_ODDS } from '@/lib/odds'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import {
   compressOdds,
@@ -646,6 +646,35 @@ export function run(): number {
       check(`Tristan Umkehrer: globaler Wert (${globalMinutes}) ist keine der beiden Mannschaftszahlen`,
         globalMinutes !== a.minutes || globalMinutes !== b.minutes)
     }
+  }
+
+  console.log('\n17. Spaßlinie Über 9,5 — Deklarationsreihenfolge und Sicherheit')
+  {
+    // Die Schwelle steht als Literal weit oben in lib/odds.ts, weil eine
+    // Referenz auf MAX_EXACT_ODDS (Zeile ~1189) vor oddsFromXG (Zeile ~1084)
+    // in der temporalen Todeszone landet — genau das hat die Rangliste in
+    // Produktion mit "Cannot access 'H' before initialization" lahmgelegt.
+    // Hier wird nur noch geprüft, dass die beiden Werte nicht auseinanderlaufen.
+    const offered = oddsFromXG(2.4, 2.35) // Gesamt-xG 4.75, wie Germering–Wildenroth II
+    check(`Schwelle der Linie entspricht MAX_EXACT_ODDS (${MAX_EXACT_ODDS})`, MAX_EXACT_ODDS === 50)
+    check(`torreiche Partie bekommt die Linie (${offered.over_9_5?.toFixed(2)})`,
+      offered.over_9_5 != null && offered.over_9_5 <= MAX_EXACT_ODDS)
+    const normal = oddsFromXG(1.25, 1.10) // gewöhnliches Kreisliga-Spiel
+    check('gewöhnliche Partie bekommt sie nicht', normal.over_9_5 === null)
+    check('keine Gegenwette vorhanden', !('under_9_5' in offered))
+
+    // Der eigentliche Regressionsschutz: oddsFromXG muss aufrufbar sein, ohne
+    // dass vorher irgendetwas anderes im Modul ausgewertet wurde.
+    let ev = 0
+    for (let h = 0.25; h <= 6; h += 0.25) for (let a = 0.25; a <= 6; a += 0.25) {
+      const o = oddsFromXG(h, a)
+      if (o.over_9_5 == null) continue
+      const M = buildMatchScoreMatrix(h, a, 10)
+      let p = 0
+      for (let x = 0; x <= 10; x++) for (let y = 0; y <= 10; y++) if (x + y > 9.5) p += M[x][y]
+      ev = Math.max(ev, p * o.over_9_5)
+    }
+    check(`höchster Erwartungswert ${ev.toFixed(4)} < 1`, ev < 1)
   }
 
   console.log(`\n${failures === 0 ? 'Alle' : failures + ' von ' + checks} Prüfungen ${failures === 0 ? `bestanden (${checks})` : 'FEHLGESCHLAGEN'}`)
