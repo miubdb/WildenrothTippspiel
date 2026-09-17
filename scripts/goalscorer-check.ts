@@ -23,6 +23,7 @@ import type { Match } from '@/types'
 import { getMatchXG, buildPriorContext } from '@/lib/odds'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import {
+  compressOdds,
   computeGoalscorerOffers,
   computeGoalscorerOffersForMatch,
   type WildenrothPlayer,
@@ -413,6 +414,64 @@ export function run(): number {
     check('Σ playerXG bleibt in beiden Fällen exakt das Team-xG',
       near(lowOther.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 2.0, 1e-9) &&
       near(highOther.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 2.0, 1e-9))
+  }
+
+  console.log('\n13. Pricing-Layer — Longshot-Kompression')
+  {
+    // Monotonie auf dichtem Gitter: die Reihenfolge der Spieler darf sich nie drehen.
+    let prev = -Infinity, mono = true
+    for (let r = 1.01; r <= 600; r += 0.01) { const v = compressOdds(r); if (!(v > prev)) { mono = false; break } prev = v }
+    check('streng monoton steigend über den gesamten Bereich', mono)
+
+    check('identisch bis zur Kompressionsgrenze (r ≤ 6)',
+      [1.2, 1.62, 3.17, 3.46, 5.77, 5.999].every((r) => near(compressOdds(r), r, 1e-12)))
+
+    // C¹: Wert UND Steigung stimmen an der Nahtstelle überein, also kein Knick.
+    const eps = 1e-6
+    const slopeL = (compressOdds(6) - compressOdds(6 - eps)) / eps
+    const slopeR = (compressOdds(6 + eps) - compressOdds(6)) / eps
+    check(`stetig differenzierbar bei r = 6 (Steigung ${slopeL.toFixed(4)} → ${slopeR.toFixed(4)})`,
+      near(compressOdds(6), 6, 1e-12) && Math.abs(slopeL - slopeR) < 1e-3)
+
+    check('nähert sich 30 von unten, erreicht es nie',
+      [100, 500, 5000, 1e9].every((r) => compressOdds(r) < 30) && compressOdds(1e9) > 29.8,
+      `o(1e9) = ${compressOdds(1e9).toFixed(4)}`)
+
+    check('komprimiert nur nach unten — kann keinen positiven Erwartungswert erzeugen',
+      Array.from({ length: 2000 }, (_, i) => 1.2 + i * 0.3).every((r) => compressOdds(r) <= r + 1e-12))
+
+    // Keine künstlichen Stufen: unterschiedliche Wahrscheinlichkeiten → unterschiedliche Quoten.
+    const probes = [0.0019, 0.0028, 0.0039, 0.0049, 0.0058, 0.0088, 0.0115, 0.0137, 0.0168, 0.0434]
+    const priced = probes.map((pr) => Math.round(compressOdds(1 / (pr * 1.15)) * 100) / 100)
+    check(`keine doppelten Quoten bei benachbarten Wahrscheinlichkeiten (${priced.slice(0, 4).join(' / ')} …)`,
+      new Set(priced).size === priced.length)
+
+    // Am realen Spieltag-8-Kader.
+    for (const side of ['1', '2'] as const) {
+      const r = computeGoalscorerOffers(squadFor(side), side === '1' ? 2.038 : 2.651, ctxFor(side))
+      const offered = r.offers.filter((o) => o.is_offered)
+      const odds = offered.map((o) => o.odds_score)
+      check(`Squad ${side}: jede angebotene Quote ≤ 30`, odds.every((o) => o <= 30), `max ${Math.max(...odds).toFixed(2)}`)
+      check(`Squad ${side}: kein Spieler exakt am Cap`, odds.filter((o) => o >= 29.995).length === 0)
+      check(`Squad ${side}: ${new Set(odds).size} verschiedene Quoten bei ${odds.length} Angeboten`,
+        new Set(odds).size >= odds.length - 1)
+      const worst = Math.max(...offered.map((o) => o.prob_score * o.odds_score))
+      check(`Squad ${side}: höchster Erwartungswert ${worst.toFixed(3)} < 1`, worst < 1)
+      // Reihenfolge: nach Wahrscheinlichkeit sortiert muss die Quote monoton fallen.
+      const byProb = [...offered].sort((a, b) => b.prob_score - a.prob_score)
+      check(`Squad ${side}: Reihenfolge durch die Kompression unverändert`,
+        byProb.every((o, i) => i === 0 || byProb[i - 1].odds_score <= o.odds_score))
+      // Das Wahrscheinlichkeitsmodell bleibt unberührt.
+      check(`Squad ${side}: Σ playerXG weiterhin exakt das Team-xG`,
+        near(r.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), side === '1' ? 2.038 : 2.651, 1e-9))
+      // Toleranz = halber Cent: odds_score ist auf zwei Nachkommastellen gerundet
+      // und darf dadurch minimal über der ungerundeten fairen Quote liegen.
+      check(`Squad ${side}: angebotene Quote nie länger als die faire Quote`,
+        offered.every((o) => o.odds_score <= o.diagnostics.fairOddsScore + 0.005))
+      const compressed = offered.filter((o) => o.diagnostics.fairOddsScore > 6)
+      check(`Squad ${side}: ${compressed.length} Quoten tatsächlich komprimiert, ${offered.length - compressed.length} unverändert`,
+        compressed.every((o) => o.odds_score < o.diagnostics.fairOddsScore))
+    }
   }
 
   console.log(`\n${failures === 0 ? 'Alle' : failures + ' von ' + checks} Prüfungen ${failures === 0 ? `bestanden (${checks})` : 'FEHLGESCHLAGEN'}`)

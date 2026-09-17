@@ -223,9 +223,27 @@ inventing a residual.
 Scoring probability sets the PRICE, never whether a player appears. Goalkeepers are never offered;
 players an admin marked as outside the squad / injured / missing / not bettable are not. The old
 `MIN_PROB_SCORE`/`MIN_PROJ_MINUTES` gates are gone from the scorer market (the 2+ market keeps one).
-`MAX_ODDS` was raised 30 → 100 for this: at 30 roughly three quarters of a squad would pile onto the
-identical maximum price. Clamping DOWN is always safe for the book; the risky direction is `MIN_ODDS`,
-which would need a player xG of 1.79 to turn positive-EV and never gets close (asserted in the checks).
+
+**Pricing layer** (`compressOdds`) — separate from the probability model and the only thing that
+decides the OFFERED price. `prob_score`, `playerXG` and `diagnostics.fairOddsScore` keep the model's
+honest numbers. Offering every player means fair prices run to 458/1; Spieltag 1-7 never showed
+anything above 30 only because the old model hid those players, so raw pricing made Spieltag 8 a
+visibly different product (measured Wildenroth I preview: median 63.5 vs a historical 10.3, 15 of 21
+above 30). The function is
+
+    o(r) = r                                      for r ≤ 6
+    o(r) = 30 − D/(1 + (r−6)/D),   D = 30 − 6,    for r > 6
+
+Identity below 6 (every favourite keeps its price to the cent), C¹ at the join (both branches meet
+at value 6 and slope 1), strictly increasing so player order can never flip, asymptotic to 30 from
+below so nothing piles up on the cap, and `o(r) ≤ r` always — compression can only shorten a price,
+never create positive EV. The upper branch decays like 1/x rather than exp(−x) **on purpose**: an
+exponential branch sits within 0.5 of the cap from raw ≈ 100 onward, which just relocates the
+pile-up (raw 311 and raw 458 would both price 30.00; harmonic gives 28.27 vs 28.80). Rounding to two
+decimals is the LAST step, so prices are continuous decimals, never buckets. `MAX_ODDS = 30` is the
+asymptote, not a clamp. The 2+ market uses the same function: measured on Spieltag 8 only 1 (I) and
+3 (II) selections clear the 5 % threshold at all, with fair odds of 4.8-12.1, so nothing there comes
+near 30 and a separate cap of 40/50 would change nothing.
 
 **Per-team current-season stats** (`wildenroth_player_team_stats`) — ~8 players turn out for both
 Wildenroth I (Kreisliga) and II (B-Klasse), and `wildenroth_players.games/minutes/goals` is one

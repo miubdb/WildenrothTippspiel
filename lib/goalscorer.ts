@@ -37,18 +37,57 @@ import { getMatchXG, type PriorContext } from '@/lib/odds'
 // mechanism for a miscalibrated probability.
 const HOUSE_MARGIN = 0.15
 const MIN_ODDS = 1.20
-// Raised from 30. While only a handful of likely scorers were offered, 30 was
-// never reached in practice. Now that EVERY outfield player in the matchday
-// squad is offered (see the offering rule below), a cap of 30 would pile a
-// 3%-chance squad player and a 0.5%-chance one onto the identical price and
-// destroy the differentiation the model just earned. 100 matches lib/odds.ts's
-// technical ceiling and keeps players distinct down to ~0.9% (below that the
-// fair price exceeds 100). Clamping DOWN is always safe for the book — it can
-// only reduce the punter's return, never create positive EV. The risky
-// direction is MIN_ODDS, which clamps up: that would need p > 1/1.20 = 83%,
-// i.e. a player xG of 1.79, which no allocation reaches (checked in
-// scripts/goalscorer-check.ts).
-const MAX_ODDS = 100.0
+// Back to 30 — the level Spieltag 1-7 was priced at. See the PRICING LAYER
+// below: 30 is the ASYMPTOTE the compression approaches, never a value it
+// reaches, so nothing piles up on it.
+const MAX_ODDS = 30.0
+
+// ---------- PRICING LAYER ----------
+//
+// Separate from the probability model on purpose. `prob_score` and `playerXG`
+// are the model's honest output and are stored and diagnosed unchanged; this
+// only decides how the fair price derived from them is PRESENTED.
+//
+// Why it exists: once every outfield player is offered, the fair prices run to
+// 458/1 (George Condor, 0.19 %). Spieltag 1-7 never showed anything above 30
+// only because the old model hid those players entirely. Offering them at the
+// raw fair price would make Spieltag 8 read as a different product — the
+// measured Wildenroth I preview had a median of 63.5 against a historical 10.3,
+// and 15 of 21 players above 30.
+//
+// A plain `min(raw, 30)` is exactly what must NOT happen: it would hand a
+// 32/1 player and a 458/1 player the identical price and destroy the
+// differentiation the corrected model just earned.
+//
+// The function used instead:
+//
+//     o(r) = r                                        for r ≤ T
+//     o(r) = CAP − D / (1 + (r − T)/D),  D = CAP − T,  for r > T
+//
+// Properties, all of which are asserted in scripts/goalscorer-check.ts:
+//   - identity below T: the favourites keep their price to the cent
+//   - C¹ at r = T: both branches meet at value T and slope 1, so no kink
+//   - strictly increasing everywhere: player order can never flip
+//   - asymptotic to CAP from below, never reaching it: no pile-up
+//   - o(r) ≤ r always, so compression can only shorten a price — it can never
+//     create a positive-EV bet
+//
+// T = 6 because the five players a Wildenroth card actually revolves around
+// price between 1.6 and 5.8; T = 6 leaves every one of them untouched and
+// starts compressing immediately after. The upper branch decays like 1/x rather
+// than exp(−x) deliberately: an exponential branch is within 0.5 of the cap from
+// raw ≈ 100 onward, which re-creates the pile-up one step further out (raw 311
+// and raw 458 would both price at 30.00). The harmonic branch still separates
+// them — 28.25 against 28.79.
+const PRICE_COMPRESSION_START = 6.0
+
+/** Raw fair odds → offered odds. See the PRICING LAYER block above. */
+export function compressOdds(raw: number, cap = MAX_ODDS, start = PRICE_COMPRESSION_START): number {
+  if (!Number.isFinite(raw)) return cap
+  if (raw <= start) return raw
+  const d = cap - start
+  return cap - d / (1 + (raw - start) / d)
+}
 
 // Bayesian shrinkage of per-90 goal rate toward a position-based prior.
 const PRIOR_GAMES = 5
@@ -252,6 +291,10 @@ export type GoalscorerPlayerDiagnostics = {
   share: number
   /** teamMatchXG × (1 − OWN_GOAL_SHARE) × share. */
   playerXG: number
+  /** Fair odds straight from `playerXG`, BEFORE the pricing compression —
+   *  stored so the offered price stays auditable against the model. */
+  fairOddsScore: number
+  fairOddsScore2plus: number
   /** Why he is not in the pool at all, if he isn't. */
   excluded: 'goalkeeper' | 'inactive' | 'blocked' | null
 }
@@ -277,9 +320,16 @@ function clamp(odds: number): number {
   return Math.max(MIN_ODDS, Math.min(MAX_ODDS, odds))
 }
 
+/** Fair odds from a probability — the model's own number, before pricing. */
+function fairOdds(prob: number): number {
+  return prob > 0 ? 1 / (prob * (1 + HOUSE_MARGIN)) : Infinity
+}
+
+/** The price actually offered: fair odds put through the compression above and
+ *  rounded to two decimals. Rounding is the LAST step so the result is a
+ *  continuous decimal (8.37, 13.62, 21.48…) rather than a bucket. */
 function toOdds(prob: number): number {
-  if (prob <= 0) return MAX_ODDS
-  return Math.round((1 / (prob * (1 + HOUSE_MARGIN))) * 100) / 100
+  return Math.round(compressOdds(fairOdds(prob)) * 100) / 100
 }
 
 function positionPrior(position: string | null): number {
@@ -612,6 +662,8 @@ export function computeGoalscorerOffers(
         rawWeight: weights[i],
         share,
         playerXG,
+        fairOddsScore: fairOdds(probScore),
+        fairOddsScore2plus: fairOdds(probScore2plus),
         excluded: p.excluded,
       },
     }
