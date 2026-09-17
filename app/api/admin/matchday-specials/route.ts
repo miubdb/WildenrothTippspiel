@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import { generateSpecialCandidates, pickDiverseSuggestions, type SpecialTemplateKey } from '@/lib/matchdaySpecials'
+import { loadOddsModelInputs } from '@/lib/oddsInputs'
 import type { Match } from '@/types'
 
 /** Same match_odds_overrides lookup every other odds computation in this app
@@ -27,7 +28,6 @@ async function loadXgOverrides(supabase: Awaited<ReturnType<typeof createClient>
   return overrides
 }
 
-const SEASON_START = '2026-08-01'
 const CURRENT_SEASON = '26/27'
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
@@ -39,16 +39,14 @@ async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) 
 }
 
 async function loadMatchdayContext(supabase: Awaited<ReturnType<typeof createClient>>, matchday: number) {
-  const { data: seasonMatchesRaw } = await supabase
-    .from('matches')
-    .select('id, matchday, tippspiel_matchday, match_date, match_category, is_topspiel, home_team_id, away_team_id, status, home_score, away_score, competition_type')
-    .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
-  const seasonMatches = (seasonMatchesRaw ?? []) as Match[]
+  // Same loader as freeze/preview/recalc: a Special is priced off the exact
+  // team-strength estimate its underlying matches were priced off.
+  const { seasonMatches, modelMatches, priorCtx } = await loadOddsModelInputs(supabase)
   const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
   const includedMatches = seasonMatches
-    .filter((m) => effectiveMatchdayOf(m, mdIndex) === matchday)
-    .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
-  return { seasonMatches, includedMatches }
+    .filter((m: Match) => effectiveMatchdayOf(m, mdIndex) === matchday)
+    .sort((a: Match, b: Match) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
+  return { seasonMatches, modelMatches, priorCtx, includedMatches }
 }
 
 /** GET ?matchday=N — list existing specials + fresh candidate suggestions for that Spieltag. */
@@ -67,13 +65,13 @@ export async function GET(request: NextRequest) {
     .eq('matchday', matchday)
     .order('display_order', { ascending: true })
 
-  const { seasonMatches, includedMatches } = await loadMatchdayContext(supabase, matchday)
+  const { modelMatches, priorCtx, includedMatches } = await loadMatchdayContext(supabase, matchday)
   if (includedMatches.length === 0) {
     return NextResponse.json({ specials: existing ?? [], candidates: [], includedMatches: [] })
   }
 
   const xgOverrides = await loadXgOverrides(supabase, includedMatches.map((m) => m.id))
-  const candidates = generateSpecialCandidates(seasonMatches, includedMatches, xgOverrides)
+  const candidates = generateSpecialCandidates(modelMatches, includedMatches, priorCtx, xgOverrides)
   const suggested = pickDiverseSuggestions(candidates, 3).map((c) => c.templateKey)
   return NextResponse.json({
     specials: existing ?? [],
@@ -98,12 +96,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'matchday und templateKey erforderlich.' }, { status: 400 })
   }
 
-  const { seasonMatches, includedMatches } = await loadMatchdayContext(supabase, matchday)
+  const { modelMatches, priorCtx, includedMatches } = await loadMatchdayContext(supabase, matchday)
   if (includedMatches.length === 0) {
     return NextResponse.json({ error: 'Keine Spiele für diesen Spieltag gefunden.' }, { status: 400 })
   }
   const xgOverrides = await loadXgOverrides(supabase, includedMatches.map((m) => m.id))
-  const candidates = generateSpecialCandidates(seasonMatches, includedMatches, xgOverrides)
+  const candidates = generateSpecialCandidates(modelMatches, includedMatches, priorCtx, xgOverrides)
   const candidate = candidates.find((c) => c.templateKey === templateKey)
   if (!candidate) return NextResponse.json({ error: 'Unbekannte Vorlage.' }, { status: 400 })
 

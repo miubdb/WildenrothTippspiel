@@ -1,12 +1,10 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { wildiLabel } from '@/components/WildiIcon'
-import { buildEffectiveMatchdayIndex, recapMatchdayOf } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, recapMatchdayOf, SEASON_START } from '@/lib/season'
 import { cappedPayout } from '@/lib/payout'
 import { settleBet } from '@/lib/settleBet'
 import { MARKET_LABELS } from '@/lib/betStats'
 import type { Match } from '@/types'
-
-const SEASON_START = '2026-08-01'
 
 // Monthly awards (not implemented yet — conceptual note only, per release-scope
 // decision to not build this before launch):

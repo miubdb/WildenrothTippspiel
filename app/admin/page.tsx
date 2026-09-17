@@ -6,7 +6,7 @@ import { mergeExactScoreOffers } from '@/lib/odds'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
 import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel, specialMarketLabel, specialSelectionLabel, type SpecialDisplayInfo } from '@/lib/betDisplay'
 import { cappedPayout } from '@/lib/payout'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, type EffectiveMatchdayIndex } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, type EffectiveMatchdayIndex, SEASON_START } from '@/lib/season'
 import { SurveyTab } from '@/components/admin/SurveyTab'
 import { BonusTipsAdmin } from '@/components/admin/BonusTipsAdmin'
 import { SpieltagSpecialsAdmin } from '@/components/admin/SpieltagSpecialsAdmin'
@@ -16,7 +16,6 @@ import type { Match } from '@/types'
 // match list (and everything fed by it: "Abgerechnete Spiele", the Spieltag
 // picker, the bets viewer) mixes in the prior season's identically-numbered
 // fixtures. matchday 999 (test) is exempt, same as everywhere else in the app.
-const SEASON_START = '2026-08-01'
 
 interface MatchRow {
   id: number
@@ -1770,6 +1769,7 @@ function InlineExplain({ matchId }: { matchId: number }) {
           )}
           {!loading && data?.diagnostics && (
             <div className="space-y-2">
+              <ExplainBaseline d={data.diagnostics} />
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <ExplainSide label={data.home_team} side="home" d={data.diagnostics} />
                 <ExplainSide label={data.away_team} side="away" d={data.diagnostics} />
@@ -1788,6 +1788,9 @@ function InlineExplain({ matchId }: { matchId: number }) {
 
 // ---------- "Warum diese Quote?" — read-only explainability view ----------
 
+/** Everything below `away_final_xg` is NULLABLE: rows written before the
+ *  league-aware model (Spieltag 1-7) simply don't have it and the UI omits
+ *  those lines instead of showing zeros. */
 interface ExplainDiagnostics {
   source: string
   computed_at: string
@@ -1803,6 +1806,40 @@ interface ExplainDiagnostics {
   away_raw_xg: number
   home_final_xg: number
   away_final_xg: number
+
+  tier: string | null
+  baseline_home: number | null
+  baseline_away: number | null
+  baseline_sample_matches: number | null
+
+  home_games_all: number | null
+  home_games_venue: number | null
+  home_goals_for_pg_all: number | null
+  home_goals_against_pg_all: number | null
+  home_goals_for_pg_venue: number | null
+  home_goals_against_pg_venue: number | null
+  home_venue_weight: number | null
+  home_prior_games: number | null
+  home_league_transition: number | null
+  home_estimated_attack: number | null
+  home_estimated_defence: number | null
+
+  away_games_all: number | null
+  away_games_venue: number | null
+  away_goals_for_pg_all: number | null
+  away_goals_against_pg_all: number | null
+  away_goals_for_pg_venue: number | null
+  away_goals_against_pg_venue: number | null
+  away_venue_weight: number | null
+  away_prior_games: number | null
+  away_league_transition: number | null
+  away_estimated_attack: number | null
+  away_estimated_defence: number | null
+}
+
+const TIER_LABEL: Record<string, string> = {
+  kreisliga: 'Kreisliga',
+  b_klasse: 'B-Klasse',
 }
 
 interface ExplainMatch {
@@ -1841,13 +1878,45 @@ function fmtFactor(n: number): string {
 // ExplainCard) was removed — this diagnostic is now available per-match via
 // InlineExplain inside each Quoten-tab odds-preview card (above).
 
+/** Compact header above the two sides: which league goal environment the
+ *  fixture was priced in, and how much real evidence that baseline rests on.
+ *  Hidden entirely for pre-migration rows (tier === null). */
+function ExplainBaseline({ d }: { d: ExplainDiagnostics }) {
+  if (!d.tier || d.baseline_home == null || d.baseline_away == null) return null
+  const n = d.baseline_sample_matches ?? 0
+  return (
+    <div className="bg-blue-50 border border-blue-100 rounded-xl px-2.5 py-2 text-xs text-gray-700">
+      <div className="flex justify-between items-baseline">
+        <span className="font-semibold text-gray-800">Liga-Normalspiel: {TIER_LABEL[d.tier] ?? d.tier}</span>
+        <span className="font-medium text-gray-900">{fmtFactor(d.baseline_home)} : {fmtFactor(d.baseline_away)}</span>
+      </div>
+      <div className={`text-[10px] mt-0.5 ${n < 60 ? 'text-amber-800' : 'text-gray-500'}`}>
+        Basis: {n} Spiele{n < 60 ? ' — Liga-Niveau noch überwiegend aus dem Gesamtschnitt aller Ligen geschätzt' : ''}
+      </div>
+    </div>
+  )
+}
+
 function ExplainSide({ label, side, d }: { label: string; side: 'home' | 'away'; d: ExplainDiagnostics }) {
-  const gamesPlayed = side === 'home' ? d.home_games_played : d.away_games_played
-  const k = side === 'home' ? d.home_k_effective : d.away_k_effective
-  const formMult = side === 'home' ? d.home_form_mult : d.away_form_mult
-  const rosterFactor = side === 'home' ? d.home_roster_factor : d.away_roster_factor
-  const rawXG = side === 'home' ? d.home_raw_xg : d.away_raw_xg
-  const finalXG = side === 'home' ? d.home_final_xg : d.away_final_xg
+  const pick = <T,>(h: T, a: T) => (side === 'home' ? h : a)
+  const gamesPlayed = pick(d.home_games_played, d.away_games_played)
+  const k = pick(d.home_k_effective, d.away_k_effective)
+  const formMult = pick(d.home_form_mult, d.away_form_mult)
+  const rosterFactor = pick(d.home_roster_factor, d.away_roster_factor)
+  const rawXG = pick(d.home_raw_xg, d.away_raw_xg)
+  const finalXG = pick(d.home_final_xg, d.away_final_xg)
+
+  const gamesVenue = pick(d.home_games_venue, d.away_games_venue)
+  const gfAll = pick(d.home_goals_for_pg_all, d.away_goals_for_pg_all)
+  const gaAll = pick(d.home_goals_against_pg_all, d.away_goals_against_pg_all)
+  const gfVenue = pick(d.home_goals_for_pg_venue, d.away_goals_for_pg_venue)
+  const gaVenue = pick(d.home_goals_against_pg_venue, d.away_goals_against_pg_venue)
+  const venueWeight = pick(d.home_venue_weight, d.away_venue_weight)
+  const priorGames = pick(d.home_prior_games, d.away_prior_games)
+  const transition = pick(d.home_league_transition, d.away_league_transition)
+  const estAtk = pick(d.home_estimated_attack, d.away_estimated_attack)
+  const estDef = pick(d.home_estimated_defence, d.away_estimated_defence)
+  const venueLabel = side === 'home' ? 'Heim' : 'Auswärts'
 
   const xgDiffPct = rawXG > 0 ? Math.abs(finalXG - rawXG) / rawXG : 0
 
@@ -1856,14 +1925,31 @@ function ExplainSide({ label, side, d }: { label: string; side: 'home' | 'away';
   else if (rosterFactor >= 1.10) notes.push('Kader-Faktor erhöht die erwartete Torgefahr')
   if (formMult <= 0.95) notes.push('Form wirkt aktuell leicht dämpfend')
   else if (formMult >= 1.05) notes.push('Form wirkt aktuell leicht verstärkend')
-  if (gamesPlayed < 3) notes.push('Starke frühe Saison-Glättung aktiv — noch wenige Saisonspiele')
+  if (gamesPlayed < 3) notes.push('Wenige Saisonspiele — Schätzung noch stark am Liga-Normalspiel')
+  if (venueWeight != null && venueWeight < 0.4) notes.push(`Kaum ${venueLabel}-Spiele — ${venueLabel}-Wert überwiegend aus der Gesamtbilanz abgeleitet`)
+  if (transition != null && Math.abs(transition - 1) > 0.01) notes.push('Vorsaison stammt aus einer anderen Liga und wurde umgerechnet')
   if (xgDiffPct >= 0.15) notes.push('Deutlicher Unterschied zwischen roher und finaler xG')
 
   return (
     <div className="bg-gray-50 rounded-xl p-2.5">
       <div className="font-semibold text-gray-800 truncate mb-1.5">{label}</div>
       <div className="space-y-1 text-gray-600">
-        <div className="flex justify-between"><span>Spiele (Saison)</span><span className={`font-medium ${gamesPlayed < 3 ? 'text-amber-700' : 'text-gray-900'}`}>{gamesPlayed}</span></div>
+        <div className="flex justify-between"><span>Spiele (Saison)</span><span className={`font-medium ${gamesPlayed < 3 ? 'text-amber-700' : 'text-gray-900'}`}>{gamesPlayed}{gamesVenue != null ? ` (${fmtFactor(gamesVenue)}× ${venueLabel} gewichtet)` : ''}</span></div>
+        {gfAll != null && gaAll != null && (
+          <div className="flex justify-between"><span>Tore ⌀ gesamt</span><span className="font-medium text-gray-900">{fmtFactor(gfAll)} : {fmtFactor(gaAll)}</span></div>
+        )}
+        {gfVenue != null && gaVenue != null && (
+          <div className="flex justify-between"><span>Tore ⌀ {venueLabel}</span><span className="font-medium text-gray-900">{fmtFactor(gfVenue)} : {fmtFactor(gaVenue)}</span></div>
+        )}
+        {venueWeight != null && (
+          <div className="flex justify-between"><span>Gewicht {venueLabel}-Bilanz</span><span className={`font-medium ${venueWeight < 0.4 ? 'text-amber-700' : 'text-gray-900'}`}>{Math.round(venueWeight * 100)} %</span></div>
+        )}
+        {priorGames != null && priorGames > 0 && (
+          <div className="flex justify-between"><span>Vorsaison (gewichtet)</span><span className="font-medium text-gray-900">{fmtFactor(priorGames)} Spiele{transition != null && Math.abs(transition - 1) > 0.01 ? ` × ${fmtFactor(transition)}` : ''}</span></div>
+        )}
+        {estAtk != null && estDef != null && (
+          <div className="flex justify-between"><span>Angriff / Abwehr</span><span className="font-medium text-gray-900">{fmtFactor(estAtk)} / {fmtFactor(estDef)}</span></div>
+        )}
         <div className="flex justify-between"><span>K (Shrinkage)</span><span className="font-medium text-gray-900">{fmtFactor(k)}</span></div>
         <div className="flex justify-between"><span>Form-Faktor</span><span className={`font-medium ${formMult <= 0.95 || formMult >= 1.05 ? 'text-amber-700' : 'text-gray-900'}`}>{fmtFactor(formMult)}</span></div>
         <div className="flex justify-between"><span>Kader-Faktor</span><span className={`font-medium ${rosterFactor <= 0.75 || rosterFactor >= 1.10 ? 'text-amber-700 font-bold' : 'text-gray-900'}`}>{fmtFactor(rosterFactor)}</span></div>

@@ -4,6 +4,7 @@ import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
 import { TeamLogo } from '@/components/TeamLogo'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
+import { SEASON_START } from '@/lib/season'
 
 export const revalidate = 60
 
@@ -212,7 +213,7 @@ export default async function TabellePage({
        home_team:teams!matches_home_team_id_fkey(id, name, short_name),
        away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
     )
-    .gte('match_date', '2026-08-01')
+    .gte('match_date', SEASON_START)
     .order('match_date', { ascending: true })
 
   const allMatches: Match[] = (rawMatches ?? [])

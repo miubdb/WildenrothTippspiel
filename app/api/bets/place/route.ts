@@ -3,7 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isAgainstWildenroth } from '@/lib/wildenroth'
-import { isSeasonStarted, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { isSeasonStarted, buildEffectiveMatchdayIndex, effectiveMatchdayOf, SEASON_START } from '@/lib/season'
 import { ODDS_COLUMN, offeredHandicapSelections, HANDICAP_OPPOSITE } from '@/lib/oddsMarkets'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { RISKY_ODDS_THRESHOLD, evaluateSlips, recomputeRiskyForUserMatchday, type RiskySlip } from '@/lib/risky'
@@ -13,7 +13,6 @@ import type { Match } from '@/types'
 const MAX_STAKE = 250
 const CURRENT_SEASON = '26/27'
 const TEST_MATCHDAY = 999
-const SEASON_START = '2026-08-01'
 
 /** Markets that are no longer offered. Kept out of the betting UI and rejected
  *  here, but still handled by settlement so historical bets grade correctly. */

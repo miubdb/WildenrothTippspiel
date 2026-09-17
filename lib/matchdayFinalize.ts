@@ -1,11 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendPushToAll } from '@/lib/push'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, recapMatchdayOf } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, recapMatchdayOf, SEASON_START } from '@/lib/season'
 import { computeAndPersistMatchdayAwards } from '@/lib/awards'
 import { settleActiveMatchdaySpecials } from '@/lib/matchdaySpecials'
 import type { Match } from '@/types'
-
-const SEASON_START = '2026-08-01'
 const CURRENT_SEASON = '26/27'
 const INACTIVITY_PENALTY = 50
 /** Credited to every eligible player once per completed Spieltag — the

@@ -3,10 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer } from '@/lib/goalscorer'
 import { buildPriorContext } from '@/lib/odds'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
-import { bettingOpenTime, parseBettingOpenOverrides } from '@/lib/season'
+import { bettingOpenTime, parseBettingOpenOverrides, SEASON_START } from '@/lib/season'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
-
-const SEASON_START = '2026-08-01'
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser()

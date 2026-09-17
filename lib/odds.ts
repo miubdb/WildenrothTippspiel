@@ -14,54 +14,6 @@ const HOUSE_MARGIN = 0.12
 // band this leaves zero positive-EV selections and zero sub-1.0 books.
 const MIN_ODDS = 1.01
 const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
-
-// Per-team league baselines. These anchor the ABSOLUTE goal level of every
-// market: prior-season team stats are expressed as ratios vs. their own
-// league's average and then re-scaled onto these two numbers
-// (getPriorTeamStats), and they are also the Bayesian shrinkage target
-// (getMatchXG) — which, with zero current-season games played, means the xG of
-// every match is exactly these values times the roster factor.
-//
-// Total-goal level measured from `prior_season_matches`, Kreisliga Zugspitze
-// 25/26, both groups, 364 matches: 2.173 goals/game at home, 1.497 away
-// (3.670 total). A single Poisson with that TOTAL reproduces the observed
-// over/under frequencies almost exactly (modelled vs. empirical: O2.5
-// .709/.703, O3.5 .500/.508, O5.5 .166/.159), so the distribution assumption
-// is sound and this total must not be changed without re-validating those —
-// see below for why the HOME/AWAY split of that same total was adjusted.
-//
-// These were previously 1.22/1.13 (2.35 total) — a guess, and ~36% below the
-// real level, which is why every Over market was priced far too long
-// (Über 3,5 came out around 4.99 instead of ~1.8). Do not "tune" the TOTAL by
-// hand: re-measure it from prior_season_matches for the league in question.
-//
-// Home/away SPLIT of that total was revisited separately: the raw Kreisliga-only
-// split above implies a 45% home scoring advantage (2.173 vs 1.497), which
-// made an average matchup's home side an almost unbeatable near-lock in
-// exact-score/1X2 terms regardless of real team quality — every match's xG
-// collapses to close to these two numbers whenever a team has little
-// current-season data (see getMatchXG), so this split alone was doing most of
-// the work. Cross-checked against the other two leagues in the same prior-season
-// dataset, the Kreisliga-only split is an outlier: Bezirksliga shows only an 8%
-// home edge (240 matches), Kreisklasse 25% (364 matches) — a single season of
-// 364 Kreisliga matches alone is not enough to trust a 45% edge over those.
-// Fix: blend the Kreisliga-only home SHARE (2.173/3.670 = 59.2%) with the
-// all-three-leagues home SHARE (968 matches: 2.244/4.014 = 55.9%) via a simple
-// average (57.6%), then re-apply that softened share to the SAME validated
-// 3.670 total — this changes only the home/away split, not the total goal
-// level the O/U markets above were tuned against. Result: 33% home edge
-// instead of 45%. Re-derive this the same way if prior_season_matches is
-// ever refreshed with more seasons of data.
-const LEAGUE_HOME_XG = 2.11
-const LEAGUE_AWAY_XG = 1.56
-
-/** Expected goals of an average team in an average fixture (mean of the home and
- *  away baselines). Exported so the goalscorer model can express "how attacking
- *  is this fixture for us, relative to normal" against the same scale the main
- *  model uses, instead of a second hand-tuned constant that silently drifts
- *  whenever the baselines are recalibrated. */
-export const LEAGUE_AVG_TEAM_XG = (LEAGUE_HOME_XG + LEAGUE_AWAY_XG) / 2
-
 // Caps how much a team's prior-season dominance ratio (own rate vs. that league's
 // average) can carry over when projected onto the target league — without this, a
 // team that heavily dominated a weaker league (e.g. a promoted side) could still
@@ -70,18 +22,6 @@ export const LEAGUE_AVG_TEAM_XG = (LEAGUE_HOME_XG + LEAGUE_AWAY_XG) / 2
 // can still exceed 1.0. Capped symmetrically so relegated/weak teams aren't
 // distorted either.
 const PRIOR_RATIO_CAP = 1.4
-
-// Bayesian prior weight: K equivalent games of prior belief.
-// With K=5: at 0 games → 100% prior; at 5 games → 50/50; at 10 games → 67% actual data.
-// Kept moderate so real team data shines through without the geometric product exploding.
-//
-// v2: K is stronger during a team's first EARLY_GAMES_THRESHOLD games of the CURRENT
-// season (ramping down linearly to the base value), since a 1-3 game sample in amateur
-// football is extremely noisy — this is on top of, not instead of, the prior-season
-// blending in augmentStat(), which already covers "no current-season data at all".
-const XG_PRIOR = 5
-const XG_PRIOR_EARLY_BONUS = 6
-const EARLY_GAMES_THRESHOLD = 8
 
 // Form multiplier from the last 5 finished games — moderate ±10% adjustment (v2: was ±20%).
 // Pure season-long attack/defense averages can't capture momentum, so an
@@ -99,8 +39,19 @@ const FORM_RAMP_FULL = 8
 // Prior games count at half weight vs current-season games; a full prior season
 // (~15 home + 15 away games) contributes ~7.5 pseudo-observations each side.
 const PRIOR_WEIGHT = 0.5
-// League-strength multiplier: how team performance in the prior league translates
-// to the target league. Bezirksliga teams are stronger, Kreisklasse teams weaker.
+// League-strength multiplier: how team performance in one league translates to
+// another. Used ONLY as a source→target RATIO (see leagueTransition) — never as
+// an absolute discount against a fixed Kreisliga anchor, which is what made a
+// B-Klasse team's own-league form get scaled by 0.68 in a B-Klasse fixture.
+//
+// These describe COMPETITIVE level, not the goal environment: the two move in
+// opposite directions here (prior_season_matches: Kreisklasse 4.45 goals/game
+// vs Kreisliga 3.67 — the weaker league is the higher-scoring one, because
+// defences are weaker). The goal environment is handled entirely by the
+// per-tier baselines below; these factors only carry "this team beat up on
+// weaker/stronger opposition". They cannot be derived from the data on hand
+// (the stored leagues never play each other), so they stay a documented
+// assumption — but one that is now neutral within a league.
 const LEAGUE_STRENGTH: Record<PriorMatch['league_level'], number> = {
   bezirksliga: 1.10,
   kreisliga:   1.00,
@@ -108,7 +59,189 @@ const LEAGUE_STRENGTH: Record<PriorMatch['league_level'], number> = {
   b_klasse:    0.68,
 }
 
-// ---------- Math helpers ----------
+// ---------- League tiers & empirical baselines ----------
+
+/** The leagues this app actually prices. Kept deliberately coarse: these are
+ *  the two goal environments we have (or can bootstrap) data for. */
+export type LeagueTier = 'kreisliga' | 'b_klasse'
+
+/** Single explicit mapping from a match's category to its goal environment.
+ *  `wildenroth_ii`, `bklasse_topspiel` and `b-klasse` are all B-Klasse
+ *  fixtures; `kreisliga` (and a missing category, the historical default) is
+ *  Kreisliga. Verified against the categories actually present in `matches`. */
+export function leagueTierOfCategory(category: string | null | undefined): LeagueTier {
+  switch (category) {
+    case 'wildenroth_ii':
+    case 'bklasse_topspiel':
+    case 'b-klasse':
+      return 'b_klasse'
+    default:
+      return 'kreisliga'
+  }
+}
+
+/** league_level key used when transitioning prior-season stats INTO this tier. */
+const TIER_LEVEL: Record<LeagueTier, PriorMatch['league_level']> = {
+  kreisliga: 'kreisliga',
+  b_klasse: 'b_klasse',
+}
+
+/**
+ * Which tier a fixture belongs to, inferred from the two teams' own matches
+ * rather than passed in by each caller — freeze, preview, recalc and the
+ * Specials engine all hand us the same `matches` array, so inferring here is
+ * what guarantees they can't disagree about a match's league.
+ */
+function inferTier(matches: Match[], homeTeamId: number, awayTeamId: number): LeagueTier {
+  for (const m of matches) {
+    if (m.home_team_id === homeTeamId && m.away_team_id === awayTeamId) {
+      return leagueTierOfCategory(m.match_category)
+    }
+  }
+  // Fall back to whatever either team usually plays in.
+  const own = matches.find(
+    (m) => m.home_team_id === homeTeamId || m.away_team_id === homeTeamId ||
+           m.home_team_id === awayTeamId || m.away_team_id === awayTeamId
+  )
+  return leagueTierOfCategory(own?.match_category)
+}
+
+export interface LeagueBaseline {
+  tier: LeagueTier
+  /** Goals per game for the home side in an average fixture of this league. */
+  home: number
+  /** Goals per game for the away side in an average fixture of this league. */
+  away: number
+  /** (home + away) / 2 — an average team in an average fixture. */
+  avgTeam: number
+  /** Matches that actually informed this baseline (prior season + finished
+   *  current-season fixtures of this tier). Reported in diagnostics so a thin
+   *  sample is visible rather than implied. */
+  sampleMatches: number
+}
+
+// Pseudo-matches of the pooled all-leagues prior mixed into a tier's own
+// baseline. B-Klasse has NO prior-season matches stored at all, so without
+// this its baseline would swing wildly on the first handful of results; with
+// it, the tier starts at the broad amateur average and converges to its own
+// level as real matches accumulate. Roughly "trust a tier's own level once it
+// has clearly more evidence than one matchday's worth of fixtures".
+const LEAGUE_BASELINE_PRIOR_MATCHES = 60
+
+interface GoalSample { home: number; away: number; n: number }
+
+function sampleOfPriorMatches(priorMatches: PriorMatch[], level?: PriorMatch['league_level']): GoalSample {
+  let home = 0, away = 0, n = 0
+  for (const m of priorMatches) {
+    if (level && m.league_level !== level) continue
+    home += m.home_score
+    away += m.away_score
+    n++
+  }
+  return { home, away, n }
+}
+
+function sampleOfCurrentMatches(matches: Match[], tier: LeagueTier): GoalSample {
+  let home = 0, away = 0, n = 0
+  for (const m of matches) {
+    if (m.status !== 'finished' || m.home_score == null || m.away_score == null) continue
+    if (m.matchday === 999) continue
+    if ((m as unknown as { competition_type?: string | null }).competition_type === 'cup') continue
+    if (leagueTierOfCategory(m.match_category) !== tier) continue
+    home += m.home_score
+    away += m.away_score
+    n++
+  }
+  return { home, away, n }
+}
+
+const baselineCache = new WeakMap<Match[], Map<string, LeagueBaseline>>()
+
+/**
+ * Empirical, per-tier home/away goal baselines — the anchor every market's
+ * absolute goal level hangs off.
+ *
+ * Replaces the single pair of hardcoded Kreisliga constants that used to
+ * anchor B-Klasse fixtures too. Derived rather than chosen:
+ *   1. Pool every stored prior-season match (all levels) → the broad amateur
+ *      average, used as the prior for a tier we know little about.
+ *   2. Add the tier's own evidence: its prior-season matches (Kreisliga: 364;
+ *      B-Klasse: none on record) plus every finished current-season fixture of
+ *      that tier. In the backtest only fixtures already played at that point
+ *      are visible, so this stays walk-forward safe automatically.
+ *   3. Shrink the tier's own total goals and home SHARE toward the pooled
+ *      prior with LEAGUE_BASELINE_PRIOR_MATCHES pseudo-matches.
+ *
+ * Total and home share are shrunk separately on purpose: the total is what the
+ * Over/Under markets are calibrated against, while the share is the home
+ * advantage — a single league-season can look like a 45% home edge by chance
+ * (the old constants did), and the pooled prior keeps that in check.
+ */
+export function getLeagueBaselines(
+  matches: Match[],
+  tier: LeagueTier,
+  priorMatches: PriorMatch[] | undefined
+): LeagueBaseline {
+  let perArray = baselineCache.get(matches)
+  if (!perArray) { perArray = new Map(); baselineCache.set(matches, perArray) }
+  const cacheKey = `${tier}:${priorMatches?.length ?? 0}`
+  const hit = perArray.get(cacheKey)
+  if (hit) return hit
+
+  const prior = priorMatches ?? []
+  const pooled = sampleOfPriorMatches(prior)
+  const pooledTotal = pooled.n > 0 ? (pooled.home + pooled.away) / pooled.n : FALLBACK_TOTAL_GOALS
+  const pooledHomeShare = pooled.home + pooled.away > 0
+    ? pooled.home / (pooled.home + pooled.away)
+    : FALLBACK_HOME_SHARE
+
+  const own = sampleOfPriorMatches(prior, TIER_LEVEL[tier])
+  const cur = sampleOfCurrentMatches(matches, tier)
+  const n = own.n + cur.n
+  const goalsHome = own.home + cur.home
+  const goalsAway = own.away + cur.away
+
+  const k = LEAGUE_BASELINE_PRIOR_MATCHES
+  const total = n > 0
+    ? (goalsHome + goalsAway + k * pooledTotal) / (n + k)
+    : pooledTotal
+  const homeShare = goalsHome + goalsAway > 0
+    ? (goalsHome + k * pooledTotal * pooledHomeShare) / (goalsHome + goalsAway + k * pooledTotal)
+    : pooledHomeShare
+
+  const baseline: LeagueBaseline = {
+    tier,
+    home: total * homeShare,
+    away: total * (1 - homeShare),
+    avgTeam: total / 2,
+    sampleMatches: n,
+  }
+  perArray.set(cacheKey, baseline)
+  return baseline
+}
+
+// Used only when there is no prior-season data at all (fresh install / tests).
+// Matches the pooled level of the stored prior seasons so behaviour without
+// data is the same as with it, rather than a second invented anchor.
+const FALLBACK_TOTAL_GOALS = 4.0
+const FALLBACK_HOME_SHARE = 0.56
+
+/** Source-league → target-league transition. 1.0 within the same league, so a
+ *  B-Klasse team's B-Klasse history is carried over untouched; >1 when coming
+ *  down from a stronger league, <1 when coming up from a weaker one. Attack is
+ *  multiplied by it and defence divided (see getPriorTeamStats). */
+function leagueTransition(source: PriorMatch['league_level'], target: LeagueTier): number {
+  return LEAGUE_STRENGTH[source] / LEAGUE_STRENGTH[TIER_LEVEL[target]]
+}
+
+
+// Absolute floor on a team's xG. Guards the Poisson against a degenerate
+// lambda (a side with literally zero goals in its sample would otherwise make
+// "scores at least once" impossible and the exact-score matrix collapse onto
+// one column). Kept at the long-standing 0.25: the backtest showed no gain
+// from lowering it, and with the hierarchical estimate above a team's rate no
+// longer reaches the floor by accident — only a genuinely goalless record does.
+const XG_FLOOR = 0.25
 
 function clamp(odds: number): number {
   return Math.max(MIN_ODDS, Math.min(MAX_ODDS, odds))
@@ -188,50 +321,6 @@ function buildScoreMatrix(homeXG: number, awayXG: number, maxGoals = SCORE_MATRI
 // re-exported for lib/matchdaySpecials.ts's reuse.
 export { buildScoreMatrix as buildMatchScoreMatrix }
 
-// ---------- Team statistics (used in standings / form display) ----------
-
-/** Points per game at HOME only */
-function getTeamHomePPG(matches: Match[], teamId: number): number {
-  const games = matches.filter(
-    (m) => m.status === 'finished' && m.home_team_id === teamId
-  )
-  if (games.length < 3) return getTeamPPG(matches, teamId)
-  const pts = games.reduce((acc, m) => {
-    const hs = m.home_score ?? 0; const as_ = m.away_score ?? 0
-    return acc + (hs > as_ ? 3 : hs === as_ ? 1 : 0)
-  }, 0)
-  return pts / games.length
-}
-
-/** Points per game AWAY only */
-function getTeamAwayPPG(matches: Match[], teamId: number): number {
-  const games = matches.filter(
-    (m) => m.status === 'finished' && m.away_team_id === teamId
-  )
-  if (games.length < 3) return getTeamPPG(matches, teamId)
-  const pts = games.reduce((acc, m) => {
-    const hs = m.home_score ?? 0; const as_ = m.away_score ?? 0
-    return acc + (as_ > hs ? 3 : hs === as_ ? 1 : 0)
-  }, 0)
-  return pts / games.length
-}
-
-/** Overall points per game (all games) */
-function getTeamPPG(matches: Match[], teamId: number): number {
-  const games = matches.filter(
-    (m) =>
-      m.status === 'finished' &&
-      (m.home_team_id === teamId || m.away_team_id === teamId)
-  )
-  if (games.length === 0) return 1.0
-  const pts = games.reduce((acc, m) => {
-    const hs = m.home_score ?? 0; const as_ = m.away_score ?? 0
-    const isHome = m.home_team_id === teamId
-    return acc + ((isHome ? hs > as_ : as_ > hs) ? 3 : hs === as_ ? 1 : 0)
-  }, 0)
-  return pts / games.length
-}
-
 /** Last N results as W/D/L (oldest first).
  *
  *  `excludeMatchday`, when given, drops any finished game sharing that raw
@@ -293,13 +382,156 @@ interface LeagueAvg {
 }
 
 interface PriorTeamStats {
-  homeAtk: number  // expected home goals scored in target-league units
-  homeDef: number  // expected home goals conceded in target-league units
-  awayAtk: number  // expected away goals scored in target-league units
-  awayDef: number  // expected away goals conceded in target-league units
-  homeGames: number
-  awayGames: number
+  atkRatio: number
+  defRatio: number
+  transition: number
+  games: number
 }
+
+// ---------- Hierarchical team-strength estimation ----------
+
+// How many pseudo-games of the LEAGUE average a team's overall rate is shrunk
+// toward. This is now the ONLY shrinkage toward the league mean — the old model
+// stacked prior-season pseudo-observations AND a second Bayesian pull with an
+// effective K that reached 11 in the first weeks, which meant a team could play
+// three games, concede 18 goals, and still be priced within a whisker of an
+// average side.
+//
+// Value chosen from a 3x3 walk-forward sweep (TEAM 3/5/8 x VENUE 2/4/8, n=70):
+// every point on that grid beat the old two-stage shrinkage, and less
+// league-shrinkage was monotonically better across the whole grid — the
+// direction is the signal, the exact minimum (3/8) is not, at this sample
+// size. 4 sits on the plateau without chasing the argmin.
+const TEAM_PRIOR_GAMES = 4
+
+// How many pseudo-games of the team's OWN overall rate (adjusted by the
+// league's home/away split) a venue-specific rate is shrunk toward. This is the
+// hierarchy: one home game no longer defines a team's entire home attack, it
+// just nudges it away from what that team does in general. At 5 the venue
+// record carries half the weight once a team has played 5 games at that venue
+// (a third of a season) — the same sweep showed 2 clearly worse and 4-8 flat.
+const VENUE_PRIOR_GAMES = 5
+
+interface TeamRates {
+  /** Goals per game overall, already shrunk toward the league average. */
+  atk: number
+  def: number
+  gamesAll: number
+  gamesVenue: number
+  rawAtkAll: number
+  rawDefAll: number
+  rawAtkVenue: number | null
+  rawDefVenue: number | null
+  priorGames: number
+  transition: number
+  /** Share of the venue estimate that came from real venue games. */
+  venueWeight: number
+}
+
+interface RateSample { scored: number; conceded: number; weight: number }
+
+/** Goals for/against per game over a set of finished matches, red-card-weighted. */
+function rateSample(
+  matches: Match[],
+  teamId: number,
+  venue: 'home' | 'away' | 'any',
+  redCards?: Map<string, number>
+): RateSample {
+  let scored = 0, conceded = 0, weight = 0
+  for (const m of matches) {
+    if (m.status !== 'finished' || m.home_score == null || m.away_score == null) continue
+    const isHome = m.home_team_id === teamId
+    const isAway = m.away_team_id === teamId
+    if (!isHome && !isAway) continue
+    if (venue === 'home' && !isHome) continue
+    if (venue === 'away' && !isAway) continue
+    const w = redCardWeight(m, redCards)
+    scored += (isHome ? m.home_score : m.away_score) * w
+    conceded += (isHome ? m.away_score : m.home_score) * w
+    weight += w
+  }
+  return { scored, conceded, weight }
+}
+
+/**
+ * Two-level estimate of what a team scores and concedes in a given fixture.
+ *
+ * Level 1 — overall: the team's goals for/against per game across EVERY match
+ * it has played this season (not just this venue), blended with its
+ * prior-season ratios and shrunk toward the league average. Using all matches
+ * is the main fix for early-season fragility: three away thrashings now inform
+ * the home estimate instead of being discarded.
+ *
+ * Level 2 — venue: the team's actual home (or away) record, shrunk toward its
+ * own overall rate scaled by the league's home/away split. With one home game
+ * the estimate sits close to "this team in general, at home"; by eight it is
+ * dominated by real home data. The transition is continuous — there is no
+ * threshold where the model's behaviour jumps.
+ */
+function teamRates(
+  matches: Match[],
+  teamId: number,
+  teamName: string | undefined,
+  venue: 'home' | 'away',
+  baseline: LeagueBaseline,
+  priorCtx: PriorContext | undefined,
+  target: LeagueTier
+): TeamRates {
+  const redCards = priorCtx?.redCards
+  const all = rateSample(matches, teamId, 'any', redCards)
+  const own = rateSample(matches, teamId, venue, redCards)
+
+  const prior = priorCtx && teamName
+    ? getPriorTeamStats(priorCtx.priorMatches, priorCtx.leagueAvgs, teamName, target)
+    : null
+
+  // Prior season in target-league goal units. Attack scales WITH the transition
+  // factor, defence against it: a side that conceded league-average in a weaker
+  // league will concede more than average here, not less.
+  const priorGames = prior ? prior.games * PRIOR_WEIGHT : 0
+  const priorAtk = prior ? prior.atkRatio * prior.transition * baseline.avgTeam : baseline.avgTeam
+  const priorDef = prior ? (prior.defRatio / prior.transition) * baseline.avgTeam : baseline.avgTeam
+
+  const rawAtkAll = all.weight > 0 ? all.scored / all.weight : baseline.avgTeam
+  const rawDefAll = all.weight > 0 ? all.conceded / all.weight : baseline.avgTeam
+
+  // Single shrinkage: current season + prior-season pseudo-games, pulled toward
+  // the league average with TEAM_PRIOR_GAMES.
+  const nAll = all.weight + priorGames
+  const blendedAtk = nAll > 0
+    ? (all.scored + priorGames * priorAtk) / nAll
+    : baseline.avgTeam
+  const blendedDef = nAll > 0
+    ? (all.conceded + priorGames * priorDef) / nAll
+    : baseline.avgTeam
+  const atkAll = (nAll * blendedAtk + TEAM_PRIOR_GAMES * baseline.avgTeam) / (nAll + TEAM_PRIOR_GAMES)
+  const defAll = (nAll * blendedDef + TEAM_PRIOR_GAMES * baseline.avgTeam) / (nAll + TEAM_PRIOR_GAMES)
+
+  // Venue level. The league's own split says how much more is scored at home;
+  // a team's overall rate is lifted/lowered by that before its own venue
+  // record is allowed to pull it further.
+  const venueFactorFor = venue === 'home' ? baseline.home / baseline.avgTeam : baseline.away / baseline.avgTeam
+  const concededFactorFor = venue === 'home' ? baseline.away / baseline.avgTeam : baseline.home / baseline.avgTeam
+  const expectedAtkVenue = atkAll * venueFactorFor
+  const expectedDefVenue = defAll * concededFactorFor
+
+  const nVenue = own.weight
+  const atk = (own.scored + VENUE_PRIOR_GAMES * expectedAtkVenue) / (nVenue + VENUE_PRIOR_GAMES)
+  const def = (own.conceded + VENUE_PRIOR_GAMES * expectedDefVenue) / (nVenue + VENUE_PRIOR_GAMES)
+
+  return {
+    atk, def,
+    gamesAll: all.weight,
+    gamesVenue: nVenue,
+    rawAtkAll, rawDefAll,
+    rawAtkVenue: nVenue > 0 ? own.scored / nVenue : null,
+    rawDefVenue: nVenue > 0 ? own.conceded / nVenue : null,
+    priorGames,
+    transition: prior?.transition ?? 1,
+    venueWeight: nVenue / (nVenue + VENUE_PRIOR_GAMES),
+  }
+}
+
 
 export interface PriorContext {
   priorMatches: PriorMatch[]
@@ -349,8 +581,8 @@ function buildHomeAdvantageMap(priorMatches: PriorMatch[]): {
     totalAwayGames++
   }
 
-  const leagueHomeAvg = totalHomeGames > 0 ? totalHomeGoals / totalHomeGames : LEAGUE_HOME_XG
-  const leagueAwayAvg = totalAwayGames > 0 ? totalAwayGoals / totalAwayGames : LEAGUE_AWAY_XG
+  const leagueHomeAvg = totalHomeGames > 0 ? totalHomeGoals / totalHomeGames : FALLBACK_TOTAL_GOALS * FALLBACK_HOME_SHARE
+  const leagueAwayAvg = totalAwayGames > 0 ? totalAwayGoals / totalAwayGames : FALLBACK_TOTAL_GOALS * (1 - FALLBACK_HOME_SHARE)
 
   const homeAdvMap = new Map<string, number>()
   const awayAdvMap = new Map<string, number>()
@@ -393,109 +625,72 @@ function buildLeagueAvgs(priorMatches: PriorMatch[]): Map<string, LeagueAvg> {
 }
 
 /**
- * Normalize a team's prior-season stats to target-league units.
+ * A team's prior-season record, expressed as league-relative RATIOS rather than
+ * goal counts, plus the transition factor into the league we're pricing.
  *
- * For each metric the rate vs. the prior-league average is computed, then scaled
- * by the league-strength factor and projected onto the target-league average:
- *   normalizedGoals = (teamAvg / leagueAvg) × strengthFactor × TARGET_LEAGUE_AVG
+ * Ratios (not absolute goals) are what survives a league change: "scored 30%
+ * more than an average team in its league" carries over, "scored 2.4 goals a
+ * game" does not. The caller turns these back into goals by multiplying with
+ * the TARGET tier's own baseline, which is what makes a B-Klasse fixture get
+ * B-Klasse goal levels instead of Kreisliga ones.
+ *
+ * Venue splits are deliberately NOT carried over: half a season of home games
+ * (~15) is a thin sample for a team-specific home effect, and the league's own
+ * home/away split (LeagueBaseline) already supplies that structure.
  */
 function getPriorTeamStats(
   priorMatches: PriorMatch[],
   leagueAvgs: Map<string, LeagueAvg>,
-  teamName: string
+  teamName: string,
+  target: LeagueTier
 ): PriorTeamStats | null {
-  type HomeAcc = { homeScored: number[]; homeConceded: number[]; level: PriorMatch['league_level'] }
-  type AwayAcc = { awayScored: number[]; awayConceded: number[]; level: PriorMatch['league_level'] }
-  const homeByLeague = new Map<string, HomeAcc>()
-  const awayByLeague = new Map<string, AwayAcc>()
+  type Acc = { scored: number; conceded: number; games: number; level: PriorMatch['league_level'] }
+  const byLeague = new Map<string, Acc>()
+
+  const touch = (key: string, level: PriorMatch['league_level']): Acc => {
+    let acc = byLeague.get(key)
+    if (!acc) { acc = { scored: 0, conceded: 0, games: 0, level }; byLeague.set(key, acc) }
+    return acc
+  }
 
   for (const m of priorMatches) {
     const key = m.league_number ?? m.league_name
     if (m.home_team === teamName) {
-      if (!homeByLeague.has(key)) homeByLeague.set(key, { homeScored: [], homeConceded: [], level: m.league_level })
-      const d = homeByLeague.get(key)!
-      d.homeScored.push(m.home_score)
-      d.homeConceded.push(m.away_score)
+      const acc = touch(key, m.league_level)
+      acc.scored += m.home_score
+      acc.conceded += m.away_score
+      acc.games++
     }
     if (m.away_team === teamName) {
-      if (!awayByLeague.has(key)) awayByLeague.set(key, { awayScored: [], awayConceded: [], level: m.league_level })
-      const d = awayByLeague.get(key)!
-      d.awayScored.push(m.away_score)
-      d.awayConceded.push(m.home_score)
+      const acc = touch(key, m.league_level)
+      acc.scored += m.away_score
+      acc.conceded += m.home_score
+      acc.games++
     }
   }
+  if (byLeague.size === 0) return null
 
-  if (homeByLeague.size === 0 && awayByLeague.size === 0) return null
-
-  let homeAtkSum = 0, homeDefSum = 0, homeGamesTotal = 0
-  let awayAtkSum = 0, awayDefSum = 0, awayGamesTotal = 0
-
-  for (const [key, data] of homeByLeague) {
+  let atkSum = 0, defSum = 0, transSum = 0, games = 0
+  for (const [key, acc] of byLeague) {
     const la = leagueAvgs.get(key)
-    if (!la) continue
-    const sf = LEAGUE_STRENGTH[la.level]
-    const n = data.homeScored.length
-    const avgScored    = data.homeScored.reduce((s, v) => s + v, 0) / n
-    const avgConceded  = data.homeConceded.reduce((s, v) => s + v, 0) / n
-    // home goals scored → rate vs la.homeAvg (capped) → scale to LEAGUE_HOME_XG
-    const homeAtkRatio = clampRatio(la.homeAvg > 0 ? avgScored / la.homeAvg : 1.0)
-    homeAtkSum += homeAtkRatio * sf * LEAGUE_HOME_XG * n
-    // home goals conceded = away team's goals → rate vs la.awayAvg (capped) → scale to LEAGUE_AWAY_XG.
-    // NOTE the DIVISION by sf: strength scales attack and defence in opposite
-    // directions. A team that conceded at its own league's average rate in a
-    // WEAKER league (sf < 1) will concede MORE than average here, not less —
-    // multiplying by sf projected promoted sides as better defensively the
-    // weaker the league they came from, which deflated every Over market.
-    const homeDefRatio = clampRatio(la.awayAvg > 0 ? avgConceded / la.awayAvg : 1.0)
-    homeDefSum += (homeDefRatio / sf) * LEAGUE_AWAY_XG * n
-    homeGamesTotal += n
+    if (!la || acc.games === 0) continue
+    // Per-team goals per game in that league — the yardstick both ratios use.
+    const leagueTeamAvg = (la.homeAvg + la.awayAvg) / 2
+    if (leagueTeamAvg <= 0) continue
+    const atkRatio = clampRatio((acc.scored / acc.games) / leagueTeamAvg)
+    const defRatio = clampRatio((acc.conceded / acc.games) / leagueTeamAvg)
+    atkSum += atkRatio * acc.games
+    defSum += defRatio * acc.games
+    transSum += leagueTransition(acc.level, target) * acc.games
+    games += acc.games
   }
-
-  for (const [key, data] of awayByLeague) {
-    const la = leagueAvgs.get(key)
-    if (!la) continue
-    const sf = LEAGUE_STRENGTH[la.level]
-    const n = data.awayScored.length
-    const avgScored    = data.awayScored.reduce((s, v) => s + v, 0) / n
-    const avgConceded  = data.awayConceded.reduce((s, v) => s + v, 0) / n
-    // away goals scored → rate vs la.awayAvg (capped) → scale to LEAGUE_AWAY_XG
-    const awayAtkRatio = clampRatio(la.awayAvg > 0 ? avgScored / la.awayAvg : 1.0)
-    awayAtkSum += awayAtkRatio * sf * LEAGUE_AWAY_XG * n
-    // away goals conceded = home team's goals → rate vs la.homeAvg (capped) → scale to LEAGUE_HOME_XG.
-    // Divided by sf for the same reason as the home block above.
-    const awayDefRatio = clampRatio(la.homeAvg > 0 ? avgConceded / la.homeAvg : 1.0)
-    awayDefSum += (awayDefRatio / sf) * LEAGUE_HOME_XG * n
-    awayGamesTotal += n
-  }
-
-  if (homeGamesTotal === 0 && awayGamesTotal === 0) return null
+  if (games === 0) return null
 
   return {
-    homeAtk: homeGamesTotal > 0 ? homeAtkSum / homeGamesTotal : LEAGUE_HOME_XG,
-    homeDef: homeGamesTotal > 0 ? homeDefSum / homeGamesTotal : LEAGUE_AWAY_XG,
-    awayAtk: awayGamesTotal > 0 ? awayAtkSum / awayGamesTotal : LEAGUE_AWAY_XG,
-    awayDef: awayGamesTotal > 0 ? awayDefSum / awayGamesTotal : LEAGUE_HOME_XG,
-    homeGames: homeGamesTotal,
-    awayGames: awayGamesTotal,
-  }
-}
-
-/**
- * Blend prior-season pseudo-observations into current-season stats.
- * If there are no current-season games (n=0), the prior fully determines the estimate.
- * As current data accumulates, its influence grows and the prior fades naturally.
- */
-function augmentStat(
-  current: { avg: number; n: number },
-  priorAvg: number,
-  priorN: number
-): { avg: number; n: number } {
-  if (priorN === 0) return current
-  if (current.n === 0) return { avg: priorAvg, n: priorN }
-  const totalN = current.n + priorN
-  return {
-    avg: (current.n * current.avg + priorN * priorAvg) / totalN,
-    n: totalN,
+    atkRatio: atkSum / games,
+    defRatio: defSum / games,
+    transition: transSum / games,
+    games,
   }
 }
 
@@ -548,28 +743,11 @@ export function buildPriorContext(
 
 // ---------- xG estimation — geometric-mean attack/defense model with Bayesian shrinkage ----------
 
-/**
- * Bayesian shrinkage toward league mean.
- * raw: observed average | leagueAvg: prior | n: observed games | k: prior strength
- */
-function bayesianXG(raw: number, leagueAvg: number, n: number, k: number = XG_PRIOR): number {
-  return (n * raw + k * leagueAvg) / (n + k)
-}
-
 /** Count of finished current-season matches for teamId (home or away). */
 function getGamesPlayedThisSeason(matches: Match[], teamId: number): number {
   return matches.filter(
     (m) => m.status === 'finished' && (m.home_team_id === teamId || m.away_team_id === teamId)
   ).length
-}
-
-/**
- * Dynamic Bayesian prior strength: stronger during a team's first
- * EARLY_GAMES_THRESHOLD current-season games, ramping down to the base XG_PRIOR.
- */
-function getKEffective(gamesPlayed: number): number {
-  const rampFactor = Math.max(0, 1 - gamesPlayed / EARLY_GAMES_THRESHOLD)
-  return XG_PRIOR + XG_PRIOR_EARLY_BONUS * rampFactor
 }
 
 // A match partly played with a man disadvantage (red card) is a poor sample of
@@ -593,44 +771,6 @@ function redCardWeight(m: Match, redCards?: Map<string, number>): number {
   const minute = [homeMinute, awayMinute].filter((v): v is number => v != null).sort((a, b) => a - b)[0]
   if (minute == null) return 1
   return Math.max(RED_CARD_MIN_WEIGHT, Math.min(1, minute / 90))
-}
-
-function weightedAvg(games: Match[], value: (m: Match) => number, redCards?: Map<string, number>): number {
-  let wSum = 0, wTotal = 0
-  for (const m of games) {
-    const w = redCardWeight(m, redCards)
-    wSum += value(m) * w
-    wTotal += w
-  }
-  return wTotal > 0 ? wSum / wTotal : 0
-}
-
-/** Goals scored per home game for teamId */
-function homeGoalsScored(matches: Match[], teamId: number, redCards?: Map<string, number>): { avg: number; n: number } {
-  const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
-  if (games.length === 0) return { avg: LEAGUE_HOME_XG, n: 0 }
-  return { avg: weightedAvg(games, (m) => m.home_score ?? 0, redCards), n: games.length }
-}
-
-/** Goals conceded per away game for teamId (scored by the opposing home team) */
-function awayGoalsConceded(matches: Match[], teamId: number, redCards?: Map<string, number>): { avg: number; n: number } {
-  const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
-  if (games.length === 0) return { avg: LEAGUE_HOME_XG, n: 0 }
-  return { avg: weightedAvg(games, (m) => m.home_score ?? 0, redCards), n: games.length }
-}
-
-/** Goals scored per away game for teamId */
-function awayGoalsScored(matches: Match[], teamId: number, redCards?: Map<string, number>): { avg: number; n: number } {
-  const games = matches.filter((m) => m.status === 'finished' && m.away_team_id === teamId)
-  if (games.length === 0) return { avg: LEAGUE_AWAY_XG, n: 0 }
-  return { avg: weightedAvg(games, (m) => m.away_score ?? 0, redCards), n: games.length }
-}
-
-/** Goals conceded per home game for teamId (scored by the opposing away team) */
-function homeGoalsConceded(matches: Match[], teamId: number, redCards?: Map<string, number>): { avg: number; n: number } {
-  const games = matches.filter((m) => m.status === 'finished' && m.home_team_id === teamId)
-  if (games.length === 0) return { avg: LEAGUE_AWAY_XG, n: 0 }
-  return { avg: weightedAvg(games, (m) => m.away_score ?? 0, redCards), n: games.length }
 }
 
 /**
@@ -770,23 +910,41 @@ function getRosterFactor(teamName: string, priorCtx: PriorContext): number {
   return tier2 * (1 - lineupWeight) + tier1 * lineupWeight
 }
 
+export interface OddsDiagnosticsSide {
+  gamesPlayed: number
+  kEffective: number
+  formMult: number
+  rosterFactor: number
+  rawXG: number
+  finalXG: number
+  /** Finished matches this season (red-card-weighted), all venues. */
+  gamesAll: number
+  /** …of those, played at the venue this fixture uses. */
+  gamesVenue: number
+  goalsForPerGameAll: number
+  goalsAgainstPerGameAll: number
+  /** null when the team has not played at this venue yet. */
+  goalsForPerGameVenue: number | null
+  goalsAgainstPerGameVenue: number | null
+  /** 0 = estimate came purely from the team's overall rate, 1 = purely venue. */
+  venueWeight: number
+  /** Prior-season pseudo-games mixed in (games × PRIOR_WEIGHT). */
+  priorGames: number
+  /** Source-league → target-league factor applied to the prior season (1 = same league). */
+  leagueTransition: number
+  estimatedAttack: number
+  estimatedDefence: number
+}
+
 export interface OddsDiagnostics {
-  home: {
-    gamesPlayed: number
-    kEffective: number
-    formMult: number
-    rosterFactor: number
-    rawXG: number
-    finalXG: number
-  }
-  away: {
-    gamesPlayed: number
-    kEffective: number
-    formMult: number
-    rosterFactor: number
-    rawXG: number
-    finalXG: number
-  }
+  /** Which league's goal environment this fixture was priced in. */
+  tier: LeagueTier
+  baselineHome: number
+  baselineAway: number
+  /** Matches backing that baseline — small means "still mostly the pooled prior". */
+  baselineSampleMatches: number
+  home: OddsDiagnosticsSide
+  away: OddsDiagnosticsSide
 }
 
 /**
@@ -800,10 +958,15 @@ export interface OddsDiagnostics {
  *   arithmetic mean for equal values, lower for unequal values (AM–GM inequality),
  *   so a strong attacker vs a strong defence still yields moderate xG (correct).
  *
- * Bayesian shrinkage is applied to the combined raw estimate, with a dynamic K that's
- * stronger during a team's first EARLY_GAMES_THRESHOLD current-season games (v2). A
- * ramped team-form multiplier (±10%, v2 — was ±20%) then modulates each team's own xG
- * to reflect recent momentum that the season-long averages haven't fully absorbed yet.
+ * Shrinkage happens ONCE, inside teamRates(): prior-season pseudo-games are blended
+ * into the team's overall rate, that rate is shrunk toward the tier baseline with
+ * TEAM_PRIOR_GAMES, and the venue-specific rate is then shrunk toward
+ * "overall rate × this venue's factor" with VENUE_PRIOR_GAMES. The previous model
+ * shrank twice (augmentStat, then a dynamic K ramping to 11), which pinned an
+ * early-season fixture's xG almost entirely onto the league constants; the backtest
+ * used to choose these two constants is scripts/backtest.ts. A ramped team-form
+ * multiplier (±10%) then modulates each team's own xG to reflect recent momentum
+ * that the season-long averages haven't fully absorbed yet.
  *
  * Also returns `diagnostics` — the intermediate values behind the final xG, persisted
  * to `odds_diagnostics` by callers for admin explainability. Computing it is free
@@ -814,49 +977,28 @@ export function getMatchXG(
   matches: Match[],
   homeTeamId: number,
   awayTeamId: number,
-  priorCtx?: PriorContext
+  priorCtx?: PriorContext,
+  targetTier?: LeagueTier
 ): { homeXG: number; awayXG: number; diagnostics: OddsDiagnostics } {
-  const redCards = priorCtx?.redCards
-  let homeAtk = homeGoalsScored(matches, homeTeamId, redCards)    // home team goals scored at home
-  let awayDef = awayGoalsConceded(matches, awayTeamId, redCards)  // away team goals conceded away
-  let awayAtk = awayGoalsScored(matches, awayTeamId, redCards)    // away team goals scored away
-  let homeDef = homeGoalsConceded(matches, homeTeamId, redCards)  // home team goals conceded at home
+  const tier = targetTier ?? inferTier(matches, homeTeamId, awayTeamId)
+  const baseline = getLeagueBaselines(matches, tier, priorCtx?.priorMatches)
 
   const homeName = priorCtx?.teamNames.get(homeTeamId)
   const awayName = priorCtx?.teamNames.get(awayTeamId)
 
-  if (priorCtx) {
-    if (homeName) {
-      const ps = getPriorTeamStats(priorCtx.priorMatches, priorCtx.leagueAvgs, homeName)
-      if (ps) {
-        const pw = ps.homeGames * PRIOR_WEIGHT
-        homeAtk = augmentStat(homeAtk, ps.homeAtk, pw)
-        homeDef = augmentStat(homeDef, ps.homeDef, pw)
-      }
-    }
-    if (awayName) {
-      const ps = getPriorTeamStats(priorCtx.priorMatches, priorCtx.leagueAvgs, awayName)
-      if (ps) {
-        const pw = ps.awayGames * PRIOR_WEIGHT
-        awayAtk = augmentStat(awayAtk, ps.awayAtk, pw)
-        awayDef = augmentStat(awayDef, ps.awayDef, pw)
-      }
-    }
-  }
+  const home = teamRates(matches, homeTeamId, homeName, 'home', baseline, priorCtx, tier)
+  const away = teamRates(matches, awayTeamId, awayName, 'away', baseline, priorCtx, tier)
 
-  // homeAdvMap/awayAdvMap are NOT applied here: getPriorTeamStats already
-  // normalises home/away rates independently per league. Applying the raw
-  // scoring-rate factor on top would double-count team quality (a dominant
-  // Kreisklasse team looks artificially strong vs a weak Bezirksliga team).
-  const rawHomeXG = Math.sqrt(homeAtk.avg * awayDef.avg)
-  const rawAwayXG = Math.sqrt(awayAtk.avg * homeDef.avg)
-  const homeN = (homeAtk.n + awayDef.n) / 2
-  const awayN = (awayAtk.n + homeDef.n) / 2
+  // Geometric mean of "what the attack produces" and "what the defence allows".
+  // Unchanged on purpose: AM ≥ GM keeps a strong-attack/strong-defence pairing
+  // bounded while still amplifying a genuine mismatch. Both inputs are already
+  // on this venue's goal scale, so two average teams reproduce the league
+  // baseline exactly.
+  const rawHomeXG = Math.sqrt(home.atk * away.def)
+  const rawAwayXG = Math.sqrt(away.atk * home.def)
 
   const homeGamesPlayed = getGamesPlayedThisSeason(matches, homeTeamId)
   const awayGamesPlayed = getGamesPlayedThisSeason(matches, awayTeamId)
-  const homeK = getKEffective(homeGamesPlayed)
-  const awayK = getKEffective(awayGamesPlayed)
 
   const homeFormMult = getTeamFormMult(matches, homeTeamId)
   const awayFormMult = getTeamFormMult(matches, awayTeamId)
@@ -864,29 +1006,42 @@ export function getMatchXG(
   const homeRosterFactor = homeName && priorCtx ? getRosterFactor(homeName, priorCtx) : 1.0
   const awayRosterFactor = awayName && priorCtx ? getRosterFactor(awayName, priorCtx) : 1.0
 
-  const homeXG = Math.max(0.25, bayesianXG(rawHomeXG, LEAGUE_HOME_XG, homeN, homeK) * homeFormMult * homeRosterFactor)
-  const awayXG = Math.max(0.25, bayesianXG(rawAwayXG, LEAGUE_AWAY_XG, awayN, awayK) * awayFormMult * awayRosterFactor)
+  const homeXG = Math.max(XG_FLOOR, rawHomeXG * homeFormMult * homeRosterFactor)
+  const awayXG = Math.max(XG_FLOOR, rawAwayXG * awayFormMult * awayRosterFactor)
+
+  const side = (r: TeamRates, gamesPlayed: number, formMult: number, rosterFactor: number, rawXG: number, finalXG: number) => ({
+    gamesPlayed,
+    // Retained for the existing diagnostics schema/UI. The dynamic early-season
+    // K is gone (one shrinkage instead of two), so this now reports the single
+    // league-shrinkage weight actually used.
+    kEffective: TEAM_PRIOR_GAMES,
+    formMult,
+    rosterFactor,
+    rawXG,
+    finalXG,
+    gamesAll: r.gamesAll,
+    gamesVenue: r.gamesVenue,
+    goalsForPerGameAll: r.rawAtkAll,
+    goalsAgainstPerGameAll: r.rawDefAll,
+    goalsForPerGameVenue: r.rawAtkVenue,
+    goalsAgainstPerGameVenue: r.rawDefVenue,
+    venueWeight: r.venueWeight,
+    priorGames: r.priorGames,
+    leagueTransition: r.transition,
+    estimatedAttack: r.atk,
+    estimatedDefence: r.def,
+  })
 
   return {
     homeXG,
     awayXG,
     diagnostics: {
-      home: {
-        gamesPlayed: homeGamesPlayed,
-        kEffective: homeK,
-        formMult: homeFormMult,
-        rosterFactor: homeRosterFactor,
-        rawXG: rawHomeXG,
-        finalXG: homeXG,
-      },
-      away: {
-        gamesPlayed: awayGamesPlayed,
-        kEffective: awayK,
-        formMult: awayFormMult,
-        rosterFactor: awayRosterFactor,
-        rawXG: rawAwayXG,
-        finalXG: awayXG,
-      },
+      tier,
+      baselineHome: baseline.home,
+      baselineAway: baseline.away,
+      baselineSampleMatches: baseline.sampleMatches,
+      home: side(home, homeGamesPlayed, homeFormMult, homeRosterFactor, rawHomeXG, homeXG),
+      away: side(away, awayGamesPlayed, awayFormMult, awayRosterFactor, rawAwayXG, awayXG),
     },
   }
 }

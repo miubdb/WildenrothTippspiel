@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { buildEffectiveMatchdayIndex, recapMatchdayOf } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, recapMatchdayOf, SEASON_START } from '@/lib/season'
 import { computeAndPersistMatchdayAwards, type AwardType } from '@/lib/awards'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import type { Match } from '@/types'
-
-const SEASON_START = '2026-08-01'
 const CURRENT_SEASON = '26/27'
 
 // The 3 categories added after go-live — deliberately scoped so this route

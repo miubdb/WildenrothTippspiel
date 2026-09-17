@@ -2,10 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser, sendPushToAll } from '@/lib/push'
-import { bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf, SEASON_START } from '@/lib/season'
 import type { Match } from '@/types'
-
-const SEASON_START = '2026-08-01'
 
 function isAuthorized(request: NextRequest): boolean {
   const expected = process.env.CRON_SECRET

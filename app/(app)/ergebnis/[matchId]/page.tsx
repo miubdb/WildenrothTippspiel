@@ -2,13 +2,11 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { fmtWildi, wildiLabel } from '@/components/WildiIcon'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, SEASON_START } from '@/lib/season'
 import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel, specialMarketLabel, specialSelectionLabel, type SpecialDisplayInfo } from '@/lib/betDisplay'
 import type { Match } from '@/types'
 
 export const revalidate = 60
-
-const SEASON_START = '2026-08-01'
 
 const SEL_LABEL: Record<string, Record<string, string>> = {
   '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },

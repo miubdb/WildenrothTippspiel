@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { SEASON_START } from '@/lib/season'
 
 /**
  * Zentrale Liga-Spielerstatistik-Schicht — einzige Quelle für alles, was aus
@@ -20,7 +21,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  *   Funktion hier filtert standardmäßig auf match_category='kreisliga'.
  */
 
-export const LEAGUE_STATS_SEASON_START = '2026-08-01'
+export const LEAGUE_STATS_SEASON_START = SEASON_START
 export const LEAGUE_STATS_CATEGORY = 'kreisliga' as const
 
 export type LeaguePlayerMetric = 'goals' | 'assists' | 'scorer' | 'appearances' | 'starts' | 'minutes' | 'yellow_cards' | 'red_cards'

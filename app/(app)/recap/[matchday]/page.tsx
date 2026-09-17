@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { AWARD_META, type AwardType } from '@/lib/awards'
 import { wildiLabel } from '@/components/WildiIcon'
 import { AwardRow } from '@/components/AwardRow'
-import { buildEffectiveMatchdayIndex, recapMatchdayOf } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, recapMatchdayOf, SEASON_START } from '@/lib/season'
 import type { Match } from '@/types'
 
 export const revalidate = 300
@@ -39,7 +39,6 @@ export default async function RecapPage({
   // page must show exactly the same set computeAndPersistMatchdayAwards used,
   // or the persisted trophies and this page's own totals would disagree. See
   // lib/season.ts recapMatchdayOf.
-  const SEASON_START = '2026-08-01'
   const { data: matchRowsRaw } = await supabase
     .from('matches')
     .select(

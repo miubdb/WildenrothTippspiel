@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-
-const SEASON_START = '2026-08-01'
+import { SEASON_START } from '@/lib/season'
 
 async function requireAdmin() {
   const supabase = await createClient()

@@ -4,7 +4,7 @@ import { LeaderboardClient } from './LeaderboardClient'
 import type { BetRow, ComboMeta, MatchdayStats } from './LeaderboardClient'
 import type { CommentData } from '@/components/CommentSection'
 import type { RecapData } from '@/components/MatchdayRecap'
-import { bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, recapMatchdayOf as recapMatchdayOfShared } from '@/lib/season'
+import { bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, recapMatchdayOf as recapMatchdayOfShared, SEASON_START } from '@/lib/season'
 import type { Match } from '@/types'
 import { cappedPayout } from '@/lib/payout'
 import { CUP_MARKET_LABEL, cupSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
@@ -89,7 +89,6 @@ export default async function LeaderboardPage({
   const isAdmin = adminCheck?.is_admin ?? false
 
   const CURRENT_SEASON = '26/27'
-  const SEASON_START = '2026-08-01'
 
   const allMatchesRaw2 = (allMatchesRaw ?? []) as Match[]
   // Only current-season matches drive the leaderboard matchday list

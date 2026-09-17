@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, SEASON_START } from '@/lib/season'
 import type { Match } from '@/types'
-
-const SEASON_START = '2026-08-01'
 
 const MARKET_COLS = [
   'home_win', 'draw', 'away_win',

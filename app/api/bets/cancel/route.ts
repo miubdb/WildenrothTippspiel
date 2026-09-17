@@ -2,11 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, SEASON_START } from '@/lib/season'
 import { recomputeRiskyForUserMatchday } from '@/lib/risky'
 import type { Match } from '@/types'
-
-const SEASON_START = '2026-08-01'
 const TEST_MATCHDAY = 999
 
 export async function POST(request: NextRequest) {

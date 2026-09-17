@@ -1,5 +1,5 @@
 import type { Match } from '@/types'
-import { getMatchXG, LEAGUE_AVG_TEAM_XG, type PriorContext } from '@/lib/odds'
+import { getMatchXG, type PriorContext } from '@/lib/odds'
 
 /**
  * Goalscorer odds for Wildenroth players.
@@ -34,9 +34,13 @@ const PRIOR_GAMES = 5
 const PRIOR_SEASON_WEIGHT = 0.5
 
 // Baseline xG per match used to scale player rates by fixture difficulty.
-// Tracks the main model's league baselines instead of being hand-set, so a
-// recalibration there can't silently inflate every player's goal expectation.
-const WILDENROTH_BASELINE_XG = LEAGUE_AVG_TEAM_XG
+// Passed in from lib/odds.ts's per-league baseline (diagnostics.baselineHome /
+// baselineAway) rather than hand-set here, so the "how attacking is this
+// fixture for us, relative to normal" factor is measured against the same
+// scale the main model priced the fixture on — and a B-Klasse match is scaled
+// against the B-Klasse goal level, not the Kreisliga one. Only used as a last
+// resort when no baseline is available (pooled amateur average / 2).
+const FALLBACK_BASELINE_XG = 2.0
 
 // Filtering thresholds.
 const MIN_PROJ_MINUTES = 25     // player must avg >= 25 min/game to be offered
@@ -161,6 +165,9 @@ function projectedMinutes(player: WildenrothPlayer): number {
 export function computePlayerOdds(
   player: WildenrothPlayer,
   wildenrothMatchXG: number,
+  /** Average team xG of the league this fixture is played in — see
+   *  FALLBACK_BASELINE_XG. */
+  baselineTeamXG: number = FALLBACK_BASELINE_XG,
 ): GoalscorerOffer {
   // Goalkeepers and deactivated players never get offered.
   if (player.is_goalkeeper || !player.active) {
@@ -178,7 +185,7 @@ export function computePlayerOdds(
   const projMin = projectedMinutes(player)
 
   // Team match factor: how attacking is this fixture for Wildenroth (vs baseline).
-  const teamFactor = wildenrothMatchXG / WILDENROTH_BASELINE_XG
+  const teamFactor = wildenrothMatchXG / baselineTeamXG
 
   // Player expected goals in this match.
   let playerXG = per90 * (projMin / 90) * teamFactor
@@ -233,9 +240,12 @@ export function computeGoalscorerOffersForMatch(
   // priorCtx must be passed: without it this xG skips prior-season blending and
   // the roster factor, so the goalscorer market would be derived from a
   // different team-strength estimate than the 1X2/O-U markets on the same card.
-  const { homeXG: modelHomeXG, awayXG: modelAwayXG } = getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
+  const { homeXG: modelHomeXG, awayXG: modelAwayXG, diagnostics } =
+    getMatchXG(matches, homeTeamId, awayTeamId, priorCtx)
   const homeXG = xgOverride?.homeXG ?? modelHomeXG
   const awayXG = xgOverride?.awayXG ?? modelAwayXG
   const wildenrothMatchXG = homeTeamId === wildenrothTeamId ? homeXG : awayXG
-  return players.map(p => computePlayerOdds(p, wildenrothMatchXG))
+  // Same league baseline the 1X2/O-U markets on this fixture were priced against.
+  const baselineTeamXG = (diagnostics.baselineHome + diagnostics.baselineAway) / 2
+  return players.map(p => computePlayerOdds(p, wildenrothMatchXG, baselineTeamXG))
 }

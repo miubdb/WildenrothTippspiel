@@ -17,7 +17,15 @@ not sportsbook-sourced. UI is German; code/comments are English.
 npm run dev      # start dev server (Turbopack)
 npm run build    # production build — run this (or `npx tsc --noEmit`) before considering a change done
 npm run lint     # eslint
+
+# Quotenmodell (kein Test-Framework — Backtest statt Unit-Tests)
+node --experimental-strip-types scripts/run-backtest.mjs --compare /tmp/baseline.json
+node --experimental-strip-types scripts/run-matchday-preview.mjs 8
 ```
+
+Beide Skripte brauchen die Datenexporte unter `$BACKTEST_DATA_DIR` (Default `/tmp/bt`):
+`matches.json`, `prior.json`, `players.json`, `lineups.json` — je ein Array von Spalten-Arrays,
+exportiert per `json_agg` aus Supabase (siehe `scripts/backtest.ts#loadData` für die Spaltenreihenfolge).
 
 There is no test suite. Validate changes with `npx tsc --noEmit` and `npm run build`; for
 betting/odds logic changes, reason through the math by hand or query Supabase directly (MCP tools)
@@ -72,18 +80,36 @@ Postgres functions (`deduct_balance`, `increment_balance`, `apply_penalty` — c
 handicap ±1.5/±2.5, exact score) derive from a single `buildScoreMatrix(homeXG, awayXG)` call. No
 separate PPG model for 1X2 — this keeps every market internally consistent.
 
-**xG calculation** (`getMatchXG`) — geometric-mean model with Bayesian shrinkage + form multiplier:
-- `rawHomeXG = sqrt(homeGoalsScoredAtHome × awayGoalsConcededAway)`
-- `rawAwayXG = sqrt(awayGoalsScoredAway × homeGoalsConcededAtHome)`
-- `homeXG = bayesianXG(rawHomeXG, LEAGUE_HOME_XG, n_avg) × homeFormMult × homeRosterFactor` where
-  `bayesianXG(r, L, n) = (n*r + K*L) / (n+K)` → shrunk toward LEAGUE_HOME_XG with K=5
-- Same for awayXG toward LEAGUE_AWAY_XG, scaled by awayFormMult × awayRosterFactor
-- `formMult = 0.80 + 0.40 × (lastN_pts / (lastN * 3))` from last 5 games (range [0.80, 1.20]);
-  applies only when ≥ 3 recent games, otherwise 1.0
-- Prior-season stats (`prior_season_matches`) are blended in first via `augmentStat` (half-weighted
-  pseudo-observations that fade out as real current-season data accumulates)
-- Floor: `Math.max(0.25, ...)`
-- Constants: `LEAGUE_HOME_XG = 1.25`, `LEAGUE_AWAY_XG = 1.10`, `HOUSE_MARGIN = 0.12`, `XG_PRIOR = 5`
+**League baselines** (`getLeagueBaselines`) — every market's absolute goal level is anchored on an
+*empirical, per-league* home/away pair, not a hardcoded constant. Two tiers (`LeagueTier`):
+`kreisliga` (default + `match_category='kreisliga'`) and `b_klasse` (`wildenroth_ii`,
+`bklasse_topspiel`, `b-klasse`). Derived by empirical Bayes: the tier's own evidence
+(`prior_season_matches` of that level + finished current-season fixtures of that tier) shrunk
+toward the pooled all-leagues prior with `LEAGUE_BASELINE_PRIOR_MATCHES = 60` pseudo-matches.
+Total goals and home SHARE are shrunk separately — the total is what the O/U markets are
+calibrated against, the share is the home advantage. `prior_season_matches` contains **no
+b_klasse rows at all**, so the B-Klasse baseline is mostly the pooled prior early on;
+`diagnostics.baselineSampleMatches` reports how much real evidence there actually is. Fallbacks
+(`FALLBACK_TOTAL_GOALS = 4.0`, `FALLBACK_HOME_SHARE = 0.56`) apply only with zero prior data.
+
+**xG calculation** (`getMatchXG`) — hierarchical overall→venue rates, then a geometric mean:
+- `teamRates()` per side: prior-season pseudo-games (cross-league-normalized) are blended into the
+  team's OVERALL current-season attack/defence rate, that rate is shrunk toward the tier baseline
+  with `TEAM_PRIOR_GAMES = 4`, and the venue-specific rate is then shrunk toward
+  `overallRate × thisVenue'sFactor` with `VENUE_PRIOR_GAMES = 5`. No hard jump at 3 games — the
+  venue record simply gains weight continuously (`diagnostics.*.venueWeight`).
+- `rawHomeXG = sqrt(home.atk × away.def)`, `rawAwayXG = sqrt(away.atk × home.def)` — both inputs
+  are already on this venue's goal scale, so two average teams reproduce the baseline exactly.
+- `homeXG = max(XG_FLOOR, rawHomeXG × homeFormMult × homeRosterFactor)`, same for away.
+- `formMult = 0.90 + 0.20 × (lastN_pts / (lastN × 3))` from the last 5 games (range [0.90, 1.10]),
+  ramped in linearly between `FORM_RAMP_START = 3` and `FORM_RAMP_FULL = 8` current-season games.
+- Match contributions are red-card-weighted (`redCardWeight`), so game counts in diagnostics are
+  fractional on purpose.
+- Constants: `HOUSE_MARGIN = 0.12`, `XG_FLOOR = 0.25`, `MIN_ODDS = 1.01`, `MAX_ODDS = 100`.
+- **Shrinkage happens exactly once.** The previous model shrank twice (`augmentStat`, then a
+  dynamic `K` ramping to 11 during the first 8 games), which pinned an early-season fixture's xG
+  almost entirely onto two hardcoded league constants — every match looked roughly the same
+  before Christmas. Both of those are gone; don't reintroduce a second shrinkage layer.
 
 **Why geometric mean (not arithmetic, not full product):**
 - Arithmetic `(atk+def)/2`: underestimates quality mismatches.
@@ -93,9 +119,15 @@ separate PPG model for 1X2 — this keeps every market internally consistent.
   weak defence still yields amplified xG, so matchup differentiation is preserved.
 
 **Cross-league normalization** (`LEAGUE_STRENGTH`): bezirksliga 1.10 / kreisliga 1.00 / kreisklasse
-0.78 / b_klasse 0.68 — used both for team-level prior-season stats and for individual
-transferred-in players' prior-club goal output, so a promoted team's inflated lower-league stats
-don't overstate their real strength in the new league.
+0.78 / b_klasse 0.68. Applied as a source→target **transition** (`leagueTransition(source, target)
+= LEAGUE_STRENGTH[source] / LEAGUE_STRENGTH[targetTier]`), not as an absolute discount: it is
+exactly 1.0 within a league (a B-Klasse team's B-Klasse history carries over untouched), >1 coming
+down from a stronger league, <1 coming up from a weaker one. Attack is multiplied by it, defence
+divided — opposite directions, since a team promoted from a weaker league should look both less
+dangerous AND more porous in the stronger one. The old code applied the absolute factor to both
+sides in the same direction, which anchored every B-Klasse fixture on Kreisliga goal levels with
+an inflated conceding rate (→ systematically too-short BTTS/Over). Also used for individual
+transferred-in players' prior-club goal output in the roster factor.
 
 **Roster factor** (`getRosterFactor`, `league_players` + `match_lineups` tables) — two tiers. Once
 ≥3 matches of current-season lineup data exist for a team, real lineup presence/absence drives the
@@ -109,9 +141,11 @@ at the new club), bounded to `[0.65, 1.15]` (asymmetric: losses are certain, gai
 Europe/Berlin of match week — or immediately if `app_settings.early_betting_open` is set), then
 frozen into the `odds` table (`frozen_at` set) and never recomputed after that point. This happens
 in `tipps/page.tsx` on page load, and on demand via `app/api/admin/odds/route.ts` ("Quoten neu
-berechnen"). Keep all three `buildPriorContext` call sites (`tipps/page.tsx`,
-`app/api/admin/odds/route.ts`, `app/api/admin/odds/preview/route.ts`) passing the same
-`league_players`/`match_lineups` data — they've drifted out of sync before.
+berechnen"). **All model inputs load through `lib/oddsInputs.ts#loadOddsModelInputs`** — freeze,
+admin preview, recalc and the Spieltag-Specials engine must see the same matches, the same
+`PriorContext` and the same columns. They had drifted: the recalc route selected matches without
+`match_category` (→ wrong league tier), and `lib/matchdaySpecials.ts` passed no `PriorContext` at
+all. Add a new odds call site by importing that loader, never by writing another query.
 
 **Bet placement** (`app/api/bets/place/route.ts`) re-validates everything server-side rather than
 trusting the client: stake bounds, odds values against the frozen `odds` row (exact score is
@@ -121,7 +155,18 @@ and the Wildenroth conflict-of-interest rule (`lib/wildenroth.ts` — a flagged 
 player/coach can't place a bet whose payout depends on their own team not winning).
 
 **Season filter:** only matches with `match_date >= SEASON_START` (currently `'2026-08-01'`) count
-for odds and standings — this constant is duplicated per-file, not shared config.
+for odds and standings. Exported once from `lib/season.ts` (re-exported by `lib/oddsInputs.ts`) —
+it used to be copy-pasted as a literal into ~20 files; import it.
+
+**Backtest** (`scripts/backtest.ts`, run via `node --experimental-strip-types
+scripts/run-backtest.mjs`) — walk-forward over finished matches in true chronological order by
+`match_date`, importing the REAL production model through `scripts/ts-resolver.mjs` (the old
+`scripts/check-odds.js` re-implemented the model with copied constants and silently drifted out of
+sync; it is deleted). For each fixture the model only sees results/lineups from matches that had
+already finished before that kickoff. Scores probabilities BEFORE the house margin. Use
+`--save <f>` / `--compare <f>` to compare two model versions; **this is the only place model
+constants may be chosen.** `scripts/run-matchday-preview.mjs <spieltag> [--old <odds.ts>]` prices
+an upcoming Spieltag for eyeballing — it has no results and must never inform calibration.
 
 **The 1000-row cap (silent data loss):** every Supabase `.select()` stops at PostgREST's
 server-side row limit (1000) with **no error and no truncation flag** — a truncated result is

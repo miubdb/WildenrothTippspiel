@@ -2,6 +2,17 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import type { Match } from '@/types'
 
 /**
+ * Start of the current season. Only matches from here on count for odds,
+ * standings, leaderboards and awards — matchday numbers repeat across seasons,
+ * so without this filter a prior season's fixtures leak into every "current
+ * matchday" computation.
+ *
+ * This used to be copy-pasted as a literal into ~20 files (see CLAUDE.md);
+ * import it instead so a season rollover is one edit, not twenty.
+ */
+export const SEASON_START = '2026-08-01'
+
+/**
  * Returns Monday 12:00 Europe/Berlin of the week containing refDate.
  * Single source of truth for the "betting opens Monday noon" rule — do not
  * reimplement this elsewhere. Uses Date.UTC (not raw day-of-month subtraction)
@@ -61,7 +72,7 @@ export async function isSeasonStarted(supabase: SupabaseClient): Promise<boolean
     .from('matches')
     .select('match_date')
     .eq('matchday', 1)
-    .gte('match_date', '2026-08-01')
+    .gte('match_date', SEASON_START)
     .order('match_date', { ascending: true })
     .limit(1)
     .single()

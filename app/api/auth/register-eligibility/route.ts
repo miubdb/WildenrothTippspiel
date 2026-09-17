@@ -1,11 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { buildEffectiveMatchdayIndex, startingBalanceForRegistration, STARTING_BALANCE } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, startingBalanceForRegistration, STARTING_BALANCE, SEASON_START } from '@/lib/season'
 import { sendPushToUser } from '@/lib/push'
 import type { Match } from '@/types'
-
-const SEASON_START = '2026-08-01'
 const TEST_MATCHDAY = 999
 
 type PlayerRole = 'team1' | 'team2' | 'both' | 'fan'

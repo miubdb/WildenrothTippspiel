@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Match } from '@/types'
-import { getMatchXG, buildMatchScoreMatrix, oddsFromProbability } from './odds'
+import { getMatchXG, buildMatchScoreMatrix, oddsFromProbability, type PriorContext } from './odds'
 import { cappedPayout } from './payout'
 import { sendPushToUser } from './push'
 
@@ -84,20 +84,20 @@ interface MatchProb {
   pDiffGt: (x: number) => number
 }
 
-/** Per-match probabilities from the SAME xG/Poisson model every other market
- *  in this app uses (lib/odds.ts#getMatchXG + buildMatchScoreMatrix), without
- *  the prior-season/roster context (optional there) — a reasonable, still
- *  Bayesian-shrunk-to-league-average approximation for a secondary market;
- *  the primary 1X2/O-U markets remain the authoritative, fully-contextual
- *  odds elsewhere in the app. `xgOverride`, when given (from
+/** Per-match probabilities from the SAME xG/Poisson model AND the same inputs
+ *  every other market in this app uses (lib/odds.ts#getMatchXG +
+ *  buildMatchScoreMatrix). `priorCtx` used to be omitted here, so a Special was
+ *  derived from a team-strength estimate that skipped prior-season blending and
+ *  the roster factor entirely — i.e. a different opinion about the same fixture
+ *  than the 1X2/O-U card printed right above it. `xgOverride`, when given (from
  *  match_odds_overrides.model_home/away_xg_override), is used INSTEAD of the
  *  model's own getMatchXG output — the SAME single source of truth every
  *  other market on that match now derives from (see app/(app)/tipps/page.tsx
  *  and app/api/admin/odds/route.ts) — so a Spieltag-Special can never be
  *  computed from a stale, uncorrected team-strength estimate for a match an
  *  admin has explicitly recalibrated. */
-function buildMatchProbabilities(seasonMatches: Match[], match: Match, xgOverride?: { homeXG: number; awayXG: number }): MatchProb {
-  const { homeXG, awayXG } = xgOverride ?? getMatchXG(seasonMatches, match.home_team_id, match.away_team_id)
+function buildMatchProbabilities(seasonMatches: Match[], match: Match, priorCtx: PriorContext | undefined, xgOverride?: { homeXG: number; awayXG: number }): MatchProb {
+  const { homeXG, awayXG } = xgOverride ?? getMatchXG(seasonMatches, match.home_team_id, match.away_team_id, priorCtx)
   const matrix = buildMatchScoreMatrix(homeXG, awayXG, MAX_GOALS)
 
   const totalGoalsPmf = new Array(2 * MAX_GOALS + 1).fill(0)
@@ -223,14 +223,18 @@ function buildYesNoOptions(pYes: number): SpecialOption[] {
  * Computes one candidate per template for the given set of matches. Pure —
  * no DB writes. `seasonMatches` is the full current-season match list (for
  * getMatchXG's in-season goal-rate model), `includedMatches` the specific
- * Spieltag matches this special would snapshot into `included_match_ids`.
+ * Spieltag matches this special would snapshot into `included_match_ids`, and
+ * `priorCtx` the same PriorContext every other market is priced with (see
+ * lib/oddsInputs.ts — pass it, or this market silently prices off a weaker
+ * team-strength estimate than the rest of the card).
  */
 export function generateSpecialCandidates(
   seasonMatches: Match[],
   includedMatches: Match[],
+  priorCtx?: PriorContext,
   xgOverrides?: Map<number, { homeXG: number; awayXG: number }>,
 ): SpecialCandidate[] {
-  const probs = includedMatches.map((m) => buildMatchProbabilities(seasonMatches, m, xgOverrides?.get(m.id)))
+  const probs = includedMatches.map((m) => buildMatchProbabilities(seasonMatches, m, priorCtx, xgOverrides?.get(m.id)))
   if (probs.length === 0) return []
 
   const candidates: SpecialCandidate[] = []

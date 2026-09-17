@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getMatchXG, oddsFromXG, buildPriorContext } from '@/lib/odds'
+import { getMatchXG, oddsFromXG } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
-import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
-import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
-
-const SEASON_START = '2026-08-01'
+import { loadOddsModelInputs } from '@/lib/oddsInputs'
 
 export async function POST() {
   const supabase = await createClient()
@@ -29,75 +26,11 @@ export async function POST() {
     return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 })
   }
 
-  // Fetch all matches with team data for context
-  const { data: allMatchesRaw } = await supabase
-    .from('matches')
-    .select(
-      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, competition_type,
-       home_team:teams!matches_home_team_id_fkey(id, name, short_name),
-       away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
-    )
-    .order('match_date', { ascending: true })
-
-  const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
-    ...m,
-    home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
-    away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
-  }))
-
-  // Only current-season matches (+ the always-included test matchday 999) may
-  // feed the odds model — prior-season finished matches must never be averaged
-  // into a team's current-season form (see tipps/page.tsx and
-  // admin/odds/preview/route.ts, which already filter this way).
-  const seasonMatches = allMatches.filter((m) => m.matchday === 999 || m.match_date >= SEASON_START)
-  // competition_type === 'cup' (one-off Pokal-Spezial, see CLAUDE.md) must
-  // never feed the Poisson model's team-strength inputs for other matches —
-  // excluded from the xG-model pool even though it stays in `seasonMatches`
-  // for bookkeeping elsewhere in this route.
-  const modelMatches = seasonMatches.filter((m) => m.competition_type !== 'cup')
-
-  const priorMatchesRaw = await fetchAllRows((from, to) => supabase
-    .from('prior_season_matches')
-    .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date')
-    .order('id')
-    .range(from, to)
-  )
-
-  const priorMatches: PriorMatch[] = priorMatchesRaw as PriorMatch[]
-
-  const leaguePlayersRaw = await fetchAllRows((from, to) => supabase
-    .from('league_players')
-    .select('id, team_name, name, goals, matches, minutes, status, transfer_to, prior_league_level, prior_team_name')
-    .order('id')
-    .range(from, to)
-  )
-  const lineupEntriesRaw = await fetchAllRows((from, to) => supabase
-    .from('match_lineups')
-    .select('id, match_id, team_name, player_name, minutes_played, goals, assists, red_card_minute, created_at')
-    .order('id')
-    .range(from, to)
-  )
-
-  const leaguePlayers: LeaguePlayer[] = (leaguePlayersRaw ?? []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    team_name: p.team_name,
-    goals: p.goals,
-    games: p.matches,
-    minutes: p.minutes,
-    status: p.status,
-    transfer_to: p.transfer_to,
-    prior_league_level: p.prior_league_level,
-    prior_team_name: p.prior_team_name,
-  }))
-  const lineupEntries: LineupEntry[] = (lineupEntriesRaw ?? []) as LineupEntry[]
-
-  const teamNames = new Map<number, string>()
-  for (const m of allMatches) {
-    if (m.home_team) teamNames.set(m.home_team_id, m.home_team.name)
-    if (m.away_team) teamNames.set(m.away_team_id, m.away_team.name)
-  }
-  const priorCtx = buildPriorContext(priorMatches, teamNames, leaguePlayers, lineupEntries)
+  // Model inputs come from the shared loader so this route, the admin preview
+  // and the live tipps page cannot disagree about what the model sees (see
+  // lib/oddsInputs.ts — this route used to select matches WITHOUT
+  // `match_category`, which mis-tiers every B-Klasse fixture).
+  const { seasonMatches, modelMatches, priorCtx } = await loadOddsModelInputs(supabase)
 
   // Find scheduled matches to update odds for — never touch already-frozen rows:
   // once betting has opened and odds are frozen, they must never change under

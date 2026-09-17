@@ -11,9 +11,10 @@ import { BonusTipsSection } from '@/components/BonusTipsSection'
 import type { BonusTip } from '@/lib/bonusTips'
 import type { RecapData } from '@/components/MatchdayRecap'
 import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
-import { calculateOdds, oddsFromXG, getMatchXG, buildPriorContext, getFullExactScoreMatrix, mergeExactScoreOffers, cupMarketOddsFromXG, cupSpecialMarketOddsFromXG, cupRound6MarketOddsFromSim } from '@/lib/odds'
+import { calculateOdds, oddsFromXG, getMatchXG, getFullExactScoreMatrix, mergeExactScoreOffers, cupMarketOddsFromXG, cupSpecialMarketOddsFromXG, cupRound6MarketOddsFromSim } from '@/lib/odds'
 import { CupMatchCard } from '@/components/CupMatchCard'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
+import { ODDS_MATCH_COLUMNS, ODDS_MATCH_JOINS, SEASON_START, priorContextFromRows } from '@/lib/oddsInputs'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
 import Link from 'next/link'
@@ -45,12 +46,14 @@ export default async function TippsPage({
     supabase
       .from('matches')
       .select(
-        `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday,
-         competition_type, competition_name, competition_round, cup_shootout_winner, cup_first_goal_team,
-         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
-         away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
+        // Model-relevant columns come from the shared list so this page, the
+        // admin preview and the freeze/recalc route can't diverge on what the
+        // model sees (lib/oddsInputs.ts); the cup columns below are only used
+        // for this page's own display/markets.
+        `${ODDS_MATCH_COLUMNS}, competition_name, competition_round, cup_shootout_winner, cup_first_goal_team,
+         ${ODDS_MATCH_JOINS}`
       )
-      .gte('match_date', '2026-08-01')
+      .gte('match_date', SEASON_START)
       .order('match_date', { ascending: true }),
     fetchAllRows((from, to) => supabase
       .from('prior_season_matches')
@@ -99,7 +102,6 @@ export default async function TippsPage({
     away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
   }))
 
-  const priorMatches: PriorMatch[] = (priorMatchesRaw ?? []) as PriorMatch[]
 
   // Bonus-Tipps (Sondertipps ohne Einsatz) — jeder bereits geöffnete Tipp der
   // letzten Zeit, unabhängig vom aktuell angezeigten Spieltag (ein
@@ -125,24 +127,13 @@ export default async function TippsPage({
     if (m.home_team) teamNames.set(m.home_team_id, m.home_team.name)
     if (m.away_team) teamNames.set(m.away_team_id, m.away_team.name)
   }
-  const leaguePlayers: LeaguePlayer[] = (leaguePlayersRaw ?? []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    team_name: p.team_name,
-    goals: p.goals,
-    games: p.matches,
-    minutes: p.minutes,
-    status: p.status,
-    transfer_to: p.transfer_to,
-    prior_league_level: p.prior_league_level,
-    prior_team_name: p.prior_team_name,
-  }))
-  const lineupEntries: LineupEntry[] = (lineupEntriesRaw ?? []) as LineupEntry[]
-  const priorCtx = buildPriorContext(priorMatches, teamNames, leaguePlayers, lineupEntries)
+  // Same mapping + PriorContext the admin preview and the freeze/recalc route
+  // use, so a match cannot be priced differently depending on which of them
+  // computed it (lib/oddsInputs.ts).
+  const priorCtx = priorContextFromRows(priorMatchesRaw, teamNames, leaguePlayersRaw, lineupEntriesRaw)
 
-  const SEASON_START_TIPPS = '2026-08-01'
   // Matchday 999 is the test matchday — always include it regardless of date
-  const seasonMatches = allMatches.filter((m) => m.matchday === 999 || m.match_date >= SEASON_START_TIPPS)
+  const seasonMatches = allMatches.filter((m) => m.matchday === 999 || m.match_date >= SEASON_START)
   const isPreSeason = !seasonStarted || seasonMatches.filter((m) => m.matchday !== 999).length === 0
 
   // Pre-season: show 1-28 placeholder; in-season: derive from actual matches
@@ -325,8 +316,6 @@ export default async function TippsPage({
   // earlyBettingOpen only applies to the chronologically first upcoming matchday
   const isBettingOpen = (earlyBettingOpen && currentMatchday === firstScheduled) || !bettingOpens || new Date() >= bettingOpens
 
-  const SEASON_START = '2026-08-01'
-  // seasonMatches already declared above as filtered by SEASON_START_TIPPS (same value)
 
   // Spieltag-Specials: open with this Spieltag's normal betting window, closed
   // at the first included match's kickoff (see lib/matchdaySpecials.ts +

@@ -4,10 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
 import { computeTeamRoster, teamRosterHighlights, type TeamRosterEntry } from '@/lib/leagueStats'
+import { SEASON_START } from '@/lib/season'
 
 export const revalidate = 60
-
-const SEASON_START = '2026-08-01'
 const CREST = '/crests/spvgg-wildenroth.png'
 
 interface PlayerRow {

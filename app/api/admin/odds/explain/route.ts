@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-
-const SEASON_START = '2026-08-01'
+import { SEASON_START } from '@/lib/season'
 
 interface DiagnosticsRow {
   id: number
@@ -20,6 +19,15 @@ interface DiagnosticsRow {
   away_raw_xg: number
   home_final_xg: number
   away_final_xg: number
+  // Added by the odds_diagnostics_league_aware_columns migration — NULL on
+  // every row written before it (Spieltag 1-7). Selected via `*` below, so the
+  // route passes them straight through; the admin UI renders whatever is
+  // present. Nothing about the older rows is rewritten.
+  tier: string | null
+  baseline_home: number | null
+  baseline_away: number | null
+  baseline_sample_matches: number | null
+  [key: string]: unknown
 }
 
 /**
