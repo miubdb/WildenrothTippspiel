@@ -29,6 +29,15 @@ export type AwardType =
   | 'last_minute_tipper'
   | 'storno_champ'
 
+/** Every award type computeAndPersistMatchdayAwards evaluates. Used as the
+ *  default delete scope in persistAwards, so an award that STOPS having a
+ *  winner on a recompute actually disappears (see there). */
+export const ALL_AWARD_TYPES: AwardType[] = [
+  'spieltagskoenig', 'eier_aus_stahl', 'unlucky_bastard', 'ergebnis_orakel',
+  'griff_ins_klo', 'betonmischer', 'on_fire', 'grosser_wurf',
+  'torschuetzen_koenig', 'last_minute_tipper', 'storno_champ',
+]
+
 export const AWARD_META: Record<AwardType, { title: string; icon: string; description: string }> = {
   spieltagskoenig: { icon: '🏆', title: 'Spieltagskönig',    description: 'Bester Spieltagssaldo' },
   eier_aus_stahl:  { icon: '🥚', title: 'Eier aus Stahl',    description: 'Höchste gewonnene Quote' },
@@ -62,7 +71,16 @@ export async function persistAwards(
   supabase: SupabaseClient,
   season: string,
   matchday: number,
-  awards: AwardInput[]
+  awards: AwardInput[],
+  /** Which award types this run RECOMPUTED — not which ones produced a winner.
+   *  The difference matters: an award that loses its winner (a rule change
+   *  disqualifies the only candidate, a corrected result no longer makes the
+   *  bet a winner) contributes no row to `awards`, so deriving the delete
+   *  scope from `awards` alone would leave its stale row standing forever
+   *  with no way to clear it. Defaults to every type, which is right for a
+   *  full recompute; the backfill route narrows it so it cannot touch the
+   *  awards it does not recompute. */
+  recomputedTypes: AwardType[] = ALL_AWARD_TYPES
 ) {
   if (matchday === 999) return
   // Award winners can change on a recompute (e.g. a postponed match settles
@@ -71,7 +89,7 @@ export async function persistAwards(
   // so a changed winner would otherwise leave the old winner's row in place
   // alongside the new one. Clear every award type being recomputed for this
   // (season, matchday) first so a recompute always fully replaces the old set.
-  const types = [...new Set(awards.map(a => a.award_type))]
+  const types = [...new Set([...recomputedTypes, ...awards.map(a => a.award_type)])]
   if (types.length > 0) {
     await supabase
       .from('user_awards')
@@ -390,7 +408,7 @@ export async function computeAndPersistMatchdayAwards(
   }
 
   const toPersist = onlyTypes ? awardInputs.filter(a => onlyTypes.includes(a.award_type)) : awardInputs
-  await persistAwards(admin, season, matchday, toPersist)
+  await persistAwards(admin, season, matchday, toPersist, onlyTypes ?? ALL_AWARD_TYPES)
   return toPersist.length
 }
 
@@ -419,6 +437,11 @@ export async function computeAndPersistMatchdayAwards(
  * cancelled afterward — there is no way for a pre-migration Spieltag to
  * ever pick up a `user_cancelled` row after the fact).
  *
+ * A slip the user simply RE-PLACED is not a storno and never becomes a
+ * candidate — cancelling a bet to raise its stake and immediately backing the
+ * same selection again forgoes nothing. See loadStornoReplacements for what
+ * counts as the same bet.
+ *
  * A combo counts only if EVERY leg would have won, evaluated with the exact
  * same settleBet() switch the real settlement route uses, so this can never
  * disagree with how a real bet on the same market/selection would have been
@@ -434,6 +457,101 @@ export async function computeAndPersistMatchdayAwards(
  * spieltagskoenig's `.sort(...)[0]` over `Object.entries`); no award in
  * this module defines an explicit secondary tiebreak.
  */
+/** Identity of a single: the same user backing the same selection on the same
+ *  match — stake and odds deliberately excluded, see loadStornoReplacements. */
+function singleSelectionKey(userId: string, matchId: number, marketType: string, selection: string): string {
+  return `${userId}|${matchId}|${marketType}|${selection}`
+}
+
+/** Identity of a combo: its set of legs, order-independent. Two combos with the
+ *  same legs are the same bet even if the slip was built in another sequence. */
+function comboLegKey(legs: { match_id: number; market_type: string; selection: string }[]): string {
+  return legs.map((l) => `${l.match_id}|${l.market_type}|${l.selection}`).sort().join('#')
+}
+
+/**
+ * Which cancelled slips were merely RE-PLACED rather than given up.
+ *
+ * Storno-Champ is about forgone profit: "du hättest gewonnen, aber du hast die
+ * Wette weggeworfen". That premise fails when the user still holds the very
+ * same pick — the classic case being a stake correction, where they cancel and
+ * immediately re-place the identical selection with a different amount
+ * (observed: Wildenroth II −1,5 @ 2,94 storniert mit 126,50, 86 Sekunden später
+ * erneut mit 250,00 gesetzt und gewonnen). Nothing was forgone there, so such a
+ * slip is not a candidate at all.
+ *
+ * Deliberate choices:
+ *  - **Stake is not part of the identity.** Higher, lower or equal — the pick
+ *    was kept, which is the only thing this award is about. The same holds for
+ *    the odds: re-placing after a freeze can legitimately produce a different
+ *    price for the same selection.
+ *  - **No timestamp comparison.** The void row's `created_at` is when the bet
+ *    was PLACED, not when it was cancelled (cancellation leaves no timestamp),
+ *    so "the replacement came later" is not reliably derivable. It is also not
+ *    needed: what matters is whether a live bet on that selection exists at
+ *    settlement time, not in which order the two rows appeared.
+ *  - **Singles match singles, combos match combos.** A single re-placed as a
+ *    leg inside a combo is not the same bet — its payout now depends on other
+ *    legs. Conversely a combo dissolved into singles genuinely forgoes the
+ *    combined odds. Only a non-void combo with an IDENTICAL leg set counts as
+ *    a re-placement of a cancelled combo.
+ */
+async function loadStornoReplacements(
+  admin: SupabaseClient,
+  opts: {
+    userIds: string[]
+    matchIds: number[]
+    voidCombos: { id: number; user_id: string; legKey: string }[]
+  },
+): Promise<{ replacedSelections: Set<string>; replacedCombos: Set<number> }> {
+  const empty = { replacedSelections: new Set<string>(), replacedCombos: new Set<number>() }
+  if (opts.userIds.length === 0 || opts.matchIds.length === 0) return empty
+
+  const { data: ownRowsRaw } = await admin
+    .from('bets')
+    .select('user_id, match_id, market_type, selection, status, combo_id')
+    .in('match_id', opts.matchIds)
+    .in('user_id', opts.userIds)
+  const ownRows = (ownRowsRaw ?? []) as {
+    user_id: string; match_id: number; market_type: string; selection: string; status: string; combo_id: number | null
+  }[]
+
+  const replacedSelections = new Set(
+    ownRows
+      .filter((r) => r.status !== 'void' && r.combo_id == null)
+      .map((r) => singleSelectionKey(r.user_id, r.match_id, r.market_type, r.selection))
+  )
+
+  const replacedCombos = new Set<number>()
+  const liveComboIds = [...new Set(
+    ownRows.filter((r) => r.status !== 'void' && r.combo_id != null).map((r) => Number(r.combo_id))
+  )]
+  if (opts.voidCombos.length > 0 && liveComboIds.length > 0) {
+    // The full leg set of each live combo — legs may sit on matches outside
+    // this Spieltag, so this cannot be read off ownRows.
+    const { data: liveLegRows } = await admin
+      .from('bets')
+      .select('combo_id, user_id, match_id, market_type, selection')
+      .in('combo_id', liveComboIds)
+    const legsByCombo = new Map<number, { match_id: number; market_type: string; selection: string }[]>()
+    const userByCombo = new Map<number, string>()
+    for (const l of (liveLegRows ?? []) as { combo_id: number; user_id: string; match_id: number; market_type: string; selection: string }[]) {
+      const cid = Number(l.combo_id)
+      if (!legsByCombo.has(cid)) legsByCombo.set(cid, [])
+      legsByCombo.get(cid)!.push(l)
+      userByCombo.set(cid, l.user_id)
+    }
+    const liveKeys = new Set(
+      [...legsByCombo.entries()].map(([cid, legs]) => `${userByCombo.get(cid)}|${comboLegKey(legs)}`)
+    )
+    for (const vc of opts.voidCombos) {
+      if (liveKeys.has(`${vc.user_id}|${vc.legKey}`)) replacedCombos.add(vc.id)
+    }
+  }
+
+  return { replacedSelections, replacedCombos }
+}
+
 export async function computeStornoChamp(
   admin: SupabaseClient,
   matchIds: number[],
@@ -496,6 +614,17 @@ export async function computeStornoChamp(
     ...voidSingles.map((b) => b.match_id),
     ...voidComboAllLegs.map((l) => l.match_id),
   ])]
+
+  // Re-placed slips are not stornos — see replacedSelections/replacedCombos below.
+  const { replacedSelections, replacedCombos } = await loadStornoReplacements(admin, {
+    userIds: [...new Set([...voidSingles.map((b) => b.user_id), ...voidCombos.map((c) => c.user_id)])],
+    matchIds: evalMatchIds,
+    voidCombos: voidCombos.map((c) => ({
+      id: c.id,
+      user_id: c.user_id,
+      legKey: comboLegKey(voidComboAllLegs.filter((l) => Number(l.combo_id) === c.id)),
+    })),
+  })
   const { data: evalMatchesRaw } = evalMatchIds.length > 0
     ? await admin
         .from('matches')
@@ -518,12 +647,14 @@ export async function computeStornoChamp(
 
   const stornoCandidates: { user_id: string; net: number; label: string; betId: number | null; comboId: number | null }[] = []
   for (const b of voidSingles) {
+    if (replacedSelections.has(singleSelectionKey(b.user_id, b.match_id, b.market_type, b.selection))) continue
     if (wouldWin(b.market_type, b.selection, b.match_id) !== true) continue
     const payout = cappedPayout(b.stake ?? 0, b.odds_value, b.is_risky)
     const net = payout - (b.stake ?? 0)
     if (net > 0) stornoCandidates.push({ user_id: b.user_id, net, label: `@${b.odds_value.toFixed(2).replace('.', ',')}`, betId: b.id, comboId: null })
   }
   for (const c of voidCombos) {
+    if (replacedCombos.has(c.id)) continue
     const legs = voidComboAllLegs.filter((l) => Number(l.combo_id) === c.id)
     if (legs.length === 0) continue
     const allWon = legs.every((l) => wouldWin(l.market_type, l.selection, l.match_id) === true)

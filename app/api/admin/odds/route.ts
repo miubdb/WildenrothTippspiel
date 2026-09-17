@@ -5,8 +5,36 @@ import { getMatchXG, oddsFromXG } from '@/lib/odds'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { loadOddsModelInputs } from '@/lib/oddsInputs'
 
-export async function POST() {
+/**
+ * "Quoten neu berechnen".
+ *
+ * Optional body `{ matchId }` limits the run to that ONE fixture. Everything
+ * else — the model, its inputs, the frozen-row protection, the xG overrides,
+ * the persisted diagnostics — is identical to the full run; the scope only
+ * decides which matches are iterated. Useful when a single result has just
+ * been entered and only the fixtures depending on it should move, instead of
+ * rewriting every upcoming match's preview odds along with it.
+ *
+ * A frozen match is skipped in both modes. With an explicit `matchId` that is
+ * reported as an error rather than silently counted as "0 updated", so the
+ * admin learns why nothing happened.
+ */
+export async function POST(request: Request) {
   const supabase = await createClient()
+
+  let requestedMatchId: number | null = null
+  try {
+    const body = await request.json()
+    if (body && body.matchId != null) {
+      const parsed = Number(body.matchId)
+      if (!Number.isInteger(parsed)) {
+        return NextResponse.json({ error: 'Ungültige matchId.' }, { status: 400 })
+      }
+      requestedMatchId = parsed
+    }
+  } catch {
+    // No body / not JSON — full recalculation, the original behaviour.
+  }
 
   const {
     data: { user },
@@ -35,13 +63,25 @@ export async function POST() {
   // Find scheduled matches to update odds for — never touch already-frozen rows:
   // once betting has opened and odds are frozen, they must never change under
   // bettors, even if this recalculation button is pressed again.
-  const scheduledMatchIds = seasonMatches.filter((m) => m.status === 'scheduled').map((m) => m.id)
+  const inScope = (m: { id: number }) => requestedMatchId == null || m.id === requestedMatchId
+  if (requestedMatchId != null && !seasonMatches.some((m) => m.id === requestedMatchId)) {
+    return NextResponse.json({ error: `Match ${requestedMatchId} gehört nicht zur laufenden Saison.` }, { status: 404 })
+  }
+
+  const scheduledMatchIds = seasonMatches.filter((m) => m.status === 'scheduled' && inScope(m)).map((m) => m.id)
   const { data: frozenRows } = scheduledMatchIds.length > 0
     ? await supabase.from('odds').select('match_id').in('match_id', scheduledMatchIds).not('frozen_at', 'is', null)
     : { data: [] }
   const frozenIds = new Set((frozenRows ?? []).map((r) => r.match_id))
-  const scheduledMatches = seasonMatches.filter((m) => m.status === 'scheduled' && !frozenIds.has(m.id))
+  const scheduledMatches = seasonMatches.filter((m) => m.status === 'scheduled' && inScope(m) && !frozenIds.has(m.id))
   const skippedFrozen = scheduledMatchIds.length - scheduledMatches.length
+
+  if (requestedMatchId != null && scheduledMatches.length === 0) {
+    const reason = frozenIds.has(requestedMatchId)
+      ? 'Quoten sind bereits eingefroren und dürfen nicht mehr geändert werden.'
+      : 'Spiel ist nicht mehr "scheduled".'
+    return NextResponse.json({ error: `Match ${requestedMatchId}: ${reason}` }, { status: 409 })
+  }
 
   // Match-specific model xG override (match_odds_overrides.model_home/away_xg_override)
   // — a rare, explicit correction to the model's own team-strength estimate. MUST be

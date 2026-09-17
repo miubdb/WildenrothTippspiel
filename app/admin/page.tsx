@@ -1715,7 +1715,45 @@ function OddsPreviewMatchCard({
         )}
 
         <InlineExplain matchId={match.match_id} />
+        <SingleMatchRecalc matchId={match.match_id} />
       </div>
+    </div>
+  )
+}
+
+/** Per-match "Quoten neu berechnen" — the same endpoint and the same model as
+ *  the global button in the Quoten tab, scoped to this one fixture via
+ *  `{ matchId }`. Exists because a freshly entered result usually only needs
+ *  the fixtures depending on it to move; rewriting every upcoming match's
+ *  preview odds at the same time is a much bigger change than intended.
+ *  Frozen matches are refused by the route, not hidden here. */
+function SingleMatchRecalc({ matchId }: { matchId: number }) {
+  const [loading, setLoading] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  async function run() {
+    setLoading(true)
+    setMsg(null)
+    const res = await fetch('/api/admin/odds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId }),
+    })
+    const data = await res.json()
+    setLoading(false)
+    setMsg(res.ok ? 'Quoten neu berechnet — Vorschau neu laden.' : `Fehler: ${data.error}`)
+  }
+
+  return (
+    <div className="pt-2 mt-2 border-t border-gray-100">
+      <button
+        onClick={run}
+        disabled={loading}
+        className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 font-medium transition-colors"
+      >
+        {loading ? 'Berechne…' : 'Nur dieses Spiel neu berechnen'}
+      </button>
+      {msg && <span className="ml-2 text-xs text-gray-600">{msg}</span>}
     </div>
   )
 }
