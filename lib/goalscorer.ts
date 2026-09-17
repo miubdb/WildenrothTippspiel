@@ -139,8 +139,9 @@ const FRIENDLY_GOAL_WEIGHT_BUMP = 0.07
 const FRIENDLY_WEIGHT_BUMP_CAP = 0.50
 
 // A player flagged `questionable` for this match still might play. Halving his
-// appearance probability is the honest reading of "doubtful" and it
-// automatically redistributes his share to team-mates who are fit.
+// appearance probability is the honest reading of "doubtful". Before the market
+// opens that also shifts share to team-mates who are fit; afterwards no
+// published price moves at all (see `shouldRecomputeGoalscorerRow`).
 const QUESTIONABLE_PLAY_FACTOR = 0.5
 
 // A `squad='both'` player when BOTH Wildenroth sides play at (nearly) the same
@@ -165,18 +166,29 @@ const BOTH_SQUAD_SPLIT = 0.5
 // is small but certainly not nil.
 const OFFERED_MIN_PLAY_PROB = 0.05
 
-// Expected number of DIFFERENT outfield players used in a match: ten start and
-// roughly five more come on over ninety minutes. The raw appearance rates are
-// scaled so that Σ P(plays) lands near this — they otherwise miss it badly
-// (measured 10.6 for the Wildenroth I pool, 13.4 for II), i.e. the projection
-// implicitly expected fewer players to feature than really do.
+// MONITORING VALUE — NOT A PRICING PARAMETER.
 //
-// A PRIOR on the squad total, not a selection: nobody is forced to zero and
-// nobody is forced in, every candidate stays offered. It also moves no odds —
-// the minute budget is `pPlays × minutesIfPlaying` renormalized to 900, and that
-// renormalization is invariant to scaling every pPlays by the same factor. It
-// corrects what the diagnostics say about rotation without repricing anybody.
-const EXPECTED_OUTFIELD_PLAYERS_USED = 15
+// Ten outfield players start and roughly five more come on, so about fifteen
+// different outfield players feature in a match. That number is used to produce
+// ONE diagnostic figure, `diagnostics.playProbabilityDiagnostic`, which answers
+// "does the projection expect a plausible amount of rotation?". The raw
+// appearance rates on their own sum to 10.6 for the Wildenroth I pool and 13.4
+// for II, i.e. they understate it.
+//
+// Nothing downstream of the odds reads the scaled value. Minutes, playerXG,
+// probabilities and prices are all derived from `rawPlayProbability` and are
+// completely unaffected by this constant — asserted in
+// scripts/goalscorer-check.ts. Changing 15 to any other number cannot move a
+// single price.
+//
+// Why it is not used for pricing: the 1.0 cap inside `scalePlayProbabilities`
+// is a NON-uniform transformation. `allocateMinutes` renormalizes to 900 and is
+// invariant to scaling every propensity by one common factor, but the cap holds
+// near-certain starters back while everyone else scales up, which shifts the
+// relative minutes and would reprice the market (measured: Ritter 3.37 → 3.89,
+// Schorer 5.77 → 4.92). The squad total says how MANY different players feature;
+// it carries no information about how the minutes divide between them.
+const EXPECTED_OUTFIELD_PLAYERS_USED_DIAGNOSTIC = 15
 //
 // Once the concrete matchday squad IS confirmed, being named in it beats any
 // statistical appearance rate, and the floor rises to "named but might not come
@@ -290,8 +302,15 @@ export type GoalscorerOffer = {
 export type GoalscorerDisplayOffer = Omit<GoalscorerOffer, 'diagnostics'>
 
 export type GoalscorerPlayerDiagnostics = {
-  /** P(this player appears at all in this match). */
+  /** P(this player appears at all in this match) — the value that actually
+   *  drives expectedMinutes, playerXG and the offered price. */
   pPlays: number
+  /** The same probability restated so the squad total lands near "about fifteen
+   *  different outfield players feature". PLAUSIBILITY FIGURE ONLY: nothing in
+   *  the model reads it, and changing
+   *  EXPECTED_OUTFIELD_PLAYERS_USED_DIAGNOSTIC cannot move a price. Use it to
+   *  sanity-check rotation, not to reason about odds. */
+  playProbabilityDiagnostic: number
   /** E[minutes | he appears]. */
   minutesIfPlaying: number
   /** pPlays × minutesIfPlaying, after normalizing the squad to 900 minutes. */
@@ -476,7 +495,10 @@ export interface GoalscorerMatchContext {
 interface Projection {
   player: WildenrothPlayer
   excluded: GoalscorerPlayerDiagnostics['excluded']
-  pPlays: number
+  /** Price- and minute-relevant appearance probability. */
+  rawPlayProbability: number
+  /** Monitoring figure only — never consumed by the model. */
+  playProbabilityDiagnostic: number
   minutesIfPlaying: number
   rawMinutes: number
   goalsPer90: number
@@ -487,7 +509,10 @@ interface Projection {
  *  they are probabilities, not rates. Water-filled like the minute budget:
  *  scale, cap whoever spills past 1, re-share the rest among the others. If the
  *  pool is too small to reach the target everyone ends at 1 and the sum falls
- *  short, which is the honest outcome rather than an invented player. */
+ *  short, which is the honest outcome rather than an invented player.
+ *
+ *  DIAGNOSTIC USE ONLY — see EXPECTED_OUTFIELD_PLAYERS_USED_DIAGNOSTIC. The
+ *  result never reaches the minute budget, the xG split or a price. */
 function scalePlayProbabilities(raw: number[], target: number): number[] {
   const out = [...raw]
   const capped = new Array<boolean>(raw.length).fill(false)
@@ -530,7 +555,7 @@ function project(
       : null
 
     if (excluded) {
-      return { player, excluded, pPlays: 0, minutesIfPlaying: 0, rawMinutes: 0, goalsPer90: 0, rawWeight: 0 }
+      return { player, excluded, rawPlayProbability: 0, playProbabilityDiagnostic: 0, minutesIfPlaying: 0, rawMinutes: 0, goalsPer90: 0, rawWeight: 0 }
     }
 
     // P(appears). Appearance rate this season blended with last season's, the
@@ -581,22 +606,24 @@ function project(
 
     return {
       player, excluded: null,
-      pPlays: rawPlays,
+      rawPlayProbability: rawPlays,
+      playProbabilityDiagnostic: rawPlays,
       minutesIfPlaying,
-      rawMinutes: 0, // set in the second pass, once pPlays is final
+      rawMinutes: 0, // set in the second pass, once the adjustments are applied
       goalsPer90,
       // Weight is filled in after the minute normalization below.
       rawWeight: bump,
     }
   })
 
-  // Second pass: put the squad's appearance probabilities on the expected
-  // "how many different players actually feature" scale, then apply the
-  // per-player adjustments and floors. Scaling first and flooring afterwards
-  // means the total lands NEAR the target instead of exactly on it — which is
-  // the intent, since it is a prior and not a constraint.
-  const rawUnscaled = projections.map((p) => (p.excluded ? 0 : p.pPlays))
-  const scaled = scalePlayProbabilities(rawUnscaled, EXPECTED_OUTFIELD_PLAYERS_USED)
+  // Second pass: apply the per-player adjustments and floors, which need the
+  // whole squad. Two values come out of it and they must not be confused:
+  // `rawPlayProbability` drives minutes, xG and every price;
+  // `playProbabilityDiagnostic` is a monitoring figure nothing reads back.
+  const rawUnscaled = projections.map((p) => (p.excluded ? 0 : p.rawPlayProbability))
+  const scaledForDiagnosticsOnly = scalePlayProbabilities(
+    rawUnscaled, EXPECTED_OUTFIELD_PLAYERS_USED_DIAGNOSTIC,
+  )
 
   // The same per-player adjustments apply to both, so they live in one place.
   const adjust = (base: number, pl: WildenrothPlayer): number => {
@@ -613,21 +640,16 @@ function project(
     const p = projections[i]
     if (p.excluded) continue
 
-    // Reported probability: on the squad-total scale, so Σ P(plays) reflects how
-    // many different players actually feature.
-    p.pPlays = Math.min(1, adjust(scaled[i], p.player))
+    // THE price- and minute-relevant probability. Everything downstream —
+    // expectedMinutes, share, playerXG, prob_score, the offered odds — follows
+    // from this one and only this one.
+    p.rawPlayProbability = adjust(rawUnscaled[i], p.player)
+    p.rawMinutes = p.rawPlayProbability * p.minutesIfPlaying
 
-    // Minute split: the UNSCALED propensity, with the same adjustments.
-    //
-    // `allocateMinutes` renormalizes to 900 and is therefore invariant to
-    // scaling every propensity by one common factor — but the 1.0 cap inside
-    // `scalePlayProbabilities` is NOT uniform: it holds the near-certain
-    // starters back while everyone else is scaled up, which shifts the relative
-    // minutes and would reprice the whole market (measured on the Spieltag-8
-    // preview: Ritter 3.37 → 3.89, Schorer 5.77 → 4.92). The squad-total prior
-    // says HOW MANY different players feature; it carries no new information
-    // about how the minutes divide between them, so it must move no price.
-    p.rawMinutes = adjust(rawUnscaled[i], p.player) * p.minutesIfPlaying
+    // Plausibility figure only, reported and never consumed: the same
+    // probability put on the "~15 different players feature" scale. See
+    // EXPECTED_OUTFIELD_PLAYERS_USED_DIAGNOSTIC.
+    p.playProbabilityDiagnostic = Math.min(1, adjust(scaledForDiagnosticsOnly[i], p.player))
   }
 
   return projections
@@ -736,7 +758,8 @@ export function computeGoalscorerOffers(
       is_offered: isOffered,
       is_offered_2plus: isOffered2plus,
       diagnostics: {
-        pPlays: p.pPlays,
+        pPlays: p.rawPlayProbability,
+        playProbabilityDiagnostic: p.playProbabilityDiagnostic,
         minutesIfPlaying: p.minutesIfPlaying,
         projectedMinutes: projMin,
         goalsPer90: p.goalsPer90,

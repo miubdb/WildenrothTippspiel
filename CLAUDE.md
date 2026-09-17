@@ -263,35 +263,47 @@ goals`, which pools a `both` player's two leagues into one misleading figure (Sc
 the playing side shows 0/0/0 with a warning, never the other team's numbers.
 
 **Availability**: `BLOCKING_GOALSCORER_STATUSES` (`lib/goalscorerContext.ts`) removes a player from
-the allocation pool entirely — merely hiding him would let his share of the team xG vanish instead
-of going to the players who can play. `questionable` halves `P(plays)` instead.
+the allocation pool entirely rather than merely hiding him. What that *does* depends on whether the
+market is already open — **before** open (`frozen_at IS NULL`) his share is redistributed across the
+remaining players and Σ playerXG is the full team xG again; **after** open nothing is redistributed,
+he is just closed for new bets. `questionable` halves `P(plays)` instead of excluding.
 
 **Market-open snapshot** (`shouldRecomputeGoalscorerRow`) — `match_goalscorer_odds.frozen_at` is the
 published marker: `app/api/bets/place/route.ts` only accepts a bet on a row that has it. Once set,
-that price is a snapshot and no recompute may rewrite it, **not even with `force`** (which now means
-"price the players that are not yet published", not "overwrite published prices"). Taking a player
-out of the squad afterwards closes HIM (status `not_in_squad`) and must move nobody else: the team
-xG was correctly split across the pool that existed at open, and re-normalizing over a smaller pool
-later would silently reprice selections people already hold. The remaining players' xG then no
-longer sums to the full team xG — intended, not a defect. Before open everything still recomputes
-freely. Only an explicit manual override (`/api/admin/goalscorers/availability`) may change a
-published price.
+that price is a snapshot and no recompute may rewrite it, **not even with `force`**. `force` means
+exactly one thing: "run again even though part of this market is already published", i.e. price the
+players who are not yet published. The frozen-row guard is unconditional, so `force` can never reach
+a published row.
 
-**Squad-total prior** (`EXPECTED_OUTFIELD_PLAYERS_USED = 15`) — ten start, roughly five more come on.
-Raw appearance rates are scaled toward that total (`scalePlayProbabilities`, water-filled with a
-1.0 cap), because they otherwise miss it badly: measured Σ P(plays) was 10.6 for the Wildenroth I
-pool. **The scaled value is reported; the UNSCALED one drives the minute split.** That separation is
-deliberate: `allocateMinutes` renormalizes to 900 and is invariant to a uniform scale, but the 1.0
-cap is not uniform — it holds near-certain starters back while everyone else scales up, which would
-reprice the whole market (measured: Ritter 3.37 → 3.89, Schorer 5.77 → 4.92). The prior says how
-many DIFFERENT players feature; it carries no information about how minutes divide between them.
-With a parallel fixture damping `squad='both'` players the total lands near 13 rather than 15, which
-is correct — fewer dual-squad players will turn out for this side.
+| | before open (`frozen_at IS NULL`) | after open (`frozen_at IS NOT NULL`) |
+|---|---|---|
+| player set to `not_in_squad` / injured / … | full recompute allowed | only HE is closed for new bets |
+| his xG share | redistributed to the remaining players | **not** redistributed |
+| other players' `playerXG`, probabilities, odds | may change | **exactly unchanged** |
+| Σ playerXG of the still-open players | equals team xG again | may be **less** than team xG — intended |
+
+The team xG was correctly split across the pool that existed at open; re-normalizing over a smaller
+pool later would silently reprice selections people already hold. Only an explicit manual override
+(`/api/admin/goalscorers/availability`) may change a published price — a plain status change never
+counts as one.
+
+**`EXPECTED_OUTFIELD_PLAYERS_USED_DIAGNOSTIC = 15` is a MONITORING VALUE, not a pricing parameter.**
+Ten outfield players start and roughly five more come on, so ~15 different ones feature. That number
+produces exactly one figure — `diagnostics.playProbabilityDiagnostic` — which answers "does the
+projection expect a plausible amount of rotation?" (the raw rates alone sum to 10.6 for the
+Wildenroth I pool). **Nothing downstream reads it.** Minutes, `playerXG`, probabilities and prices
+all come from `diagnostics.pPlays` (`rawPlayProbability` internally); changing 15 to any other value
+cannot move a single price, which the checks assert directly. It is deliberately NOT used for
+pricing because the 1.0 cap inside `scalePlayProbabilities` is a non-uniform transformation:
+`allocateMinutes` renormalizes to 900 and is invariant to a uniform scale, but the cap holds
+near-certain starters back while everyone else scales up, which would reprice the market (measured:
+Ritter 3.37 → 3.89, Schorer 5.77 → 4.92). The squad total says how MANY different players feature;
+it says nothing about how the minutes divide between them.
 
 **The market opens with the whole active squad.** It does NOT wait for the matchday squad to be
-known — the admin prunes afterwards by marking players `not_in_squad`, which takes them out of the
-xG allocation so their share goes to the players who remain. Freezing is gated only on the normal
-betting window, like every other market.
+known — the admin prunes afterwards by marking players `not_in_squad`. Whether that redistributes
+their share depends on the open/closed table above. Freezing is gated only on the normal betting
+window, like every other market.
 
 Because being offered means being a candidate, `OFFERED_MIN_PLAY_PROB = 0.05` floors `P(plays)` for
 everyone still in the pool: a player with no recorded appearances otherwise landed at exactly 0%

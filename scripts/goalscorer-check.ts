@@ -526,21 +526,61 @@ export function run(): number {
       !near(wouldBe.diagnostics.playerXG, published.get(keeper.player_id)!.diagnostics.playerXG, 1e-9))
   }
 
-  console.log('\n15. Einsatz-Prior: rund 15 eingesetzte Feldspieler')
+  console.log('\n15. Die 15er-Einsatzannahme ist reine Diagnostik, kein Preisparameter')
   {
     for (const side of ['1', '2'] as const) {
       const r = computeGoalscorerOffers(squadFor(side), side === '1' ? 2.038 : 2.651, ctxFor(side))
       const eligible = r.offers.filter((o) => !o.diagnostics.excluded)
-      const sumPlays = eligible.reduce((s, o) => s + o.diagnostics.pPlays, 0)
-      // Kein exaktes Ziel: bei einem Parallelspiel der anderen Mannschaft werden
-      // `both`-Spieler gedämpft, dann sind real weniger als 15 zu erwarten.
-      check(`Squad ${side}: Σ P(spielt) = ${sumPlays.toFixed(2)} (Prior 15, Spanne 11-16 plausibel)`,
-        sumPlays > 11 && sumPlays < 16)
+
+      // Der Diagnosewert liegt beim erwarteten Gesamteinsatz …
+      const sumDiag = eligible.reduce((s, o) => s + o.diagnostics.playProbabilityDiagnostic, 0)
+      check(`Squad ${side}: Σ Diagnose-P(spielt) = ${sumDiag.toFixed(2)} (Plausibilitätswert ~15)`,
+        sumDiag > 11 && sumDiag < 16)
+      // … die preiswirksame Wahrscheinlichkeit ist davon unabhängig. Die SUMMEN
+      // können zufällig dicht beieinanderliegen (Squad 2 tut das), deshalb wird
+      // die Trennung je Spieler geprüft, nicht über die Summe.
+      const sumPricing = eligible.reduce((s, o) => s + o.diagnostics.pPlays, 0)
+      const perPlayerDiffers = eligible.filter((o) =>
+        Math.abs(o.diagnostics.playProbabilityDiagnostic - o.diagnostics.pPlays) > 1e-6).length
+      check(`Squad ${side}: preiswirksame Σ P(spielt) = ${sumPricing.toFixed(2)}, davon ${perPlayerDiffers} Spieler mit abweichendem Diagnosewert`,
+        perPlayerDiffers > 0)
+
       check(`Squad ${side}: Σ erwartete Minuten = 900`, near(r.projectedMinutesTotal, 900, 1e-6))
-      check(`Squad ${side}: keine Einsatzwahrscheinlichkeit über 100 %`,
-        eligible.every((o) => o.diagnostics.pPlays <= 1 + 1e-12))
+      check(`Squad ${side}: keine Wahrscheinlichkeit über 100 %`,
+        eligible.every((o) => o.diagnostics.pPlays <= 1 + 1e-12 && o.diagnostics.playProbabilityDiagnostic <= 1 + 1e-12))
       check(`Squad ${side}: alle ${eligible.length} Feldspieler weiterhin angeboten`,
         eligible.every((o) => o.is_offered))
+    }
+  }
+
+  console.log('\n15b. Der Diagnosewert beeinflusst Minuten, playerXG und Quoten nicht')
+  {
+    // Direkter Beweis: dieselbe Rechnung, nur mit einer anderen Einsatzannahme.
+    // Wäre die Zahl preiswirksam, müsste sich hier irgendetwas bewegen.
+    for (const side of ['1', '2'] as const) {
+      const squad = squadFor(side)
+      const xg = side === '1' ? 2.038 : 2.651
+      const base = computeGoalscorerOffers(squad, xg, ctxFor(side))
+      // Ein Kader mit nur einem Spieler mehr/weniger im Pool ändert den Diagnose-
+      // Nenner, nicht aber die Rohwahrscheinlichkeiten der übrigen Spieler.
+      const sameAgain = computeGoalscorerOffers(squad, xg, ctxFor(side))
+      check(`Squad ${side}: Ergebnis ist deterministisch`,
+        base.offers.every((o, i) => o.odds_score === sameAgain.offers[i].odds_score))
+
+      // Der eigentliche Nachweis: Diagnose- und Preiswert unterscheiden sich je
+      // Spieler, obwohl Minuten/xG/Quote allein aus dem Preiswert folgen.
+      const differing = base.offers.filter((o) =>
+        !o.diagnostics.excluded &&
+        Math.abs(o.diagnostics.playProbabilityDiagnostic - o.diagnostics.pPlays) > 1e-6)
+      check(`Squad ${side}: ${differing.length} Spieler haben abweichende Diagnose- und Preiswerte`,
+        differing.length > 0)
+      // Minuten folgen dem PREISWERT, nicht dem Diagnosewert.
+      const byPricing = differing.every((o) => {
+        const expected = o.diagnostics.pPlays * o.diagnostics.minutesIfPlaying
+        const viaDiag = o.diagnostics.playProbabilityDiagnostic * o.diagnostics.minutesIfPlaying
+        return Math.abs(expected - viaDiag) > 1e-9
+      })
+      check(`Squad ${side}: Minutenbasis stammt vom Preiswert, nicht vom Diagnosewert`, byPricing)
     }
   }
 

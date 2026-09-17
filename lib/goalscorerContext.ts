@@ -17,10 +17,16 @@ export const WILDENROTH_TEAM_NAMES = ['SpVgg Wildenroth', 'SpVgg Wildenroth II']
  * entirely. `questionable` is deliberately NOT here — a doubtful player still
  * might play, and lib/goalscorer.ts halves his appearance probability instead.
  *
- * Why exclusion matters: player xG values are shares of the team's xG. A blocked
- * player left in the pool would keep his slice and that slice would simply
- * vanish, leaving the offered players collectively short of the team's actual
- * expected goals. Removing him redistributes it.
+ * What exclusion does depends entirely on whether the market is already open:
+ *
+ *   BEFORE open (`frozen_at IS NULL`) — a full recompute is allowed. The blocked
+ *   player leaves the pool, his slice is redistributed across the remaining
+ *   players, and Σ playerXG is the full team xG again.
+ *
+ *   AFTER open (`frozen_at IS NOT NULL`) — nothing is redistributed. He is
+ *   closed for new bets and every published price stays exactly as it was; the
+ *   remaining players' xG then sums to LESS than the original team xG, which is
+ *   intended. See `shouldRecomputeGoalscorerRow`.
  */
 export const BLOCKING_GOALSCORER_STATUSES: ReadonlySet<string> = new Set([
   'injured',

@@ -119,10 +119,11 @@ export async function POST(request: NextRequest) {
   // Monday-noon formula is only a fallback for Spieltage without one (e.g.
   // the test matchday).
   // The market opens with the whole active squad; the admin removes players who
-  // turn out not to be in the matchday squad afterwards (status 'not_in_squad',
-  // which also takes them out of the xG allocation). Freezing is therefore NOT
-  // gated on the squad being known — only on the normal betting window, exactly
-  // like every other market.
+  // turn out not to be in the matchday squad afterwards (status 'not_in_squad').
+  // Before the market is open that removal redistributes his xG share across the
+  // remaining players; after it is open it only closes HIM and leaves every
+  // published price untouched. Freezing itself is NOT gated on the squad being
+  // known — only on the normal betting window, exactly like every other market.
   const squadConfirmed = match.goalscorer_squad_confirmed_at != null
   let allowFreeze = true
   if (match.status === 'scheduled') {
@@ -159,9 +160,12 @@ export async function POST(request: NextRequest) {
   // this route must never rewrite it — see the frozen-row guard in the write
   // loop below, which holds even with `force`.
   //
-  // `force` therefore now means "run again even though part of this market is
-  // already published", i.e. price the players that are NOT yet published. It no
-  // longer means "overwrite published prices".
+  // `force` means exactly one thing: "run again even though part of this market
+  // is already published", i.e. price the players who are NOT yet published.
+  // It can NEVER overwrite a published price — the guard in the write loop is
+  // unconditional, so `force` cannot reach a row with frozen_at set. An admin
+  // who really wants to change a live price uses the explicit manual override
+  // (/api/admin/goalscorers/availability), which is a separate, deliberate act.
   const { count: frozenCount } = await supabase
     .from('match_goalscorer_odds').select('id', { count: 'exact', head: true })
     .eq('match_id', matchId).not('frozen_at', 'is', null)

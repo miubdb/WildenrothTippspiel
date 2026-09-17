@@ -796,10 +796,13 @@ export default async function TippsPage({
           // same corrected team xG used for its other cup markets, instead of
           // being derived from a different (uncorrected) strength estimate.
           const gsXgOverride = exactScoreXgOverrideMap.get(m.id)
-          // A blocked player has to leave the allocation pool, not just be
-          // hidden: player xG values are shares of the team's xG, so leaving
-          // him in would let his slice vanish instead of going to the players
-          // who can actually play. Same builder the admin recompute uses.
+          // A blocked player leaves the allocation pool rather than merely
+          // being hidden. This block only ever computes rows that are NOT yet
+          // frozen (see frozenKeys below), i.e. it is always the before-open
+          // case, where redistributing his share across the remaining players
+          // is correct. Published rows are never recomputed — after the market
+          // opens, blocking a player closes him and moves nobody else.
+          // Same builder the admin recompute uses.
           const gsCtx: GoalscorerMatchContext = await buildGoalscorerContext(supabase, {
             matchId: m.id,
             matchDate: m.match_date,
