@@ -531,47 +531,6 @@ export default async function LeaderboardPage({
       const koenig = Object.entries(netGain).filter(([, g]) => g > 0).sort((a, b) => b[1] - a[1])[0]
       const spieltagskoenig = koenig ? { name: pMap[koenig[0]] ?? 'Unbekannt', profit: koenig[1] } : null
 
-      // 🥚 Eier aus Stahl: highest won odds
-      const wonSingles = recapSingles.filter(b => b.status === 'won').sort((a, b) => b.odds_value - a.odds_value)
-      const wonCombos = recapCombos.filter(c => c.status === 'won').sort((a, b) => b.total_odds - a.total_odds)
-      const topSingle = wonSingles[0] ?? null
-      const topCombo = wonCombos[0] ?? null
-      let eierAusStahl: RecapData['eierAusStahl'] = null
-      if (topSingle || topCombo) {
-        const sOdds = topSingle?.odds_value ?? 0
-        const cOdds = topCombo?.total_odds ?? 0
-        if (sOdds >= cOdds && topSingle) {
-          eierAusStahl = { name: pMap[topSingle.user_id] ?? 'Unbekannt', odds: topSingle.odds_value, stake: topSingle.stake ?? 0, payout: topSingle.payout ?? 0, isCombo: false, bet: recapBetDetail(topSingle) }
-        } else if (topCombo) {
-          eierAusStahl = { name: pMap[topCombo.user_id] ?? 'Unbekannt', odds: topCombo.total_odds, stake: topCombo.stake, payout: topCombo.payout, isCombo: true, legs: allComboLegs.filter(l => l.combo_id === topCombo.id).length }
-        }
-      }
-
-      // 😭 Unlucky Bastard: lost combo with exactly 1 lost leg
-      const legsByCombo = allComboLegs.reduce<Record<number, { status: string }[]>>((acc, l) => {
-        if (!acc[l.combo_id]) acc[l.combo_id] = []
-        acc[l.combo_id].push({ status: l.status })
-        return acc
-      }, {})
-      // combo_bets has no is_risky column of its own — every leg carries the
-      // same value, so any one leg reflects the combo's classification.
-      // recapComboLegBets (a subset of recapBets) still has is_risky;
-      // allComboLegs (fetched separately) does not.
-      const comboIsRiskyMap = new Map<number, boolean>()
-      for (const l of recapComboLegBets) {
-        const cid = Number(l.combo_id)
-        if (!comboIsRiskyMap.has(cid)) comboIsRiskyMap.set(cid, !!l.is_risky)
-      }
-      const unluckyResults = recapCombos
-        .filter(c => c.status === 'lost')
-        .map(c => {
-          const legs = legsByCombo[c.id] ?? []
-          return { c, legs, lostCount: legs.filter(l => l.status === 'lost').length }
-        })
-        .filter(x => x.lostCount === 1 && x.legs.length >= 2 && x.legs.every(l => l.status !== 'pending'))
-        .sort((a, b) => (b.c.stake * b.c.total_odds) - (a.c.stake * a.c.total_odds))
-      const unlucky = unluckyResults[0] ?? null
-
       const RECAP_MKT_LBL: Record<string, string> = {
         '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
         over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
@@ -633,6 +592,47 @@ export default async function LeaderboardPage({
           selection,
         }
       }
+
+      // 🥚 Eier aus Stahl: highest won odds
+      const wonSingles = recapSingles.filter(b => b.status === 'won').sort((a, b) => b.odds_value - a.odds_value)
+      const wonCombos = recapCombos.filter(c => c.status === 'won').sort((a, b) => b.total_odds - a.total_odds)
+      const topSingle = wonSingles[0] ?? null
+      const topCombo = wonCombos[0] ?? null
+      let eierAusStahl: RecapData['eierAusStahl'] = null
+      if (topSingle || topCombo) {
+        const sOdds = topSingle?.odds_value ?? 0
+        const cOdds = topCombo?.total_odds ?? 0
+        if (sOdds >= cOdds && topSingle) {
+          eierAusStahl = { name: pMap[topSingle.user_id] ?? 'Unbekannt', odds: topSingle.odds_value, stake: topSingle.stake ?? 0, payout: topSingle.payout ?? 0, isCombo: false, bet: recapBetDetail(topSingle) }
+        } else if (topCombo) {
+          eierAusStahl = { name: pMap[topCombo.user_id] ?? 'Unbekannt', odds: topCombo.total_odds, stake: topCombo.stake, payout: topCombo.payout, isCombo: true, legs: allComboLegs.filter(l => l.combo_id === topCombo.id).length }
+        }
+      }
+
+      // 😭 Unlucky Bastard: lost combo with exactly 1 lost leg
+      const legsByCombo = allComboLegs.reduce<Record<number, { status: string }[]>>((acc, l) => {
+        if (!acc[l.combo_id]) acc[l.combo_id] = []
+        acc[l.combo_id].push({ status: l.status })
+        return acc
+      }, {})
+      // combo_bets has no is_risky column of its own — every leg carries the
+      // same value, so any one leg reflects the combo's classification.
+      // recapComboLegBets (a subset of recapBets) still has is_risky;
+      // allComboLegs (fetched separately) does not.
+      const comboIsRiskyMap = new Map<number, boolean>()
+      for (const l of recapComboLegBets) {
+        const cid = Number(l.combo_id)
+        if (!comboIsRiskyMap.has(cid)) comboIsRiskyMap.set(cid, !!l.is_risky)
+      }
+      const unluckyResults = recapCombos
+        .filter(c => c.status === 'lost')
+        .map(c => {
+          const legs = legsByCombo[c.id] ?? []
+          return { c, legs, lostCount: legs.filter(l => l.status === 'lost').length }
+        })
+        .filter(x => x.lostCount === 1 && x.legs.length >= 2 && x.legs.every(l => l.status !== 'pending'))
+        .sort((a, b) => (b.c.stake * b.c.total_odds) - (a.c.stake * a.c.total_odds))
+      const unlucky = unluckyResults[0] ?? null
 
       let unluckyLegDetails: import('@/components/MatchdayRecap').RecapLegDetail[] = []
       if (unlucky) {
