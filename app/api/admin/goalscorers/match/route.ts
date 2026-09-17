@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { computeGoalscorerOffersForMatch, type WildenrothPlayer } from '@/lib/goalscorer'
-import { buildPriorContext } from '@/lib/odds'
-import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
-import { bettingOpenTime, parseBettingOpenOverrides, SEASON_START } from '@/lib/season'
-import type { Match, PriorMatch, LeaguePlayer, LineupEntry } from '@/types'
+import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerMatchContext } from '@/lib/goalscorer'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { loadOddsModelInputs } from '@/lib/oddsInputs'
+import { bettingOpenTime, parseBettingOpenOverrides } from '@/lib/season'
+import { BLOCKING_GOALSCORER_STATUSES, hasConcurrentOtherSquadFixture } from '@/lib/goalscorerContext'
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser()
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
 
   const { data: match } = await supabase
     .from('matches')
-    .select('id, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status')
+    .select('id, matchday, home_team_id, away_team_id, match_date, match_category, home_score, away_score, status')
     .eq('id', matchId)
     .single()
   if (!match) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 404 })
@@ -122,62 +122,48 @@ export async function POST(request: NextRequest) {
   const { data: playersRaw } = await supabase.from('wildenroth_players').select('*').eq('active', true).in('squad', squads)
   const players = (playersRaw ?? []) as WildenrothPlayer[]
 
-  // Season fixtures (same window as main odds logic)
-  const { data: matchesRaw } = await supabase
-    .from('matches')
-    .select('id, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status')
-    .gte('match_date', SEASON_START)
-  const seasonMatches = (matchesRaw ?? []) as Match[]
+  // Model inputs from the SAME central loader the 1X2/O-U/BTTS markets use.
+  // This route used to run its own `matches` query that selected neither
+  // `match_category` nor `competition_type` and was not paginated. Without
+  // `match_category` getMatchXG infers the league tier from nothing and treats
+  // a Wildenroth II B-Klasse fixture as Kreisliga — measured on the Spieltag-8
+  // fixture that meant 2.518 xG here against 2.651 in the main market, a 5%
+  // disagreement on the same match. See lib/oddsInputs.ts.
+  const { modelMatches, priorCtx } = await loadOddsModelInputs(supabase)
 
-  // Same prior-season/roster context as the automatic freeze in tipps/page.tsx
-  // and the 1X2 admin recompute (app/api/admin/odds/route.ts) — without this,
-  // the goalscorer market would be derived from a different team-strength
-  // estimate than the 1X2/O-U markets on the same card (see the warning in
-  // lib/goalscorer.ts's computeGoalscorerOffersForMatch).
-  const { data: allTeams } = await supabase.from('teams').select('id, name')
-  const teamNames = new Map<number, string>()
-  for (const t of allTeams ?? []) teamNames.set(t.id, t.name)
+  // Match-specific model xG override, same lookup as tipps/page.tsx and the
+  // 1X2 recompute — this route previously ignored it entirely, so an admin
+  // correction moved every other market on the fixture except this one.
+  const { data: xgOverrideRow } = await createAdminClient()
+    .from('match_odds_overrides')
+    .select('model_home_xg_override, model_away_xg_override')
+    .eq('match_id', matchId)
+    .maybeSingle()
+  const xgOverride = xgOverrideRow?.model_home_xg_override != null && xgOverrideRow?.model_away_xg_override != null
+    ? { homeXG: Number(xgOverrideRow.model_home_xg_override), awayXG: Number(xgOverrideRow.model_away_xg_override) }
+    : undefined
 
-  const priorMatchesRaw = await fetchAllRows((from, to) => supabase
-    .from('prior_season_matches')
-    .select('id, season, league_name, league_level, league_number, home_team, away_team, home_score, away_score, match_date')
-    .order('id')
-    .range(from, to)
+  // Per-match availability an admin has already set. A blocked player must be
+  // taken OUT of the allocation pool, not merely hidden — otherwise his share
+  // of the team xG disappears instead of going to the players who can play.
+  const { data: availabilityRows } = await supabase
+    .from('match_goalscorer_odds')
+    .select('player_id, status')
+    .eq('match_id', matchId)
+  const gsCtx: GoalscorerMatchContext = {
+    blockedPlayerIds: new Set(
+      (availabilityRows ?? []).filter(r => BLOCKING_GOALSCORER_STATUSES.has(r.status)).map(r => r.player_id)
+    ),
+    questionablePlayerIds: new Set(
+      (availabilityRows ?? []).filter(r => r.status === 'questionable').map(r => r.player_id)
+    ),
+    bothSquadConflict: hasConcurrentOtherSquadFixture(modelMatches, match.match_date, wildenrothId, [team1Id, team2Id]),
+  }
+
+  const result = computeGoalscorerOffersForMatch(
+    modelMatches, match.home_team_id, match.away_team_id, wildenrothId, players, priorCtx, xgOverride, gsCtx,
   )
-  const priorMatches = priorMatchesRaw as PriorMatch[]
-
-  const leaguePlayersRaw = await fetchAllRows((from, to) => supabase
-    .from('league_players')
-    .select('id, team_name, name, goals, matches, minutes, status, transfer_to, prior_league_level, prior_team_name')
-    .order('id')
-    .range(from, to)
-  )
-  const leaguePlayers: LeaguePlayer[] = (leaguePlayersRaw ?? []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    team_name: p.team_name,
-    goals: p.goals,
-    games: p.matches,
-    minutes: p.minutes,
-    status: p.status,
-    transfer_to: p.transfer_to,
-    prior_league_level: p.prior_league_level,
-    prior_team_name: p.prior_team_name,
-  }))
-
-  const lineupEntriesRaw = await fetchAllRows((from, to) => supabase
-    .from('match_lineups')
-    .select('id, match_id, team_name, player_name, minutes_played, goals, assists, red_card_minute, created_at')
-    .order('id')
-    .range(from, to)
-  )
-  const lineupEntries = (lineupEntriesRaw ?? []) as LineupEntry[]
-
-  const priorCtx = buildPriorContext(priorMatches, teamNames, leaguePlayers, lineupEntries)
-
-  const offers = computeGoalscorerOffersForMatch(
-    seasonMatches, match.home_team_id, match.away_team_id, wildenrothId, players, priorCtx,
-  )
+  const offers = result.offers
 
   // Rows an admin already manually blocked/enabled/re-priced (via
   // /availability or /cancel-player) must survive a recompute — otherwise
@@ -216,5 +202,14 @@ export async function POST(request: NextRequest) {
     }, { onConflict: 'match_id,player_id' })
   }
 
-  return NextResponse.json({ success: true, offers: offers.length, frozen: allowFreeze })
+  return NextResponse.json({
+    success: true,
+    offers: offers.length,
+    frozen: allowFreeze,
+    // Surfaced so the admin UI can show that the parts add up to the whole.
+    teamMatchXG: result.teamMatchXG,
+    allocatedXG: result.allocatedXG,
+    offeredXG: result.offeredXG,
+    projectedMinutesTotal: result.projectedMinutesTotal,
+  })
 }

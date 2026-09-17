@@ -16,7 +16,8 @@ import { CupMatchCard } from '@/components/CupMatchCard'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { ODDS_MATCH_COLUMNS, ODDS_MATCH_JOINS, SEASON_START, priorContextFromRows } from '@/lib/oddsInputs'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
-import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerOffer } from '@/lib/goalscorer'
+import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerDisplayOffer, type GoalscorerMatchContext } from '@/lib/goalscorer'
+import { BLOCKING_GOALSCORER_STATUSES, hasConcurrentOtherSquadFixture } from '@/lib/goalscorerContext'
 import Link from 'next/link'
 import { CUP_MARKET_LABEL, cupSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
@@ -691,7 +692,7 @@ export default async function TippsPage({
 
   // Goalscorer odds for Wildenroth matches: compute + freeze on first request after Mon 12:00.
   // Map structure: matchId → array of GoalscorerOffer (only is_offered/is_offered_2plus players).
-  const goalscorerOffersByMatch: Record<number, (GoalscorerOffer & { status: string })[]> = {}
+  const goalscorerOffersByMatch: Record<number, (GoalscorerDisplayOffer & { status: string })[]> = {}
   // Player name map used by display components for goalscorer selections.
   const playerNameMap: Record<number, string> = {}
   // When a Wildenroth side (I or II) has two of its own matches under the same
@@ -731,7 +732,7 @@ export default async function TippsPage({
       // Always fetch active players (needed for name map at display time).
       const { data: playersRaw } = await supabase
         .from('wildenroth_players')
-        .select('id, name, position, games, minutes, goals, assists, prev_games, prev_minutes, prev_goals, friendly_goals, is_goalkeeper, is_penalty_taker, is_freekick_taker, active')
+        .select('id, name, position, squad, games, minutes, goals, assists, prev_games, prev_minutes, prev_goals, friendly_goals, is_goalkeeper, is_penalty_taker, is_freekick_taker, active')
         .eq('active', true).in('squad', side.squads)
       const players = (playersRaw ?? []) as WildenrothPlayer[]
       for (const p of players) playerNameMap[p.id] = p.name
@@ -795,8 +796,23 @@ export default async function TippsPage({
           // same corrected team xG used for its other cup markets, instead of
           // being derived from a different (uncorrected) strength estimate.
           const gsXgOverride = exactScoreXgOverrideMap.get(m.id)
-          const offers = computeGoalscorerOffersForMatch(
-            seasonMatches, m.home_team_id, m.away_team_id, wildenrothId, players, priorCtx, gsXgOverride,
+          // A blocked player has to leave the allocation pool, not just be
+          // hidden: player xG values are shares of the team's xG, so leaving
+          // him in would let his slice vanish instead of going to the players
+          // who can actually play.
+          const gsCtx: GoalscorerMatchContext = {
+            blockedPlayerIds: new Set(
+              (existingRows ?? []).filter(r => r.match_id === m.id && BLOCKING_GOALSCORER_STATUSES.has(r.status)).map(r => r.player_id)
+            ),
+            questionablePlayerIds: new Set(
+              (existingRows ?? []).filter(r => r.match_id === m.id && r.status === 'questionable').map(r => r.player_id)
+            ),
+            bothSquadConflict: hasConcurrentOtherSquadFixture(
+              oddsMatches, m.match_date, wildenrothId, wildenrothSides.map(s => s.teamId),
+            ),
+          }
+          const { offers } = computeGoalscorerOffersForMatch(
+            oddsMatches, m.home_team_id, m.away_team_id, wildenrothId, players, priorCtx, gsXgOverride, gsCtx,
           )
           const now = new Date().toISOString()
           for (const o of offers) {

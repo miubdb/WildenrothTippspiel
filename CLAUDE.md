@@ -189,6 +189,55 @@ a BTTS one). Lowering `TEAM_PRIOR_GAMES` improves every metric on the full sampl
 gain sits in the second half of the season and in the no-prior-season group; it was rejected as
 overfitting at this sample size.
 
+### Goalscorer model (`lib/goalscorer.ts`)
+
+**Two strictly separated levels.** (A) `teamMatchXG` comes from the main model
+(`getMatchXG`, plus any `match_odds_overrides` xG correction) and is read-only here — it is the
+same number that prices 1X2/O-U/BTTS/handicap/exact score for that fixture. (B) This file only
+decides **how that xG is split**: player features (Bayesian goals/90, projected minutes, set-piece
+and preseason bumps) form relative weights → shares → `playerXG_i = teamMatchXG × share_i`. So
+`Σ playerXG == teamMatchXG` by construction.
+
+**Opponent strength enters exactly once, through `teamMatchXG`.** Never multiply a second
+opponent/matchup factor onto a player — that is the same information twice. The old model did
+`per90 × minutes/90 × (teamXG / leagueBaseline)` per player with nothing tying the parts to the
+whole, and the parts came out at ~2× the whole (Wildenroth I vs Oberweikertshofen II: team xG
+2.04, Σ offered player xG 4.28).
+
+**Minutes are a budget, not per-player averages.** `OUTFIELD_MINUTES_PER_MATCH = 900` (10 outfield
+× 90) is distributed by `P(plays) × E[minutes | plays]`, water-filled with a hard 90-minute cap per
+player (`allocateMinutes`). The old model gave each player his personal average independently, so
+they summed to 1316 minutes for a 900-minute match. `P(plays)` comes from appearance rate against
+`squadRecordedGames` — the squad MAXIMUM of `wildenroth_players.games`, not the team's real fixture
+count, because that column only counts appearances an admin has entered.
+
+**Set-piece/preseason bumps are multiplicative on the weight**, not additive on xG — additive would
+break `Σ playerXG == teamMatchXG`. Values are the old additive bumps expressed relative to a typical
+offered player's xG (~0.28).
+
+**`OWN_GOAL_SHARE = 0` is derived, not chosen**: all 19 Wildenroth goals on record this season went
+to named active outfield players and `match_goalscorers` holds zero own goals. Re-check before
+inventing a residual.
+
+**Availability**: `BLOCKING_GOALSCORER_STATUSES` (`lib/goalscorerContext.ts`) removes a player from
+the allocation pool entirely — merely hiding him would let his share of the team xG vanish instead
+of going to the players who can play. `questionable` halves `P(plays)` instead.
+
+**`squad = 'both'` when both Wildenroth sides play in parallel**: `hasConcurrentOtherSquadFixture`
+halves that player's `P(plays)`. This is a projection adjustment, NOT a second lock — the
+double-fixture lock in `tipps/page.tsx` (`GOALSCORER_DOUBLE_FIXTURE_BUFFER_MS`) handles the
+different case of ONE side playing twice in a week and stays the mechanism for that.
+
+Model inputs must come from `loadOddsModelInputs` — the admin recompute route used its own query
+without `match_category`, which priced a Wildenroth II B-Klasse fixture in the Kreisliga (2.518 xG
+against the main market's 2.651), and ignored `match_odds_overrides` entirely.
+
+Checks: `node --experimental-strip-types scripts/run-goalscorer-check.mjs` (31 assertions, exits
+non-zero on failure) and `scripts/run-goalscorer-preview.mjs <spieltag> [--old <goalscorer.ts>]`
+for a read-only old-vs-new preview. Player parameters are NOT fitted — there are only ~10
+(Wildenroth I) and ~2 (II) matches with recorded scorers, far too few to calibrate
+`PRIOR_GAMES`, position priors, bumps or the 15% margin.
+
 **The 1000-row cap (silent data loss):** every Supabase `.select()` stops at PostgREST's
 server-side row limit (1000) with **no error and no truncation flag** — a truncated result is
 indistinguishable from a complete one. `bets` (1128 rows), `match_lineups` and
