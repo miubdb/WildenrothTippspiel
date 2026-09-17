@@ -37,12 +37,13 @@ for (const m of neu) {
   const row = (name, x) =>
     `  ${name}  xG ${x.markets.homeXG.toFixed(2)}:${x.markets.awayXG.toFixed(2)}` +
     `  1 ${dec(x.markets.home)} X ${dec(x.markets.draw)} 2 ${dec(x.markets.away)}` +
+    `  P(H trifft) ${pct(x.markets.homeScores)} P(G trifft) ${pct(x.markets.awayScores)}` +
     `  BTTS-Ja ${dec(x.markets.bttsYes)}  Ü2,5 ${dec(x.markets.over25)}`
   if (a) console.log(row('alt', a))
   console.log(row(a ? 'neu' : '   ', m))
   console.log(
     `       Liga-Normalspiel ${d.baselineHome.toFixed(2)}:${d.baselineAway.toFixed(2)} (${d.tier}, n=${d.baselineSampleMatches})` +
-    `  Heim ${d.home.gamesAll}/${d.home.gamesVenue} Sp., Gast ${d.away.gamesAll}/${d.away.gamesVenue} Sp.` +
+    `  Heim ${d.home.gamesAll.toFixed(1)}/${d.home.gamesVenue.toFixed(1)} Sp., Gast ${d.away.gamesAll.toFixed(1)}/${d.away.gamesVenue.toFixed(1)} Sp.` +
     `  Form ${d.home.formMult.toFixed(2)}/${d.away.formMult.toFixed(2)}  Kader ${d.home.rosterFactor.toFixed(2)}/${d.away.rosterFactor.toFixed(2)}`
   )
   if (a) {

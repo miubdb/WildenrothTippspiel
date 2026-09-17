@@ -26,6 +26,10 @@ interface Markets {
   homeXG: number; awayXG: number
   home: number; draw: number; away: number
   bttsYes: number; over25: number
+  /** P(team scores ≥ 1) = 1 - exp(-xG). Printed alongside BTTS because BTTS is
+   *  exactly their product under this model — if a BTTS price looks wrong, one
+   *  of these two is what actually needs explaining. */
+  homeScores: number; awayScores: number
 }
 
 function markets(matrixFn: MatrixFn, homeXG: number, awayXG: number): Markets {
@@ -39,7 +43,11 @@ function markets(matrixFn: MatrixFn, homeXG: number, awayXG: number): Markets {
       if (h + a > 2.5) over25 += p
     }
   }
-  return { homeXG, awayXG, home, draw, away, bttsYes, over25 }
+  return {
+    homeXG, awayXG, home, draw, away, bttsYes, over25,
+    homeScores: 1 - Math.exp(-homeXG),
+    awayScores: 1 - Math.exp(-awayXG),
+  }
 }
 
 export interface ModelApi { getMatchXG: XGFn; buildPriorContext: CtxFn; buildMatchScoreMatrix: MatrixFn }

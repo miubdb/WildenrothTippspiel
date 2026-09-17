@@ -168,6 +168,27 @@ already finished before that kickoff. Scores probabilities BEFORE the house marg
 constants may be chosen.** `scripts/run-matchday-preview.mjs <spieltag> [--old <odds.ts>]` prices
 an upcoming Spieltag for eyeballing — it has no results and must never inform calibration.
 
+**BTTS / scoring-probability monitoring** (`scripts/btts-analysis.ts`, run via
+`scripts/run-btts-analysis.mjs`) — BTTS is not a market of its own: under independent Poisson
+`P(BTTS) = P(home ≥ 1) × P(away ≥ 1)` exactly (verified to 4e-5 against the score matrix), so a
+BTTS price can only be wrong if a per-team scoring probability is wrong, or if the two teams'
+goal counts are not independent. The script measures both separately, plus per-team calibration
+bucketed by the team's observed goals/game before kickoff. **Never "fix" BTTS directly** — it has
+no parameters of its own, and a fix at the xG level automatically moves 1X2, O/U, handicap and
+exact score with it (which is the point).
+
+Reviewed after Spieltag 7 (n=70 matches / 140 team-games): BTTS 67.3 % modelled vs 68.6 % actual
+(z = +0.23); the zero cell — the only thing BTTS depends on — predicted 25.0 of 140, observed 25;
+independence φ = 0.075 ± 0.120. **No change made.** The apparent "weak offences get too much xG"
+signal was 2 of 12 B-Klasse teams with 3 games each. Re-check at **n ≈ 150 matches** (roughly
+Spieltag 14), watching in this order: (1) the zero cell predicted-vs-observed across all team-games,
+(2) `P(team scores ≥ 1)` split by whether the team has prior-season data — the no-prior group ran
+87 % vs 81 % on n=32, the single largest open gap, (3) modelled vs actual total goals per match
+(3.61 vs 3.97, z = +1.42 — the model may run ~10 % low on goal level, which is an O/U question, not
+a BTTS one). Lowering `TEAM_PRIOR_GAMES` improves every metric on the full sample but the entire
+gain sits in the second half of the season and in the no-prior-season group; it was rejected as
+overfitting at this sample size.
+
 **The 1000-row cap (silent data loss):** every Supabase `.select()` stops at PostgREST's
 server-side row limit (1000) with **no error and no truncation flag** — a truncated result is
 indistinguishable from a complete one. `bets` (1128 rows), `match_lineups` and
