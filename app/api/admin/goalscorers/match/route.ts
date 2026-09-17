@@ -4,7 +4,7 @@ import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type Goalscorer
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadOddsModelInputs } from '@/lib/oddsInputs'
 import { bettingOpenTime, parseBettingOpenOverrides } from '@/lib/season'
-import { attachTeamStats, buildGoalscorerContext, shouldRecomputeGoalscorerRow, CURRENT_SEASON, WILDENROTH_TEAM_NAMES } from '@/lib/goalscorerContext'
+import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, CURRENT_SEASON, WILDENROTH_TEAM_NAMES } from '@/lib/goalscorerContext'
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser()
@@ -230,6 +230,7 @@ export async function POST(request: NextRequest) {
     .eq('match_id', matchId)
   const overriddenIds = new Set((existingRows ?? []).filter(r => r.manually_overridden).map(r => r.player_id))
   const alreadyFrozenIds = new Set((existingRows ?? []).filter(r => r.frozen_at).map(r => r.player_id))
+  const existingIds = new Set((existingRows ?? []).map(r => r.player_id))
 
   const now = new Date().toISOString()
   let repriced = 0
@@ -244,10 +245,14 @@ export async function POST(request: NextRequest) {
     // team xG, which is the intended consequence, not a defect.
     const frozen = alreadyFrozenIds.has(o.player_id)
     const overridden = overriddenIds.has(o.player_id)
-    if (!shouldRecomputeGoalscorerRow({ frozen, manuallyOverridden: overridden })) {
-      if (frozen) { priceProtected++; continue }
-    }
-    if (overridden) {
+    // This route IS the explicit admin recompute — the one place a draft may be
+    // rebuilt. The automatic market open takes a different path (see
+    // goalscorerRowAction and app/(app)/tipps/page.tsx).
+    const action = goalscorerRowAction({
+      trigger: 'admin_recompute', exists: existingIds.has(o.player_id), frozen, manuallyOverridden: overridden,
+    })
+    if (frozen) { priceProtected++; continue }
+    if (action === 'skip') {
       // Only (maybe) freeze it — never touch the admin's own status/is_offered/odds.
       if (allowFreeze) {
         await supabase.from('match_goalscorer_odds')

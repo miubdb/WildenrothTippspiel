@@ -268,12 +268,24 @@ market is already open — **before** open (`frozen_at IS NULL`) his share is re
 remaining players and Σ playerXG is the full team xG again; **after** open nothing is redistributed,
 he is just closed for new bets. `questionable` halves `P(plays)` instead of excluding.
 
-**Market-open snapshot** (`shouldRecomputeGoalscorerRow`) — `match_goalscorer_odds.frozen_at` is the
-published marker: `app/api/bets/place/route.ts` only accepts a bet on a row that has it. Once set,
-that price is a snapshot and no recompute may rewrite it, **not even with `force`**. `force` means
-exactly one thing: "run again even though part of this market is already published", i.e. price the
-players who are not yet published. The frozen-row guard is unconditional, so `force` can never reach
-a published row.
+**Draft → live** (`goalscorerRowAction`) — one decision point for every write to
+`match_goalscorer_odds`, and the reason the admin workflow holds: (1) admin computes → draft rows
+(`frozen_at IS NULL`), (2) admin reviews and retypes some prices, (3) the Spieltag opens and
+**exactly that reviewed state goes live**, (4) the squad becomes known and non-squad players are
+closed without moving anyone else.
+
+At market open an existing draft row is only stamped with `frozen_at` — never recomputed — whether
+or not `manually_overridden` is set. A price the admin looked at and deliberately left alone is as
+much part of the reviewed market as one they retyped; recomputing at open would mean the numbers
+checked in the admin and the numbers that went live could differ with nothing hinting at it. (The
+automatic freeze in `tipps/page.tsx` used to re-run the model for every non-overridden row.) Only a
+player with **no draft row at all** still gets a freshly computed price at open, and that never
+touches the rows around him.
+
+`manually_overridden` therefore no longer answers "recompute at open?" — it only protects a hand-set
+price from an explicit admin recompute. `frozen_at IS NOT NULL` beats every trigger: published, a
+snapshot, and not rewritable even with `force`. `force` means only "run again even though part of
+this market is already published", i.e. price the not-yet-published players.
 
 | | before open (`frozen_at IS NULL`) | after open (`frozen_at IS NOT NULL`) |
 |---|---|---|

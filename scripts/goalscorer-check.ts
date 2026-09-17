@@ -29,7 +29,7 @@ import {
   type WildenrothPlayer,
   type TeamStats,
 } from '@/lib/goalscorer'
-import { hasConcurrentOtherSquadFixture, wildenrothGoalsPerMatch, shouldRecomputeGoalscorerRow, BLOCKING_GOALSCORER_STATUSES } from '@/lib/goalscorerContext'
+import { hasConcurrentOtherSquadFixture, wildenrothGoalsPerMatch, goalscorerRowAction, BLOCKING_GOALSCORER_STATUSES } from '@/lib/goalscorerContext'
 import { loadData } from './backtest'
 
 const DATA_DIR = process.env.BACKTEST_DATA_DIR ?? '/tmp/bt'
@@ -474,56 +474,86 @@ export function run(): number {
     }
   }
 
-  console.log('\n14. Marktöffnung — Quoten sind danach ein Snapshot')
+  console.log('\n14. Draft → Live: bei Marktöffnung wird veröffentlicht, nicht neu gerechnet')
   {
-    // A) Nach Marktöffnung: eine veröffentlichte Zeile wird nie neu gepreist.
-    check('veröffentlichte (frozen) Zeile wird nicht neu berechnet',
-      !shouldRecomputeGoalscorerRow({ frozen: true, manuallyOverridden: false }))
-    check('veröffentlichte Zeile auch mit manuellem Override nicht',
-      !shouldRecomputeGoalscorerRow({ frozen: true, manuallyOverridden: true }))
-    check('manuell gesetzte Quote wird nicht überschrieben',
-      !shouldRecomputeGoalscorerRow({ frozen: false, manuallyOverridden: true }))
-    check('unveröffentlichte Zeile darf neu berechnet werden',
-      shouldRecomputeGoalscorerRow({ frozen: false, manuallyOverridden: false }))
+    const open = (o: { exists?: boolean; frozen?: boolean; manual?: boolean }) =>
+      goalscorerRowAction({ trigger: 'market_open', exists: o.exists ?? true, frozen: o.frozen ?? false, manuallyOverridden: o.manual ?? false })
+    const recompute = (o: { exists?: boolean; frozen?: boolean; manual?: boolean }) =>
+      goalscorerRowAction({ trigger: 'admin_recompute', exists: o.exists ?? true, frozen: o.frozen ?? false, manuallyOverridden: o.manual ?? false })
+
+    // A) Unveränderte Auto-Quote: Draft existiert, nicht manuell geändert.
+    check('A — automatisch berechneter Draft wird beim Öffnen nur eingefroren',
+      open({ manual: false }) === 'freeze_only')
+    // B) Manuell geänderte Quote.
+    check('B — manuell geänderter Draft wird beim Öffnen ebenfalls nur eingefroren',
+      open({ manual: true }) === 'freeze_only')
+    // C) Beide gleichwertig — manually_overridden entscheidet beim Öffnen nichts mehr.
+    check('C — manuell und automatisch werden beim Öffnen identisch behandelt',
+      open({ manual: true }) === open({ manual: false }))
+    // D) Fehlende Zeile.
+    check('D — fehlende Zeile wird beim Öffnen berechnet und sofort eingefroren',
+      open({ exists: false }) === 'reprice')
+    // E) Ausdrücklicher Admin-Recompute vor Öffnung.
+    check('E — Admin-Recompute darf den Draft neu berechnen',
+      recompute({ manual: false }) === 'reprice')
+    check('E — Admin-Recompute lässt eine handgesetzte Quote in Ruhe',
+      recompute({ manual: true }) === 'skip')
+    // F) Nach Öffnung: nichts wird angefasst, egal durch welchen Auslöser.
+    check('F — veröffentlichte Zeile wird von keinem Auslöser angefasst',
+      open({ frozen: true }) === 'skip' &&
+      recompute({ frozen: true }) === 'skip' &&
+      recompute({ frozen: true, manual: true }) === 'skip')
     check('`not_in_squad` schließt den Spieler (blockierender Status)',
       BLOCKING_GOALSCORER_STATUSES.has('not_in_squad'))
 
-    // Der vollständige Ablauf: Markt öffnen, dann einen Spieler aus dem Kader
-    // nehmen. Die gespeicherten Quoten der übrigen Spieler dürfen sich nicht
-    // bewegen, weil ihre Zeilen nicht neu berechnet werden.
+    // Gemischter Markt: byteweiser Vergleich aller Preis-/Wahrscheinlichkeitsfelder.
+    // Simuliert den gespeicherten Draft, das Modell rechnet zwischenzeitlich
+    // andere Werte, und die Öffnung darf trotzdem nichts davon übernehmen.
+    type Row = { player_id: number; odds_score: number; odds_score_2plus: number
+      prob_score: number; prob_score_2plus: number; is_offered: boolean
+      is_offered_2plus: boolean; status: string; frozen_at: string | null; manually_overridden: boolean }
     const squad = squadFor('1')
-    const atOpen = computeGoalscorerOffers(squad, 2.038, ctxFor('1'))
-    const published = new Map(atOpen.offers.map((o) => [o.player_id, o]))
-    const dropped = atOpen.offers.filter((o) => o.is_offered).slice(-3).map((o) => o.player_id)
+    const draftSource = computeGoalscorerOffers(squad, 2.038, ctxFor('1'))
+    const draft: Row[] = draftSource.offers.map((o, i) => ({
+      player_id: o.player_id,
+      odds_score: i === 6 ? 16.80 : o.odds_score, // eine Quote von Hand geändert
+      odds_score_2plus: o.odds_score_2plus,
+      prob_score: o.prob_score, prob_score_2plus: o.prob_score_2plus,
+      is_offered: o.is_offered, is_offered_2plus: o.is_offered_2plus,
+      status: 'available', frozen_at: null, manually_overridden: i === 6,
+    }))
+    const before = JSON.stringify(draft.map(({ frozen_at: _f, ...rest }) => rest))
 
-    // So rechnet die Route nach Marktöffnung: Modell läuft, aber nur Zeilen ohne
-    // frozen_at werden geschrieben.
-    const afterDrop = computeGoalscorerOffers(squad, 2.038, {
-      ...ctxFor('1'), blockedPlayerIds: new Set(dropped),
+    // Das Modell liefert zum Öffnungszeitpunkt bewusst ANDERE Zahlen …
+    const modelAtOpen = computeGoalscorerOffers(squad, 1.80, ctxFor('1'))
+    const differs = modelAtOpen.offers.some((o, i) => o.odds_score !== draftSource.offers[i].odds_score)
+    check('C — das Modell würde beim Öffnen andere Quoten liefern (Voraussetzung des Tests)', differs)
+
+    // … und die Öffnung übernimmt trotzdem nichts davon.
+    const published = draft.map((row) => {
+      const action = goalscorerRowAction({
+        trigger: 'market_open', exists: true, frozen: row.frozen_at != null, manuallyOverridden: row.manually_overridden,
+      })
+      if (action !== 'freeze_only') return row // im Test darf das nicht vorkommen
+      return { ...row, frozen_at: '2026-09-18T10:00:00Z' }
     })
+    const after = JSON.stringify(published.map(({ frozen_at: _f, ...rest }) => rest))
+    check('C — alle Preis- und Wahrscheinlichkeitsfelder byteweise identisch, nur frozen_at kommt dazu', before === after)
+    check('C — jede Zeile ist danach veröffentlicht', published.every((r) => r.frozen_at != null))
+    const zeise = published[6]
+    check(`C — handgesetzte Quote geht unverändert live (${zeise.odds_score})`, zeise.odds_score === 16.80)
+    const auto = published[0]
+    check(`C — automatische Quote geht unverändert live (${auto.odds_score})`, auto.odds_score === draftSource.offers[0].odds_score)
+
+    // Nach Öffnung: Kaderbereinigung bewegt keine veröffentlichte Zeile.
+    const dropped = draft.slice(-3).map((r) => r.player_id)
+    const afterDrop = computeGoalscorerOffers(squad, 2.038, { ...ctxFor('1'), blockedPlayerIds: new Set(dropped) })
     const written = afterDrop.offers.filter((o) =>
-      shouldRecomputeGoalscorerRow({ frozen: published.has(o.player_id), manuallyOverridden: false }))
-    check(`${dropped.length} Spieler aus dem Kader genommen → keine einzige veröffentlichte Zeile wird geschrieben`,
+      goalscorerRowAction({ trigger: 'admin_recompute', exists: true, frozen: true, manuallyOverridden: false }) !== 'skip')
+    check(`F — ${dropped.length} Spieler aus dem Kader genommen → keine veröffentlichte Zeile wird geschrieben`,
       written.length === 0)
-
-    // Genau das ist der Punkt: das Modell WÜRDE umverteilen, die Route lässt es nicht zu.
-    const keeper = atOpen.offers.find((o) => o.is_offered && !dropped.includes(o.player_id))!
-    const wouldBe = afterDrop.offers.find((o) => o.player_id === keeper.player_id)!
-    check(`${keeper.player_name}: Modell würde auf ${wouldBe.odds_score} umpreisen, gespeichert bleibt ${keeper.odds_score}`,
-      wouldBe.odds_score !== keeper.odds_score)
-    check('gestrichener Spieler bekommt kein xG mehr',
+    check('F — gestrichener Spieler bekommt im Modell kein xG mehr',
       dropped.every((id) => afterDrop.offers.find((o) => o.player_id === id)!.diagnostics.playerXG === 0))
-
-    // B) Vor Marktöffnung darf sich die Verteilung sehr wohl ändern.
-    const preOpen = afterDrop.offers.filter((o) =>
-      shouldRecomputeGoalscorerRow({ frozen: false, manuallyOverridden: false }))
-    check('vor Marktöffnung werden alle Zeilen neu berechnet', preOpen.length === afterDrop.offers.length)
-    check('vor Marktöffnung bleibt Σ playerXG das volle Team-xG (Umverteilung findet statt)',
-      near(afterDrop.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 2.038, 1e-9))
-    // Richtung offen lassen: ein Spieler am 90-Minuten-Cap kann keine Minuten
-    // dazugewinnen, während andere es tun — sein ANTEIL sinkt dann sogar.
-    check(`vor Marktöffnung ändert sich die Verteilung (${keeper.player_name}: ${keeper.diagnostics.playerXG.toFixed(4)} → ${wouldBe.diagnostics.playerXG.toFixed(4)})`,
-      !near(wouldBe.diagnostics.playerXG, published.get(keeper.player_id)!.diagnostics.playerXG, 1e-9))
   }
 
   console.log('\n15. Die 15er-Einsatzannahme ist reine Diagnostik, kein Preisparameter')

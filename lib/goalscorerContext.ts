@@ -78,29 +78,71 @@ export function hasConcurrentOtherSquadFixture(
 }
 
 /**
- * MARKET-OPEN SNAPSHOT RULE.
- *
- * `match_goalscorer_odds.frozen_at` is the published marker: bets are only
- * accepted on a row that has it (app/api/bets/place/route.ts), so from that
- * moment the price is live and may already have been backed.
- *
- * A published price is therefore never rewritten by a recompute. Taking a player
- * out of the squad afterwards closes HIM for new bets and must not move anybody
- * else's odds — the team xG was correctly split across the pool that existed when
- * the market opened, and re-normalizing over a smaller pool later would silently
- * reprice selections people already hold. The consequence is that the remaining
- * players' xG no longer sums to the full team xG, which is intended.
- *
- * Only an explicit manual odds override (/api/admin/goalscorers/availability)
- * may still change a published price.
+ * What triggered a write to `match_goalscorer_odds`. The two are deliberately
+ * NOT interchangeable — see `goalscorerRowAction`.
  */
-export function shouldRecomputeGoalscorerRow(row: {
+export type GoalscorerWriteTrigger =
+  /** The admin explicitly pressed "Quoten neu berechnen". */
+  | 'admin_recompute'
+  /** The Spieltag's betting window opened and the market goes live. */
+  | 'market_open'
+
+export type GoalscorerRowAction =
+  /** Run the model and write prices/probabilities. */
+  | 'reprice'
+  /** Publish the stored draft untouched — set `frozen_at`, nothing else. */
+  | 'freeze_only'
+  /** Leave the row completely alone. */
+  | 'skip'
+
+/**
+ * DRAFT → LIVE. The single decision point for whether a goalscorer row may be
+ * rewritten, and the reason the admin workflow actually holds:
+ *
+ *   1. admin computes  → draft rows appear (`frozen_at IS NULL`)
+ *   2. admin reviews   → edits some prices by hand, leaves the rest as computed
+ *   3. Spieltag opens  → EXACTLY that reviewed state goes live
+ *   4. squad is known  → non-squad players are closed, nobody else moves
+ *
+ * Step 3 is what this encodes. An existing draft row is the reviewed market, so
+ * at market open it is only stamped with `frozen_at` — never recomputed. That
+ * holds whether or not `manually_overridden` is set: a price the admin looked at
+ * and deliberately left alone is just as much part of the reviewed market as one
+ * they retyped. Recomputing at open would mean the numbers checked in the admin
+ * and the numbers that went live could differ, for no reason the admin can see.
+ *
+ * `manually_overridden` therefore no longer answers "recompute at open?" — it
+ * only still protects a hand-set price from an explicit admin recompute, so that
+ * pressing the button does not silently discard a deliberate edit.
+ *
+ * A row that does not exist at all when the market opens is the one case where
+ * the model still runs: that player has no reviewed price to publish, so one is
+ * computed and frozen immediately. Existing draft rows around him stay untouched.
+ *
+ * `frozen_at IS NOT NULL` beats everything: the price is published, someone may
+ * already have backed it, and no trigger may rewrite it.
+ */
+export function goalscorerRowAction(row: {
+  trigger: GoalscorerWriteTrigger
+  /** Is there already a row for this (match, player)? */
+  exists: boolean
   frozen: boolean
   manuallyOverridden: boolean
-}): boolean {
-  if (row.frozen) return false            // published — snapshot, never repriced
-  if (row.manuallyOverridden) return false // admin set this by hand
-  return true
+}): GoalscorerRowAction {
+  // Published — a snapshot. Only the explicit manual override endpoint
+  // (/api/admin/goalscorers/availability) may still change it.
+  if (row.frozen) return 'skip'
+
+  if (row.trigger === 'market_open') {
+    // The reviewed draft IS the market. Publish it verbatim.
+    if (row.exists) return 'freeze_only'
+    // No reviewed price exists for this player — compute one and publish it.
+    return 'reprice'
+  }
+
+  // Explicit admin recompute, still before open: the draft may be rebuilt,
+  // except where the admin set the price by hand.
+  return row.manuallyOverridden ? 'skip' : 'reprice'
 }
 
 type Client = Awaited<ReturnType<typeof createClient>>

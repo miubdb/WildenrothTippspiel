@@ -17,7 +17,7 @@ import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { ODDS_MATCH_COLUMNS, ODDS_MATCH_JOINS, SEASON_START, priorContextFromRows } from '@/lib/oddsInputs'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerDisplayOffer, type GoalscorerMatchContext } from '@/lib/goalscorer'
-import { attachTeamStats, buildGoalscorerContext } from '@/lib/goalscorerContext'
+import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction } from '@/lib/goalscorerContext'
 import Link from 'next/link'
 import { CUP_MARKET_LABEL, cupSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
@@ -767,22 +767,26 @@ export default async function TippsPage({
           .select('match_id, player_id, status, is_offered, is_offered_2plus, prob_score, prob_score_2plus, odds_score, odds_score_2plus, frozen_at, manually_overridden')
           .in('match_id', wmIds)
 
-        // Per-(match,player) — NOT per-match. A match-level "is this match
-        // already frozen" check meant that once a single row for a match had
-        // frozen_at set, every other still-unfrozen row for that SAME match
-        // (e.g. a player added/reactivated after the first freeze) would
-        // never get frozen at all, silently staying invisible/unbettable
-        // forever even though it holds a real admin-set price.
-        const frozenKeys = new Set(
-          (existingRows ?? []).filter(r => r.frozen_at).map(r => `${r.match_id}:${r.player_id}`)
-        )
-        // Rows an admin already manually blocked/enabled/re-priced (via
-        // /availability or /cancel-player, typically before the window opened)
-        // must survive this automatic freeze — otherwise the first real page
-        // load after betting opens silently reverts the admin's edit back to
-        // the model's own numbers, which is exactly what happened last time.
-        const overriddenKeys = new Set(
-          (existingRows ?? []).filter(r => r.manually_overridden).map(r => `${r.match_id}:${r.player_id}`)
+        // MARKET OPEN = PUBLISH THE REVIEWED DRAFT, DO NOT RECOMPUTE IT.
+        //
+        // Everything the admin sees under Quoten → Torschützen is already stored
+        // here as a draft row (`frozen_at IS NULL`). They review it, retype a
+        // price here and there, and deliberately leave the rest as the model
+        // computed it. Opening the Spieltag must publish exactly that state.
+        //
+        // This block used to re-run the model for every row that was not
+        // `manually_overridden` and overwrite prob_score/odds_score with fresh
+        // numbers — so a price checked in the admin could go live as something
+        // else, with nothing in the UI hinting at it. A price the admin looked
+        // at and chose not to change is just as much part of the reviewed market
+        // as one they retyped.
+        //
+        // Per-(match,player), not per-match: a match-level "already frozen?"
+        // check meant that once a single row had frozen_at, every other
+        // still-unfrozen row for that SAME match (e.g. a player added later)
+        // would never be frozen at all and stayed invisible forever.
+        const existingByKey = new Map(
+          (existingRows ?? []).map(r => [`${r.match_id}:${r.player_id}`, r])
         )
         // match_goalscorer_odds only grants writes to admins, so the freeze must
         // go through the service-role client exactly like the 1X2 freeze above —
@@ -791,18 +795,36 @@ export default async function TippsPage({
         const adminSupaGs = createAdminClient()
 
         for (const m of openWildenrothMatches) {
+          const now = new Date().toISOString()
+
+          // 1) Publish every existing draft row untouched.
+          const toFreeze = players
+            .filter(p => {
+              const row = existingByKey.get(`${m.id}:${p.id}`)
+              return goalscorerRowAction({
+                trigger: 'market_open',
+                exists: row != null,
+                frozen: row?.frozen_at != null,
+                manuallyOverridden: row?.manually_overridden ?? false,
+              }) === 'freeze_only'
+            })
+            .map(p => p.id)
+          if (toFreeze.length > 0) {
+            await adminSupaGs.from('match_goalscorer_odds')
+              .update({ frozen_at: now, updated_at: now })
+              .eq('match_id', m.id).in('player_id', toFreeze)
+          }
+
+          // 2) Only a player with NO draft row at all gets a freshly computed
+          //    price — he has nothing reviewed to publish. The model runs solely
+          //    for these, and never touches the rows above.
+          const missing = players.filter(p => !existingByKey.has(`${m.id}:${p.id}`))
+          if (missing.length === 0) continue
+
           // Match-specific xG override (see exactScoreXgOverrideMap above) —
           // so a cup fixture's goalscorer odds shift consistently with the
-          // same corrected team xG used for its other cup markets, instead of
-          // being derived from a different (uncorrected) strength estimate.
+          // same corrected team xG used for its other cup markets.
           const gsXgOverride = exactScoreXgOverrideMap.get(m.id)
-          // A blocked player leaves the allocation pool rather than merely
-          // being hidden. This block only ever computes rows that are NOT yet
-          // frozen (see frozenKeys below), i.e. it is always the before-open
-          // case, where redistributing his share across the remaining players
-          // is correct. Published rows are never recomputed — after the market
-          // opens, blocking a player closes him and moves nobody else.
-          // Same builder the admin recompute uses.
           const gsCtx: GoalscorerMatchContext = await buildGoalscorerContext(supabase, {
             matchId: m.id,
             matchDate: m.match_date,
@@ -816,16 +838,10 @@ export default async function TippsPage({
           const { offers } = computeGoalscorerOffersForMatch(
             oddsMatches, m.home_team_id, m.away_team_id, wildenrothId, playersWithStats, priorCtx, gsXgOverride, gsCtx,
           )
-          const now = new Date().toISOString()
+          const missingIds = new Set(missing.map(p => p.id))
           for (const o of offers) {
-            if (frozenKeys.has(`${m.id}:${o.player_id}`)) continue // already live — never re-freeze
-            if (overriddenKeys.has(`${m.id}:${o.player_id}`)) {
-              await adminSupaGs.from('match_goalscorer_odds')
-                .update({ frozen_at: now, updated_at: now })
-                .eq('match_id', m.id).eq('player_id', o.player_id)
-              continue
-            }
-            await adminSupaGs.from('match_goalscorer_odds').upsert({
+            if (!missingIds.has(o.player_id)) continue
+            await adminSupaGs.from('match_goalscorer_odds').insert({
               match_id: m.id,
               player_id: o.player_id,
               status: 'available',
@@ -837,7 +853,7 @@ export default async function TippsPage({
               odds_score_2plus: o.odds_score_2plus,
               frozen_at: now,
               updated_at: now,
-            }, { onConflict: 'match_id,player_id' })
+            })
           }
         }
 
