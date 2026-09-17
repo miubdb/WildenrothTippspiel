@@ -164,6 +164,19 @@ const BOTH_SQUAD_SPLIT = 0.5
 // maximum price, which is a dead offer rather than a long shot. His real chance
 // is small but certainly not nil.
 const OFFERED_MIN_PLAY_PROB = 0.05
+
+// Expected number of DIFFERENT outfield players used in a match: ten start and
+// roughly five more come on over ninety minutes. The raw appearance rates are
+// scaled so that Σ P(plays) lands near this — they otherwise miss it badly
+// (measured 10.6 for the Wildenroth I pool, 13.4 for II), i.e. the projection
+// implicitly expected fewer players to feature than really do.
+//
+// A PRIOR on the squad total, not a selection: nobody is forced to zero and
+// nobody is forced in, every candidate stays offered. It also moves no odds —
+// the minute budget is `pPlays × minutesIfPlaying` renormalized to 900, and that
+// renormalization is invariant to scaling every pPlays by the same factor. It
+// corrects what the diagnostics say about rotation without repricing anybody.
+const EXPECTED_OUTFIELD_PLAYERS_USED = 15
 //
 // Once the concrete matchday squad IS confirmed, being named in it beats any
 // statistical appearance rate, and the floor rises to "named but might not come
@@ -470,6 +483,38 @@ interface Projection {
   rawWeight: number
 }
 
+/** Scale appearance probabilities so they sum to `target`, each capped at 1 —
+ *  they are probabilities, not rates. Water-filled like the minute budget:
+ *  scale, cap whoever spills past 1, re-share the rest among the others. If the
+ *  pool is too small to reach the target everyone ends at 1 and the sum falls
+ *  short, which is the honest outcome rather than an invented player. */
+function scalePlayProbabilities(raw: number[], target: number): number[] {
+  const out = [...raw]
+  const capped = new Array<boolean>(raw.length).fill(false)
+  let remaining = target
+
+  for (let pass = 0; pass <= raw.length; pass++) {
+    let openTotal = 0
+    for (let i = 0; i < raw.length; i++) if (!capped[i]) openTotal += raw[i]
+    if (openTotal <= 0 || remaining <= 0) break
+
+    const scale = remaining / openTotal
+    let spilled = false
+    for (let i = 0; i < raw.length; i++) {
+      if (capped[i] || raw[i] * scale < 1) continue
+      out[i] = 1
+      capped[i] = true
+      remaining -= 1
+      spilled = true
+    }
+    if (!spilled) {
+      for (let i = 0; i < raw.length; i++) if (!capped[i]) out[i] = raw[i] * scale
+      break
+    }
+  }
+  return out
+}
+
 function project(
   players: WildenrothPlayer[],
   ctx: GoalscorerMatchContext
@@ -477,7 +522,7 @@ function project(
   const recorded = squadRecordedGames(players)
   const squadMeanMinutesPerApp = squadMeanMinutes(players)
 
-  return players.map((player): Projection => {
+  const projections: Projection[] = players.map((player): Projection => {
     const excluded: GoalscorerPlayerDiagnostics['excluded'] =
       player.is_goalkeeper ? 'goalkeeper'
       : !player.active ? 'inactive'
@@ -498,15 +543,9 @@ function project(
       priorRate,
       recorded.prior * PRIOR_SEASON_WEIGHT
     )
-    let pPlays = blendedPlays.n > 0 ? blendedPlays.avg : 0
-
-    // A confirmed squad is a fact about this match; the parallel-fixture split
-    // is a guess about the same thing. Once we have the fact, drop the guess.
-    if (!ctx.squadConfirmed && ctx.bothSquadConflict && player.squad === 'both') {
-      pPlays *= BOTH_SQUAD_SPLIT
-    }
-    pPlays = Math.max(pPlays, ctx.squadConfirmed ? SQUAD_MEMBER_MIN_PLAY_PROB : OFFERED_MIN_PLAY_PROB)
-    if (ctx.questionablePlayerIds?.has(player.id)) pPlays *= QUESTIONABLE_PLAY_FACTOR
+    // Raw appearance propensity only. Scaling to the squad total and the floors
+    // both need the whole squad, so they happen in the second pass below.
+    const rawPlays = blendedPlays.n > 0 ? blendedPlays.avg : 0
 
     // E[minutes | appears]. Sample size is the player's OWN appearance count,
     // not the squad's — "how long do I last when I'm picked" — and it comes from
@@ -542,14 +581,56 @@ function project(
 
     return {
       player, excluded: null,
-      pPlays,
+      pPlays: rawPlays,
       minutesIfPlaying,
-      rawMinutes: pPlays * minutesIfPlaying,
+      rawMinutes: 0, // set in the second pass, once pPlays is final
       goalsPer90,
       // Weight is filled in after the minute normalization below.
       rawWeight: bump,
     }
   })
+
+  // Second pass: put the squad's appearance probabilities on the expected
+  // "how many different players actually feature" scale, then apply the
+  // per-player adjustments and floors. Scaling first and flooring afterwards
+  // means the total lands NEAR the target instead of exactly on it — which is
+  // the intent, since it is a prior and not a constraint.
+  const rawUnscaled = projections.map((p) => (p.excluded ? 0 : p.pPlays))
+  const scaled = scalePlayProbabilities(rawUnscaled, EXPECTED_OUTFIELD_PLAYERS_USED)
+
+  // The same per-player adjustments apply to both, so they live in one place.
+  const adjust = (base: number, pl: WildenrothPlayer): number => {
+    let v = base
+    // A confirmed squad is a fact about this match; the parallel-fixture split
+    // is a guess about the same thing. Once we have the fact, drop the guess.
+    if (!ctx.squadConfirmed && ctx.bothSquadConflict && pl.squad === 'both') v *= BOTH_SQUAD_SPLIT
+    v = Math.max(v, ctx.squadConfirmed ? SQUAD_MEMBER_MIN_PLAY_PROB : OFFERED_MIN_PLAY_PROB)
+    if (ctx.questionablePlayerIds?.has(pl.id)) v *= QUESTIONABLE_PLAY_FACTOR
+    return v
+  }
+
+  for (let i = 0; i < projections.length; i++) {
+    const p = projections[i]
+    if (p.excluded) continue
+
+    // Reported probability: on the squad-total scale, so Σ P(plays) reflects how
+    // many different players actually feature.
+    p.pPlays = Math.min(1, adjust(scaled[i], p.player))
+
+    // Minute split: the UNSCALED propensity, with the same adjustments.
+    //
+    // `allocateMinutes` renormalizes to 900 and is therefore invariant to
+    // scaling every propensity by one common factor — but the 1.0 cap inside
+    // `scalePlayProbabilities` is NOT uniform: it holds the near-certain
+    // starters back while everyone else is scaled up, which shifts the relative
+    // minutes and would reprice the whole market (measured on the Spieltag-8
+    // preview: Ritter 3.37 → 3.89, Schorer 5.77 → 4.92). The squad-total prior
+    // says HOW MANY different players feature; it carries no new information
+    // about how the minutes divide between them, so it must move no price.
+    p.rawMinutes = adjust(rawUnscaled[i], p.player) * p.minutesIfPlaying
+  }
+
+  return projections
 }
 
 /**

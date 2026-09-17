@@ -256,11 +256,37 @@ weights are normalized to shares anyway. `minutes_reliable` is false for team II
 maintain substitutions back on there), which shrinks its minutes harder toward the squad mean.
 `match_lineups` stays the intended long-term source; it cannot serve yet because team II has no
 lineup rows at all and guessing which of two matches a one-appearance player featured in would
-fabricate data.
+fabricate data. **The admin goalscorer UI reads this table too** (`GET /api/admin/goalscorers/match`
+returns `team_stats` per row plus `statsTeam`) — it used to show `wildenroth_players.games/minutes/
+goals`, which pools a `both` player's two leagues into one misleading figure (Scheidl appeared as
+3 Sp / 198 Min / 1 T instead of his Wildenroth I record of 5 / 379 / 5). A player with no row for
+the playing side shows 0/0/0 with a warning, never the other team's numbers.
 
 **Availability**: `BLOCKING_GOALSCORER_STATUSES` (`lib/goalscorerContext.ts`) removes a player from
 the allocation pool entirely — merely hiding him would let his share of the team xG vanish instead
 of going to the players who can play. `questionable` halves `P(plays)` instead.
+
+**Market-open snapshot** (`shouldRecomputeGoalscorerRow`) — `match_goalscorer_odds.frozen_at` is the
+published marker: `app/api/bets/place/route.ts` only accepts a bet on a row that has it. Once set,
+that price is a snapshot and no recompute may rewrite it, **not even with `force`** (which now means
+"price the players that are not yet published", not "overwrite published prices"). Taking a player
+out of the squad afterwards closes HIM (status `not_in_squad`) and must move nobody else: the team
+xG was correctly split across the pool that existed at open, and re-normalizing over a smaller pool
+later would silently reprice selections people already hold. The remaining players' xG then no
+longer sums to the full team xG — intended, not a defect. Before open everything still recomputes
+freely. Only an explicit manual override (`/api/admin/goalscorers/availability`) may change a
+published price.
+
+**Squad-total prior** (`EXPECTED_OUTFIELD_PLAYERS_USED = 15`) — ten start, roughly five more come on.
+Raw appearance rates are scaled toward that total (`scalePlayProbabilities`, water-filled with a
+1.0 cap), because they otherwise miss it badly: measured Σ P(plays) was 10.6 for the Wildenroth I
+pool. **The scaled value is reported; the UNSCALED one drives the minute split.** That separation is
+deliberate: `allocateMinutes` renormalizes to 900 and is invariant to a uniform scale, but the 1.0
+cap is not uniform — it holds near-certain starters back while everyone else scales up, which would
+reprice the whole market (measured: Ritter 3.37 → 3.89, Schorer 5.77 → 4.92). The prior says how
+many DIFFERENT players feature; it carries no information about how minutes divide between them.
+With a parallel fixture damping `squad='both'` players the total lands near 13 rather than 15, which
+is correct — fewer dual-squad players will turn out for this side.
 
 **The market opens with the whole active squad.** It does NOT wait for the matchday squad to be
 known — the admin prunes afterwards by marking players `not_in_squad`, which takes them out of the
@@ -284,7 +310,7 @@ Model inputs must come from `loadOddsModelInputs` — the admin recompute route 
 without `match_category`, which priced a Wildenroth II B-Klasse fixture in the Kreisliga (2.518 xG
 against the main market's 2.651), and ignored `match_odds_overrides` entirely.
 
-Checks: `node --experimental-strip-types scripts/run-goalscorer-check.mjs` (51 assertions, exits
+Checks: `node --experimental-strip-types scripts/run-goalscorer-check.mjs` (100 assertions, exits
 non-zero on failure) and `scripts/run-goalscorer-preview.mjs <spieltag> [--old <goalscorer.ts>]
 [--squad-confirmed]` for a read-only old-vs-new preview. Both need `wplayers.json` and
 `wteamstats.json` in `$BACKTEST_DATA_DIR` alongside the odds exports. Player parameters are NOT

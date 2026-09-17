@@ -4,7 +4,7 @@ import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type Goalscorer
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadOddsModelInputs } from '@/lib/oddsInputs'
 import { bettingOpenTime, parseBettingOpenOverrides } from '@/lib/season'
-import { attachTeamStats, buildGoalscorerContext } from '@/lib/goalscorerContext'
+import { attachTeamStats, buildGoalscorerContext, shouldRecomputeGoalscorerRow, CURRENT_SEASON, WILDENROTH_TEAM_NAMES } from '@/lib/goalscorerContext'
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser()
@@ -12,6 +12,22 @@ async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) 
   const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
   if (!profile?.is_admin) return { error: 'Keine Berechtigung.', status: 403 as const }
   return { userId: user.id }
+}
+
+/** Which Wildenroth side ('1' | '2') plays this fixture, or null if neither.
+ *  Resolved by exact name — an `ilike('%Wildenroth%')` also matches
+ *  'SpVgg Wildenroth II' and would send every II fixture to team 1. */
+async function resolveWildenrothSide(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  homeTeamId: number,
+  awayTeamId: number,
+): Promise<'1' | '2' | null> {
+  const { data } = await supabase.from('teams').select('id, name').in('name', [...WILDENROTH_TEAM_NAMES])
+  const t1 = data?.find((t) => t.name === 'SpVgg Wildenroth')?.id ?? null
+  const t2 = data?.find((t) => t.name === 'SpVgg Wildenroth II')?.id ?? null
+  if (t1 != null && (homeTeamId === t1 || awayTeamId === t1)) return '1'
+  if (t2 != null && (homeTeamId === t2 || awayTeamId === t2)) return '2'
+  return null
 }
 
 /** GET /api/admin/goalscorers/match?matchId=42 — read current state for a Wildenroth match */
@@ -40,12 +56,33 @@ export async function GET(request: NextRequest) {
     .eq('match_id', matchId)
     .order('player_id')
 
+  // Season stats for the team ACTUALLY PLAYING this fixture. `wildenroth_players`
+  // carries one global games/minutes/goals per player, which for a `squad='both'`
+  // player pools his Kreisliga and B-Klasse appearances into one misleading
+  // number — the UI was showing Scheidl as 3 Sp / 198 Min / 1 T when his
+  // Wildenroth I record is 5 / 379 / 5. The odds already use the per-team table;
+  // the UI now reads the same source.
+  const side = await resolveWildenrothSide(supabase, match.home_team_id, match.away_team_id)
+  const { data: teamStatRows } = side
+    ? await supabase
+        .from('wildenroth_player_team_stats')
+        .select('player_id, games, minutes, goals, assists, as_of_matches')
+        .eq('season', CURRENT_SEASON)
+        .eq('team', side)
+        .in('player_id', (gsRows ?? []).map((r) => r.player_id))
+    : { data: [] }
+  const teamStatById = new Map((teamStatRows ?? []).map((r) => [r.player_id, r]))
+
+  // Explicit null rather than a silent fallback to the global numbers: showing
+  // the OTHER team's record as if it were this team's is exactly the bug above.
+  const rows = (gsRows ?? []).map((r) => ({ ...r, team_stats: teamStatById.get(r.player_id) ?? null }))
+
   const { data: scorers } = await supabase
     .from('match_goalscorers')
     .select('id, player_id, goals, is_own_goal')
     .eq('match_id', matchId)
 
-  return NextResponse.json({ match, rows: gsRows ?? [], scorers: scorers ?? [] })
+  return NextResponse.json({ match, rows, scorers: scorers ?? [], statsTeam: side })
 }
 
 /** POST /api/admin/goalscorers/match — (re)compute and freeze odds for a match. */
@@ -114,14 +151,23 @@ export async function POST(request: NextRequest) {
   const wildenrothId = involvesTeam1 ? team1Id! : team2Id!
   const squads = involvesTeam1 ? ['1', 'both'] : ['2', 'both']
 
-  // Skip if already frozen and not forced
-  if (!force) {
-    const { count } = await supabase
-      .from('match_goalscorer_odds').select('id', { count: 'exact', head: true })
-      .eq('match_id', matchId).not('frozen_at', 'is', null)
-    if ((count ?? 0) > 0) {
-      return NextResponse.json({ skipped: true, reason: 'already_frozen' })
-    }
+  // MARKET-OPEN SNAPSHOT.
+  //
+  // `frozen_at` is the published marker: app/api/bets/place/route.ts only accepts
+  // a bet on a row that has it, so the moment it is set the price is live and
+  // someone may already have backed it. From then on the price is a snapshot and
+  // this route must never rewrite it — see the frozen-row guard in the write
+  // loop below, which holds even with `force`.
+  //
+  // `force` therefore now means "run again even though part of this market is
+  // already published", i.e. price the players that are NOT yet published. It no
+  // longer means "overwrite published prices".
+  const { count: frozenCount } = await supabase
+    .from('match_goalscorer_odds').select('id', { count: 'exact', head: true })
+    .eq('match_id', matchId).not('frozen_at', 'is', null)
+  const marketOpened = (frozenCount ?? 0) > 0
+  if (marketOpened && !force) {
+    return NextResponse.json({ skipped: true, reason: 'already_frozen' })
   }
 
   // Players from the squad that's actually playing this match
@@ -182,10 +228,24 @@ export async function POST(request: NextRequest) {
   const alreadyFrozenIds = new Set((existingRows ?? []).filter(r => r.frozen_at).map(r => r.player_id))
 
   const now = new Date().toISOString()
+  let repriced = 0
+  let priceProtected = 0
   for (const o of offers) {
-    if (overriddenIds.has(o.player_id)) {
+    // A published price is never rewritten. Taking a player out of the squad
+    // afterwards closes HIM for new bets (via /availability → `not_in_squad`)
+    // and must not move anybody else's odds: the team xG was correctly split
+    // across the pool that existed when the market opened, and re-normalizing
+    // over a smaller pool later would silently reprice players people have
+    // already bet on. The remaining players' xG then no longer sums to the full
+    // team xG, which is the intended consequence, not a defect.
+    const frozen = alreadyFrozenIds.has(o.player_id)
+    const overridden = overriddenIds.has(o.player_id)
+    if (!shouldRecomputeGoalscorerRow({ frozen, manuallyOverridden: overridden })) {
+      if (frozen) { priceProtected++; continue }
+    }
+    if (overridden) {
       // Only (maybe) freeze it — never touch the admin's own status/is_offered/odds.
-      if (allowFreeze && !alreadyFrozenIds.has(o.player_id)) {
+      if (allowFreeze) {
         await supabase.from('match_goalscorer_odds')
           .update({ frozen_at: now, updated_at: now })
           .eq('match_id', matchId).eq('player_id', o.player_id)
@@ -205,6 +265,7 @@ export async function POST(request: NextRequest) {
       frozen_at: allowFreeze ? now : null,
       updated_at: now,
     }, { onConflict: 'match_id,player_id' })
+    repriced++
   }
 
   return NextResponse.json({
@@ -212,6 +273,10 @@ export async function POST(request: NextRequest) {
     offers: offers.length,
     frozen: allowFreeze,
     squadConfirmed,
+    marketOpened,
+    repriced,
+    // Published rows left untouched — the point of the snapshot rule.
+    priceProtected,
     // Surfaced so the admin UI can show that the parts add up to the whole.
     teamMatchXG: result.teamMatchXG,
     allocatedXG: result.allocatedXG,

@@ -71,6 +71,32 @@ export function hasConcurrentOtherSquadFixture(
   })
 }
 
+/**
+ * MARKET-OPEN SNAPSHOT RULE.
+ *
+ * `match_goalscorer_odds.frozen_at` is the published marker: bets are only
+ * accepted on a row that has it (app/api/bets/place/route.ts), so from that
+ * moment the price is live and may already have been backed.
+ *
+ * A published price is therefore never rewritten by a recompute. Taking a player
+ * out of the squad afterwards closes HIM for new bets and must not move anybody
+ * else's odds — the team xG was correctly split across the pool that existed when
+ * the market opened, and re-normalizing over a smaller pool later would silently
+ * reprice selections people already hold. The consequence is that the remaining
+ * players' xG no longer sums to the full team xG, which is intended.
+ *
+ * Only an explicit manual odds override (/api/admin/goalscorers/availability)
+ * may still change a published price.
+ */
+export function shouldRecomputeGoalscorerRow(row: {
+  frozen: boolean
+  manuallyOverridden: boolean
+}): boolean {
+  if (row.frozen) return false            // published — snapshot, never repriced
+  if (row.manuallyOverridden) return false // admin set this by hand
+  return true
+}
+
 type Client = Awaited<ReturnType<typeof createClient>>
 
 interface TeamStatRow {

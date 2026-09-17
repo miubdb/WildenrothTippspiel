@@ -3022,6 +3022,11 @@ type GsRow = {
     id: number; name: string; position: string | null; games: number; minutes: number
     goals: number; assists: number; is_goalkeeper: boolean
   }
+  /** Season record for the team ACTUALLY playing this fixture
+   *  (wildenroth_player_team_stats). `player.games/minutes/goals` is club-wide
+   *  and pools a squad='both' player's Kreisliga and B-Klasse appearances, so it
+   *  must not be shown as this team's record. null = no row yet. */
+  team_stats: { games: number; minutes: number; goals: number; assists: number; as_of_matches: number } | null
 }
 
 type ScorerRow = { id: number; player_id: number; goals: number; is_own_goal: boolean }
@@ -3052,6 +3057,8 @@ function GoalscorersTab({ matches, onMessage, matchday, mdIndex }: { matches: Ma
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchday])
   const [rows, setRows] = useState<GsRow[]>([])
+  // '1' | '2' — which Wildenroth side's season record the rows show.
+  const [statsTeam, setStatsTeam] = useState<string | null>(null)
   const [scorers, setScorers] = useState<ScorerRow[]>([])
   const [loading, setLoading] = useState(false)
   const [freezing, setFreezing] = useState(false)
@@ -3079,6 +3086,7 @@ function GoalscorersTab({ matches, onMessage, matchday, mdIndex }: { matches: Ma
     setLoading(false)
     if (res.ok) {
       setRows(data.rows ?? [])
+      setStatsTeam(data.statsTeam ?? null)
       setScorers(data.scorers ?? [])
     } else {
       onMessage(`Fehler: ${data.error}`)
@@ -3232,7 +3240,12 @@ function GoalscorersTab({ matches, onMessage, matchday, mdIndex }: { matches: Ma
                     <div className="flex-1 min-w-0">
                       <div className="font-bold text-gray-900 truncate">{r.player.name}</div>
                       <div className="text-[10px] text-gray-400">
-                        {r.player.position ?? '–'} · {r.player.games}Sp / {r.player.minutes}min · {r.player.goals}T / {r.player.assists}A
+                        {r.player.position ?? '–'} ·{' '}
+                        {r.team_stats
+                          ? `${r.team_stats.games}Sp / ${r.team_stats.minutes}min · ${r.team_stats.goals}T / ${r.team_stats.assists}A`
+                          : '0Sp / 0min · 0T / 0A'}
+                        {statsTeam ? ` (Mannschaft ${statsTeam})` : ''}
+                        {!r.team_stats && <span className="text-amber-600"> · keine Saisondaten für diese Mannschaft</span>}
                       </div>
                     </div>
                     <div className="flex items-center gap-1">

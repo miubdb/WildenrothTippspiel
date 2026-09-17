@@ -29,7 +29,7 @@ import {
   type WildenrothPlayer,
   type TeamStats,
 } from '@/lib/goalscorer'
-import { hasConcurrentOtherSquadFixture, wildenrothGoalsPerMatch } from '@/lib/goalscorerContext'
+import { hasConcurrentOtherSquadFixture, wildenrothGoalsPerMatch, shouldRecomputeGoalscorerRow, BLOCKING_GOALSCORER_STATUSES } from '@/lib/goalscorerContext'
 import { loadData } from './backtest'
 
 const DATA_DIR = process.env.BACKTEST_DATA_DIR ?? '/tmp/bt'
@@ -471,6 +471,110 @@ export function run(): number {
       const compressed = offered.filter((o) => o.diagnostics.fairOddsScore > 6)
       check(`Squad ${side}: ${compressed.length} Quoten tatsächlich komprimiert, ${offered.length - compressed.length} unverändert`,
         compressed.every((o) => o.odds_score < o.diagnostics.fairOddsScore))
+    }
+  }
+
+  console.log('\n14. Marktöffnung — Quoten sind danach ein Snapshot')
+  {
+    // A) Nach Marktöffnung: eine veröffentlichte Zeile wird nie neu gepreist.
+    check('veröffentlichte (frozen) Zeile wird nicht neu berechnet',
+      !shouldRecomputeGoalscorerRow({ frozen: true, manuallyOverridden: false }))
+    check('veröffentlichte Zeile auch mit manuellem Override nicht',
+      !shouldRecomputeGoalscorerRow({ frozen: true, manuallyOverridden: true }))
+    check('manuell gesetzte Quote wird nicht überschrieben',
+      !shouldRecomputeGoalscorerRow({ frozen: false, manuallyOverridden: true }))
+    check('unveröffentlichte Zeile darf neu berechnet werden',
+      shouldRecomputeGoalscorerRow({ frozen: false, manuallyOverridden: false }))
+    check('`not_in_squad` schließt den Spieler (blockierender Status)',
+      BLOCKING_GOALSCORER_STATUSES.has('not_in_squad'))
+
+    // Der vollständige Ablauf: Markt öffnen, dann einen Spieler aus dem Kader
+    // nehmen. Die gespeicherten Quoten der übrigen Spieler dürfen sich nicht
+    // bewegen, weil ihre Zeilen nicht neu berechnet werden.
+    const squad = squadFor('1')
+    const atOpen = computeGoalscorerOffers(squad, 2.038, ctxFor('1'))
+    const published = new Map(atOpen.offers.map((o) => [o.player_id, o]))
+    const dropped = atOpen.offers.filter((o) => o.is_offered).slice(-3).map((o) => o.player_id)
+
+    // So rechnet die Route nach Marktöffnung: Modell läuft, aber nur Zeilen ohne
+    // frozen_at werden geschrieben.
+    const afterDrop = computeGoalscorerOffers(squad, 2.038, {
+      ...ctxFor('1'), blockedPlayerIds: new Set(dropped),
+    })
+    const written = afterDrop.offers.filter((o) =>
+      shouldRecomputeGoalscorerRow({ frozen: published.has(o.player_id), manuallyOverridden: false }))
+    check(`${dropped.length} Spieler aus dem Kader genommen → keine einzige veröffentlichte Zeile wird geschrieben`,
+      written.length === 0)
+
+    // Genau das ist der Punkt: das Modell WÜRDE umverteilen, die Route lässt es nicht zu.
+    const keeper = atOpen.offers.find((o) => o.is_offered && !dropped.includes(o.player_id))!
+    const wouldBe = afterDrop.offers.find((o) => o.player_id === keeper.player_id)!
+    check(`${keeper.player_name}: Modell würde auf ${wouldBe.odds_score} umpreisen, gespeichert bleibt ${keeper.odds_score}`,
+      wouldBe.odds_score !== keeper.odds_score)
+    check('gestrichener Spieler bekommt kein xG mehr',
+      dropped.every((id) => afterDrop.offers.find((o) => o.player_id === id)!.diagnostics.playerXG === 0))
+
+    // B) Vor Marktöffnung darf sich die Verteilung sehr wohl ändern.
+    const preOpen = afterDrop.offers.filter((o) =>
+      shouldRecomputeGoalscorerRow({ frozen: false, manuallyOverridden: false }))
+    check('vor Marktöffnung werden alle Zeilen neu berechnet', preOpen.length === afterDrop.offers.length)
+    check('vor Marktöffnung bleibt Σ playerXG das volle Team-xG (Umverteilung findet statt)',
+      near(afterDrop.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 2.038, 1e-9))
+    // Richtung offen lassen: ein Spieler am 90-Minuten-Cap kann keine Minuten
+    // dazugewinnen, während andere es tun — sein ANTEIL sinkt dann sogar.
+    check(`vor Marktöffnung ändert sich die Verteilung (${keeper.player_name}: ${keeper.diagnostics.playerXG.toFixed(4)} → ${wouldBe.diagnostics.playerXG.toFixed(4)})`,
+      !near(wouldBe.diagnostics.playerXG, published.get(keeper.player_id)!.diagnostics.playerXG, 1e-9))
+  }
+
+  console.log('\n15. Einsatz-Prior: rund 15 eingesetzte Feldspieler')
+  {
+    for (const side of ['1', '2'] as const) {
+      const r = computeGoalscorerOffers(squadFor(side), side === '1' ? 2.038 : 2.651, ctxFor(side))
+      const eligible = r.offers.filter((o) => !o.diagnostics.excluded)
+      const sumPlays = eligible.reduce((s, o) => s + o.diagnostics.pPlays, 0)
+      // Kein exaktes Ziel: bei einem Parallelspiel der anderen Mannschaft werden
+      // `both`-Spieler gedämpft, dann sind real weniger als 15 zu erwarten.
+      check(`Squad ${side}: Σ P(spielt) = ${sumPlays.toFixed(2)} (Prior 15, Spanne 11-16 plausibel)`,
+        sumPlays > 11 && sumPlays < 16)
+      check(`Squad ${side}: Σ erwartete Minuten = 900`, near(r.projectedMinutesTotal, 900, 1e-6))
+      check(`Squad ${side}: keine Einsatzwahrscheinlichkeit über 100 %`,
+        eligible.every((o) => o.diagnostics.pPlays <= 1 + 1e-12))
+      check(`Squad ${side}: alle ${eligible.length} Feldspieler weiterhin angeboten`,
+        eligible.every((o) => o.is_offered))
+    }
+  }
+
+  console.log('\n16. Team-spezifische Saisonstatistik (Quelle der UI)')
+  {
+    const stats = loadTeamStats()
+    const byName = new Map(players.map((p) => [p.name, p.id]))
+    const expected: [string, number, number, number][] = [
+      ['Maximilian Scheidl', 5, 379, 5],
+      ['Xaver Throm', 6, 540, 3],
+      ['Timo Ritter', 6, 422, 1],
+      ['Ender Dag', 6, 540, 2],
+      ['Lorenz Schorer', 6, 500, 3],
+    ]
+    for (const [name, g, min, goals] of expected) {
+      const st = stats.get(`${byName.get(name)}:1`)
+      check(`${name} (Mannschaft I): ${st?.games ?? '–'} Sp / ${st?.minutes ?? '–'} Min / ${st?.goals ?? '–'} T`,
+        st?.games === g && st?.minutes === min && st?.goals === goals)
+    }
+    // `both`-Spieler: die beiden Mannschaften müssen getrennt bleiben.
+    const both = players.filter((p) => p.active && p.squad === 'both' && !p.is_goalkeeper)
+    const split = both.filter((p) => {
+      const a = stats.get(`${p.id}:1`), b = stats.get(`${p.id}:2`)
+      return a && b && (a.games !== b.games || a.minutes !== b.minutes || a.goals !== b.goals)
+    })
+    check(`${split.length} von ${both.length} both-Spielern haben je Mannschaft eigene Werte`, split.length > 0)
+    const u = both.find((p) => p.name === 'Tristan Umkehrer')
+    if (u) {
+      const a = stats.get(`${u.id}:1`)!, b = stats.get(`${u.id}:2`)!
+      check(`Tristan Umkehrer: I ${a.games}/${a.minutes} ≠ II ${b.games}/${b.minutes}`,
+        a.minutes !== b.minutes)
+      const globalMinutes = (u.minutes ?? 0)
+      check(`Tristan Umkehrer: globaler Wert (${globalMinutes}) ist keine der beiden Mannschaftszahlen`,
+        globalMinutes !== a.minutes || globalMinutes !== b.minutes)
     }
   }
 
