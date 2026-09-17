@@ -114,19 +114,21 @@ const QUESTIONABLE_PLAY_FACTOR = 0.5
 // for, an even split is the only defensible value.
 const BOTH_SQUAD_SPLIT = 0.5
 
-// Floor on P(plays) for a player who is in the CONFIRMED matchday squad.
+// Floors on P(plays). Two levels, because being OFFERED and being NAMED IN THE
+// MATCHDAY SQUAD are different statements.
 //
-// The concrete squad beats the statistical appearance rate: a player the coach
-// has actually named is available, whatever his history says. Without this a
-// player with no recorded appearances at all (a new signing, or someone whose
-// only games predate the records) came out at P(plays) = 0 → xG 0 →
-// probability 0 → the maximum price, which is both wrong and unbettable in
-// substance: his real chance is small but certainly not zero.
+// The market opens with the whole active squad and the admin removes players
+// afterwards once the real squad is known. Anyone still in the list is therefore
+// a candidate, and a candidate must not price at exactly zero: a player with no
+// recorded appearances (a new signing, or someone whose games predate the
+// records) otherwise came out at P(plays) = 0 → xG 0 → probability 0 → the
+// maximum price, which is a dead offer rather than a long shot. His real chance
+// is small but certainly not nil.
+const OFFERED_MIN_PLAY_PROB = 0.05
 //
-// 0.4 is the "named but might not come on" reading. Regulars stay far above it
-// because their own rate is higher; this only lifts the floor. It applies ONLY
-// once the squad is confirmed — in the preview, before anyone has named a
-// squad, the historical rate is all we legitimately have.
+// Once the concrete matchday squad IS confirmed, being named in it beats any
+// statistical appearance rate, and the floor rises to "named but might not come
+// on". Regulars stay far above both floors — these only lift the bottom.
 const SQUAD_MEMBER_MIN_PLAY_PROB = 0.4
 
 // OFFERING RULE (product decision, not a modelling one): every outfield player
@@ -401,8 +403,10 @@ export interface GoalscorerMatchContext {
    *  not) settles the question and this stops mattering. */
   bothSquadConflict?: boolean
   /** `matches.goalscorer_squad_confirmed_at` is set: the players still in the
-   *  pool ARE the matchday squad. Enables SQUAD_MEMBER_MIN_PLAY_PROB and turns
-   *  off the parallel-fixture guess, because the squad already answers it. */
+   *  pool ARE the matchday squad. Raises the P(plays) floor to
+   *  SQUAD_MEMBER_MIN_PLAY_PROB and turns off the parallel-fixture guess,
+   *  because the squad already answers it. Optional — the market does not wait
+   *  for it; the admin removes non-squad players as they become known. */
   squadConfirmed?: boolean
 }
 
@@ -451,7 +455,7 @@ function project(
     if (!ctx.squadConfirmed && ctx.bothSquadConflict && player.squad === 'both') {
       pPlays *= BOTH_SQUAD_SPLIT
     }
-    if (ctx.squadConfirmed) pPlays = Math.max(pPlays, SQUAD_MEMBER_MIN_PLAY_PROB)
+    pPlays = Math.max(pPlays, ctx.squadConfirmed ? SQUAD_MEMBER_MIN_PLAY_PROB : OFFERED_MIN_PLAY_PROB)
     if (ctx.questionablePlayerIds?.has(player.id)) pPlays *= QUESTIONABLE_PLAY_FACTOR
 
     // E[minutes | appears]. Sample size is the player's OWN appearance count,

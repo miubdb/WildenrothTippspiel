@@ -244,12 +244,17 @@ fabricate data.
 the allocation pool entirely — merely hiding him would let his share of the team xG vanish instead
 of going to the players who can play. `questionable` halves `P(plays)` instead.
 
-**Matchday squad beats statistics**: `matches.goalscorer_squad_confirmed_at`. Until it is set the
-market is preview-only and the automatic freeze in `tipps/page.tsx` keeps the Torschützen tab locked
-(same UI path as the double-fixture rule); the admin recompute needs `force` to freeze without it.
-Once set, `squadConfirmed` lifts every squad member to at least `SQUAD_MEMBER_MIN_PLAY_PROB = 0.4`
-(a named player with no recorded appearances would otherwise price at literally 0%) and switches off
-the parallel-fixture guess for `squad='both'` players, because the squad already answers it.
+**The market opens with the whole active squad.** It does NOT wait for the matchday squad to be
+known — the admin prunes afterwards by marking players `not_in_squad`, which takes them out of the
+xG allocation so their share goes to the players who remain. Freezing is gated only on the normal
+betting window, like every other market.
+
+Because being offered means being a candidate, `OFFERED_MIN_PLAY_PROB = 0.05` floors `P(plays)` for
+everyone still in the pool: a player with no recorded appearances otherwise landed at exactly 0%
+→ xG 0 → the maximum price, which is a dead offer rather than a long shot. `matches.
+goalscorer_squad_confirmed_at` is optional and gates nothing; when an admin does set it,
+`SQUAD_MEMBER_MIN_PLAY_PROB = 0.4` replaces that floor and the parallel-fixture guess for
+`squad='both'` players switches off, because the squad has answered it directly.
 
 **`squad = 'both'` when both Wildenroth sides play in parallel**: `hasConcurrentOtherSquadFixture`
 halves that player's `P(plays)` — a statistical fallback for the preview only. It is a projection

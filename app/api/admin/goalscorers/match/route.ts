@@ -81,14 +81,14 @@ export async function POST(request: NextRequest) {
   // real Spieltag override) is the authoritative source; bettingOpenTime()'s
   // Monday-noon formula is only a fallback for Spieltage without one (e.g.
   // the test matchday).
-  // The matchday squad has to be entered before this market can go live:
-  // freezing publishes real prices, and without a squad those prices rest on a
-  // statistical guess about who turns out. `force` is the admin's explicit
-  // override for the rare case where the squad genuinely cannot be entered in
-  // time. Preview/upsert still happens either way — only frozen_at is withheld.
+  // The market opens with the whole active squad; the admin removes players who
+  // turn out not to be in the matchday squad afterwards (status 'not_in_squad',
+  // which also takes them out of the xG allocation). Freezing is therefore NOT
+  // gated on the squad being known — only on the normal betting window, exactly
+  // like every other market.
   const squadConfirmed = match.goalscorer_squad_confirmed_at != null
-  let allowFreeze = squadConfirmed || force === true
-  if (allowFreeze && match.status === 'scheduled') {
+  let allowFreeze = true
+  if (match.status === 'scheduled') {
     const { data: settingsRows } = await supabase.from('app_settings').select('key, value')
     const appSettings = new Map((settingsRows ?? []).map(r => [r.key, r.value] as const))
     const earlyBettingOpen = appSettings.get('early_betting_open') === 'true'

@@ -757,18 +757,6 @@ export default async function TippsPage({
           }
         }
       }
-      // The goalscorer market only goes live once the real matchday squad has
-      // been entered (matches.goalscorer_squad_confirmed_at). Until then the
-      // prices would rest on a statistical guess about who turns out, and
-      // freezing publishes them for real bets. The tab shows the same "locked"
-      // state the double-fixture rule uses, so there is one behaviour, not two.
-      for (const m of wildenrothMatches) {
-        if (lockedMatchIds.has(m.id)) continue
-        if ((m as unknown as { goalscorer_squad_confirmed_at?: string | null }).goalscorer_squad_confirmed_at == null) {
-          lockedMatchIds.add(m.id)
-          goalscorerLockUntilByMatch[m.id] = m.match_date
-        }
-      }
       const openWildenrothMatches = wildenrothMatches.filter(m => !lockedMatchIds.has(m.id))
 
       if (openWildenrothMatches.length > 0 && isBettingOpen) {
