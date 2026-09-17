@@ -441,6 +441,8 @@ export default async function TippsPage({
         under_5_5: Number(row.under_5_5),
         over_7_5:  Number(row.over_7_5),
         under_7_5: Number(row.under_7_5),
+        // Einseitige Spaßlinie: null heisst "für dieses Spiel nicht angeboten".
+        over_9_5:  row.over_9_5 == null ? null : Number(row.over_9_5),
         btts_yes:  Number(row.btts_yes),
         btts_no:   Number(row.btts_no),
         hdp_home_minus_1_5: Number(row.hdp_home_minus_1_5),
@@ -670,6 +672,7 @@ export default async function TippsPage({
           under_5_5: odds.under_5_5,
           over_7_5:  odds.over_7_5,
           under_7_5: odds.under_7_5,
+          over_9_5:  odds.over_9_5,
           btts_yes:  odds.btts_yes,
           btts_no:   odds.btts_no,
           hdp_home_minus_1_5: odds.hdp_home_minus_1_5,

@@ -12,6 +12,8 @@ export const ODDS_COLUMN: Record<string, Record<string, string>> = {
   over_under_3_5: { 'over_3.5': 'over_3_5', 'under_3.5': 'under_3_5' },
   over_under_5_5: { 'over_5.5': 'over_5_5', 'under_5.5': 'under_5_5' },
   over_under_7_5: { 'over_7.5': 'over_7_5', 'under_7.5': 'under_7_5' },
+  // Einseitig: es gibt bewusst keine 'under_9.5'-Auswahl (siehe lib/odds.ts).
+  over_9_5: { 'over_9.5': 'over_9_5' },
   btts: { yes: 'btts_yes', no: 'btts_no' },
   handicap: {
     home_minus_1_5: 'hdp_home_minus_1_5',

@@ -110,6 +110,7 @@ export const SELECTION_DISPLAY: Record<string, Record<string, string>> = {
   over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
   over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
   over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
+  over_9_5: { 'over_9.5': 'Über 9,5' },
   btts: { yes: 'Beide treffen', no: 'Nicht beide' },
   matchday_special: { over: 'Über', under: 'Unter', yes: 'Ja', no: 'Nein' },
   handicap: {

@@ -440,6 +440,27 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                     />
                   </div>
                 </div>
+                {/* Über 9,5 — einseitige Spaßlinie ohne Gegenwette, nur bei
+                    Partien, wo zehn Tore wirklich möglich sind. `odds.over_9_5`
+                    ist null, wo das Modell die Linie nicht anbietet (siehe
+                    GOALS_LINE_95_MAX_ODDS in lib/odds.ts), dann erscheint hier
+                    gar nichts. Es gibt bewusst kein "Unter 9,5": dessen faire
+                    Quote läge bei ~0,91 und würde von der Mindestquote auf 1,01
+                    angehoben. */}
+                {odds.over_9_5 != null && (
+                  <div>
+                    <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">
+                      Über 9,5 Tore <span className="text-amber-600 dark:text-amber-500">· Spaßwette</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <OddsButton
+                        label="Über 9,5" odds={odds.over_9_5}
+                        selected={isSelected('over_9_5', 'over_9.5')}
+                        onClick={() => add('over_9_5', 'Über 9,5', 'over_9.5', 'Über 9,5', odds.over_9_5!)}
+                      />
+                    </div>
+                  </div>
+                )}
                 {/* Über/Unter 7,5 is deliberately not offered: at a realistic
                     league baseline it is a ~2-4% shot whose odds sit at or near
                     the MAX_ODDS cap, and it is the one total where independent

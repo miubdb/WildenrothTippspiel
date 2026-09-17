@@ -28,6 +28,7 @@ const MARKET_LABELS: Record<string, string> = {
   over_under_3_5: 'Über/Unter 3,5',
   over_under_5_5: 'Über/Unter 5,5',
   over_under_7_5: 'Über/Unter 7,5',
+  over_9_5: 'Über 9,5',
   btts: 'Beide Teams treffen',
   handicap: 'Handicap',
   exact_score: 'Genaues Ergebnis',
@@ -203,6 +204,7 @@ export async function POST(request: NextRequest) {
           if (has('over_under_5_5', 'under_5.5') && t >= 6) bad = true
           if (has('over_under_7_5', 'over_7.5') && t <= 7) bad = true
           if (has('over_under_7_5', 'under_7.5') && t >= 8) bad = true
+          if (has('over_9_5', 'over_9.5') && t <= 9) bad = true
           if (has('btts', 'yes') && (hg === 0 || ag === 0)) bad = true
           if (has('btts', 'no') && hg > 0 && ag > 0) bad = true
           if (has('handicap', 'home_minus_1_5') && diff < 2) bad = true
@@ -215,6 +217,12 @@ export async function POST(request: NextRequest) {
           if (has('handicap', 'away_minus_2_5') && diff > -3) bad = true
           if (has('handicap', 'home_plus_2_5') && diff < -2) bad = true
         }
+        // Über 9,5 impliziert jede niedrigere Über-Linie, die Unter-Gegenstücke
+        // widersprechen ihr also direkt. NICHT widersprüchlich ist dagegen
+        // "Nicht beide treffen": ein 10:0 erfüllt beides.
+        if (has('over_9_5', 'over_9.5') && has('over_under_2_5', 'under_2.5')) bad = true
+        if (has('over_9_5', 'over_9.5') && has('over_under_3_5', 'under_3.5')) bad = true
+        if (has('over_9_5', 'over_9.5') && has('over_under_5_5', 'under_5.5')) bad = true
         if (has('handicap', 'home_minus_1_5') && has('1x2', 'draw')) bad = true
         if (has('handicap', 'home_minus_1_5') && has('1x2', 'away')) bad = true
         if (has('handicap', 'home_minus_2_5') && has('1x2', 'draw')) bad = true

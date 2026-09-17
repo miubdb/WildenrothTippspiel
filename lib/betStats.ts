@@ -34,6 +34,7 @@ export const MARKET_LABELS: Record<string, string> = {
   over_under_3_5: 'Ü/U 3,5',
   over_under_5_5: 'Ü/U 5,5',
   over_under_7_5: 'Ü/U 7,5',
+  over_9_5: 'Ü 9,5',
   btts: 'Beide treffen',
   exact_score: 'Genaues Ergebnis',
   handicap: 'Handicap',

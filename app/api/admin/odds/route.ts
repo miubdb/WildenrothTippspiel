@@ -93,6 +93,7 @@ export async function POST() {
           under_5_5: oddsData.under_5_5,
           over_7_5: oddsData.over_7_5,
           under_7_5: oddsData.under_7_5,
+          over_9_5: oddsData.over_9_5,
           btts_yes: oddsData.btts_yes,
           btts_no: oddsData.btts_no,
           hdp_home_minus_1_5: oddsData.hdp_home_minus_1_5,

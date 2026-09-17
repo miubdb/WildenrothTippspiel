@@ -164,6 +164,9 @@ export interface OddsData {
   under_5_5: number
   over_7_5: number
   under_7_5: number
+  /** Über 9,5 Tore — einseitige Spaßlinie ohne Gegenwette. null, wo sie nicht
+   *  angeboten wird (siehe GOALS_LINE_95_MAX_ODDS in lib/odds.ts). */
+  over_9_5: number | null
   btts_yes: number
   btts_no: number
   hdp_home_minus_1_5: number

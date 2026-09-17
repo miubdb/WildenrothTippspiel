@@ -1082,6 +1082,14 @@ export function oddsFromXG(homeXG: number, awayXG: number): OddsData {
   }
 
   // Double chance: derived consistently from the same 1X2 probabilities
+  // Über 9,5 — einseitige Spaßlinie, siehe GOALS_LINE_95_MAX_ODDS.
+  let pOver95 = 0
+  for (let h = 0; h <= SCORE_MATRIX_MAX_GOALS; h++) {
+    for (let a = 0; a <= SCORE_MATRIX_MAX_GOALS; a++) {
+      if (h + a > 9.5) pOver95 += matrix[h][a]
+    }
+  }
+
   const p1x = pHome + pDraw
   const px2 = pDraw + pAway
   const p12 = pHome + pAway
@@ -1102,6 +1110,10 @@ export function oddsFromXG(homeXG: number, awayXG: number): OddsData {
     under_5_5: toOdds(1 - pOver55),
     over_7_5:  toOdds(pOver75),
     under_7_5: toOdds(1 - pOver75),
+    // One-sided: a fixture where ten goals is a real possibility gets the line,
+    // everywhere else it is null and simply not shown. Never an `under_9_5` —
+    // see the migration comment and GOALS_LINE_95_MAX_ODDS.
+    over_9_5: offerOver95(pOver95),
     btts_yes:  toOdds(pBtts),
     btts_no:   toOdds(1 - pBtts),
     hdp_home_minus_1_5: toOdds(pHomeMinus15),
@@ -1147,6 +1159,27 @@ export function calculateOdds(
  * frozen exact-score set — must not be duplicated as a second magic number.
  */
 export const MAX_EXACT_ODDS = 50
+
+// "Über 9,5 Tore" is a novelty line, offered only where ten goals is a genuine
+// possibility. Reuses MAX_EXACT_ODDS as the cutoff rather than inventing a
+// second number: it already encodes "beyond this price a selection is noise
+// rather than a bet" for the exact-score market. A normal Kreisliga fixture
+// prices around 400, so the line stays hidden there instead of showing a dead
+// 100.00 on every card.
+//
+// ONE-SIDED ON PURPOSE. There is no `under_9_5`: its fair price is about 0.91,
+// which MIN_ODDS would lift to 1.01 — a bet nobody places, and one whose margin
+// against a positive expected value is thin enough to be uncomfortable. The
+// over side has no such issue, since clamping a price down can only reduce the
+// punter's return.
+const GOALS_LINE_95_MAX_ODDS = MAX_EXACT_ODDS
+
+/** Offered price for Über 9,5, or null where the line is not worth showing. */
+function offerOver95(prob: number): number | null {
+  if (prob <= 0) return null
+  const odds = toOdds(prob)
+  return odds <= GOALS_LINE_95_MAX_ODDS ? odds : null
+}
 
 /**
  * Exact-score odds from an already-computed (homeXG, awayXG) pair — the exact

@@ -161,6 +161,11 @@ export function settleBet(
       if (total <= 7.5 && selection === 'under_7.5') return 'won'
       return 'lost'
     }
+    // Einseitige Spaßlinie: es gibt nur 'over_9.5'. Fällt die Zahl nicht, ist
+    // die Wette schlicht verloren — es gibt keine Gegenwette zu gewinnen.
+    case 'over_9_5': {
+      return homeScore + awayScore > 9.5 && selection === 'over_9.5' ? 'won' : 'lost'
+    }
     case 'handicap': {
       const diff = homeScore - awayScore
       if (selection === 'home_minus_1_5') return diff >= 2 ? 'won' : 'lost'

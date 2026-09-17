@@ -147,6 +147,15 @@ admin preview, recalc and the Spieltag-Specials engine must see the same matches
 `match_category` (→ wrong league tier), and `lib/matchdaySpecials.ts` passed no `PriorContext` at
 all. Add a new odds call site by importing that loader, never by writing another query.
 
+**Über 9,5 Tore** (`odds.over_9_5`) — a ONE-SIDED novelty line, no `under_9_5`. Its under side would
+price at a fair ~0.91, which `MIN_ODDS` lifts to 1.01: a bet nobody places and a thin margin against
+positive EV. The over side is safe because clamping a price DOWN can only reduce the punter's return
+(verified across the xG grid: highest EV 0.896). Offered only where ten goals is a real possibility —
+`offerOver95` returns null above `GOALS_LINE_95_MAX_ODDS` (= `MAX_EXACT_ODDS`, reusing the existing
+"beyond this a selection is noise" cutoff rather than inventing a number), and the card renders
+nothing for a null. On Spieltag 8 exactly 1 of 9 fixtures qualified. Note `over_under_7_5` is a
+RETIRED market — the card offers 2,5 / 3,5 / 5,5 only, so 9,5 is the top line.
+
 **Bet placement** (`app/api/bets/place/route.ts`) re-validates everything server-side rather than
 trusting the client: stake bounds, odds values against the frozen `odds` row (exact score is
 sanity-bounded against its 1X2 direction since it isn't a stored column), same-match combo
