@@ -17,7 +17,7 @@ import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { ODDS_MATCH_COLUMNS, ODDS_MATCH_JOINS, SEASON_START, priorContextFromRows } from '@/lib/oddsInputs'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerDisplayOffer, type GoalscorerMatchContext } from '@/lib/goalscorer'
-import { BLOCKING_GOALSCORER_STATUSES, hasConcurrentOtherSquadFixture } from '@/lib/goalscorerContext'
+import { attachTeamStats, buildGoalscorerContext } from '@/lib/goalscorerContext'
 import Link from 'next/link'
 import { CUP_MARKET_LABEL, cupSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
@@ -757,6 +757,18 @@ export default async function TippsPage({
           }
         }
       }
+      // The goalscorer market only goes live once the real matchday squad has
+      // been entered (matches.goalscorer_squad_confirmed_at). Until then the
+      // prices would rest on a statistical guess about who turns out, and
+      // freezing publishes them for real bets. The tab shows the same "locked"
+      // state the double-fixture rule uses, so there is one behaviour, not two.
+      for (const m of wildenrothMatches) {
+        if (lockedMatchIds.has(m.id)) continue
+        if ((m as unknown as { goalscorer_squad_confirmed_at?: string | null }).goalscorer_squad_confirmed_at == null) {
+          lockedMatchIds.add(m.id)
+          goalscorerLockUntilByMatch[m.id] = m.match_date
+        }
+      }
       const openWildenrothMatches = wildenrothMatches.filter(m => !lockedMatchIds.has(m.id))
 
       if (openWildenrothMatches.length > 0 && isBettingOpen) {
@@ -799,20 +811,19 @@ export default async function TippsPage({
           // A blocked player has to leave the allocation pool, not just be
           // hidden: player xG values are shares of the team's xG, so leaving
           // him in would let his slice vanish instead of going to the players
-          // who can actually play.
-          const gsCtx: GoalscorerMatchContext = {
-            blockedPlayerIds: new Set(
-              (existingRows ?? []).filter(r => r.match_id === m.id && BLOCKING_GOALSCORER_STATUSES.has(r.status)).map(r => r.player_id)
-            ),
-            questionablePlayerIds: new Set(
-              (existingRows ?? []).filter(r => r.match_id === m.id && r.status === 'questionable').map(r => r.player_id)
-            ),
-            bothSquadConflict: hasConcurrentOtherSquadFixture(
-              oddsMatches, m.match_date, wildenrothId, wildenrothSides.map(s => s.teamId),
-            ),
-          }
+          // who can actually play. Same builder the admin recompute uses.
+          const gsCtx: GoalscorerMatchContext = await buildGoalscorerContext(supabase, {
+            matchId: m.id,
+            matchDate: m.match_date,
+            modelMatches: oddsMatches,
+            thisTeamId: wildenrothId,
+            otherTeamId: wildenrothSides.map(s => s.teamId).find(id => id !== wildenrothId) ?? null,
+          })
+          // Per-TEAM stats: a squad='both' player's B-Klasse record must not
+          // count as Kreisliga minutes/goals.
+          const playersWithStats = await attachTeamStats(supabase, players, side.squads[0] === '1' ? '1' : '2')
           const { offers } = computeGoalscorerOffersForMatch(
-            oddsMatches, m.home_team_id, m.away_team_id, wildenrothId, players, priorCtx, gsXgOverride, gsCtx,
+            oddsMatches, m.home_team_id, m.away_team_id, wildenrothId, playersWithStats, priorCtx, gsXgOverride, gsCtx,
           )
           const now = new Date().toISOString()
           for (const o of offers) {

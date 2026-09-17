@@ -37,7 +37,18 @@ import { getMatchXG, type PriorContext } from '@/lib/odds'
 // mechanism for a miscalibrated probability.
 const HOUSE_MARGIN = 0.15
 const MIN_ODDS = 1.20
-const MAX_ODDS = 30.0
+// Raised from 30. While only a handful of likely scorers were offered, 30 was
+// never reached in practice. Now that EVERY outfield player in the matchday
+// squad is offered (see the offering rule below), a cap of 30 would pile a
+// 3%-chance squad player and a 0.5%-chance one onto the identical price and
+// destroy the differentiation the model just earned. 100 matches lib/odds.ts's
+// technical ceiling and keeps players distinct down to ~0.9% (below that the
+// fair price exceeds 100). Clamping DOWN is always safe for the book — it can
+// only reduce the punter's return, never create positive EV. The risky
+// direction is MIN_ODDS, which clamps up: that would need p > 1/1.20 = 83%,
+// i.e. a player xG of 1.79, which no allocation reaches (checked in
+// scripts/goalscorer-check.ts).
+const MAX_ODDS = 100.0
 
 // Bayesian shrinkage of per-90 goal rate toward a position-based prior.
 const PRIOR_GAMES = 5
@@ -103,24 +114,78 @@ const QUESTIONABLE_PLAY_FACTOR = 0.5
 // for, an even split is the only defensible value.
 const BOTH_SQUAD_SPLIT = 0.5
 
-// Filtering thresholds. Unchanged in value, but note that projected minutes are
-// now normalized to the real 900-minute budget, so the same 25 is a stricter
-// test than it used to be against the old (inflated, ~1300-minute) projections.
-// That is intended: it was only ever meant to mean "plays a decent share of the
-// match", and it now actually does.
-const MIN_PROJ_MINUTES = 25
-const MIN_PROB_SCORE = 0.06
+// Floor on P(plays) for a player who is in the CONFIRMED matchday squad.
+//
+// The concrete squad beats the statistical appearance rate: a player the coach
+// has actually named is available, whatever his history says. Without this a
+// player with no recorded appearances at all (a new signing, or someone whose
+// only games predate the records) came out at P(plays) = 0 → xG 0 →
+// probability 0 → the maximum price, which is both wrong and unbettable in
+// substance: his real chance is small but certainly not zero.
+//
+// 0.4 is the "named but might not come on" reading. Regulars stay far above it
+// because their own rate is higher; this only lifts the floor. It applies ONLY
+// once the squad is confirmed — in the preview, before anyone has named a
+// squad, the historical rate is all we legitimately have.
+const SQUAD_MEMBER_MIN_PLAY_PROB = 0.4
+
+// OFFERING RULE (product decision, not a modelling one): every outfield player
+// in the matchday squad is bettable as a goalscorer. Scoring probability sets
+// the PRICE, never whether a player appears at all. The old probability/minute
+// thresholds are therefore gone from the scorer market — they were filtering out
+// exactly the long shots this market is fun for, and once the probabilities were
+// corrected downward they would have cut the offer from 15 players to 5.
+//
+// Who is offered: active, not a goalkeeper, not blocked for this match.
+// Who is not: goalkeepers, and anyone an admin marked as outside the squad /
+// injured / missing / not bettable (see lib/goalscorerContext.ts).
+//
+// The 2+ goals market keeps a threshold: it is a separate, much longer market
+// and a 0.2% "scores twice" price is noise rather than a bet.
 const MIN_PROB_SCORE_2PLUS = 0.05
+
+// Cross-team history is weaker evidence than history with the team actually
+// playing, even after being converted onto its goal level: different opposition,
+// different role, different team-mates.
+const CROSS_TEAM_WEIGHT = 0.5
+
+// Shrinkage of "minutes per appearance" toward the squad's own average, in
+// pseudo-appearances. Team I's FuPa minutes are complete and exact, so barely
+// any shrinkage. Team II's are approximate — substitutions back on are not
+// maintained there — so a single 39-minute reading must not be treated as a
+// precise fact (`wildenroth_player_team_stats.minutes_reliable`).
+const MINUTES_PRIOR_APPS_RELIABLE = 0.5
+const MINUTES_PRIOR_APPS_UNRELIABLE = 3
+
+/** One team's slice of a player's current season — see
+ *  `wildenroth_player_team_stats`. A `squad='both'` player has one of these per
+ *  Wildenroth side and they must never be pooled: a B-Klasse appearance is not
+ *  Kreisliga minutes, and a B-Klasse scoring rate is not a Kreisliga one. */
+export type TeamStats = {
+  games: number
+  minutes: number
+  goals: number
+  /** Team matches this snapshot covers — makes a stale snapshot visible. */
+  asOfMatches: number
+  /** False for Wildenroth II, whose FuPa minutes are approximate. */
+  minutesReliable: boolean
+}
 
 export type WildenrothPlayer = {
   id: number
   name: string
   position: 'Torwart' | 'Abwehr' | 'Mittelfeld' | 'Angriff' | null
-  /** Appearances (not squad matches) and total minutes in those appearances. */
+  /** CLUB-WIDE current season (both teams pooled). Kept only as the fallback
+   *  for a player with no per-team row yet; `teamStats` takes precedence. */
   games: number
   minutes: number
   goals: number
   assists: number
+  /** This fixture's team. Preferred source for everything current-season. */
+  teamStats?: TeamStats | null
+  /** The OTHER Wildenroth side. Prior/fallback only, and converted onto this
+   *  team's goal level first (see `crossTeamScale`). */
+  otherTeamStats?: TeamStats | null
   is_goalkeeper: boolean
   is_penalty_taker: boolean
   is_freekick_taker: boolean
@@ -224,20 +289,61 @@ function positionPrior(position: string | null): number {
   }
 }
 
-function bayesianGoalsPer90(player: WildenrothPlayer): number {
+/**
+ * Converts a scoring rate achieved with the OTHER Wildenroth side onto this
+ * team's scale: a player who scored at a given rate in a team that scores 2.0
+ * goals a game is, relative to his team-mates, the same player in a team that
+ * scores 1.5 — his absolute rate just has to be restated.
+ *
+ * This is NOT "the B-Klasse is easier, so scale it down". That would be the
+ * double-count the brief warns about, because the fixture's own goal level is
+ * already inside teamMatchXG and the weights are normalized to shares anyway.
+ * It is only about making two samples comparable BEFORE they are blended —
+ * without it, a B-Klasse goals/90 would outvote a Kreisliga one purely because
+ * more goals get scored in the B-Klasse.
+ */
+function crossTeamScale(ctx: GoalscorerMatchContext): number {
+  const here = ctx.teamGoalsPerMatch
+  const there = ctx.otherTeamGoalsPerMatch
+  if (!here || !there || there <= 0) return 1
+  return here / there
+}
+
+/**
+ * Bayesian goals per 90, built from three samples in decreasing order of
+ * relevance: this team this season, the other team this season (converted and
+ * down-weighted), last season club-wide. Shrunk toward a position prior.
+ */
+function bayesianGoalsPer90(player: WildenrothPlayer, ctx: GoalscorerMatchContext): number {
   const positionPriorRate = positionPrior(player.position)
 
-  const currentMinutes = player.minutes ?? 0
+  // 1) This team, this season — the authoritative sample when it exists.
+  const own = player.teamStats
+  const currentMinutes = own ? own.minutes : (player.minutes ?? 0)
+  const currentGoals = own ? own.goals : (player.goals ?? 0)
   const currentN = currentMinutes / 90
-  const currentPer90 = currentMinutes > 0 ? (player.goals / currentMinutes) * 90 : 0
+  const currentPer90 = currentMinutes > 0 ? (currentGoals / currentMinutes) * 90 : 0
 
+  let blended = { avg: currentPer90, n: currentN }
+
+  // 2) The other Wildenroth side, this season — restated onto this team's goal
+  //    level and counted at CROSS_TEAM_WEIGHT.
+  const other = player.otherTeamStats
+  if (other && other.minutes > 0) {
+    const otherPer90 = (other.goals / other.minutes) * 90 * crossTeamScale(ctx)
+    blended = blendWithPrior(blended, otherPer90, (other.minutes / 90) * CROSS_TEAM_WEIGHT)
+  }
+
+  // 3) Last season, club-wide. `wildenroth_players.prev_*` has no team split, so
+  //    it cannot be restated per team — it is used as-is at half weight and is
+  //    a documented limitation, not an oversight.
   const prevMinutes = player.prev_minutes ?? 0
-  const prevN = (prevMinutes / 90) * PRIOR_SEASON_WEIGHT
-  const prevPer90 = prevMinutes > 0 ? ((player.prev_goals ?? 0) / prevMinutes) * 90 : 0
+  if (prevMinutes > 0) {
+    const prevPer90 = ((player.prev_goals ?? 0) / prevMinutes) * 90
+    blended = blendWithPrior(blended, prevPer90, (prevMinutes / 90) * PRIOR_SEASON_WEIGHT)
+  }
 
-  const blended = blendWithPrior({ avg: currentPer90, n: currentN }, prevPer90, prevN)
   if (blended.n === 0) return positionPriorRate
-
   return (blended.n * blended.avg + PRIOR_GAMES * positionPriorRate) / (blended.n + PRIOR_GAMES)
 }
 
@@ -249,13 +355,39 @@ function bayesianGoalsPer90(player: WildenrothPlayer): number {
  * self-calibrates — whoever played every recorded match defines "all of them".
  */
 function squadRecordedGames(players: WildenrothPlayer[]) {
+  // `asOfMatches` is authoritative when present: it says how many matches the
+  // snapshot covers, so a squad where nobody played every game still gets the
+  // right denominator. The squad maximum is the fallback.
+  const asOf = Math.max(0, ...players.map((p) => p.teamStats?.asOfMatches ?? 0))
+  const maxGames = Math.max(0, ...players.map((p) => p.teamStats?.games ?? p.games ?? 0))
   return {
-    current: Math.max(0, ...players.map((p) => p.games ?? 0)),
+    current: asOf > 0 ? asOf : maxGames,
     prior: Math.max(0, ...players.map((p) => p.prev_games ?? 0)),
   }
 }
 
+/** Average minutes per appearance across everyone in the squad who has played.
+ *  The shrinkage target for an individual player's appearance length. */
+function squadMeanMinutes(players: WildenrothPlayer[]): number {
+  let minutes = 0, apps = 0
+  for (const p of players) {
+    if (p.is_goalkeeper) continue
+    const st = p.teamStats
+    minutes += st ? st.minutes : (p.minutes ?? 0)
+    apps += st ? st.games : (p.games ?? 0)
+  }
+  return apps > 0 ? minutes / apps : 0
+}
+
 export interface GoalscorerMatchContext {
+  /** Goals per match this team has scored in its own league this season, and
+   *  the same for the other Wildenroth side. Used ONLY to put a cross-team
+   *  scoring rate on a comparable scale before blending — see `crossTeamScale`.
+   *  Not a goal-level adjustment: the fixture's goal level lives entirely in
+   *  teamMatchXG, and the weights are normalized to shares afterwards, so this
+   *  cannot double-count the B-Klasse being a higher-scoring league. */
+  teamGoalsPerMatch?: number
+  otherTeamGoalsPerMatch?: number
   /** Players an admin has explicitly made unavailable for THIS match
    *  (match_goalscorer_odds.status of injured/missing/not_bettable, or a
    *  manual block). Removed from the pool entirely, so their share goes to
@@ -264,8 +396,14 @@ export interface GoalscorerMatchContext {
   /** status = 'questionable' — halved appearance probability, not excluded. */
   questionablePlayerIds?: ReadonlySet<number>
   /** True when the other Wildenroth side plays at nearly the same time, so a
-   *  `squad='both'` player cannot feature for both. See BOTH_SQUAD_SPLIT. */
+   *  `squad='both'` player cannot feature for both. See BOTH_SQUAD_SPLIT.
+   *  Statistical fallback only — once the squad is confirmed, being in it (or
+   *  not) settles the question and this stops mattering. */
   bothSquadConflict?: boolean
+  /** `matches.goalscorer_squad_confirmed_at` is set: the players still in the
+   *  pool ARE the matchday squad. Enables SQUAD_MEMBER_MIN_PLAY_PROB and turns
+   *  off the parallel-fixture guess, because the squad already answers it. */
+  squadConfirmed?: boolean
 }
 
 interface Projection {
@@ -283,6 +421,7 @@ function project(
   ctx: GoalscorerMatchContext
 ): Projection[] {
   const recorded = squadRecordedGames(players)
+  const squadMeanMinutesPerApp = squadMeanMinutes(players)
 
   return players.map((player): Projection => {
     const excluded: GoalscorerPlayerDiagnostics['excluded'] =
@@ -297,7 +436,8 @@ function project(
 
     // P(appears). Appearance rate this season blended with last season's, the
     // same prior weighting every other estimate in this file uses.
-    const curRate = recorded.current > 0 ? Math.min(1, (player.games ?? 0) / recorded.current) : 0
+    const own = player.teamStats
+    const curRate = recorded.current > 0 ? Math.min(1, (own ? own.games : (player.games ?? 0)) / recorded.current) : 0
     const priorRate = recorded.prior > 0 ? Math.min(1, (player.prev_games ?? 0) / recorded.prior) : 0
     const blendedPlays = blendWithPrior(
       { avg: curRate, n: recorded.current },
@@ -306,23 +446,40 @@ function project(
     )
     let pPlays = blendedPlays.n > 0 ? blendedPlays.avg : 0
 
+    // A confirmed squad is a fact about this match; the parallel-fixture split
+    // is a guess about the same thing. Once we have the fact, drop the guess.
+    if (!ctx.squadConfirmed && ctx.bothSquadConflict && player.squad === 'both') {
+      pPlays *= BOTH_SQUAD_SPLIT
+    }
+    if (ctx.squadConfirmed) pPlays = Math.max(pPlays, SQUAD_MEMBER_MIN_PLAY_PROB)
     if (ctx.questionablePlayerIds?.has(player.id)) pPlays *= QUESTIONABLE_PLAY_FACTOR
-    if (ctx.bothSquadConflict && player.squad === 'both') pPlays *= BOTH_SQUAD_SPLIT
 
-    // E[minutes | appears]. The sample size here is the player's OWN appearance
-    // count, not the squad's — "how long do I last when I'm picked".
-    const curGames = player.games ?? 0
-    const curMinutesPerApp = curGames > 0 ? (player.minutes ?? 0) / curGames : 0
+    // E[minutes | appears]. Sample size is the player's OWN appearance count,
+    // not the squad's — "how long do I last when I'm picked" — and it comes from
+    // THIS team's record when we have one.
+    const curGames = own ? own.games : (player.games ?? 0)
+    const curMinutes = own ? own.minutes : (player.minutes ?? 0)
+    const curMinutesPerApp = curGames > 0 ? curMinutes / curGames : 0
     const priorGames = player.prev_games ?? 0
     const priorMinutesPerApp = priorGames > 0 ? (player.prev_minutes ?? 0) / priorGames : 0
-    const blendedMinutes = blendWithPrior(
+    let blendedMinutes = blendWithPrior(
       { avg: curMinutesPerApp, n: curGames },
       priorMinutesPerApp,
       priorGames * PRIOR_SEASON_WEIGHT
     )
+    // Where the recorded minutes are only approximate (Wildenroth II), shrink
+    // toward the squad's average appearance length so a single unreliable
+    // reading cannot drive the projection. A 39-minute FuPa entry for team II
+    // means "came on at some point", not "played exactly 39 minutes".
+    const minutesPrior = own && !own.minutesReliable
+      ? MINUTES_PRIOR_APPS_UNRELIABLE
+      : MINUTES_PRIOR_APPS_RELIABLE
+    if (squadMeanMinutesPerApp > 0) {
+      blendedMinutes = blendWithPrior(blendedMinutes, squadMeanMinutesPerApp, minutesPrior)
+    }
     const minutesIfPlaying = blendedMinutes.n > 0 ? Math.min(90, blendedMinutes.avg) : 0
 
-    const goalsPer90 = bayesianGoalsPer90(player)
+    const goalsPer90 = bayesianGoalsPer90(player, ctx)
 
     let bump = 1
     if (player.is_penalty_taker) bump += PENALTY_TAKER_WEIGHT_BUMP
@@ -427,7 +584,9 @@ export function computeGoalscorerOffers(
     const probScore = playerXG > 0 ? 1 - Math.exp(-playerXG) : 0
     const probScore2plus = playerXG > 0 ? 1 - Math.exp(-playerXG) * (1 + playerXG) : 0
 
-    const isOffered = !p.excluded && projMin >= MIN_PROJ_MINUTES && probScore >= MIN_PROB_SCORE
+    // Every outfield player in the matchday squad is offered — see the
+    // OFFERING RULE above. Probability sets the price, not the availability.
+    const isOffered = !p.excluded
     const isOffered2plus = isOffered && probScore2plus >= MIN_PROB_SCORE_2PLUS
     if (isOffered) offeredXG += playerXG
 

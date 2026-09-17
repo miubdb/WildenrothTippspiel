@@ -4,7 +4,7 @@ import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type Goalscorer
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadOddsModelInputs } from '@/lib/oddsInputs'
 import { bettingOpenTime, parseBettingOpenOverrides } from '@/lib/season'
-import { BLOCKING_GOALSCORER_STATUSES, hasConcurrentOtherSquadFixture } from '@/lib/goalscorerContext'
+import { attachTeamStats, buildGoalscorerContext } from '@/lib/goalscorerContext'
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser()
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
 
   const { data: match } = await supabase
     .from('matches')
-    .select('id, matchday, home_team_id, away_team_id, match_date, match_category, home_score, away_score, status')
+    .select('id, matchday, home_team_id, away_team_id, match_date, match_category, home_score, away_score, status, goalscorer_squad_confirmed_at')
     .eq('id', matchId)
     .single()
   if (!match) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 404 })
@@ -81,8 +81,14 @@ export async function POST(request: NextRequest) {
   // real Spieltag override) is the authoritative source; bettingOpenTime()'s
   // Monday-noon formula is only a fallback for Spieltage without one (e.g.
   // the test matchday).
-  let allowFreeze = true
-  if (match.status === 'scheduled') {
+  // The matchday squad has to be entered before this market can go live:
+  // freezing publishes real prices, and without a squad those prices rest on a
+  // statistical guess about who turns out. `force` is the admin's explicit
+  // override for the rare case where the squad genuinely cannot be entered in
+  // time. Preview/upsert still happens either way — only frozen_at is withheld.
+  const squadConfirmed = match.goalscorer_squad_confirmed_at != null
+  let allowFreeze = squadConfirmed || force === true
+  if (allowFreeze && match.status === 'scheduled') {
     const { data: settingsRows } = await supabase.from('app_settings').select('key, value')
     const appSettings = new Map((settingsRows ?? []).map(r => [r.key, r.value] as const))
     const earlyBettingOpen = appSettings.get('early_betting_open') === 'true'
@@ -143,25 +149,24 @@ export async function POST(request: NextRequest) {
     ? { homeXG: Number(xgOverrideRow.model_home_xg_override), awayXG: Number(xgOverrideRow.model_away_xg_override) }
     : undefined
 
-  // Per-match availability an admin has already set. A blocked player must be
-  // taken OUT of the allocation pool, not merely hidden — otherwise his share
-  // of the team xG disappears instead of going to the players who can play.
-  const { data: availabilityRows } = await supabase
-    .from('match_goalscorer_odds')
-    .select('player_id, status')
-    .eq('match_id', matchId)
-  const gsCtx: GoalscorerMatchContext = {
-    blockedPlayerIds: new Set(
-      (availabilityRows ?? []).filter(r => BLOCKING_GOALSCORER_STATUSES.has(r.status)).map(r => r.player_id)
-    ),
-    questionablePlayerIds: new Set(
-      (availabilityRows ?? []).filter(r => r.status === 'questionable').map(r => r.player_id)
-    ),
-    bothSquadConflict: hasConcurrentOtherSquadFixture(modelMatches, match.match_date, wildenrothId, [team1Id, team2Id]),
-  }
+  // Per-match availability, the parallel-fixture flag and the two teams' goal
+  // levels — same builder the automatic freeze uses. A blocked player is taken
+  // OUT of the allocation pool, not merely hidden, otherwise his share of the
+  // team xG disappears instead of going to the players who can play.
+  const gsCtx = await buildGoalscorerContext(supabase, {
+    matchId,
+    matchDate: match.match_date,
+    modelMatches,
+    thisTeamId: wildenrothId,
+    otherTeamId: involvesTeam1 ? team2Id : team1Id,
+  })
+
+  // Per-TEAM current-season stats. A squad='both' player's B-Klasse minutes and
+  // goals must not be counted as Kreisliga ones (wildenroth_player_team_stats).
+  const playersWithStats = await attachTeamStats(supabase, players, involvesTeam1 ? '1' : '2')
 
   const result = computeGoalscorerOffersForMatch(
-    modelMatches, match.home_team_id, match.away_team_id, wildenrothId, players, priorCtx, xgOverride, gsCtx,
+    modelMatches, match.home_team_id, match.away_team_id, wildenrothId, playersWithStats, priorCtx, xgOverride, gsCtx,
   )
   const offers = result.offers
 
@@ -206,6 +211,7 @@ export async function POST(request: NextRequest) {
     success: true,
     offers: offers.length,
     frozen: allowFreeze,
+    squadConfirmed,
     // Surfaced so the admin UI can show that the parts add up to the whole.
     teamMatchXG: result.teamMatchXG,
     allocatedXG: result.allocatedXG,

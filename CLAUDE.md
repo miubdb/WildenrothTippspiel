@@ -219,24 +219,54 @@ offered player's xG (~0.28).
 to named active outfield players and `match_goalscorers` holds zero own goals. Re-check before
 inventing a residual.
 
+**Offering rule (product decision)**: every outfield player in the matchday squad is bettable.
+Scoring probability sets the PRICE, never whether a player appears. Goalkeepers are never offered;
+players an admin marked as outside the squad / injured / missing / not bettable are not. The old
+`MIN_PROB_SCORE`/`MIN_PROJ_MINUTES` gates are gone from the scorer market (the 2+ market keeps one).
+`MAX_ODDS` was raised 30 → 100 for this: at 30 roughly three quarters of a squad would pile onto the
+identical maximum price. Clamping DOWN is always safe for the book; the risky direction is `MIN_ODDS`,
+which would need a player xG of 1.79 to turn positive-EV and never gets close (asserted in the checks).
+
+**Per-team current-season stats** (`wildenroth_player_team_stats`) — ~8 players turn out for both
+Wildenroth I (Kreisliga) and II (B-Klasse), and `wildenroth_players.games/minutes/goals` is one
+global pair per player. The per-team table is the authoritative cumulative stand; the fixture's team
+is the primary sample and the OTHER team's record is a down-weighted prior
+(`CROSS_TEAM_WEIGHT = 0.5`) that is first restated onto this team's goal level via `crossTeamScale`.
+That conversion only makes two samples comparable before blending — it is NOT a "B-Klasse is easier"
+adjustment, which would double-count, since the fixture's goal level lives in `teamMatchXG` and the
+weights are normalized to shares anyway. `minutes_reliable` is false for team II (FuPa does not
+maintain substitutions back on there), which shrinks its minutes harder toward the squad mean.
+`match_lineups` stays the intended long-term source; it cannot serve yet because team II has no
+lineup rows at all and guessing which of two matches a one-appearance player featured in would
+fabricate data.
+
 **Availability**: `BLOCKING_GOALSCORER_STATUSES` (`lib/goalscorerContext.ts`) removes a player from
 the allocation pool entirely — merely hiding him would let his share of the team xG vanish instead
 of going to the players who can play. `questionable` halves `P(plays)` instead.
 
+**Matchday squad beats statistics**: `matches.goalscorer_squad_confirmed_at`. Until it is set the
+market is preview-only and the automatic freeze in `tipps/page.tsx` keeps the Torschützen tab locked
+(same UI path as the double-fixture rule); the admin recompute needs `force` to freeze without it.
+Once set, `squadConfirmed` lifts every squad member to at least `SQUAD_MEMBER_MIN_PLAY_PROB = 0.4`
+(a named player with no recorded appearances would otherwise price at literally 0%) and switches off
+the parallel-fixture guess for `squad='both'` players, because the squad already answers it.
+
 **`squad = 'both'` when both Wildenroth sides play in parallel**: `hasConcurrentOtherSquadFixture`
-halves that player's `P(plays)`. This is a projection adjustment, NOT a second lock — the
-double-fixture lock in `tipps/page.tsx` (`GOALSCORER_DOUBLE_FIXTURE_BUFFER_MS`) handles the
-different case of ONE side playing twice in a week and stays the mechanism for that.
+halves that player's `P(plays)` — a statistical fallback for the preview only. It is a projection
+adjustment, NOT a second lock: the double-fixture lock in `tipps/page.tsx`
+(`GOALSCORER_DOUBLE_FIXTURE_BUFFER_MS`) handles the different case of ONE side playing twice in a
+week and stays the mechanism for that.
 
 Model inputs must come from `loadOddsModelInputs` — the admin recompute route used its own query
 without `match_category`, which priced a Wildenroth II B-Klasse fixture in the Kreisliga (2.518 xG
 against the main market's 2.651), and ignored `match_odds_overrides` entirely.
 
-Checks: `node --experimental-strip-types scripts/run-goalscorer-check.mjs` (31 assertions, exits
-non-zero on failure) and `scripts/run-goalscorer-preview.mjs <spieltag> [--old <goalscorer.ts>]`
-for a read-only old-vs-new preview. Player parameters are NOT fitted — there are only ~10
-(Wildenroth I) and ~2 (II) matches with recorded scorers, far too few to calibrate
-`PRIOR_GAMES`, position priors, bumps or the 15% margin.
+Checks: `node --experimental-strip-types scripts/run-goalscorer-check.mjs` (51 assertions, exits
+non-zero on failure) and `scripts/run-goalscorer-preview.mjs <spieltag> [--old <goalscorer.ts>]
+[--squad-confirmed]` for a read-only old-vs-new preview. Both need `wplayers.json` and
+`wteamstats.json` in `$BACKTEST_DATA_DIR` alongside the odds exports. Player parameters are NOT
+fitted — there are only ~6 (Wildenroth I) and ~2 (II) matches with recorded scorers, far too few to
+calibrate `PRIOR_GAMES`, position priors, bumps or the 15% margin.
 
 **The 1000-row cap (silent data loss):** every Supabase `.select()` stops at PostgREST's
 server-side row limit (1000) with **no error and no truncation flag** — a truncated result is

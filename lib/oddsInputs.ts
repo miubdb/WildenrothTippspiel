@@ -34,7 +34,7 @@ export { SEASON_START } from '@/lib/season'
  * failing, which is why this list lives in one place.
  */
 export const ODDS_MATCH_COLUMNS =
-  'id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday, competition_type'
+  'id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday, competition_type, goalscorer_squad_confirmed_at'
 
 export const ODDS_MATCH_JOINS = `home_team:teams!matches_home_team_id_fkey(id, name, short_name),
        away_team:teams!matches_away_team_id_fkey(id, name, short_name)`

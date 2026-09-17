@@ -13,9 +13,10 @@ import type { Match } from '@/types'
 import { getMatchXG, buildPriorContext } from '@/lib/odds'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import { computeGoalscorerOffers, type WildenrothPlayer, type GoalscorerSquadResult } from '@/lib/goalscorer'
+import { wildenrothGoalsPerMatch } from '@/lib/goalscorerContext'
 import { hasConcurrentOtherSquadFixture } from '@/lib/goalscorerContext'
 import { loadData } from './backtest'
-import { loadWildenrothPlayers } from './goalscorer-check'
+import { loadWildenrothPlayers, loadTeamStats, withTeamStats } from './goalscorer-check'
 
 export interface SideView {
   label: string
@@ -25,6 +26,9 @@ export interface SideView {
   baselineTeamXG: number
   teamMatchXG: number
   bothSquadConflict: boolean
+  squadConfirmed: boolean
+  teamGoalsPerMatch?: number
+  otherTeamGoalsPerMatch?: number
   result: GoalscorerSquadResult
   players: Map<number, WildenrothPlayer>
 }
@@ -38,9 +42,10 @@ export interface LegacyModule {
   }
 }
 
-export function buildViews(matchday: number): SideView[] {
+export function buildViews(matchday: number, squadConfirmed = false): SideView[] {
   const data = loadData()
   const players = loadWildenrothPlayers()
+  const teamStats = loadTeamStats()
   const priorCtx = buildPriorContext(data.priorMatches, data.teamNames, data.leaguePlayers, data.lineups)
   const modelMatches = data.matches.filter(
     (m) => (m as unknown as { competition_type?: string }).competition_type !== 'cup'
@@ -59,10 +64,14 @@ export function buildViews(matchday: number): SideView[] {
     if (wId == null) continue
     const m = md.find((x) => x.home_team_id === wId || x.away_team_id === wId)
     if (!m) continue
-    const squad = players.filter((p) => p.active && (p.squad === side || p.squad === 'both'))
+    const squad = withTeamStats(
+      players.filter((p) => p.active && (p.squad === side || p.squad === 'both')), side, teamStats
+    )
     const { homeXG, awayXG, diagnostics } = getMatchXG(modelMatches, m.home_team_id, m.away_team_id, priorCtx)
     const teamMatchXG = m.home_team_id === wId ? homeXG : awayXG
     const bothSquadConflict = hasConcurrentOtherSquadFixture(modelMatches, m.match_date, wId, [W1, W2])
+    const teamGoalsPerMatch = wildenrothGoalsPerMatch(modelMatches, wId)
+    const otherTeamGoalsPerMatch = wildenrothGoalsPerMatch(modelMatches, side === '1' ? W2 : W1)
     views.push({
       label,
       fixture: `${data.teamNames.get(m.home_team_id)} – ${data.teamNames.get(m.away_team_id)}`,
@@ -71,7 +80,12 @@ export function buildViews(matchday: number): SideView[] {
       baselineTeamXG: (diagnostics.baselineHome + diagnostics.baselineAway) / 2,
       teamMatchXG,
       bothSquadConflict,
-      result: computeGoalscorerOffers(squad, teamMatchXG, { bothSquadConflict }),
+      squadConfirmed,
+      teamGoalsPerMatch,
+      otherTeamGoalsPerMatch,
+      result: computeGoalscorerOffers(squad, teamMatchXG, {
+        bothSquadConflict, squadConfirmed, teamGoalsPerMatch, otherTeamGoalsPerMatch,
+      }),
       players: new Map(squad.map((p) => [p.id, p])),
     })
   }

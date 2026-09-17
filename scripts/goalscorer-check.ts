@@ -26,8 +26,9 @@ import {
   computeGoalscorerOffers,
   computeGoalscorerOffersForMatch,
   type WildenrothPlayer,
+  type TeamStats,
 } from '@/lib/goalscorer'
-import { hasConcurrentOtherSquadFixture } from '@/lib/goalscorerContext'
+import { hasConcurrentOtherSquadFixture, wildenrothGoalsPerMatch } from '@/lib/goalscorerContext'
 import { loadData } from './backtest'
 
 const DATA_DIR = process.env.BACKTEST_DATA_DIR ?? '/tmp/bt'
@@ -51,6 +52,37 @@ export function loadWildenrothPlayers(): WildenrothPlayer[] {
     is_penalty_taker: r[13] as boolean,
     is_freekick_taker: r[14] as boolean,
     active: r[15] as boolean,
+  }))
+}
+
+/** Per-team current-season stats, exported from wildenroth_player_team_stats. */
+export function loadTeamStats(): Map<string, TeamStats> {
+  const rows = JSON.parse(readFileSync(`${DATA_DIR}/wteamstats.json`, 'utf8')) as unknown[][]
+  const out = new Map<string, TeamStats>()
+  for (const r of rows) {
+    out.set(`${r[0]}:${r[1]}`, {
+      games: r[2] as number,
+      minutes: r[3] as number,
+      goals: r[4] as number,
+      asOfMatches: r[5] as number,
+      minutesReliable: r[6] as boolean,
+    })
+  }
+  return out
+}
+
+/** Attach this fixture's team stats + the other side's, exactly as
+ *  lib/goalscorerContext.ts#attachTeamStats does against the database. */
+export function withTeamStats(
+  players: WildenrothPlayer[],
+  side: '1' | '2',
+  stats: Map<string, TeamStats>,
+): WildenrothPlayer[] {
+  const other = side === '1' ? '2' : '1'
+  return players.map((p) => ({
+    ...p,
+    teamStats: stats.get(`${p.id}:${side}`) ?? null,
+    otherTeamStats: stats.get(`${p.id}:${other}`) ?? null,
   }))
 }
 
@@ -82,8 +114,13 @@ export function run(): number {
   const m1 = findFixture(W1)
   const m2 = findFixture(W2)
 
+  const teamStats = loadTeamStats()
   const squadFor = (side: '1' | '2') =>
-    players.filter((p) => p.active && (p.squad === side || p.squad === 'both'))
+    withTeamStats(players.filter((p) => p.active && (p.squad === side || p.squad === 'both')), side, teamStats)
+  const ctxFor = (side: '1' | '2') => ({
+    teamGoalsPerMatch: wildenrothGoalsPerMatch(modelMatches, side === '1' ? W1 : W2),
+    otherTeamGoalsPerMatch: wildenrothGoalsPerMatch(modelMatches, side === '1' ? W2 : W1),
+  })
 
   console.log('\n1. Torschützen-Team-xG == Hauptmarkt-Team-xG')
   for (const [label, m, wId, side] of [
@@ -224,6 +261,158 @@ export function run(): number {
         hasConcurrentOtherSquadFixture(modelMatches, m1.match_date, W1, [W1, W2])
       )
     }
+  }
+
+  console.log('\n9. Angebotsregel: jeder Feldspieler im Kader wird angeboten')
+  {
+    const squad = squadFor('1')
+    const r = computeGoalscorerOffers(squad, 2.0, ctxFor('1'))
+    const outfield = squad.filter((p) => !p.is_goalkeeper)
+    const keepers = squad.filter((p) => p.is_goalkeeper)
+    const offered = r.offers.filter((o) => o.is_offered)
+    check(
+      `alle ${outfield.length} Feldspieler angeboten`,
+      offered.length === outfield.length,
+      `angeboten: ${offered.length}`
+    )
+    check('kein Torwart angeboten', !keepers.some((k) => r.offers.find((o) => o.player_id === k.id)?.is_offered))
+    check(
+      'sehr kleine Wahrscheinlichkeiten werden angeboten, nicht ausgefiltert',
+      offered.some((o) => o.prob_score < 0.03),
+      `kleinste angebotene Wahrscheinlichkeit ${(Math.min(...offered.map((o) => o.prob_score)) * 100).toFixed(2)}%`
+    )
+    // Kader gesetzt: wer nicht drin steht, wird nicht angeboten.
+    const dropped = outfield.slice(0, 5).map((p) => p.id)
+    const withSquad = computeGoalscorerOffers(squad, 2.0, { ...ctxFor('1'), blockedPlayerIds: new Set(dropped) })
+    check(
+      'Spieler außerhalb des Kaders werden nicht angeboten',
+      dropped.every((id) => !withSquad.offers.find((o) => o.player_id === id)?.is_offered)
+    )
+    check(
+      'Zahl der Angebote = Zahl der Feldspieler im Kader',
+      withSquad.offers.filter((o) => o.is_offered).length === outfield.length - dropped.length
+    )
+  }
+
+  console.log('\n9b. Bestätigter Kader hat Vorrang vor der statistischen Einsatzquote')
+  {
+    const squad = squadFor('1')
+    const never = squad.find((p) => !p.is_goalkeeper && (p.teamStats?.games ?? 0) === 0 && (p.prev_games ?? 0) === 0)
+    const preview = computeGoalscorerOffers(squad, 2.0, { ...ctxFor('1'), squadConfirmed: false })
+    const confirmed = computeGoalscorerOffers(squad, 2.0, { ...ctxFor('1'), squadConfirmed: true })
+    if (never) {
+      const a = preview.offers.find((o) => o.player_id === never.id)!
+      const b = confirmed.offers.find((o) => o.player_id === never.id)!
+      check(
+        `${never.name} (ohne jeden Einsatz): Vorschau ${(a.diagnostics.pPlays * 100).toFixed(0)}% → im Kader ${(b.diagnostics.pPlays * 100).toFixed(0)}%`,
+        b.diagnostics.pPlays > a.diagnostics.pPlays && b.diagnostics.playerXG > 0
+      )
+    }
+    const bothP = squad.find((p) => p.squad === 'both' && !p.is_goalkeeper)!
+    const withConflict = computeGoalscorerOffers(squad, 2.0, { ...ctxFor('1'), bothSquadConflict: true, squadConfirmed: false })
+    const confirmedConflict = computeGoalscorerOffers(squad, 2.0, { ...ctxFor('1'), bothSquadConflict: true, squadConfirmed: true })
+    const c1 = withConflict.offers.find((o) => o.player_id === bothP.id)!
+    const c2 = confirmedConflict.offers.find((o) => o.player_id === bothP.id)!
+    check(
+      `${bothP.name}: bestätigter Kader hebt die Parallelspiel-Dämpfung auf`,
+      c2.diagnostics.pPlays > c1.diagnostics.pPlays,
+      `${(c1.diagnostics.pPlays * 100).toFixed(0)}% → ${(c2.diagnostics.pPlays * 100).toFixed(0)}%`
+    )
+    check('alle Angebote behalten Σ playerXG = Team-xG',
+      near(confirmed.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 2.0, 1e-9))
+  }
+
+  console.log('\n10. Quotencap und Marge — kein positiver Erwartungswert')
+  {
+    for (const side of ['1', '2'] as const) {
+      // Im bestätigten Kader — das ist der Zustand, in dem Quoten real live gehen.
+      const r = computeGoalscorerOffers(squadFor(side), side === '1' ? 2.04 : 2.65, { ...ctxFor(side), squadConfirmed: true })
+      const offered = r.offers.filter((o) => o.is_offered)
+      const worst = Math.max(...offered.map((o) => o.prob_score * o.odds_score))
+      check(
+        `Squad ${side}: höchster Erwartungswert ${worst.toFixed(3)} < 1`,
+        worst < 1,
+        `${offered.length} Angebote, Quoten ${Math.min(...offered.map((o) => o.odds_score))}–${Math.max(...offered.map((o) => o.odds_score))}`
+      )
+      // Der Cap darf den Markt nicht dominieren. Ein paar Spieler mit echter
+      // Restwahrscheinlichkeit unter ~0,9 % landen zwangsläufig dort — bei
+      // MAX_ODDS = 30 wären es rund drei Viertel des Kaders gewesen.
+      const atCap = offered.filter((o) => o.odds_score >= 100).length
+      check(
+        `Squad ${side}: ${atCap} von ${offered.length} Angeboten am Cap (< ein Viertel)`,
+        atCap * 4 < offered.length
+      )
+    }
+  }
+
+  console.log('\n11. Team-spezifische Statistik statt globaler Summe')
+  {
+    const both = players.filter((p) => p.active && p.squad === 'both' && !p.is_goalkeeper)
+    const s1 = squadFor('1'), s2 = squadFor('2')
+    const withSplit = both.filter((p) => {
+      const a = s1.find((x) => x.id === p.id)?.teamStats
+      const b = s2.find((x) => x.id === p.id)?.teamStats
+      return a && b && (a.games !== b.games || a.minutes !== b.minutes)
+    })
+    check(
+      `${withSplit.length} von ${both.length} both-Spielern haben pro Mannschaft unterschiedliche Werte`,
+      withSplit.length > 0
+    )
+    const ex = withSplit[0]
+    if (ex) {
+      const a = s1.find((x) => x.id === ex.id)!
+      const b = s2.find((x) => x.id === ex.id)!
+      check(
+        `${ex.name}: I ${a.teamStats!.games} Sp./${a.teamStats!.minutes} Min. vs II ${b.teamStats!.games} Sp./${b.teamStats!.minutes} Min.`,
+        a.teamStats!.minutes !== b.teamStats!.minutes
+      )
+      check(
+        `${ex.name}: die jeweils andere Mannschaft ist nur Prior, nicht addiert`,
+        a.otherTeamStats?.minutes === b.teamStats!.minutes
+      )
+    }
+    // Team II hat unzuverlässige Minuten -> Flag muss durchkommen.
+    check(
+      'Wildenroth II ist als minutes_reliable = false markiert',
+      s2.some((p) => p.teamStats && !p.teamStats.minutesReliable)
+    )
+    check(
+      'Wildenroth I ist als minutes_reliable = true markiert',
+      s1.some((p) => p.teamStats && p.teamStats.minutesReliable)
+    )
+  }
+
+  console.log('\n12. Liga-Kontext der Spielerhistorie wird nicht doppelt gezählt')
+  {
+    // Gleiche Spieler, gleiche Team-xG, nur unterschiedliche Liga-Torniveaus:
+    // die Anteile dürfen sich ändern (Umrechnung der Fremdteam-Historie), die
+    // SUMME muss exakt das Team-xG bleiben.
+    const squad = squadFor('2')
+    const a = computeGoalscorerOffers(squad, 2.65, { teamGoalsPerMatch: 2.0 })
+    const b = computeGoalscorerOffers(squad, 2.65, { teamGoalsPerMatch: 2.0, otherTeamGoalsPerMatch: 2.33 })
+    check('Σ playerXG bleibt Team-xG, unabhängig vom Liga-Kontext',
+      near(a.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 2.65, 1e-9) &&
+      near(b.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 2.65, 1e-9))
+    // Kein realer `both`-Spieler hat bislang für die jeweils andere Mannschaft
+    // getroffen, deshalb hier ein konstruierter Fall: derselbe Spieler, dieselbe
+    // Historie, nur unterschiedliches Torniveau der ANDEREN Mannschaft.
+    const base = squad.filter((p) => !p.is_goalkeeper).slice(0, 8)
+    const synthetic: WildenrothPlayer[] = base.map((p, i) => i === 0
+      ? { ...p, squad: 'both', teamStats: null,
+          otherTeamStats: { games: 5, minutes: 450, goals: 5, asOfMatches: 5, minutesReliable: true } }
+      : p)
+    const lowOther = computeGoalscorerOffers(synthetic, 2.0, { teamGoalsPerMatch: 2.0, otherTeamGoalsPerMatch: 1.0 })
+    const highOther = computeGoalscorerOffers(synthetic, 2.0, { teamGoalsPerMatch: 2.0, otherTeamGoalsPerMatch: 4.0 })
+    const lx = lowOther.offers[0].diagnostics.share
+    const hx = highOther.offers[0].diagnostics.share
+    check(
+      'Tore in einer torreicheren Liga zählen relativ weniger',
+      hx < lx,
+      `andere Mannschaft 1,0 Tore/Spiel → ${(lx * 100).toFixed(2)}% Anteil, 4,0 Tore/Spiel → ${(hx * 100).toFixed(2)}%`
+    )
+    check('Σ playerXG bleibt in beiden Fällen exakt das Team-xG',
+      near(lowOther.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 2.0, 1e-9) &&
+      near(highOther.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 2.0, 1e-9))
   }
 
   console.log(`\n${failures === 0 ? 'Alle' : failures + ' von ' + checks} Prüfungen ${failures === 0 ? `bestanden (${checks})` : 'FEHLGESCHLAGEN'}`)
