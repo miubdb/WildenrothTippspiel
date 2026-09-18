@@ -35,7 +35,7 @@ export default async function LeaderboardPage({
     { data: allCombosRaw },
     { data: appSettingsRaw },
   ] = await Promise.all([
-    supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url, created_at').or('eligible_for_current_season.eq.true,is_admin.eq.true').is('deleted_at', null).order('balance', { ascending: false }),
+    supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url').or('eligible_for_current_season.eq.true,is_admin.eq.true').is('deleted_at', null).order('balance', { ascending: false }),
     supabase.auth.getUser(),
     // These three read WHOLE tables (no match/user filter — the season split
     // happens in JS below), so they must page through fetchAllRows: a plain
@@ -482,11 +482,25 @@ export default async function LeaderboardPage({
     .sort(byKickoff)
   const latestCompletedMd = fullyCompletedMds.at(-1)
   const previousCompletedMd = fullyCompletedMds.at(-2)
-  // matchdayMinDate is keyed by RAW matchday — used here only to decide
-  // "did this user exist yet at that point", a coarse cutoff, not for ordering.
   const previousMdCutoff = previousCompletedMd != null
     ? Math.max(...(recapMdMatches.get(previousCompletedMd) ?? []).map(m => new Date(m.match_date).getTime()))
     : null
+  // "Was this user actually part of the ranking at that earlier standing?"
+  // profiles.created_at (account creation) doesn't answer that reliably — an
+  // account can exist well before someone is onboarded into the Tippspiel,
+  // or vice versa be backdated on import. A placed bet is unambiguous season
+  // presence, so a user with at least one bet (single or combo) created at
+  // or before the previous Spieltag's cutoff was demonstrably already in the
+  // ranking back then; everyone else gets the neutral dash below.
+  const hadPresenceBeforePreviousMd = new Set<string>()
+  if (previousMdCutoff != null) {
+    for (const b of allBets) {
+      if (new Date(b.created_at).getTime() <= previousMdCutoff) hadPresenceBeforePreviousMd.add(b.user_id)
+    }
+    for (const c of allCombos) {
+      if (new Date(c.created_at).getTime() <= previousMdCutoff) hadPresenceBeforePreviousMd.add(c.user_id)
+    }
+  }
   // rank → 1-based position in the SAME balance-desc order the page already
   // renders, so "current rank" here is guaranteed identical to what's shown.
   const rankChanges = new Map<string, number | null>() // userId → places gained (+) / lost (−) / null = not shown
@@ -504,9 +518,9 @@ export default async function LeaderboardPage({
     const previousRankOf = new Map(previousOrder.map((p, i) => [p.id, i + 1]))
     currentOrder.forEach((p, i) => {
       const currentRank = i + 1
-      // Not present in the ranking as of the previous completed Spieltag —
-      // never show a fabricated jump, only the neutral dash.
-      if (p.created_at != null && new Date(p.created_at).getTime() > previousMdCutoff) {
+      // Not demonstrably present in the ranking as of the previous completed
+      // Spieltag — never show a fabricated jump, only the neutral dash.
+      if (!hadPresenceBeforePreviousMd.has(p.id)) {
         rankChanges.set(p.id, null)
         return
       }
