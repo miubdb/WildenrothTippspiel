@@ -115,6 +115,14 @@ export default async function SpielerPage({
   // Group awards by award_type
   const awardGroupMap = new Map<string, { icon: string; title: string; description: string; count: number; latestMatchday: number; latestSeason: string; latestValueText: string | null; instances: { matchday: number; season: string; valueText: string | null; refBetId: number | null; refComboId: number | null }[] }>()
   for (const a of awards) {
+    // PokalschrankAwardTile's click-to-expand always opens the Storno-Champ
+    // sheet — the only detail view it knows. last_minute_tipper now also
+    // carries a ref_bet_id/ref_combo_id (see lib/awards.ts), but its own
+    // richer detail is shown inline on the recap page, not here — so those
+    // refs are deliberately dropped for every award type except storno_champ,
+    // rather than opening the wrong (and wrongly-worded) sheet for it.
+    const refBetId = a.award_type === 'storno_champ' ? a.ref_bet_id : null
+    const refComboId = a.award_type === 'storno_champ' ? a.ref_combo_id : null
     const existing = awardGroupMap.get(a.award_type)
     if (!existing) {
       awardGroupMap.set(a.award_type, {
@@ -125,11 +133,11 @@ export default async function SpielerPage({
         latestMatchday: a.matchday,
         latestSeason: a.season,
         latestValueText: a.value_text ?? null,
-        instances: [{ matchday: a.matchday, season: a.season, valueText: a.value_text ?? null, refBetId: a.ref_bet_id, refComboId: a.ref_combo_id }],
+        instances: [{ matchday: a.matchday, season: a.season, valueText: a.value_text ?? null, refBetId, refComboId }],
       })
     } else {
       existing.count++
-      existing.instances.push({ matchday: a.matchday, season: a.season, valueText: a.value_text ?? null, refBetId: a.ref_bet_id, refComboId: a.ref_combo_id })
+      existing.instances.push({ matchday: a.matchday, season: a.season, valueText: a.value_text ?? null, refBetId, refComboId })
     }
   }
   const groupedAwards = Array.from(awardGroupMap.entries()).map(([award_type, v]) => ({ award_type, ...v }))

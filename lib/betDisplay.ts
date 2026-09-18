@@ -133,6 +133,34 @@ export function socialSelLabel(marketType: string, selection: string, players?: 
   return cupSocialLabel(marketType, selection) ?? SELECTION_DISPLAY[marketType]?.[selection] ?? selection
 }
 
+/** Full ("Wetthistorie") selection label — same precedence as socialSelLabel
+ *  (cup markets first since a bare code like 'yes' is ambiguous across
+ *  several cup markets; goalscorer needs the player-name lookup), but using
+ *  cupSelectionLabel's fuller wording instead of the compact social one, and
+ *  a Special resolved through its own options (never SELECTION_DISPLAY,
+ *  whose 'yes'/'no' entry is btts/matchday_special-generic and would collide
+ *  with a Special's real outcome labels). The one place every surface that
+ *  shows a concrete bet — Wetthistorie/offene Wetten, award detail views —
+ *  should get its market+selection text from, so a raw code like `over_35`
+ *  or `cup_shootout_advance_yes` never reaches the UI. */
+export function plainSelectionLabel(
+  marketType: string,
+  selection: string,
+  special?: SpecialDisplayInfo,
+  players?: Record<number, string>,
+): string {
+  if (marketType === 'exact_score') return selection
+  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
+    const id = parseInt(selection, 10)
+    const name = players?.[id] ?? `Spieler #${id}`
+    return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
+  }
+  if (marketType === 'matchday_special') {
+    return special ? specialSelectionLabel(special, selection) : ({ over: 'Über', under: 'Unter', yes: 'Ja', no: 'Nein' }[selection] ?? selection)
+  }
+  return cupSelectionLabel(marketType, selection) ?? SELECTION_DISPLAY[marketType]?.[selection] ?? selection
+}
+
 // ---------- Spieltag-Specials display (single source of truth) ----------
 //
 // A Special bet's `match_id` is only `representative_match_id` — a technical

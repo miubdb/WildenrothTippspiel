@@ -1,6 +1,6 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { AWARD_META, type AwardType } from '@/lib/awards'
+import { AWARD_META, getLastMinuteTipperWetteDetail, type AwardType } from '@/lib/awards'
 import { wildiLabel } from '@/components/WildiIcon'
 import { AwardRow } from '@/components/AwardRow'
 import { buildEffectiveMatchdayIndex, recapMatchdayOf, SEASON_START } from '@/lib/season'
@@ -183,6 +183,16 @@ export default async function RecapPage({
     .filter(a => a.award_type in AWARD_META)
     .sort((a, b) => AWARD_ORDER.indexOf(a.award_type as AwardType) - AWARD_ORDER.indexOf(b.award_type as AwardType))
 
+  // Last-Minute-Tipper is rendered as its own richer card below, not through
+  // the generic AwardRow list — its whole point is showing the concrete bet
+  // (match/market/selection/odds, or every combo leg), which AwardRow's
+  // click-to-expand (built only for Storno-Champ's sheet) doesn't do.
+  const lastMinuteAward = awards.find(a => a.award_type === 'last_minute_tipper') ?? null
+  const otherAwards = awards.filter(a => a.award_type !== 'last_minute_tipper')
+  const lastMinuteDetail = lastMinuteAward
+    ? await getLastMinuteTipperWetteDetail(supabase, { betId: lastMinuteAward.ref_bet_id, comboId: lastMinuteAward.ref_combo_id })
+    : null
+
   // Sort by profit descending
   const leaderboard = [...userPnl.entries()]
     .map(([userId, { staked, payout }]) => ({
@@ -279,13 +289,13 @@ export default async function RecapPage({
       </div>
 
       {/* Pokale des Spieltags */}
-      {awards.length > 0 && (
+      {otherAwards.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
             <h2 className="font-bold text-gray-900 dark:text-gray-100">Pokale des Spieltags</h2>
           </div>
           <div className="divide-y divide-gray-50 dark:divide-gray-700">
-            {awards.map((a) => {
+            {otherAwards.map((a) => {
               const meta = AWARD_META[a.award_type as AwardType]
               const name = displayName(a.user_id)
               return (
@@ -301,6 +311,46 @@ export default async function RecapPage({
                 />
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* ⏱️ Last-Minute-Tipper — own card, always showing the concrete
+          winning bet (never just the match), per the recap review. */}
+      {lastMinuteAward && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-fuchsia-200 dark:border-fuchsia-900/50 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 bg-fuchsia-50 dark:bg-fuchsia-900/20 border-b border-fuchsia-100 dark:border-fuchsia-900/30 flex items-center gap-2.5">
+            <span className="text-2xl">⏱️</span>
+            <div>
+              <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">Last-Minute-Tipper: {displayName(lastMinuteAward.user_id)}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">{lastMinuteAward.value_text?.replace('vor Anpfiff gewettet — und gewonnen', 'vor Anpfiff · gewonnen') ?? ''}</div>
+            </div>
+          </div>
+          <div className="px-4 py-3">
+            {!lastMinuteDetail && <p className="text-sm text-gray-400">Wette nicht mehr verfügbar.</p>}
+            {lastMinuteDetail && !lastMinuteDetail.isCombo && (
+              <div className="text-sm">
+                <div className="text-gray-500 dark:text-gray-400 text-xs">{lastMinuteDetail.matchName}</div>
+                <div className="font-bold text-gray-900 dark:text-gray-100">
+                  {lastMinuteDetail.market}: {lastMinuteDetail.selection}{' '}
+                  <span className="text-fuchsia-600">@{lastMinuteDetail.odds.toFixed(2).replace('.', ',')}</span>
+                </div>
+              </div>
+            )}
+            {lastMinuteDetail && lastMinuteDetail.isCombo && (
+              <>
+                <div className="font-bold text-gray-900 dark:text-gray-100 text-sm mb-2">
+                  {lastMinuteDetail.legs?.length ?? '?'}er-Kombi @{lastMinuteDetail.odds.toFixed(2).replace('.', ',')}
+                </div>
+                <ul className="space-y-1">
+                  {(lastMinuteDetail.legs ?? []).map((l, i) => (
+                    <li key={i} className="text-xs text-gray-600 dark:text-gray-300">
+                      · {l.matchName}: {l.market} – {l.selection}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
         </div>
       )}

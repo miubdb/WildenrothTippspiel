@@ -4,6 +4,7 @@ import { buildEffectiveMatchdayIndex, recapMatchdayOf, SEASON_START } from '@/li
 import { cappedPayout } from '@/lib/payout'
 import { settleBet } from '@/lib/settleBet'
 import { MARKET_LABELS } from '@/lib/betStats'
+import { plainSelectionLabel, type SpecialDisplayInfo } from '@/lib/betDisplay'
 import type { Match } from '@/types'
 
 // Monthly awards (not implemented yet — conceptual note only, per release-scope
@@ -62,7 +63,8 @@ export interface AwardInput {
   value?: number
   value_text?: string
   /** Exactly one of these (or neither) — see user_awards.ref_bet_id/
-   *  ref_combo_id migration comments. Only storno_champ sets these today. */
+   *  ref_combo_id migration comments. Set by storno_champ and
+   *  last_minute_tipper today. */
   ref_bet_id?: number | null
   ref_combo_id?: number | null
 }
@@ -141,7 +143,7 @@ export async function computeAndPersistMatchdayAwards(
 
   const { data: rawBets } = await admin
     .from('bets')
-    .select('user_id, match_id, stake, odds_value, payout, status, is_risky, combo_id, market_type, selection, created_at')
+    .select('id, user_id, match_id, stake, odds_value, payout, status, is_risky, combo_id, market_type, selection, created_at')
     .in('match_id', matchIds)
     .in('status', ['won', 'lost'])
   const allBets = rawBets ?? []
@@ -362,18 +364,18 @@ export async function computeAndPersistMatchdayAwards(
   // among its legs, since that's when the whole slip stops being placeable).
   // Tiebreak: smallest gap to kickoff wins (most last-minute).
   const ONE_HOUR_MS = 60 * 60 * 1000
-  const lastMinuteCandidates: { user_id: string; gapMs: number; kickoff: string }[] = []
-  for (const b of wonSingles as { user_id: string; match_id: number; created_at: string }[]) {
+  const lastMinuteCandidates: { user_id: string; gapMs: number; kickoff: string; betId: number | null; comboId: number | null }[] = []
+  for (const b of wonSingles as { id: number; user_id: string; match_id: number; created_at: string }[]) {
     const kickoff = matchDateMap.get(b.match_id)
     if (!kickoff) continue
     const gapMs = new Date(kickoff).getTime() - new Date(b.created_at).getTime()
-    if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs, kickoff })
+    if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs, kickoff, betId: b.id, comboId: null })
   }
   for (const c of wonCombos as (CB & { created_at: string })[]) {
     const kickoff = comboEarliestKickoff.get(c.id)
     if (!kickoff) continue
     const gapMs = new Date(kickoff).getTime() - new Date(c.created_at).getTime()
-    if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: c.user_id, gapMs, kickoff })
+    if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: c.user_id, gapMs, kickoff, betId: null, comboId: c.id })
   }
   if (lastMinuteCandidates.length > 0) {
     lastMinuteCandidates.sort((a, b) => a.gapMs - b.gapMs)
@@ -389,6 +391,11 @@ export async function computeAndPersistMatchdayAwards(
       award_type: 'last_minute_tipper',
       value: gapMin,
       value_text: `${timeText} vor Anpfiff gewettet — und gewonnen`,
+      // The exact winning slip — same ref_bet_id/ref_combo_id mechanism as
+      // Storno-Champ, so the UI can show the concrete bet instead of just
+      // the match name (see getLastMinuteTipperWetteDetail below).
+      ref_bet_id: lm.betId,
+      ref_combo_id: lm.comboId,
     })
   }
 
@@ -772,6 +779,135 @@ export async function getStornoChampWetteDetail(
           finalScore: m?.status === 'finished' && m.home_score != null ? `${m.home_score}:${m.away_score}` : null,
         }
       }),
+    }
+  }
+  return null
+}
+
+export interface LastMinuteTipperLegDetail {
+  matchName: string
+  market: string
+  selection: string
+  odds: number
+}
+
+export interface LastMinuteTipperWetteDetail {
+  isCombo: boolean
+  odds: number
+  matchName?: string
+  market?: string
+  selection?: string
+  legs?: LastMinuteTipperLegDetail[]
+}
+
+/**
+ * The exact winning slip behind a Last-Minute-Tipper award — same shape as
+ * getStornoChampWetteDetail, but for a real WON bet, not a hypothetical
+ * stornoed one. Takes the ref_bet_id/ref_combo_id persisted on the award row
+ * (computeAndPersistMatchdayAwards below), never re-derives "some other
+ * last-minute win" of the same user. Selection labels go through
+ * plainSelectionLabel — the same central mapping bet history/offene Wetten
+ * use — so a raw code (`over_35`, `cup_shootout_advance_yes`, a bare player
+ * id) never reaches the caller.
+ */
+export async function getLastMinuteTipperWetteDetail(
+  admin: SupabaseClient,
+  ref: { betId: number | null; comboId: number | null },
+): Promise<LastMinuteTipperWetteDetail | null> {
+  // matchday_special legs need the special's own options to resolve their
+  // selection; goalscorer legs need a player name. Both are rare enough here
+  // (only if the last-minute bet itself was on one) that loading them lazily
+  // per call is fine — this runs once per award, not per bet-history row.
+  async function resolveLeg(l: { market_type: string; selection: string; special_id: number | null }): Promise<string> {
+    if (l.market_type === 'goalscorer' || l.market_type === 'goalscorer_2plus') {
+      const { data: player } = await admin.from('wildenroth_players').select('name').eq('id', parseInt(l.selection, 10)).single()
+      return plainSelectionLabel(l.market_type, l.selection, undefined, player ? { [parseInt(l.selection, 10)]: player.name } : undefined)
+    }
+    if (l.market_type === 'matchday_special' && l.special_id != null) {
+      const { data: specialRow } = await admin
+        .from('matchday_specials')
+        .select('matchday, template_key, options, settlement_result')
+        .eq('id', l.special_id)
+        .single()
+      return plainSelectionLabel(l.market_type, l.selection, specialRow as SpecialDisplayInfo | undefined)
+    }
+    return plainSelectionLabel(l.market_type, l.selection)
+  }
+
+  if (ref.betId != null) {
+    const { data: bet } = await admin
+      .from('bets')
+      .select('market_type, selection, odds_value, match_id, special_id')
+      .eq('id', ref.betId)
+      .single()
+    if (!bet) return null
+    if (bet.market_type === 'matchday_special') {
+      const { data: specialRow } = bet.special_id != null
+        ? await admin.from('matchday_specials').select('matchday, template_key, options, settlement_result').eq('id', bet.special_id).single()
+        : { data: null }
+      return {
+        isCombo: false,
+        odds: bet.odds_value,
+        matchName: specialRow ? `Spieltag ${specialRow.matchday}` : 'Spieltag-Special',
+        market: MARKET_LABELS[bet.market_type] ?? bet.market_type,
+        selection: await resolveLeg(bet),
+      }
+    }
+    const { data: match } = await admin
+      .from('matches')
+      .select('home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
+      .eq('id', bet.match_id)
+      .single()
+    if (!match) return null
+    const ht = Array.isArray(match.home_team) ? match.home_team[0] : match.home_team
+    const at = Array.isArray(match.away_team) ? match.away_team[0] : match.away_team
+    return {
+      isCombo: false,
+      odds: bet.odds_value,
+      matchName: `${ht?.name ?? '?'} – ${at?.name ?? '?'}`,
+      market: MARKET_LABELS[bet.market_type] ?? bet.market_type,
+      selection: await resolveLeg(bet),
+    }
+  }
+  if (ref.comboId != null) {
+    const { data: combo } = await admin.from('combo_bets').select('total_odds').eq('id', ref.comboId).single()
+    if (!combo) return null
+    const { data: legsRaw } = await admin
+      .from('bets')
+      .select('market_type, selection, odds_value, match_id, special_id')
+      .eq('combo_id', ref.comboId)
+    const legs = legsRaw ?? []
+    if (legs.length === 0) return null
+    const matchIds = [...new Set(legs.filter((l) => l.market_type !== 'matchday_special').map((l) => l.match_id))]
+    const { data: matchesRaw } = matchIds.length > 0
+      ? await admin.from('matches').select('id, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)').in('id', matchIds)
+      : { data: [] as never[] }
+    const matchById = new Map((matchesRaw ?? []).map((m) => [m.id, m]))
+    return {
+      isCombo: true,
+      odds: combo.total_odds,
+      legs: await Promise.all(legs.map(async (l) => {
+        if (l.market_type === 'matchday_special') {
+          const { data: specialRow } = l.special_id != null
+            ? await admin.from('matchday_specials').select('matchday, template_key, options, settlement_result').eq('id', l.special_id).single()
+            : { data: null }
+          return {
+            matchName: specialRow ? `Spieltag ${specialRow.matchday}` : 'Spieltag-Special',
+            market: MARKET_LABELS[l.market_type] ?? l.market_type,
+            selection: await resolveLeg(l),
+            odds: l.odds_value,
+          }
+        }
+        const m = matchById.get(l.match_id)
+        const ht = m ? (Array.isArray(m.home_team) ? m.home_team[0] : m.home_team) : null
+        const at = m ? (Array.isArray(m.away_team) ? m.away_team[0] : m.away_team) : null
+        return {
+          matchName: `${ht?.name ?? '?'} – ${at?.name ?? '?'}`,
+          market: MARKET_LABELS[l.market_type] ?? l.market_type,
+          selection: await resolveLeg(l),
+          odds: l.odds_value,
+        }
+      })),
     }
   }
   return null
