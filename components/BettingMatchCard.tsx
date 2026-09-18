@@ -449,9 +449,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                     angehoben. */}
                 {odds.over_9_5 != null && (
                   <div>
-                    <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">
-                      Über 9,5 Tore <span className="text-amber-600 dark:text-amber-500">· Spaßwette</span>
-                    </div>
+                    <div className="text-xs text-gray-400 dark:text-gray-500 mb-1.5 font-medium">Über/Unter 9,5 Tore</div>
                     <div className="grid grid-cols-2 gap-2">
                       <OddsButton
                         label="Über 9,5" odds={odds.over_9_5}
