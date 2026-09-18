@@ -543,7 +543,15 @@ export default async function LeaderboardPage({
     // balance + pending stakes, alphabetical tiebreak) — "current rank" here
     // must match what's on screen exactly.
     const currentOrder = sortedProfiles
-    const previousOrder = [...currentOrder].sort((a, b) => {
+    // Only users demonstrably present before the cutoff belong in the
+    // "previous" ranking pool at all — a user who joined afterward must not
+    // occupy a phantom slot in it (their reconstructed "previous balance" is
+    // meaningless; they weren't in the table yet). Leaving them in here was
+    // a real bug: every such newcomer silently shifted every existing user's
+    // computed previous RANK by one, even though nobody actually passed
+    // them — e.g. 5 newcomers between ST7 and ST2 alone turned a real ↓7 for
+    // one user into a displayed ↓2.
+    const previousOrder = currentOrder.filter(p => hadPresenceBeforePreviousMd.has(p.id)).sort((a, b) => {
       const prevA = a.balance - (mdPnl.get(`${a.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(a.id) ?? 0)
       const prevB = b.balance - (mdPnl.get(`${b.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(b.id) ?? 0)
       if (prevB !== prevA) return prevB - prevA
