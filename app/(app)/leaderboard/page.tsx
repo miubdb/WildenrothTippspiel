@@ -485,6 +485,40 @@ export default async function LeaderboardPage({
   const previousMdCutoff = previousCompletedMd != null
     ? Math.max(...(recapMdMatches.get(previousCompletedMd) ?? []).map(m => new Date(m.match_date).getTime()))
     : null
+
+  // Reversing ONLY each user's bet P&L for latestCompletedMd is not enough:
+  // finalizeMatchdayIfDone (lib/matchdayFinalize.ts) also credits everyone
+  // eligible +10 Taschengeld and charges anyone inactive that Spieltag −50 at
+  // the SAME moment a Spieltag settles — both already sit inside `balance`
+  // today and neither is a "bet", so they'd otherwise silently leak into the
+  // reconstructed "before" balance. That skew lands hardest exactly where a
+  // rank-change badge gets scrutinized most: the bottom of the table, where
+  // the penalised users cluster (observed: a non-penalised user's true
+  // previous rank read 2 places better than it should have, because 13
+  // penalised users below/near him weren't credited back their −50 here).
+  // Guarded by the same push_reminders dedup row the real credit/penalty run
+  // itself used — matchday 1 predates the per-matchday scheme entirely (the
+  // old weekly cron), so it must NOT get an adjustment applied.
+  const pocketPenaltyAdjustment = new Map<string, number>()
+  if (latestCompletedMd != null) {
+    const { data: pocketMoneyRan } = await supabase
+      .from('push_reminders')
+      .select('id')
+      .eq('type', 'pocket_money')
+      .eq('season', CURRENT_SEASON)
+      .eq('matchday', latestCompletedMd)
+      .maybeSingle()
+    if (pocketMoneyRan) {
+      const latestMdMatchIds = new Set((recapMdMatches.get(latestCompletedMd) ?? []).map(m => m.id))
+      const activeUserIds = new Set<string>()
+      for (const b of allBets) {
+        if (b.status !== 'void' && b.match_id != null && latestMdMatchIds.has(b.match_id)) activeUserIds.add(b.user_id)
+      }
+      for (const p of sortedProfiles) {
+        pocketPenaltyAdjustment.set(p.id, activeUserIds.has(p.id) ? 10 : -40) // +10 always, −50 more if inactive
+      }
+    }
+  }
   // "Was this user actually part of the ranking at that earlier standing?"
   // profiles.created_at (account creation) doesn't answer that reliably — an
   // account can exist well before someone is onboarded into the Tippspiel,
@@ -510,8 +544,8 @@ export default async function LeaderboardPage({
     // must match what's on screen exactly.
     const currentOrder = sortedProfiles
     const previousOrder = [...currentOrder].sort((a, b) => {
-      const prevA = a.balance - (mdPnl.get(`${a.id}_${latestCompletedMd}`) ?? 0)
-      const prevB = b.balance - (mdPnl.get(`${b.id}_${latestCompletedMd}`) ?? 0)
+      const prevA = a.balance - (mdPnl.get(`${a.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(a.id) ?? 0)
+      const prevB = b.balance - (mdPnl.get(`${b.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(b.id) ?? 0)
       if (prevB !== prevA) return prevB - prevA
       return (a.display_name || a.username).localeCompare(b.display_name || b.username, 'de')
     })
