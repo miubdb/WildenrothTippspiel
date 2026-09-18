@@ -45,7 +45,7 @@ export const AWARD_META: Record<AwardType, { title: string; icon: string; descri
   ergebnis_orakel: { icon: '🔮', title: 'Ergebnis-Orakel',   description: 'Exaktes Ergebnis richtig getippt' },
   griff_ins_klo:   { icon: '🚽', title: 'Griff ins Klo',     description: 'Schlechtester Netto-Saldo am Spieltag' },
   betonmischer:    { icon: '🧱', title: 'Betonmischer',       description: 'Sicherster gewonnener Tipp' },
-  on_fire:         { icon: '🔥', title: 'On Fire',            description: 'Meiste gewonnene Wettscheine' },
+  on_fire:         { icon: '🎯', title: 'Mehrfachtreffer',    description: 'Meiste gewonnene Wettscheine' },
   // Deliberately Einzelwette-only (no combos) — a combo's win is really a
   // Spieltagskönig-flavored story (several legs contributing), so scoping
   // this to single bets keeps it a genuinely different category instead of

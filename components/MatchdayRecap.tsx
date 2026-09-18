@@ -39,6 +39,10 @@ export type RecapData = {
     /** Set for a single-bet win — the concrete market/selection, same
      *  formatting as every other award's bet detail (see RecapBetDetail). */
     bet?: RecapBetDetail
+    /** The single bet's own odds — RecapBetDetail itself carries no odds
+     *  (every other award already shows odds separately alongside it), but
+     *  the whole point of this card is showing the concrete price too. */
+    betOdds?: number
     /** Set for a combo win instead of `bet` — a combo has no single "match",
      *  so it's shown as "Ner-Kombi @X,XX" with its legs, like UnluckyBastard. */
     isCombo?: boolean
@@ -83,6 +87,46 @@ function HighlightCard({
       {detail && <div className="text-xs text-gray-600 dark:text-gray-300 font-medium mt-1 leading-snug">{detail}</div>}
       {sub && <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{sub}</div>}
       {onClick && <div className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 mt-1.5">Details ansehen →</div>}
+    </div>
+  )
+}
+
+function LastMinuteTipperCard({ lm }: { lm: NonNullable<RecapData['lastMinuteTipper']> }) {
+  const gap = lm.gapSec < 60 ? `${lm.gapSec} Sek.` : `${lm.gapMin} Min.`
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-fuchsia-200 dark:border-fuchsia-900/50 overflow-hidden">
+      <div className="px-4 py-3 bg-fuchsia-50 dark:bg-fuchsia-900/20 border-b border-fuchsia-100 dark:border-fuchsia-900/30 flex items-center gap-2.5">
+        <span className="text-2xl">⏱️</span>
+        <div>
+          <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">Last-Minute-Tipper: {lm.name}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{gap} vor Anpfiff gewettet — und gewonnen</div>
+        </div>
+      </div>
+      <div className="px-4 py-3">
+        {lm.isCombo ? (
+          <>
+            <div className="font-bold text-gray-900 dark:text-gray-100 text-sm mb-2">
+              {lm.comboLegs?.length ?? '?'}er-Kombi @{fmtOdds(lm.comboOdds ?? 0)}
+            </div>
+            <ul className="space-y-1">
+              {(lm.comboLegs ?? []).map((l, i) => (
+                <li key={i} className="text-xs text-gray-600 dark:text-gray-300">
+                  · {l.matchName}: {l.market} – {l.selection}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : lm.bet ? (
+          <div className="text-sm">
+            <div className="text-gray-500 dark:text-gray-400 text-xs">{lm.bet.matchName}</div>
+            <div className="font-bold text-gray-900 dark:text-gray-100">
+              {lm.bet.market}: {lm.bet.selection} <span className="text-fuchsia-600">@{fmtOdds(lm.betOdds ?? 0)}</span>
+            </div>
+          </div>
+        ) : (
+          lm.matchName && <div className="text-xs text-gray-500 dark:text-gray-400">{lm.matchName}</div>
+        )}
+      </div>
     </div>
   )
 }
@@ -246,11 +290,11 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
         <div className={`grid gap-3 ${onFire && ergebnisOrakel ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {onFire && (
             <HighlightCard
-              emoji="🔥"
-              title="On Fire"
+              emoji="🎯"
+              title="Mehrfachtreffer"
               name={onFire.name}
-              value={`${onFire.count} Siege · ${onFire.pnl >= 0 ? '+' : ''}${fmtAmt(onFire.pnl)} Wildis`}
-              detail="Stärkster Saldo der Mehrfachgewinner"
+              value={`${onFire.count} gewonnene Scheine · ${onFire.pnl >= 0 ? '+' : ''}${fmtAmt(onFire.pnl)} Wildis`}
+              detail="Meiste Treffer am Spieltag"
               accentBg="bg-orange-50"
               accentBorder="border-orange-200"
               accentText="text-orange-600"
@@ -304,8 +348,8 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
         </div>
       )}
 
-      {/* Row 4: Volltreffer + Torschützen-König + Last-Minute-Tipper */}
-      {(grosserWurf || torschuetzenKoenig || lastMinuteTipper) && (
+      {/* Row 4: Volltreffer + Torschützen-König */}
+      {(grosserWurf || torschuetzenKoenig) && (
         <div className="grid gap-3 grid-cols-1 sm:grid-cols-2">
           {grosserWurf && (
             <HighlightCard
@@ -333,27 +377,13 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               accentText="text-sky-600"
             />
           )}
-          {lastMinuteTipper && (
-            <HighlightCard
-              emoji="⏱️"
-              title="Last-Minute-Tipper"
-              name={lastMinuteTipper.name}
-              value={lastMinuteTipper.gapSec < 60 ? `${lastMinuteTipper.gapSec} Sek.` : `${lastMinuteTipper.gapMin} Min.`}
-              detail="Kurz vor Anpfiff gewettet – und gewonnen"
-              sub={
-                lastMinuteTipper.isCombo
-                  ? `${lastMinuteTipper.comboLegs?.length ?? '?'}er-Kombi @${fmtOdds(lastMinuteTipper.comboOdds ?? 0)}`
-                  : lastMinuteTipper.bet
-                    ? `${lastMinuteTipper.bet.matchName} · ${lastMinuteTipper.bet.market}: ${lastMinuteTipper.bet.selection}`
-                    : lastMinuteTipper.matchName
-              }
-              accentBg="bg-fuchsia-50"
-              accentBorder="border-fuchsia-200"
-              accentText="text-fuchsia-600"
-            />
-          )}
         </div>
       )}
+
+      {/* Row 4b: Last-Minute-Tipper — own full-width card so the actual bet
+          (single market+selection+odds, or every combo leg) is fully
+          readable instead of squeezed into the 2-column HighlightCard grid. */}
+      {lastMinuteTipper && <LastMinuteTipperCard lm={lastMinuteTipper} />}
 
       {/* Row 5: Storno-Champ */}
       {stornoChamp && (

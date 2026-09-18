@@ -267,7 +267,7 @@ export default async function AnleitungPage() {
           <AwardRow emoji="🔮" title="Ergebnis-Orakel" desc="Exaktes Ergebnis richtig getippt" />
           <AwardRow emoji="🚽" title="Griff ins Klo" desc="Höchster verlorener Einsatz" />
           <AwardRow emoji="🧱" title="Betonmischer" desc="Gewonnener Tipp mit der niedrigsten Quote" />
-          <AwardRow emoji="🔥" title="On Fire" desc="Die meisten gewonnenen Wettscheine (mind. 2)" />
+          <AwardRow emoji="🎯" title="Mehrfachtreffer" desc="Die meisten gewonnenen Wettscheine (mind. 2)" />
         </div>
       </HelpAccordion>
 

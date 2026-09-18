@@ -799,6 +799,7 @@ export default async function LeaderboardPage({
             gapSec: Math.round(lastMinuteWinner.gapMs / 1000),
             matchName: lastMinuteWinner.bet?.match_id != null ? recapMatchNameMap.get(lastMinuteWinner.bet.match_id) : undefined,
             bet: lastMinuteWinner.bet ? recapBetDetail(lastMinuteWinner.bet) : undefined,
+            betOdds: lastMinuteWinner.bet?.odds_value,
             isCombo: !!lastMinuteWinner.combo,
             comboOdds: lastMinuteWinner.combo?.odds,
             comboLegs: lastMinuteWinner.combo ? await fetchComboLegDetails(lastMinuteWinner.combo.id) : undefined,
