@@ -99,7 +99,7 @@ function LastMinuteTipperCard({ lm }: { lm: NonNullable<RecapData['lastMinuteTip
         <span className="text-2xl">⏱️</span>
         <div>
           <div className="font-bold text-gray-900 dark:text-gray-100 text-sm">Last-Minute-Tipper: {lm.name}</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">{gap} vor Anpfiff gewettet — und gewonnen</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{gap} vor Anpfiff · gewonnen</div>
         </div>
       </div>
       <div className="px-4 py-3">
