@@ -354,9 +354,14 @@ export function aggregateBetStats(bets: BetRow[], combosIn: ComboRow[]): UserBet
     + combos.filter(c => c.status === 'lost' && comboIsRisky.get(c.id)).length
 
   // ── Ø Quote / höchste gewonnene Quote ────────────────────────────────
+  // Excludes Risky-Wettscheine (their extreme Quoten would dominate the
+  // average and make it meaningless as "typical odds you bet at") and
+  // anything not actually won/lost (pending, storniert/void) — a cancelled
+  // slip's odds_value was never really "your" odds. Risky is read off the
+  // stored, authoritative is_risky flag, same as the Risky-Bilanz above.
   const allOddsSettled = [
-    ...singleBets.filter(b => b.status !== 'pending').map(b => b.odds_value),
-    ...combos.filter(c => c.status !== 'pending').map(c => c.total_odds),
+    ...singleBets.filter(b => (b.status === 'won' || b.status === 'lost') && !b.is_risky).map(b => b.odds_value),
+    ...combos.filter(c => (c.status === 'won' || c.status === 'lost') && !comboIsRisky.get(c.id)).map(c => c.total_odds),
   ]
   const avgOdds = allOddsSettled.length > 0
     ? Math.round((allOddsSettled.reduce((a, o) => a + o, 0) / allOddsSettled.length) * 100) / 100
@@ -405,11 +410,14 @@ export function aggregateBetStats(bets: BetRow[], combosIn: ComboRow[]): UserBet
     combos.filter(c => c.status === 'won').length,
   )
 
-  const singleOddsSettled = singleSettled.map(b => b.odds_value)
+  // Same Risky-Ausschluss as avgOdds above, so the single/combo breakdown
+  // can never show a different Ø Quote than the headline figure would for
+  // the same subset — see there for why.
+  const singleOddsSettled = singleSettled.filter(b => (b.status === 'won' || b.status === 'lost') && !b.is_risky).map(b => b.odds_value)
   const avgOddsSingle = singleOddsSettled.length > 0
     ? Math.round((singleOddsSettled.reduce((a, o) => a + o, 0) / singleOddsSettled.length) * 100) / 100
     : null
-  const comboOddsSettled = comboSettled.map(c => c.total_odds)
+  const comboOddsSettled = comboSettled.filter(c => (c.status === 'won' || c.status === 'lost') && !comboIsRisky.get(c.id)).map(c => c.total_odds)
   const avgOddsCombo = comboOddsSettled.length > 0
     ? Math.round((comboOddsSettled.reduce((a, o) => a + o, 0) / comboOddsSettled.length) * 100) / 100
     : null

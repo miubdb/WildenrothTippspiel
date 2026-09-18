@@ -34,7 +34,17 @@ export type RecapData = {
   // Einzelwette-only (see lib/awards.ts) — never a combo, so no isCombo flag.
   grosserWurf: { name: string; amount: number; bet?: RecapBetDetail } | null
   torschuetzenKoenig: { name: string; count: number; playerName?: string } | null
-  lastMinuteTipper: { name: string; gapMin: number; gapSec: number; matchName?: string } | null
+  lastMinuteTipper: {
+    name: string; gapMin: number; gapSec: number; matchName?: string
+    /** Set for a single-bet win — the concrete market/selection, same
+     *  formatting as every other award's bet detail (see RecapBetDetail). */
+    bet?: RecapBetDetail
+    /** Set for a combo win instead of `bet` — a combo has no single "match",
+     *  so it's shown as "Ner-Kombi @X,XX" with its legs, like UnluckyBastard. */
+    isCombo?: boolean
+    comboOdds?: number
+    comboLegs?: RecapLegDetail[]
+  } | null
   stornoChamp: { name: string; net: number; label: string; betId: number | null; comboId: number | null } | null
 }
 
@@ -239,8 +249,8 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               emoji="🔥"
               title="On Fire"
               name={onFire.name}
-              value={`${onFire.count}x gewonnen`}
-              detail={`Spieltagssaldo: ${onFire.pnl >= 0 ? '+' : ''}${fmtAmt(onFire.pnl)} ${wildiLabel(onFire.pnl)}`}
+              value={`${onFire.count} Siege · ${onFire.pnl >= 0 ? '+' : ''}${fmtAmt(onFire.pnl)} Wildis`}
+              detail="Stärkster Saldo der Mehrfachgewinner"
               accentBg="bg-orange-50"
               accentBorder="border-orange-200"
               accentText="text-orange-600"
@@ -329,8 +339,14 @@ export function MatchdayRecap({ data, matchday }: { data: RecapData; matchday: n
               title="Last-Minute-Tipper"
               name={lastMinuteTipper.name}
               value={lastMinuteTipper.gapSec < 60 ? `${lastMinuteTipper.gapSec} Sek.` : `${lastMinuteTipper.gapMin} Min.`}
-              detail="Vor Anpfiff gewettet — und gewonnen"
-              sub={lastMinuteTipper.matchName}
+              detail="Kurz vor Anpfiff gewettet – und gewonnen"
+              sub={
+                lastMinuteTipper.isCombo
+                  ? `${lastMinuteTipper.comboLegs?.length ?? '?'}er-Kombi @${fmtOdds(lastMinuteTipper.comboOdds ?? 0)}`
+                  : lastMinuteTipper.bet
+                    ? `${lastMinuteTipper.bet.matchName} · ${lastMinuteTipper.bet.market}: ${lastMinuteTipper.bet.selection}`
+                    : lastMinuteTipper.matchName
+              }
               accentBg="bg-fuchsia-50"
               accentBorder="border-fuchsia-200"
               accentText="text-fuchsia-600"
