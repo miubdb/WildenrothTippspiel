@@ -1321,14 +1321,16 @@ export default async function TippsPage({
         .sort((a, b) => (b.c.stake * b.c.total_odds) - (a.c.stake * a.c.total_odds))
       const unlucky = unluckyResults[0] ?? null
 
-      let unluckyLegDetails: import('@/components/MatchdayRecap').RecapLegDetail[] = []
-      if (unlucky) {
+      // Shared by Unlucky Bastard's own leg breakdown and Last-Minute-Tipper's
+      // combo case below — both need "what were the legs of this combo,
+      // formatted the same way the rest of the recap formats a bet".
+      async function fetchComboLegDetails(comboId: number): Promise<import('@/components/MatchdayRecap').RecapLegDetail[]> {
         const { data: legDetailRows } = await supabase
           .from('bets')
           .select('market_type, selection, odds_value, status, special_id, match:matches(home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name))')
-          .eq('combo_id', unlucky.c.id)
+          .eq('combo_id', comboId)
           .order('id')
-        unluckyLegDetails = (legDetailRows ?? []).map(l => {
+        return (legDetailRows ?? []).map(l => {
           // A Special leg's match_id is only its representative_match_id —
           // never show that joined match's teams for it.
           if (l.market_type === 'matchday_special') {
@@ -1357,6 +1359,7 @@ export default async function TippsPage({
           }
         })
       }
+      const unluckyLegDetails = unlucky ? await fetchComboLegDetails(unlucky.c.id) : []
       const unluckyBastard: RecapData['unluckyBastard'] = unlucky ? {
         name: pMap[unlucky.c.user_id] ?? 'Unbekannt',
         odds: unlucky.c.total_odds,
@@ -1447,26 +1450,39 @@ export default async function TippsPage({
       // 10. Last-Minute-Tipper — won bet placed less than 1h before its own
       // kickoff. Tiebreak: smallest gap to kickoff wins.
       const ONE_HOUR_MS = 60 * 60 * 1000
-      const lastMinuteCandidates: { user_id: string; gapMs: number; matchId?: number | null }[] = []
+      // `bet` set for a single-bet candidate, `combo` for a combo candidate —
+      // mutually exclusive, both carried through so the winner's concrete
+      // pick(s) can be shown (see RecapData['lastMinuteTipper']).
+      const lastMinuteCandidates: {
+        user_id: string; gapMs: number
+        bet?: typeof wonSingles[number]
+        combo?: { id: number; odds: number }
+      }[] = []
       for (const b of wonSingles) {
         const kickoff = matchDateMap.get(b.match_id)
         if (!kickoff) continue
         const gapMs = new Date(kickoff).getTime() - new Date(b.created_at).getTime()
-        if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs, matchId: b.match_id })
+        if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs, bet: b })
       }
       for (const c of wonCombos) {
         const kickoff = comboEarliestKickoff.get(c.id)
         if (!kickoff) continue
         const gapMs = new Date(kickoff).getTime() - new Date(c.created_at).getTime()
-        if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: c.user_id, gapMs })
+        if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: c.user_id, gapMs, combo: { id: c.id, odds: c.total_odds } })
       }
       lastMinuteCandidates.sort((a, b) => a.gapMs - b.gapMs)
-      const lastMinuteTipper: RecapData['lastMinuteTipper'] = lastMinuteCandidates[0]
+      const lastMinuteWinner = lastMinuteCandidates[0]
+      const lastMinuteTipper: RecapData['lastMinuteTipper'] = lastMinuteWinner
         ? {
-            name: pMap[lastMinuteCandidates[0].user_id] ?? 'Unbekannt',
-            gapMin: Math.round(lastMinuteCandidates[0].gapMs / 60000),
-            gapSec: Math.round(lastMinuteCandidates[0].gapMs / 1000),
-            matchName: lastMinuteCandidates[0].matchId != null ? recapMatchNameMap.get(lastMinuteCandidates[0].matchId) : undefined,
+            name: pMap[lastMinuteWinner.user_id] ?? 'Unbekannt',
+            gapMin: Math.round(lastMinuteWinner.gapMs / 60000),
+            gapSec: Math.round(lastMinuteWinner.gapMs / 1000),
+            matchName: lastMinuteWinner.bet?.match_id != null ? recapMatchNameMap.get(lastMinuteWinner.bet.match_id) : undefined,
+            bet: lastMinuteWinner.bet ? recapBetDetail(lastMinuteWinner.bet) : undefined,
+            betOdds: lastMinuteWinner.bet?.odds_value,
+            isCombo: !!lastMinuteWinner.combo,
+            comboOdds: lastMinuteWinner.combo?.odds,
+            comboLegs: lastMinuteWinner.combo ? await fetchComboLegDetails(lastMinuteWinner.combo.id) : undefined,
           }
         : null
 
