@@ -35,7 +35,7 @@ export default async function LeaderboardPage({
     { data: allCombosRaw },
     { data: appSettingsRaw },
   ] = await Promise.all([
-    supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url').or('eligible_for_current_season.eq.true,is_admin.eq.true').is('deleted_at', null).order('balance', { ascending: false }),
+    supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url, created_at').or('eligible_for_current_season.eq.true,is_admin.eq.true').is('deleted_at', null).order('balance', { ascending: false }),
     supabase.auth.getUser(),
     // These three read WHOLE tables (no match/user filter — the season split
     // happens in JS below), so they must page through fetchAllRows: a plain
@@ -459,6 +459,62 @@ export default async function LeaderboardPage({
     if (bestUid && bestPnl > 0) weeklyWinners.set(md, bestUid)
   }
 
+  // ── Platzveränderung: current rank vs. rank after the PREVIOUS Spieltag
+  // that actually finished, in true chronological order (never by Spieltag
+  // NUMBER — Spieltage can complete out of order, e.g. ST7 → ST2 → ST8, see
+  // CLAUDE.md's matchday scheduling quirk). "Previous" always means the
+  // second-most-recently-completed recap-Spieltag as of right now, so once
+  // ST8 finishes this compares against the standing after ST2 (the one that
+  // completed just before it), not against ST7.
+  const recapMdMatches = new Map<number, Match[]>()
+  for (const m of seasonMatches) {
+    const md = recapMatchdayOf(m)
+    if (md == null || md === 999) continue
+    const arr = recapMdMatches.get(md)
+    if (arr) arr.push(m); else recapMdMatches.set(md, [m])
+  }
+  const fullyCompletedMds = [...recapMdMatches.entries()]
+    .filter(([, ms]) => {
+      const nonPostponed = ms.filter(m => m.status !== 'postponed')
+      return nonPostponed.length > 0 && nonPostponed.every(m => m.status === 'finished')
+    })
+    .map(([md]) => md)
+    .sort(byKickoff)
+  const latestCompletedMd = fullyCompletedMds.at(-1)
+  const previousCompletedMd = fullyCompletedMds.at(-2)
+  // matchdayMinDate is keyed by RAW matchday — used here only to decide
+  // "did this user exist yet at that point", a coarse cutoff, not for ordering.
+  const previousMdCutoff = previousCompletedMd != null
+    ? Math.max(...(recapMdMatches.get(previousCompletedMd) ?? []).map(m => new Date(m.match_date).getTime()))
+    : null
+  // rank → 1-based position in the SAME balance-desc order the page already
+  // renders, so "current rank" here is guaranteed identical to what's shown.
+  const rankChanges = new Map<string, number | null>() // userId → places gained (+) / lost (−) / null = not shown
+  if (latestCompletedMd != null && previousCompletedMd != null && previousMdCutoff != null) {
+    // Same order the page actually displays (sortedProfiles, defined above:
+    // balance + pending stakes, alphabetical tiebreak) — "current rank" here
+    // must match what's on screen exactly.
+    const currentOrder = sortedProfiles
+    const previousOrder = [...currentOrder].sort((a, b) => {
+      const prevA = a.balance - (mdPnl.get(`${a.id}_${latestCompletedMd}`) ?? 0)
+      const prevB = b.balance - (mdPnl.get(`${b.id}_${latestCompletedMd}`) ?? 0)
+      if (prevB !== prevA) return prevB - prevA
+      return (a.display_name || a.username).localeCompare(b.display_name || b.username, 'de')
+    })
+    const previousRankOf = new Map(previousOrder.map((p, i) => [p.id, i + 1]))
+    currentOrder.forEach((p, i) => {
+      const currentRank = i + 1
+      // Not present in the ranking as of the previous completed Spieltag —
+      // never show a fabricated jump, only the neutral dash.
+      if (p.created_at != null && new Date(p.created_at).getTime() > previousMdCutoff) {
+        rankChanges.set(p.id, null)
+        return
+      }
+      const prevRank = previousRankOf.get(p.id) ?? currentRank
+      rankChanges.set(p.id, prevRank - currentRank)
+    })
+  }
+
   const weeklyWinnersObj: Record<number, string> = {}
   weeklyWinners.forEach((uid, md) => { weeklyWinnersObj[md] = uid })
 
@@ -821,9 +877,12 @@ export default async function LeaderboardPage({
   const { data: rosterRows } = await supabase.from('wildenroth_players').select('id, name')
   const playerNameMap: Record<number, string> = Object.fromEntries((rosterRows ?? []).map(r => [r.id, r.name]))
 
+  const rankChangesObj: Record<string, number | null> = Object.fromEntries(rankChanges)
+
   return (
     <LeaderboardClient
       profiles={sortedProfiles}
+      rankChanges={rankChangesObj}
       currentUserId={user?.id ?? null}
       currentUserName={currentUserName}
       isAdmin={isAdmin}

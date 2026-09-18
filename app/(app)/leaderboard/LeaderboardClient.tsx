@@ -268,12 +268,34 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
 
 // ── Main Export ────────────────────────────────────────────────────────
 
+/** Tiny, dezent placed indicator of how many places a user moved since the
+ *  standing after the previous ACTUALLY completed Spieltag — see
+ *  LeaderboardClient's `rankChanges` prop doc. `undefined` (prop missing,
+ *  e.g. fewer than two Spieltage completed yet) renders nothing at all. */
+function RankChangeBadge({ change }: { change: number | null | undefined }) {
+  if (change === undefined) return null
+  if (change == null || change === 0) {
+    return <span className="text-[9px] leading-none text-gray-300 dark:text-gray-600 font-bold select-none">–</span>
+  }
+  const up = change > 0
+  return (
+    <span className={`text-[9px] leading-none font-bold select-none flex items-center ${up ? 'text-green-600' : 'text-red-600'}`}>
+      {up ? '▲' : '▼'}{Math.abs(change)}
+    </span>
+  )
+}
+
 export function LeaderboardClient({
   profiles, currentUserId, currentUserName, isAdmin, matchdayBets, matchdayNumber, allMatchdays, combos,
   isDeadlinePassed, weeklyWinners, streaks, mdStats, initialReactions, initialComments, initialRecap, playerNameMap,
-  pendingStakesPerUser, betCountsPerUser, defaultTabIsSpielTag, specialsById,
+  pendingStakesPerUser, betCountsPerUser, defaultTabIsSpielTag, specialsById, rankChanges,
 }: {
   profiles: Profile[]
+  /** userId → places gained (+) / lost (−) vs. the standing after the
+   *  previous ACTUALLY completed Spieltag (chronological, never by Spieltag
+   *  number). null = user wasn't ranked yet back then — show a neutral dash,
+   *  never a fabricated jump. */
+  rankChanges?: Record<string, number | null>
   currentUserId: string | null
   currentUserName: string
   isAdmin?: boolean
@@ -370,9 +392,9 @@ export function LeaderboardClient({
 
           {top3.length >= 3 && (
             <div className="flex items-end justify-center gap-3 px-2">
-              <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} displayBalance={top3[1].balance + (pendingStakesPerUser[top3[1].id] ?? 0)} />
-              <PodiumCard rank={1} profile={top3[0]} isMe={top3[0].id === currentUserId} weeklyWins={weeklyWinCounts[top3[0].id] ?? 0} streak={streaks[top3[0].id] ?? 0} featured displayBalance={top3[0].balance + (pendingStakesPerUser[top3[0].id] ?? 0)} />
-              <PodiumCard rank={3} profile={top3[2]} isMe={top3[2].id === currentUserId} weeklyWins={weeklyWinCounts[top3[2].id] ?? 0} streak={streaks[top3[2].id] ?? 0} displayBalance={top3[2].balance + (pendingStakesPerUser[top3[2].id] ?? 0)} />
+              <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} displayBalance={top3[1].balance + (pendingStakesPerUser[top3[1].id] ?? 0)} rankChange={rankChanges?.[top3[1].id]} />
+              <PodiumCard rank={1} profile={top3[0]} isMe={top3[0].id === currentUserId} weeklyWins={weeklyWinCounts[top3[0].id] ?? 0} streak={streaks[top3[0].id] ?? 0} featured displayBalance={top3[0].balance + (pendingStakesPerUser[top3[0].id] ?? 0)} rankChange={rankChanges?.[top3[0].id]} />
+              <PodiumCard rank={3} profile={top3[2]} isMe={top3[2].id === currentUserId} weeklyWins={weeklyWinCounts[top3[2].id] ?? 0} streak={streaks[top3[2].id] ?? 0} displayBalance={top3[2].balance + (pendingStakesPerUser[top3[2].id] ?? 0)} rankChange={rankChanges?.[top3[2].id]} />
             </div>
           )}
 
@@ -403,8 +425,9 @@ export function LeaderboardClient({
                 <div key={profile.id} className={`rounded-xl border overflow-hidden transition-all ${isMe ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 shadow-sm' : 'bg-white dark:bg-gray-800 border-gray-100 dark:border-gray-700'}`}>
                   <div className="flex items-center gap-3 px-4 py-3">
                     {/* Rank */}
-                    <div className="w-8 flex-shrink-0 text-center">
+                    <div className="w-8 flex-shrink-0 text-center flex flex-col items-center gap-0.5">
                       {rank <= 3 ? <span className="text-lg">{rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'}</span> : <span className="text-sm font-bold text-gray-400">{rank}</span>}
+                      <RankChangeBadge change={rankChanges?.[profile.id]} />
                     </div>
                     {/* Avatar — links to public profile */}
                     <Link href={`/spieler/${profile.id}`} className="flex-shrink-0">
@@ -671,9 +694,9 @@ export function LeaderboardClient({
   )
 }
 
-function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak, displayBalance }: {
+function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak, displayBalance, rankChange }: {
   rank: number; profile: Profile; isMe: boolean; featured?: boolean
-  weeklyWins: number; streak: number; displayBalance: number
+  weeklyWins: number; streak: number; displayBalance: number; rankChange?: number | null
 }) {
   const profit = displayBalance - (profile.season_start_balance ?? STARTING_BALANCE)
   const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'
@@ -695,7 +718,10 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
         </div>
       </div>
       <div className={`${heights[rank as 1|2|3]} w-full rounded-t-xl flex items-end justify-center pb-2 ${colors[rank as 1|2|3]}`}>
-        <span className="text-2xl">{medal}</span>
+        <span className="text-2xl relative">
+          {medal}
+          <span className="absolute -right-2.5 -top-0.5"><RankChangeBadge change={rankChange} /></span>
+        </span>
       </div>
     </div>
   )
