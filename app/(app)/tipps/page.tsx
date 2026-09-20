@@ -992,7 +992,7 @@ export default async function TippsPage({
     odds_value: number; stake: number | null; status: string; combo_id: number | null; is_risky: boolean
     is_bonus: boolean; special_id: number | null
   }
-  type OwnCombo = { id: number; stake: number; status: string; legs: OwnBet[] }
+  type OwnCombo = { id: number; stake: number; status: string; total_odds: number; payout: number | null; legs: OwnBet[] }
 
   const [{ data: userProfile }, ownBetsResult] = await Promise.all([
     user ? supabase.from('profiles').select('is_wildenroth, is_wildenroth_ii, eligible_for_current_season, is_admin').eq('id', user.id).single() : Promise.resolve({ data: null }),
@@ -1021,12 +1021,14 @@ export default async function TippsPage({
       if (comboIds.length > 0) {
         const { data: comboBetRows } = await supabase
           .from('combo_bets')
-          .select('id, stake, status')
+          .select('id, stake, status, total_odds, payout')
           .in('id', comboIds)
         userCombos = (comboBetRows ?? []).map(cb => ({
           id: cb.id,
           stake: cb.stake,
           status: cb.status,
+          total_odds: cb.total_odds,
+          payout: cb.payout,
           legs: (ownBets as OwnBet[]).filter(b => Number(b.combo_id) === cb.id),
         }))
       }

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus, type WetteLeg } from '@/components/WetteCard'
-import { cupSelectionLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel, specialResultText } from '@/lib/betDisplay'
+import { plainSelectionLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel, specialResultText } from '@/lib/betDisplay'
 
 type Leg = {
   id: number
@@ -22,6 +22,10 @@ type ComboData = {
   id: number
   stake: number
   status: string
+  /** Historically stored, not re-derived — same "never recompute a live
+   *  price for an already-settled bet" rule as everywhere else. */
+  total_odds: number
+  payout: number | null
   legs: Leg[]
 }
 
@@ -34,38 +38,12 @@ interface MyBetsProps {
   specialsById?: Record<number, SpecialDisplayInfo>
 }
 
-const SEL_LABELS: Record<string, Record<string, string>> = {
-  '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
-  double_chance: { '1x': '1X', x2: 'X2', '12': '12' },
-  over_under: { 'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5' },
-  over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
-  over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
-  over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
-  btts: { yes: 'Beide treffen', no: 'Nicht beide' },
-  matchday_special: { over: 'Über', under: 'Unter', yes: 'Ja', no: 'Nein' },
-  handicap: {
-    home_minus_1_5: 'Heim –1,5',
-    away_plus_1_5: 'Gast +1,5',
-    home_minus_2_5: 'Heim –2,5',
-    away_plus_2_5: 'Gast +2,5',
-    away_minus_1_5: 'Gast –1,5',
-    home_plus_1_5: 'Heim +1,5',
-    away_minus_2_5: 'Gast –2,5',
-    home_plus_2_5: 'Heim +2,5',
-  },
-}
-
+// Central formatter (lib/betDisplay.ts) — same cup/goalscorer/plain-market
+// precedence used everywhere else a bet's selection is shown. matchday_special
+// is resolved separately in legToWetteLeg below (it needs the joined Special
+// row, not just the market type), so this only ever hits the plain-market path.
 function selLabel(marketType: string, selection: string, players?: Record<number, string>): string {
-  if (marketType === 'exact_score') return selection
-  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
-    const id = parseInt(selection, 10)
-    const name = players?.[id] ?? `Spieler #${id}`
-    return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
-  }
-  // Cup markets checked first — their selection codes (e.g. 'yes'/'home')
-  // must never fall through to the generic league SEL_LABELS below (a
-  // cup_comeback_advance 'yes' must not render as btts's "Beide treffen").
-  return cupSelectionLabel(marketType, selection) ?? SEL_LABELS[marketType]?.[selection] ?? selection
+  return plainSelectionLabel(marketType, selection, undefined, players)
 }
 
 function legToWetteLeg(leg: Leg, matchMap: Record<number, { home: string; away: string }>, players?: Record<number, string>, specialsById?: Record<number, SpecialDisplayInfo>): WetteLeg {
@@ -171,6 +149,7 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
         isRisky: combo.legs[0]?.is_risky ?? false,
         totalOdds: comboEffOdds.get(combo.id) ?? 1,
         stake: combo.stake,
+        payout: combo.payout,
         status: effectiveSt,
         comboId: combo.id,
         legs: combo.legs.map(l => legToWetteLeg(l, matchMap, playerNameMap, specialsById)),
