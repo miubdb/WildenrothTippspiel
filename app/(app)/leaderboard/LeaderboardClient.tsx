@@ -392,9 +392,9 @@ export function LeaderboardClient({
 
           {top3.length >= 3 && (
             <div className="flex items-end justify-center gap-3 px-2">
-              <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} displayBalance={top3[1].balance + (pendingStakesPerUser[top3[1].id] ?? 0)} rankChange={rankChanges?.[top3[1].id]} />
-              <PodiumCard rank={1} profile={top3[0]} isMe={top3[0].id === currentUserId} weeklyWins={weeklyWinCounts[top3[0].id] ?? 0} streak={streaks[top3[0].id] ?? 0} featured displayBalance={top3[0].balance + (pendingStakesPerUser[top3[0].id] ?? 0)} rankChange={rankChanges?.[top3[0].id]} />
-              <PodiumCard rank={3} profile={top3[2]} isMe={top3[2].id === currentUserId} weeklyWins={weeklyWinCounts[top3[2].id] ?? 0} streak={streaks[top3[2].id] ?? 0} displayBalance={top3[2].balance + (pendingStakesPerUser[top3[2].id] ?? 0)} rankChange={rankChanges?.[top3[2].id]} />
+              <PodiumCard rank={2} profile={top3[1]} isMe={top3[1].id === currentUserId} weeklyWins={weeklyWinCounts[top3[1].id] ?? 0} streak={streaks[top3[1].id] ?? 0} displayBalance={top3[1].balance + (pendingStakesPerUser[top3[1].id] ?? 0)} />
+              <PodiumCard rank={1} profile={top3[0]} isMe={top3[0].id === currentUserId} weeklyWins={weeklyWinCounts[top3[0].id] ?? 0} streak={streaks[top3[0].id] ?? 0} featured displayBalance={top3[0].balance + (pendingStakesPerUser[top3[0].id] ?? 0)} />
+              <PodiumCard rank={3} profile={top3[2]} isMe={top3[2].id === currentUserId} weeklyWins={weeklyWinCounts[top3[2].id] ?? 0} streak={streaks[top3[2].id] ?? 0} displayBalance={top3[2].balance + (pendingStakesPerUser[top3[2].id] ?? 0)} />
             </div>
           )}
 
@@ -694,9 +694,9 @@ export function LeaderboardClient({
   )
 }
 
-function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak, displayBalance, rankChange }: {
+function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak, displayBalance }: {
   rank: number; profile: Profile; isMe: boolean; featured?: boolean
-  weeklyWins: number; streak: number; displayBalance: number; rankChange?: number | null
+  weeklyWins: number; streak: number; displayBalance: number
 }) {
   const profit = displayBalance - (profile.season_start_balance ?? STARTING_BALANCE)
   const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : '🥉'
@@ -718,10 +718,7 @@ function PodiumCard({ rank, profile, isMe, featured = false, weeklyWins, streak,
         </div>
       </div>
       <div className={`${heights[rank as 1|2|3]} w-full rounded-t-xl flex items-end justify-center pb-2 ${colors[rank as 1|2|3]}`}>
-        <span className="text-2xl relative">
-          {medal}
-          <span className="absolute -right-2.5 -top-0.5"><RankChangeBadge change={rankChange} /></span>
-        </span>
+        <span className="text-2xl">{medal}</span>
       </div>
     </div>
   )

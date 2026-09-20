@@ -1578,6 +1578,21 @@ export default async function TippsPage({
           </div>
         </div>
 
+        {/* Quick jump to the user's own placed bets further down the page —
+            during/around a running Spieltag that's usually the first thing
+            someone wants to check, not another scroll through every match.
+            Only shown once there's actually something to jump to (mirrors
+            MyBets' own render condition below), plain in-page anchor — no
+            JS needed, app/globals.css already sets scroll-behavior: smooth. */}
+        {user && (userSingles.length > 0 || userCombos.length > 0) && (
+          <a
+            href="#meine-tipps"
+            className="mt-3 flex items-center justify-center gap-1.5 bg-red-800/60 hover:bg-red-800/80 transition-colors rounded-xl px-3 py-2 text-sm font-semibold text-white"
+          >
+            Zu meinen Tipps <span aria-hidden>↓</span>
+          </a>
+        )}
+
         {/* Betting window not yet open */}
         {!isBettingOpen && !isDeadlinePassed && bettingOpens && (
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2">
@@ -1758,8 +1773,9 @@ export default async function TippsPage({
         />
       )}
 
-      {/* Own placed bets */}
+      {/* Own placed bets — id targeted by the "Zu meinen Tipps" jump link above */}
       {user && (userSingles.length > 0 || userCombos.length > 0) && (
+        <div id="meine-tipps">
         <MyBets
           singles={userSingles}
           combos={userCombos}
@@ -1768,6 +1784,7 @@ export default async function TippsPage({
           playerNameMap={playerNameMap}
           specialsById={specialsById}
         />
+        </div>
       )}
 
       <BetSlip />
