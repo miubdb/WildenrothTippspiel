@@ -132,12 +132,23 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
       // would charge people for a season they were never allowed to play.
       const { data: allProfiles } = await admin
         .from('profiles')
-        .select('id')
+        .select('id, created_at')
         .or('eligible_for_current_season.eq.true,is_admin.eq.true')
+
+      // Someone who registered after every one of this Spieltag's matches had
+      // already kicked off had zero opportunity to place a bet on it — every
+      // market was closed before they existed. Charging them the same as a
+      // member who simply chose not to bet would penalize an impossibility,
+      // not inactivity (observed: a user who signed up minutes after the last
+      // kickoff, well before this settlement ran, still got the full −50).
+      const latestKickoff = displayMatchdayMatches.length > 0
+        ? Math.max(...displayMatchdayMatches.map((m) => new Date(m.match_date).getTime()))
+        : null
 
       await Promise.allSettled(
         (allProfiles ?? [])
           .filter((p) => !activeUserIds.has(p.id))
+          .filter((p) => latestKickoff == null || new Date(p.created_at).getTime() <= latestKickoff)
           .map((p) => admin.rpc('apply_penalty', { p_user_id: p.id, p_amount: INACTIVITY_PENALTY }))
       )
     }

@@ -35,7 +35,7 @@ export default async function LeaderboardPage({
     { data: allCombosRaw },
     { data: appSettingsRaw },
   ] = await Promise.all([
-    supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url').or('eligible_for_current_season.eq.true,is_admin.eq.true').is('deleted_at', null).order('balance', { ascending: false }),
+    supabase.from('profiles').select('id, username, display_name, balance, season_start_balance, eligible_for_current_season, is_admin, avatar_url, created_at').or('eligible_for_current_season.eq.true,is_admin.eq.true').is('deleted_at', null).order('balance', { ascending: false }),
     supabase.auth.getUser(),
     // These three read WHOLE tables (no match/user filter — the season split
     // happens in JS below), so they must page through fetchAllRows: a plain
@@ -520,12 +520,21 @@ export default async function LeaderboardPage({
     }
   }
   // "Was this user actually part of the ranking at that earlier standing?"
-  // profiles.created_at (account creation) doesn't answer that reliably — an
-  // account can exist well before someone is onboarded into the Tippspiel,
-  // or vice versa be backdated on import. A placed bet is unambiguous season
-  // presence, so a user with at least one bet (single or combo) created at
-  // or before the previous Spieltag's cutoff was demonstrably already in the
-  // ranking back then; everyone else gets the neutral dash below.
+  // A placed bet before the cutoff is unambiguous presence, but it is not
+  // sufficient ALONE — a long-registered member who simply hadn't bet yet by
+  // then (or ever) has zero bet rows and would otherwise be wrongly excluded
+  // from the "previous" pool, which is just as wrong as counting a genuine
+  // newcomer: it shrank the whole comparison pool and skewed the reconstructed
+  // rank of EVERY OTHER user near them (observed: 4 long-standing members with
+  // no ST2 bet — some with no bet ever — falsely read as "new since ST2", each
+  // shifting the pool size and turning a real single-place drop into a
+  // displayed ↓5 for unrelated users). So presence is "had a bet before the
+  // cutoff" OR "the account itself already existed by the cutoff" — the
+  // latter alone was rejected earlier (an account can predate actual
+  // Tippspiel participation), but combined with the bet check it only ever
+  // ADDS confirmed-real long-standing members back in, never lets a true
+  // day-of newcomer (created_at after the cutoff, e.g. Michi Dischl —
+  // registered after ST8 had already kicked off) slip through.
   const hadPresenceBeforePreviousMd = new Set<string>()
   if (previousMdCutoff != null) {
     for (const b of allBets) {
@@ -533,6 +542,9 @@ export default async function LeaderboardPage({
     }
     for (const c of allCombos) {
       if (new Date(c.created_at).getTime() <= previousMdCutoff) hadPresenceBeforePreviousMd.add(c.user_id)
+    }
+    for (const p of sortedProfiles) {
+      if (p.created_at != null && new Date(p.created_at).getTime() <= previousMdCutoff) hadPresenceBeforePreviousMd.add(p.id)
     }
   }
   // rank → 1-based position in the SAME balance-desc order the page already
