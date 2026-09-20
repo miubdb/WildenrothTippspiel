@@ -8,33 +8,17 @@ import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { WetteCard, type WetteData, type WetteStatus, type WetteSocial } from '@/components/WetteCard'
 import type { CommentData } from '@/components/CommentSection'
 import { MatchdayRecap, type RecapData } from '@/components/MatchdayRecap'
-import { type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
+import { type SpecialDisplayInfo, plainSelectionLabel, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
 
 const STARTING_BALANCE = 1000
 
-const SEL_LABEL: Record<string, Record<string, string>> = {
-  '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
-  double_chance: { '1x': '1X', x2: 'X2', '12': '12' },
-  over_under: { 'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5' },
-  over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
-  over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
-  over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
-  btts: { yes: 'Beide treffen', no: 'Nicht beide' },
-  matchday_special: { over: 'Über', under: 'Unter', yes: 'Ja', no: 'Nein' },
-  handicap: {
-    home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
-    away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5', away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
-  },
-}
-
+// Thin wrapper — callers here have already handled the matchday_special case
+// separately (via specialSelectionLabel) before falling back to this, so it
+// only ever needs the plain-market path of the central formatter (which also
+// covers cup markets and every Ü/U line including 9,5, avoiding a second,
+// locally-maintained copy of the market map).
 function selLabel(marketType: string, selection: string, players?: Record<number, string>) {
-  if (marketType === 'exact_score') return selection
-  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
-    const id = parseInt(selection, 10)
-    const name = players?.[id] ?? `Spieler #${id}`
-    return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
-  }
-  return SEL_LABEL[marketType]?.[selection] ?? selection
+  return plainSelectionLabel(marketType, selection, undefined, players)
 }
 
 export type Profile = { id: string; username: string; display_name: string | null; balance: number; season_start_balance?: number | null; avatar_url?: string | null }

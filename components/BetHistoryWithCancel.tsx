@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus } from '@/components/WetteCard'
-import { cupSelectionLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
+import { plainSelectionLabel, type SpecialDisplayInfo, specialMarketLabel } from '@/lib/betDisplay'
 
 type Bet = {
   id: string
@@ -42,50 +42,12 @@ type Props = {
   specialsById?: Record<number, SpecialDisplayInfo>
 }
 
-const SELECTION_LABELS: Record<string, string> = {
-  home: 'Heimsieg',
-  draw: 'Unentschieden',
-  away: 'Auswärtssieg',
-  '1x': '1X',
-  x2: 'X2',
-  '12': '12',
-  'over_2.5': 'Über 2,5',
-  'under_2.5': 'Unter 2,5',
-  'over_3.5': 'Über 3,5',
-  'under_3.5': 'Unter 3,5',
-  'over_5.5': 'Über 5,5',
-  'under_5.5': 'Unter 5,5',
-  'over_7.5': 'Über 7,5',
-  'under_7.5': 'Unter 7,5',
-  yes: 'Beide treffen',
-  no: 'Nicht beide',
-  home_minus_1_5: 'Heim –1,5',
-  away_plus_1_5: 'Gast +1,5',
-  home_minus_2_5: 'Heim –2,5',
-  away_plus_2_5: 'Gast +2,5',
-  away_minus_1_5: 'Gast –1,5',
-  home_plus_1_5: 'Heim +1,5',
-  away_minus_2_5: 'Gast –2,5',
-  home_plus_2_5: 'Heim +2,5',
-}
-
+// Central formatter (lib/betDisplay.ts) — same cup/goalscorer/special/plain-
+// market precedence used everywhere else a bet's selection is shown, so this
+// file no longer keeps its own copy of the market map (which had silently
+// drifted out of sync — it was missing the Über 9,5 line entirely).
 function selLabel(marketType: string, sel: string, players?: Record<number, string>, special?: SpecialDisplayInfo): string {
-  if (marketType === 'exact_score') return sel
-  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
-    const id = parseInt(sel, 10)
-    const name = players?.[id] ?? `Spieler #${id}`
-    return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
-  }
-  // matchday_special checked before the flat SELECTION_LABELS map below (keyed
-  // by selection code ALONE, not market_type) — a Special's plain 'yes'/'no'
-  // would otherwise wrongly match btts's "Beide treffen"/"Nicht beide".
-  if (marketType === 'matchday_special') {
-    return special ? specialSelectionLabel(special, sel) : ({ over: 'Über', under: 'Unter', yes: 'Ja', no: 'Nein' }[sel] ?? sel)
-  }
-  // Cup markets checked first — SELECTION_LABELS is keyed by selection code
-  // alone (not market_type), so a cup_comeback_advance 'yes' would otherwise
-  // wrongly match btts's "Beide treffen".
-  return cupSelectionLabel(marketType, sel) ?? SELECTION_LABELS[sel] ?? sel
+  return plainSelectionLabel(marketType, sel, special, players)
 }
 
 function betMatchName(bet: Bet, specialsById?: Record<number, SpecialDisplayInfo>): string {

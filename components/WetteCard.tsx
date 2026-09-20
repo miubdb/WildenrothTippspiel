@@ -143,7 +143,9 @@ export function WetteCard({
                 </span>
               )}
               {wette.status === 'won' && wette.payout != null && (
-                <span className="text-[10px] font-bold text-green-600">+{fmt(wette.payout)} {wildiLabel(wette.payout)}</span>
+                <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                  {'→ Auszahlung '}<span className="font-bold text-green-600">{fmt(wette.payout)} {wildiLabel(wette.payout)}</span>
+                </span>
               )}
               {wette.status === 'lost' && (
                 <span className="text-[10px] text-gray-500 dark:text-gray-400">

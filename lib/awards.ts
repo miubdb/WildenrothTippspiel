@@ -707,6 +707,34 @@ export interface StornoChampWetteDetail {
  * bet/combo no longer exists (e.g. hard-deleted) so the caller can show a
  * graceful "nicht mehr verfügbar" message instead of crashing.
  */
+/**
+ * Central selection-label resolution shared by every award detail view
+ * (Storno-Champ, Last-Minute-Tipper) that shows a bet's concrete market and
+ * selection — goalscorer legs need a player-name lookup, matchday_special
+ * legs need the special's own options, everything else goes straight
+ * through plainSelectionLabel's cup/plain-market precedence (lib/betDisplay.ts).
+ * A raw code like `away`, `over_9.5` or a bare player id must never reach
+ * the UI through either caller.
+ */
+async function resolveBetSelectionLabel(
+  admin: SupabaseClient,
+  l: { market_type: string; selection: string; special_id?: number | null },
+): Promise<string> {
+  if (l.market_type === 'goalscorer' || l.market_type === 'goalscorer_2plus') {
+    const { data: player } = await admin.from('wildenroth_players').select('name').eq('id', parseInt(l.selection, 10)).single()
+    return plainSelectionLabel(l.market_type, l.selection, undefined, player ? { [parseInt(l.selection, 10)]: player.name } : undefined)
+  }
+  if (l.market_type === 'matchday_special' && l.special_id != null) {
+    const { data: specialRow } = await admin
+      .from('matchday_specials')
+      .select('matchday, template_key, options, settlement_result')
+      .eq('id', l.special_id)
+      .single()
+    return plainSelectionLabel(l.market_type, l.selection, specialRow as SpecialDisplayInfo | undefined)
+  }
+  return plainSelectionLabel(l.market_type, l.selection)
+}
+
 export async function getStornoChampWetteDetail(
   admin: SupabaseClient,
   ref: { betId: number | null; comboId: number | null },
@@ -714,7 +742,7 @@ export async function getStornoChampWetteDetail(
   if (ref.betId != null) {
     const { data: bet } = await admin
       .from('bets')
-      .select('market_type, selection, odds_value, stake, is_risky, match_id')
+      .select('market_type, selection, odds_value, stake, is_risky, match_id, special_id')
       .eq('id', ref.betId)
       .single()
     if (!bet) return null
@@ -736,7 +764,7 @@ export async function getStornoChampWetteDetail(
       net: theoreticalPayout - (bet.stake ?? 0),
       matchName: `${ht?.name ?? '?'} – ${at?.name ?? '?'}`,
       market: MARKET_LABELS[bet.market_type] ?? bet.market_type,
-      selection: bet.selection,
+      selection: await resolveBetSelectionLabel(admin, bet),
       finalScore,
     }
   }
@@ -749,7 +777,7 @@ export async function getStornoChampWetteDetail(
     if (!combo) return null
     const { data: legsRaw } = await admin
       .from('bets')
-      .select('market_type, selection, odds_value, is_risky, match_id')
+      .select('market_type, selection, odds_value, is_risky, match_id, special_id')
       .eq('combo_id', ref.comboId)
     const legs = legsRaw ?? []
     if (legs.length === 0) return null
@@ -767,18 +795,18 @@ export async function getStornoChampWetteDetail(
       odds: combo.total_odds,
       theoreticalPayout,
       net: theoreticalPayout - combo.stake,
-      legs: legs.map((l) => {
+      legs: await Promise.all(legs.map(async (l) => {
         const m = matchById.get(l.match_id)
         const ht = m ? (Array.isArray(m.home_team) ? m.home_team[0] : m.home_team) : null
         const at = m ? (Array.isArray(m.away_team) ? m.away_team[0] : m.away_team) : null
         return {
           matchName: `${ht?.name ?? '?'} – ${at?.name ?? '?'}`,
           market: MARKET_LABELS[l.market_type] ?? l.market_type,
-          selection: l.selection,
+          selection: await resolveBetSelectionLabel(admin, l),
           odds: l.odds_value,
           finalScore: m?.status === 'finished' && m.home_score != null ? `${m.home_score}:${m.away_score}` : null,
         }
-      }),
+      })),
     }
   }
   return null
@@ -814,25 +842,7 @@ export async function getLastMinuteTipperWetteDetail(
   admin: SupabaseClient,
   ref: { betId: number | null; comboId: number | null },
 ): Promise<LastMinuteTipperWetteDetail | null> {
-  // matchday_special legs need the special's own options to resolve their
-  // selection; goalscorer legs need a player name. Both are rare enough here
-  // (only if the last-minute bet itself was on one) that loading them lazily
-  // per call is fine — this runs once per award, not per bet-history row.
-  async function resolveLeg(l: { market_type: string; selection: string; special_id: number | null }): Promise<string> {
-    if (l.market_type === 'goalscorer' || l.market_type === 'goalscorer_2plus') {
-      const { data: player } = await admin.from('wildenroth_players').select('name').eq('id', parseInt(l.selection, 10)).single()
-      return plainSelectionLabel(l.market_type, l.selection, undefined, player ? { [parseInt(l.selection, 10)]: player.name } : undefined)
-    }
-    if (l.market_type === 'matchday_special' && l.special_id != null) {
-      const { data: specialRow } = await admin
-        .from('matchday_specials')
-        .select('matchday, template_key, options, settlement_result')
-        .eq('id', l.special_id)
-        .single()
-      return plainSelectionLabel(l.market_type, l.selection, specialRow as SpecialDisplayInfo | undefined)
-    }
-    return plainSelectionLabel(l.market_type, l.selection)
-  }
+  const resolveLeg = (l: { market_type: string; selection: string; special_id: number | null }) => resolveBetSelectionLabel(admin, l)
 
   if (ref.betId != null) {
     const { data: bet } = await admin

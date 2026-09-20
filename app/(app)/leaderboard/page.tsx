@@ -7,7 +7,7 @@ import type { RecapData } from '@/components/MatchdayRecap'
 import { bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, recapMatchdayOf as recapMatchdayOfShared, SEASON_START } from '@/lib/season'
 import type { Match } from '@/types'
 import { cappedPayout } from '@/lib/payout'
-import { CUP_MARKET_LABEL, cupSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
+import { CUP_MARKET_LABEL, plainSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 
@@ -657,22 +657,9 @@ export default async function LeaderboardPage({
 
       const RECAP_MKT_LBL: Record<string, string> = {
         '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
-        over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
+        over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5', over_9_5: 'Ü/U 9,5',
         btts: 'Beide treffen', handicap: 'Handicap', exact_score: 'Ergebnis',
         goalscorer: 'Torschütze', goalscorer_2plus: 'Mind. 2 Tore',
-      }
-      const RECAP_SEL_LBL: Record<string, Record<string, string>> = {
-        '1x2': { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' },
-        double_chance: { '1x': '1X', x2: 'X2', '12': '12' },
-        over_under: { 'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5' },
-        over_under_3_5: { 'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5' },
-        over_under_5_5: { 'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5' },
-        over_under_7_5: { 'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5' },
-        btts: { yes: 'Beide treffen', no: 'Nicht beide' },
-        handicap: {
-          home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5', home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
-          away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5', away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
-        },
       }
       const recapPlayerMap: Record<number, string> = {}
       const { data: recapPlayers } = await supabase.from('wildenroth_players').select('id, name')
@@ -706,14 +693,15 @@ export default async function LeaderboardPage({
         if (!b.match_id) return undefined
         const matchName = recapMatchNameMap.get(b.match_id)
         if (!matchName) return undefined
-        const selection = b.market_type === 'exact_score' ? b.selection
-          : (b.market_type === 'goalscorer' || b.market_type === 'goalscorer_2plus')
-            ? (recapPlayerMap[parseInt(b.selection, 10)] ?? b.selection)
-            : (RECAP_SEL_LBL[b.market_type]?.[b.selection] ?? cupSelectionLabel(b.market_type, b.selection) ?? b.selection)
         return {
           matchName,
           market: RECAP_MKT_LBL[b.market_type] ?? CUP_MARKET_LABEL[b.market_type] ?? b.market_type,
-          selection,
+          // Central formatter (lib/betDisplay.ts) — same precedence (cup,
+          // goalscorer via player-name lookup, then the plain-market map,
+          // which covers every Ü/U line including 9,5) as everywhere else a
+          // bet's selection is shown, so no market/line is ever a special
+          // case here that a local map could silently miss.
+          selection: plainSelectionLabel(b.market_type, b.selection, undefined, recapPlayerMap),
         }
       }
 
@@ -781,14 +769,10 @@ export default async function LeaderboardPage({
           const m = Array.isArray(l.match) ? l.match[0] : l.match
           const ht = m ? (Array.isArray(m.home_team) ? m.home_team[0] : m.home_team) : null
           const at = m ? (Array.isArray(m.away_team) ? m.away_team[0] : m.away_team) : null
-          const sel = l.market_type === 'exact_score' ? l.selection
-            : (l.market_type === 'goalscorer' || l.market_type === 'goalscorer_2plus')
-              ? (recapPlayerMap[parseInt(l.selection, 10)] ?? l.selection)
-              : (RECAP_SEL_LBL[l.market_type]?.[l.selection] ?? cupSelectionLabel(l.market_type, l.selection) ?? l.selection)
           return {
             matchName: `${ht?.name ?? '?'} – ${at?.name ?? '?'}`,
             market: RECAP_MKT_LBL[l.market_type] ?? CUP_MARKET_LABEL[l.market_type] ?? l.market_type,
-            selection: sel,
+            selection: plainSelectionLabel(l.market_type, l.selection, undefined, recapPlayerMap),
             odds: l.odds_value,
             status: l.status as 'won' | 'lost' | 'pending',
           }
