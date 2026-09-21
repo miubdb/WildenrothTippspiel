@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
 
   const { data: match } = await supabase
     .from('matches')
-    .select('id, matchday, home_team_id, away_team_id, match_date, match_category, home_score, away_score, status, goalscorer_squad_confirmed_at')
+    .select('id, matchday, tippspiel_matchday, home_team_id, away_team_id, match_date, match_category, home_score, away_score, status, goalscorer_squad_confirmed_at')
     .eq('id', matchId)
     .single()
   if (!match) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 404 })
@@ -114,10 +114,18 @@ export async function POST(request: NextRequest) {
   // 1X2 "Quoten neu berechnen" admin route always could), it just leaves
   // frozen_at unset — those draft rows are never read by any member-facing
   // page or bet-placement check, both of which only look at frozen odds.
-  // `betting_open_md_<N>` (keyed by the raw `matchday`, same as every other
-  // real Spieltag override) is the authoritative source; bettingOpenTime()'s
+  // `betting_open_md_<N>` is the authoritative source; bettingOpenTime()'s
   // Monday-noon formula is only a fallback for Spieltage without one (e.g.
   // the test matchday).
+  //
+  // N is the Spieltag the match is actually BET UNDER, i.e. `tippspiel_matchday`
+  // where the club pinned one (`effectiveMatchdayOf`), and only otherwise the
+  // raw BFV `matchday`. Keying on the raw number alone froze a market early:
+  // SpVgg Wildenroth II vs Herrsching/Breitbrunn II carries B-Klasse matchday 5
+  // but is bet under Spieltag 9, so this route looked up `betting_open_md_5`
+  // — a date four weeks in the past — and published the Spieltag-9 goalscorer
+  // draft while the member-facing page (which reads the effective Spieltag)
+  // still had Spieltag 9 closed. Every B-Klasse fixture has that mismatch.
   // The market opens with the whole active squad; the admin removes players who
   // turn out not to be in the matchday squad afterwards (status 'not_in_squad').
   // Before the market is open that removal redistributes his xG share across the
@@ -131,7 +139,8 @@ export async function POST(request: NextRequest) {
     const appSettings = new Map((settingsRows ?? []).map(r => [r.key, r.value] as const))
     const earlyBettingOpen = appSettings.get('early_betting_open') === 'true'
     const overrides = parseBettingOpenOverrides(appSettings)
-    const openTime = overrides.get(match.matchday) ?? bettingOpenTime(new Date(match.match_date))
+    const bettingMatchday = match.tippspiel_matchday ?? match.matchday
+    const openTime = overrides.get(bettingMatchday) ?? bettingOpenTime(new Date(match.match_date))
     allowFreeze = earlyBettingOpen || new Date() >= openTime
   }
 
