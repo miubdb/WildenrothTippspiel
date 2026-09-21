@@ -14,7 +14,7 @@ const CURRENT_SEASON = '26/27'
 // only touches (season, matchday, award_type) rows for types present in what
 // it's given, so the original 7 awards' already-persisted rows are never
 // deleted or recomputed by this route.
-const BACKFILL_ONLY_TYPES: AwardType[] = ['grosser_wurf', 'torschuetzen_koenig', 'last_minute_tipper', 'storno_champ']
+const BACKFILL_ONLY_TYPES: AwardType[] = ['grosser_wurf', 'torschuetzen_koenig', 'last_minute_tipper', 'storno_champ', 'klingelingeling']
 
 /**
  * Admin-only manual trigger: persists the 3 new award categories (added

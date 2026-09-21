@@ -29,6 +29,7 @@ export type AwardType =
   | 'torschuetzen_koenig'
   | 'last_minute_tipper'
   | 'storno_champ'
+  | 'klingelingeling'
 
 /** Every award type computeAndPersistMatchdayAwards evaluates. Used as the
  *  default delete scope in persistAwards, so an award that STOPS having a
@@ -36,8 +37,14 @@ export type AwardType =
 export const ALL_AWARD_TYPES: AwardType[] = [
   'spieltagskoenig', 'eier_aus_stahl', 'unlucky_bastard', 'ergebnis_orakel',
   'griff_ins_klo', 'betonmischer', 'on_fire', 'grosser_wurf',
-  'torschuetzen_koenig', 'last_minute_tipper', 'storno_champ',
+  'torschuetzen_koenig', 'last_minute_tipper', 'storno_champ', 'klingelingeling',
 ]
+
+/** Minimum net profit (payout − stake) on a single slip (Einzel- oder
+ *  Kombiwette) to earn Klingelingeling. Unlike the other awards this is a
+ *  threshold, not a "best of the Spieltag" ranking — every user who clears
+ *  it that Spieltag gets the award, not just the top one (see below). */
+export const KLINGELINGELING_THRESHOLD = 1000
 
 export const AWARD_META: Record<AwardType, { title: string; icon: string; description: string }> = {
   spieltagskoenig: { icon: '🏆', title: 'Spieltagskönig',    description: 'Bester Spieltagssaldo' },
@@ -55,6 +62,7 @@ export const AWARD_META: Record<AwardType, { title: string; icon: string; descri
   torschuetzen_koenig: { icon: '⚽', title: 'Torschützen-König',     description: 'Meiste richtige Torschützen-Tipps am Spieltag' },
   last_minute_tipper:  { icon: '⏱️', title: 'Last-Minute-Tipper',   description: 'Gewonnene Wette, weniger als 1 Std. vor Anpfiff platziert' },
   storno_champ:        { icon: '🏆', title: 'Storno-Champ',         description: 'Höchster entgangener Nettogewinn einer stornierten Wette' },
+  klingelingeling:     { icon: '🔔', title: 'Klingelingeling',      description: `Mind. ${KLINGELINGELING_THRESHOLD} Gewinn aus einer Wette` },
 }
 
 export interface AwardInput {
@@ -411,6 +419,31 @@ export async function computeAndPersistMatchdayAwards(
       value_text: `+${Math.round(stornoWinner.net)} ${wildiLabel(stornoWinner.net)} verschenkt — diese stornierte Wette (${stornoWinner.label}) wäre aufgegangen`,
       ref_bet_id: stornoWinner.betId,
       ref_combo_id: stornoWinner.comboId,
+    })
+  }
+
+  // 12. Klingelingeling — every user whose single-slip net win (payout −
+  // stake, singles AND combos) hits ≥KLINGELINGELING_THRESHOLD this
+  // Spieltag gets it, not just the Spieltag's best — this is a threshold
+  // award, not a ranking (unlike every award above). One row per qualifying
+  // user, keyed to their best-qualifying slip that Spieltag.
+  const klingelingelingCandidates: { user_id: string; net: number; betId: number | null; comboId: number | null }[] = [
+    ...wonSingles.map((b: { id: number; user_id: string; payout: number; stake: number }) => ({ user_id: b.user_id, net: (b.payout ?? 0) - b.stake, betId: b.id, comboId: null })),
+    ...wonCombos.map(c => ({ user_id: c.user_id, net: c.payout - c.stake, betId: null, comboId: c.id })),
+  ].filter(c => c.net >= KLINGELINGELING_THRESHOLD)
+  const klingelingelingByUser = new Map<string, { net: number; betId: number | null; comboId: number | null }>()
+  for (const c of klingelingelingCandidates) {
+    const cur = klingelingelingByUser.get(c.user_id)
+    if (!cur || c.net > cur.net) klingelingelingByUser.set(c.user_id, { net: c.net, betId: c.betId, comboId: c.comboId })
+  }
+  for (const [userId, win] of klingelingelingByUser) {
+    awardInputs.push({
+      user_id: userId,
+      award_type: 'klingelingeling',
+      value: win.net,
+      value_text: `+${win.net.toFixed(2)} ${wildiLabel(win.net)}`,
+      ref_bet_id: win.betId,
+      ref_combo_id: win.comboId,
     })
   }
 
