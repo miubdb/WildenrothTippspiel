@@ -28,6 +28,15 @@ import { getMatchXG, type PriorContext } from '@/lib/odds'
  * It also means opponent strength enters EXACTLY ONCE, through teamMatchXG.
  * Never multiply a second opponent/matchup factor onto a player — that is the
  * same information twice.
+ *
+ * HOW THE SPLIT IS DECIDED (see the CONTINUITY LAYER block further down): the
+ * dominant input is the price that was actually PUBLISHED for this side's
+ * previous fixture, updated with that fixture's real goals and stabilized by
+ * the long-run player model. A matchday's prices are a controlled continuation
+ * of the last published ones, not a weekly reinvention.
+ *
+ * The 2+ goals market is never carried forward separately: it is recomputed
+ * from the final playerXG with the same Poisson identity as P(≥1).
  */
 
 // Raising this lowers every offered goalscorer odds by the SAME proportional
@@ -87,6 +96,51 @@ export function compressOdds(raw: number, cap = MAX_ODDS, start = PRICE_COMPRESS
   if (raw <= start) return raw
   const d = cap - start
   return cap - d / (1 + (raw - start) / d)
+}
+
+// The published price is a COMPRESSED one, so reading a previous market back as
+// a probability means undoing the compression first. Algebraic inverse of
+// `compressOdds`, derived from its upper branch:
+//
+//     o = CAP − D / (1 + (r − T)/D)
+//   ⇔ D / (1 + (r − T)/D) = CAP − o
+//   ⇔ 1 + (r − T)/D       = D / (CAP − o)
+//   ⇔ r                   = T + D · ( D/(CAP − o) − 1 )
+//
+// Below the compression start the function is the identity, so its inverse is
+// too. Verified numerically over the whole range in scripts/goalscorer-check.ts.
+//
+// The asymptote is NOT invertible: o = CAP corresponds to r = ∞, and any price
+// that reached exactly 30.00 (a goalkeeper row, a legacy cap value) must not
+// turn into Infinity/NaN. Two defences:
+//   - o ≥ CAP returns null, and the caller falls back to the fundamental model
+//     for that player (§3 of the brief: "wenn möglich Fundamentalmodell").
+//   - everything else is clamped to DECOMPRESS_MAX_RAW_ODDS. Near the cap the
+//     inverse is violently sensitive to the two decimals a price is stored
+//     with — 29.98 → 28 782, 29.99 → 57 582 — and those differences are pure
+//     rounding noise, not information. 1000/1 (≈ 29.44 offered, ≈ 0.087 %
+//     implied) is far beyond anything the model itself produces and makes such
+//     a player a rounding-proof "essentially zero" in the share split.
+const DECOMPRESS_MAX_RAW_ODDS = 1000
+
+/**
+ * Offered (published) odds → the raw fair odds they were compressed from.
+ * Returns null where the value carries no usable information (≤ 0, non-finite,
+ * or at/above the asymptote), which the caller reads as "no previous price for
+ * this player".
+ */
+export function decompressOdds(
+  offered: number,
+  cap = MAX_ODDS,
+  start = PRICE_COMPRESSION_START,
+): number | null {
+  if (!Number.isFinite(offered) || offered <= 0) return null
+  if (offered <= start) return offered
+  if (offered >= cap) return null
+  const d = cap - start
+  const raw = start + d * (d / (cap - offered) - 1)
+  if (!Number.isFinite(raw) || raw <= 0) return null
+  return Math.min(raw, DECOMPRESS_MAX_RAW_ODDS)
 }
 
 // Bayesian shrinkage of per-90 goal rate toward a position-based prior.
@@ -215,6 +269,232 @@ const MIN_PROB_SCORE_2PLUS = 0.05
 // different role, different team-mates.
 const CROSS_TEAM_WEIGHT = 0.5
 
+// ---------- CONTINUITY LAYER ----------
+//
+// Why it exists: until now every matchday rebuilt the player hierarchy from
+// scratch out of season statistics, projected minutes, position prior and
+// set-piece flags. Two consecutive fixtures therefore shared no anchor at all
+// and the same player could move 2.09 → 7.25 in a week without a single new
+// piece of information justifying it. Worse, a price the admin had deliberately
+// corrected by hand was forgotten the moment it had been settled.
+//
+// The new chain is:
+//
+//   last PUBLISHED price → last performance → new opponent (team xG)
+//     → long-run player model as a stabilizer → new price
+//
+// Three rules keep it honest:
+//
+//  1. The prior is the price that was ACTUALLY PUBLISHED (`odds_score` of the
+//     frozen row), never the stored `prob_score`. Many published prices were
+//     retyped by an admin while `prob_score` kept the superseded automatic
+//     value; the number people could bet on is the truthful statement of what
+//     the market believed. This is what makes manual corrections carry into the
+//     following matchday (§11 of the brief).
+//
+//  2. Only the RELATIVE hierarchy survives. The previous fixture had a
+//     different opponent, so the absolute level of the old prices is discarded
+//     by normalizing them to shares. The new opponent enters exactly once, via
+//     `teamMatchXG`, exactly as before — no second opponent factor is ever
+//     multiplied onto a player.
+//
+//  3. Performance is a bounded Bayesian update, not a "scored → −20 %" hack.
+//
+// Shares, not xG: the previous market's implied xG values are only ever used as
+// weights. They routinely do NOT sum to the old team xG (the admin's manual
+// shortening of Wildenroth I's top three pushed the Spieltag-8 implied total to
+// 3.09 against a team xG of 2.04), and that is fine — it simply means the admin
+// declared those players a larger slice of the same cake.
+
+// Pseudo-goals of prior mass carried by the previous market's hierarchy. One
+// matchday of real goals is weighed against it:
+//
+//   performanceShare_i = (PRIOR·priorShare_i + W·goals_i) / (PRIOR + W·totalGoals)
+//
+// With PRIOR = 8 and W = 0.5 a normal 1-goal match moves a non-scorer by only
+// 8/8.5 = −6 % relative while the scorer gains sharply, and a 14-goal match
+// (Wildenroth II at Germering III) carries 6.5 pseudo-goals against 8, i.e. it
+// genuinely reweights the squad without being able to erase the long-run
+// picture. That asymmetry — more goals means more information — is the point.
+const PERFORMANCE_PRIOR_GOALS = 8
+const PERFORMANCE_MATCH_WEIGHT = 0.5
+
+// previous market vs. current fundamental model. The brief's product rule is
+// `previous market > current fundamental model`, so this must stay above 0.5;
+// 0.30 of fundamental is enough to keep a player whose underlying profile has
+// genuinely changed (new signing, lost his place, back from injury) moving.
+const PREVIOUS_MARKET_WEIGHT = 0.70
+
+/**
+ * Everything the continuity step needs about the PAST, assembled by
+ * lib/goalscorerContext.ts#loadGoalscorerContinuity from the database.
+ *
+ * The two matches are deliberately separate: the last match with a PUBLISHED
+ * goalscorer market and the last match actually PLAYED need not be the same
+ * fixture (a Spieltag can pass without a Torschützen market at all).
+ */
+export interface GoalscorerContinuityInput {
+  /** The chronologically last earlier fixture of THIS Wildenroth side whose
+   *  goalscorer market was published (`frozen_at IS NOT NULL`). */
+  previousMarketMatchId: number | null
+  /** Diagnostics only — the old fixture's team xG. Nothing is computed from it;
+   *  the old absolute level is deliberately discarded (rule 2 above). */
+  previousTeamXG?: number | null
+  /** player_id → the `odds_score` that was actually PUBLISHED. Not prob_score. */
+  previousOddsScore?: ReadonlyMap<number, number>
+  /** Last fixture of this side that has been played, whether or not it had a
+   *  market. May differ from `previousMarketMatchId`. */
+  performanceMatchId?: number | null
+  /** player_id → goals in that fixture. Own goals are never in here. */
+  lastMatchGoals?: ReadonlyMap<number, number>
+  /** Goals credited to NAMED Wildenroth players in that fixture (own goals by
+   *  the opponent excluded — they belong to nobody). */
+  totalNamedGoalsLastMatch?: number
+}
+
+/** Per-player trace of the continuity chain. Runtime/admin diagnostics only —
+ *  nothing here is persisted, so no migration is needed. */
+export interface GoalscorerContinuityBreakdown {
+  /** 'previous_market' once this player's price is anchored on a published one,
+   *  'fundamental_only' when there is none to anchor on (no previous market at
+   *  all, a new player, or a previous price at the non-invertible 30.00 cap). */
+  continuitySource: 'previous_market' | 'fundamental_only'
+  previousMarketMatchId: number | null
+  previousOddsScore: number | null
+  decompressedPreviousOdds: number | null
+  previousImpliedProb: number | null
+  previousImpliedPlayerXG: number | null
+  /** The previous market's hierarchy, as a share of the team's goal threat. */
+  previousShare: number | null
+  previousTeamXG: number | null
+  performanceMatchId: number | null
+  lastMatchGoals: number
+  totalNamedGoalsLastMatch: number
+  performanceShare: number | null
+  fundamentalShare: number
+  finalShare: number
+}
+
+/**
+ * previous published market + last performance + long-run model → final shares.
+ *
+ * Pure, and exported so the check script and the read-only ST9 preview can
+ * exercise exactly this code rather than a copy of it.
+ *
+ * `fundamentalShares` must already sum to 1 over the eligible pool (it is the
+ * existing model's share split) and be 0 for everyone not eligible.
+ */
+export function continuityShares(
+  playerIds: readonly number[],
+  fundamentalShares: readonly number[],
+  eligible: readonly boolean[],
+  continuity?: GoalscorerContinuityInput,
+): GoalscorerContinuityBreakdown[] {
+  const n = playerIds.length
+  const goalsOf = (i: number) =>
+    eligible[i] ? (continuity?.lastMatchGoals?.get(playerIds[i]) ?? 0) : 0
+  const totalNamedGoals = continuity?.totalNamedGoalsLastMatch ?? 0
+
+  const out: GoalscorerContinuityBreakdown[] = playerIds.map((_, i) => ({
+    continuitySource: 'fundamental_only',
+    previousMarketMatchId: continuity?.previousMarketMatchId ?? null,
+    previousOddsScore: null,
+    decompressedPreviousOdds: null,
+    previousImpliedProb: null,
+    previousImpliedPlayerXG: null,
+    previousShare: null,
+    previousTeamXG: continuity?.previousTeamXG ?? null,
+    performanceMatchId: continuity?.performanceMatchId ?? null,
+    lastMatchGoals: goalsOf(i),
+    totalNamedGoalsLastMatch: totalNamedGoals,
+    performanceShare: null,
+    fundamentalShare: fundamentalShares[i],
+    finalShare: fundamentalShares[i],
+  }))
+
+  const prevOdds = continuity?.previousOddsScore
+  if (continuity?.previousMarketMatchId == null || !prevOdds || prevOdds.size === 0) {
+    return out // no published market to continue from → pure fundamental model
+  }
+
+  // 1) Published price → raw fair odds → implied probability → implied xG.
+  //    This is where a hand-typed 16.80 re-enters the model as 16.80.
+  const impliedXG = new Array<number>(n).fill(0)
+  const anchored = new Array<boolean>(n).fill(false)
+  let impliedTotal = 0
+  let anchoredFundamentalMass = 0
+  for (let i = 0; i < n; i++) {
+    if (!eligible[i]) continue
+    const published = prevOdds.get(playerIds[i])
+    if (published == null) continue
+    const raw = decompressOdds(published)
+    if (raw == null) continue // 30.00 cap / unusable → fundamental fallback
+    const prob = 1 / (raw * (1 + HOUSE_MARGIN))
+    if (!(prob > 0 && prob < 1)) continue
+    const xg = -Math.log(1 - prob)
+    if (!Number.isFinite(xg) || xg <= 0) continue
+
+    out[i].previousOddsScore = published
+    out[i].decompressedPreviousOdds = raw
+    out[i].previousImpliedProb = prob
+    out[i].previousImpliedPlayerXG = xg
+    out[i].continuitySource = 'previous_market'
+    impliedXG[i] = xg
+    anchored[i] = true
+    impliedTotal += xg
+    anchoredFundamentalMass += fundamentalShares[i]
+  }
+  if (impliedTotal <= 0) return out
+
+  // 2) Relative hierarchy. The anchored players keep the share of the team's
+  //    goal threat the FUNDAMENTAL model gives them as a group, and divide it
+  //    the way the PUBLISHED market divided it. Everyone else (a new player, a
+  //    player whose previous price was the uninvertible cap) keeps his own
+  //    fundamental share, so the prior still sums to exactly 1 over the pool.
+  for (let i = 0; i < n; i++) {
+    if (!eligible[i]) continue
+    out[i].previousShare = anchored[i]
+      ? anchoredFundamentalMass * (impliedXG[i] / impliedTotal)
+      : fundamentalShares[i]
+  }
+
+  // 3) Bounded Bayesian performance update on those shares. Zero goals is a
+  //    small proportional step down, one goal a clear step up, two goals a
+  //    bigger one — and a long shot who scores gains far more in relative terms
+  //    than a favourite who does, because the same +W lands on a much smaller
+  //    prior share.
+  const denom = PERFORMANCE_PRIOR_GOALS + PERFORMANCE_MATCH_WEIGHT * totalNamedGoals
+  let perfTotal = 0
+  const perf = new Array<number>(n).fill(0)
+  for (let i = 0; i < n; i++) {
+    if (!eligible[i]) continue
+    perf[i] = (PERFORMANCE_PRIOR_GOALS * (out[i].previousShare ?? 0)
+      + PERFORMANCE_MATCH_WEIGHT * out[i].lastMatchGoals) / denom
+    perfTotal += perf[i]
+  }
+  // Renormalize over the CURRENT pool: a scorer who has since left the squad
+  // took his goals' weight with him, so the rest must be brought back to 1.
+  for (let i = 0; i < n; i++) {
+    if (!eligible[i]) continue
+    out[i].performanceShare = perfTotal > 0 ? perf[i] / perfTotal : fundamentalShares[i]
+  }
+
+  // 4) Blend with the long-run model and normalize once more. Both inputs sum
+  //    to 1 already, so this normalization only absorbs floating-point drift.
+  let finalTotal = 0
+  const blended = new Array<number>(n).fill(0)
+  for (let i = 0; i < n; i++) {
+    if (!eligible[i]) continue
+    blended[i] = PREVIOUS_MARKET_WEIGHT * (out[i].performanceShare ?? 0)
+      + (1 - PREVIOUS_MARKET_WEIGHT) * fundamentalShares[i]
+    finalTotal += blended[i]
+  }
+  for (let i = 0; i < n; i++) {
+    out[i].finalShare = eligible[i] && finalTotal > 0 ? blended[i] / finalTotal : 0
+  }
+  return out
+}
+
 // Shrinkage of "minutes per appearance" toward the squad's own average, in
 // pseudo-appearances. Team I's FuPa minutes are complete and exact, so barely
 // any shrinkage. Team II's are approximate — substitutions back on are not
@@ -319,10 +599,20 @@ export type GoalscorerPlayerDiagnostics = {
   goalsPer90: number
   /** Relative scoring weight before normalization. */
   rawWeight: number
-  /** rawWeight / Σ rawWeight — this player's slice of the team's goals. */
+  /** This player's final slice of the team's goals — identical to
+   *  `continuity.finalShare`, kept under the old name for existing callers. */
   share: number
   /** teamMatchXG × (1 − OWN_GOAL_SHARE) × share. */
   playerXG: number
+  /** The full previous-market → performance → fundamental trace. */
+  continuity: GoalscorerContinuityBreakdown
+  /** The team xG this fixture's shares were divided out of. */
+  currentTeamXG: number
+  /** Same value as `playerXG`/`prob_score`/`odds_score`, named as the brief's
+   *  diagnostics ask for so the end of the chain is unambiguous. */
+  finalPlayerXG: number
+  finalProbScore: number
+  finalOddsScore: number
   /** Fair odds straight from `playerXG`, BEFORE the pricing compression —
    *  stored so the offered price stays auditable against the model. */
   fairOddsScore: number
@@ -362,6 +652,28 @@ function fairOdds(prob: number): number {
  *  continuous decimal (8.37, 13.62, 21.48…) rather than a bucket. */
 function toOdds(prob: number): number {
   return Math.round(compressOdds(fairOdds(prob)) * 100) / 100
+}
+
+/**
+ * The whole pricing step, from a final playerXG to the four numbers stored on
+ * the row. Poisson: P(0) = e^−λ, so P(≥1) = 1 − e^−λ and P(≥2) = 1 − e^−λ(1+λ).
+ *
+ * The 2+ market is derived HERE, from the same final playerXG as the scorer
+ * market — never carried forward from a previous 2+ price. Margin, compression
+ * and the MIN/MAX clamp are the existing ones, untouched.
+ */
+export function priceFromPlayerXG(playerXG: number) {
+  const probScore = playerXG > 0 ? 1 - Math.exp(-playerXG) : 0
+  const probScore2plus = playerXG > 0 ? 1 - Math.exp(-playerXG) * (1 + playerXG) : 0
+  return {
+    probScore,
+    probScore2plus,
+    oddsScore: clamp(toOdds(probScore)),
+    oddsScore2plus: clamp(toOdds(probScore2plus)),
+    isOffered2plus: probScore2plus >= MIN_PROB_SCORE_2PLUS,
+    fairOddsScore: fairOdds(probScore),
+    fairOddsScore2plus: fairOdds(probScore2plus),
+  }
 }
 
 function positionPrior(position: string | null): number {
@@ -490,6 +802,10 @@ export interface GoalscorerMatchContext {
    *  because the squad already answers it. Optional — the market does not wait
    *  for it; the admin removes non-squad players as they become known. */
   squadConfirmed?: boolean
+  /** The previous PUBLISHED market and the last match played — see the
+   *  CONTINUITY LAYER block. Absent ⇒ pure fundamental model, which is exactly
+   *  the behaviour every caller had before. */
+  continuity?: GoalscorerContinuityInput
 }
 
 interface Projection {
@@ -723,6 +1039,15 @@ export function computeGoalscorerOffers(
   const weights = projections.map((p, i) => p.excluded ? 0 : p.goalsPer90 * (projectedMinutes[i] / 90) * p.rawWeight)
   const weightTotal = weights.reduce((s, w) => s + w, 0)
 
+  // The LONG-RUN model's split — from here on called the fundamental share. It
+  // used to be the final answer; it is now the stabilizer that the previously
+  // published market and the last performance are blended with.
+  const fundamentalShares = weights.map((w) => (weightTotal > 0 ? w / weightTotal : 0))
+  const eligible = projections.map((p) => !p.excluded)
+  const continuity = continuityShares(
+    projections.map((p) => p.player.id), fundamentalShares, eligible, ctx.continuity,
+  )
+
   const allocatable = teamMatchXG * (1 - OWN_GOAL_SHARE)
 
   let allocatedXG = 0
@@ -730,22 +1055,27 @@ export function computeGoalscorerOffers(
   let projectedMinutesTotal = 0
 
   const offers = projections.map((p, i): GoalscorerOffer => {
-    const share = weightTotal > 0 ? weights[i] / weightTotal : 0
+    // Opponent strength enters HERE and only here, through teamMatchXG — the
+    // continuity step above is purely about how the cake is divided.
+    const share = continuity[i].finalShare
     const playerXG = allocatable * share
     const projMin = projectedMinutes[i]
 
     allocatedXG += playerXG
     projectedMinutesTotal += projMin
 
-    // Poisson: P(0 goals) = e^-λ; P(≥1) = 1 - e^-λ; P(≥2) = 1 - e^-λ(1+λ).
-    const probScore = playerXG > 0 ? 1 - Math.exp(-playerXG) : 0
-    const probScore2plus = playerXG > 0 ? 1 - Math.exp(-playerXG) * (1 + playerXG) : 0
+    // Poisson, from the FINAL playerXG — including the 2+ market.
+    const priced = priceFromPlayerXG(playerXG)
+    const probScore = priced.probScore
+    const probScore2plus = priced.probScore2plus
 
     // Every outfield player in the matchday squad is offered — see the
     // OFFERING RULE above. Probability sets the price, not the availability.
     const isOffered = !p.excluded
-    const isOffered2plus = isOffered && probScore2plus >= MIN_PROB_SCORE_2PLUS
+    const isOffered2plus = isOffered && priced.isOffered2plus
     if (isOffered) offeredXG += playerXG
+
+    const oddsScore = priced.oddsScore
 
     return {
       player_id: p.player.id,
@@ -753,8 +1083,8 @@ export function computeGoalscorerOffers(
       position: p.player.position,
       prob_score: Math.round(probScore * 10000) / 10000,
       prob_score_2plus: Math.round(probScore2plus * 10000) / 10000,
-      odds_score: clamp(toOdds(probScore)),
-      odds_score_2plus: clamp(toOdds(probScore2plus)),
+      odds_score: oddsScore,
+      odds_score_2plus: priced.oddsScore2plus,
       is_offered: isOffered,
       is_offered_2plus: isOffered2plus,
       diagnostics: {
@@ -766,8 +1096,13 @@ export function computeGoalscorerOffers(
         rawWeight: weights[i],
         share,
         playerXG,
-        fairOddsScore: fairOdds(probScore),
-        fairOddsScore2plus: fairOdds(probScore2plus),
+        continuity: continuity[i],
+        currentTeamXG: teamMatchXG,
+        finalPlayerXG: playerXG,
+        finalProbScore: probScore,
+        finalOddsScore: oddsScore,
+        fairOddsScore: priced.fairOddsScore,
+        fairOddsScore2plus: priced.fairOddsScore2plus,
         excluded: p.excluded,
       },
     }

@@ -209,6 +209,11 @@ export async function POST(request: NextRequest) {
     modelMatches,
     thisTeamId: wildenrothId,
     otherTeamId: involvesTeam1 ? team2Id : team1Id,
+    // Continuity anchor: the last PUBLISHED goalscorer market of THIS side
+    // (including any price the admin retyped) plus that fixture's real goals.
+    // This is an admin recompute of a still-unfrozen draft, which is exactly
+    // where a new market may be built — published rows are skipped below.
+    priorCtx,
   })
 
   // Per-TEAM current-season stats. A squad='both' player's B-Klasse minutes and

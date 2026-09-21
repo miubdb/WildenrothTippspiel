@@ -834,6 +834,10 @@ export default async function TippsPage({
             modelMatches: oddsMatches,
             thisTeamId: wildenrothId,
             otherTeamId: wildenrothSides.map(s => s.teamId).find(id => id !== wildenrothId) ?? null,
+            // Only reached for players with NO draft row at all (see above), so
+            // the continuity anchor here prices a newcomer consistently with the
+            // reviewed rows around him — it never re-prices an existing one.
+            priorCtx,
           })
           // Per-TEAM stats: a squad='both' player's B-Klasse record must not
           // count as Kreisliga minutes/goals.

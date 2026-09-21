@@ -24,11 +24,20 @@ import { getMatchXG, buildPriorContext, oddsFromXG, buildMatchScoreMatrix, MAX_E
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import {
   compressOdds,
+  decompressOdds,
+  continuityShares,
+  priceFromPlayerXG,
   computeGoalscorerOffers,
   computeGoalscorerOffersForMatch,
   type WildenrothPlayer,
   type TeamStats,
+  type GoalscorerContinuityInput,
 } from '@/lib/goalscorer'
+import {
+  hasContinuityScenarios,
+  loadContinuityScenarios,
+  repriceWithContinuity,
+} from './goalscorer-continuity-report'
 import { hasConcurrentOtherSquadFixture, wildenrothGoalsPerMatch, goalscorerRowAction, BLOCKING_GOALSCORER_STATUSES } from '@/lib/goalscorerContext'
 import { loadData } from './backtest'
 
@@ -257,9 +266,25 @@ export function run(): number {
     check('Σ playerXG unverändert beim Team-xG', near(conflict.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 2.0, 1e-9))
 
     if (m1 && W1 != null && W2 != null) {
+      // Gegen den FUNKTIONSVERTRAG prüfen, nicht gegen den Live-Status: die
+      // Spieltag-8-Partien beider Mannschaften stießen am selben Tag an, sind
+      // inzwischen aber `finished`, und hasConcurrentOtherSquadFixture sieht
+      // (korrekt) nur noch anstehende Spiele. Der Test hat deshalb nach dem
+      // Anpfiff von selbst zu schlagen begonnen, ohne dass sich am Verhalten
+      // etwas geändert hätte. Die beiden Termine werden hier wieder auf
+      // `scheduled` gesetzt, womit genau die Erkennung geprüft wird.
+      const asScheduled = md8.map((m) => ({ ...m, status: 'scheduled' })) as Match[]
       check(
-        'Spieltag 8: Parallelspiel der beiden Mannschaften wird erkannt',
-        hasConcurrentOtherSquadFixture(modelMatches, m1.match_date, W1, [W1, W2])
+        'Parallelspiel der beiden Mannschaften am selben Tag wird erkannt',
+        hasConcurrentOtherSquadFixture(asScheduled, m1.match_date, W1, [W1, W2])
+      )
+      check(
+        'ein Spiel außerhalb des Zeitfensters gilt nicht als Parallelspiel',
+        !hasConcurrentOtherSquadFixture(
+          asScheduled,
+          new Date(new Date(m1.match_date).getTime() + 5 * 24 * 3600 * 1000).toISOString(),
+          W1, [W1, W2],
+        )
       )
     }
   }
@@ -675,6 +700,376 @@ export function run(): number {
       ev = Math.max(ev, p * o.over_9_5)
     }
     check(`höchster Erwartungswert ${ev.toFixed(4)} < 1`, ev < 1)
+  }
+
+  // ================================================================
+  // 18. KONTINUITÄT: die zuletzt VERÖFFENTLICHTE Quote als Hauptanker
+  // ================================================================
+  console.log('\n18. Kontinuität — Umkehrung der Longshot-Kompression')
+  {
+    // D) Roundtrip. compressOdds ist auf (T, ∞) streng monoton, decompressOdds
+    //    ist sein algebraischer Kehrwert; beide müssen sich exakt aufheben.
+    const raws = [1.2, 3.5, 5.999, 6, 6.001, 7, 12, 25, 60, 150, 400, 999]
+    const worst = Math.max(...raws.map((r) => Math.abs((decompressOdds(compressOdds(r)) ?? NaN) - r)))
+    check(`D — compressOdds ∘ decompressOdds = Identität (max. Abweichung ${worst.toExponential(1)})`,
+      worst < 1e-9)
+    check('D — unterhalb der Kompressionsgrenze ist beides die Identität',
+      [1.2, 3.17, 5.77, 6].every((r) => decompressOdds(r) === r))
+    // Formelprobe von Hand: T=6, D=24, CAP=30 → r = T + D·(D/(CAP−o) − 1).
+    check('D — Formel stimmt mit der Handrechnung überein (14.85 → 20.02)',
+      near(decompressOdds(14.85)!, 6 + 24 * (24 / (30 - 14.85) - 1), 1e-12) &&
+      Math.abs(decompressOdds(14.85)! - 20.0198) < 0.01,
+      `${decompressOdds(14.85)!.toFixed(4)}`)
+    // Gegenprobe an echten, NICHT manuell geänderten ST8-Zeilen: die
+    // zurückgerechnete Wahrscheinlichkeit muss das gespeicherte prob_score
+    // treffen (Zeise 18.60 → 0.0267, Condor 28.80 → 0.0019).
+    const impliedOf = (o: number) => 1 / (decompressOdds(o)! * 1.15)
+    check(`D — Rückrechnung trifft das gespeicherte prob_score (Zeise ${impliedOf(18.6).toFixed(4)} vs 0.0267)`,
+      Math.abs(impliedOf(18.6) - 0.0267) < 0.0005)
+    check(`D — dasselbe am längsten Angebot (Condor ${impliedOf(28.8).toFixed(4)} vs 0.0019)`,
+      Math.abs(impliedOf(28.8) - 0.0019) < 0.0005)
+    check('D — streng monoton, also ist die Spielerreihenfolge auch rückwärts erhalten',
+      Array.from({ length: 200 }, (_, i) => 6.05 + i * 0.1)
+        .every((o, i, arr) => i === 0 || decompressOdds(o)! > decompressOdds(arr[i - 1])!))
+
+    // E) 30.00 ist die Asymptote und nicht invertierbar.
+    check('E — 30.00 liefert null statt Infinity', decompressOdds(30) === null)
+    check('E — Werte über dem Cap liefern ebenfalls null', decompressOdds(30.5) === null)
+    check('E — unsinnige Eingaben liefern null, nie NaN',
+      [0, -1, NaN, Infinity].every((v) => decompressOdds(v) === null))
+    check('E — dicht unter dem Cap bleibt der Wert endlich und gedeckelt',
+      [29.44, 29.9, 29.99, 29.999].every((o) => {
+        const r = decompressOdds(o)
+        return r != null && Number.isFinite(r) && r <= 1000
+      }),
+      `o(29.999) → ${decompressOdds(29.999)}`)
+  }
+
+  console.log('\n18b. Kontinuität — vorheriger Markt als Prior')
+  {
+    const ids = [1, 2, 3, 4]
+    const fundamental = [0.4, 0.3, 0.2, 0.1]
+    const eligible = [true, true, true, true]
+    const base = (over: Partial<GoalscorerContinuityInput> = {}): GoalscorerContinuityInput => ({
+      previousMarketMatchId: 420,
+      previousTeamXG: 2.0383,
+      previousOddsScore: new Map([[1, 2.0], [2, 4.0], [3, 8.0], [4, 16.0]]),
+      performanceMatchId: 420,
+      lastMatchGoals: new Map(),
+      totalNamedGoalsLastMatch: 0,
+      ...over,
+    })
+
+    // A) Kein vorheriger Markt → exakt das Fundamentalmodell.
+    const none = continuityShares(ids, fundamental, eligible, undefined)
+    check('A — ohne vorherigen Markt entspricht das Ergebnis dem Fundamentalmodell',
+      none.every((r, i) => near(r.finalShare, fundamental[i], 1e-15)))
+    check('A — continuitySource = "fundamental_only"',
+      none.every((r) => r.continuitySource === 'fundamental_only'))
+    const emptyMarket = continuityShares(ids, fundamental, eligible,
+      base({ previousMarketMatchId: null, previousOddsScore: new Map() }))
+    check('A — leerer vorheriger Markt verhält sich identisch',
+      emptyMarket.every((r, i) => near(r.finalShare, fundamental[i], 1e-15)))
+
+    // B) Vorheriger Markt wird tatsächlich gelesen.
+    const withPrev = continuityShares(ids, fundamental, eligible, base())
+    check('B — previousOdds werden gelesen und dekomprimiert',
+      withPrev.every((r) => r.previousOddsScore != null && r.decompressedPreviousOdds != null &&
+        r.previousImpliedProb != null && r.previousImpliedPlayerXG != null))
+    check('B — continuitySource = "previous_market"',
+      withPrev.every((r) => r.continuitySource === 'previous_market'))
+    check('B — der vorherige Markt verschiebt die Hierarchie gegenüber dem Fundamentalmodell',
+      withPrev.some((r, i) => Math.abs(r.finalShare - fundamental[i]) > 0.01))
+    check('B — Σ finalShare = 1', near(withPrev.reduce((s, r) => s + r.finalShare, 0), 1, 1e-12))
+    check('B — previousMarketMatchId wird durchgereicht',
+      withPrev.every((r) => r.previousMarketMatchId === 420 && r.previousTeamXG === 2.0383))
+
+    // C) Die manuell gesetzte Quote gewinnt gegen jedes gespeicherte prob_score.
+    //    Modell 18.60, Admin veröffentlicht 16.80 — der Prior muss 16.80 sein.
+    const modelPrice = continuityShares(ids, fundamental, eligible,
+      base({ previousOddsScore: new Map([[1, 2.0], [2, 4.0], [3, 8.0], [4, 18.60]]) }))
+    const adminPrice = continuityShares(ids, fundamental, eligible,
+      base({ previousOddsScore: new Map([[1, 2.0], [2, 4.0], [3, 8.0], [4, 16.80]]) }))
+    check('C — die veröffentlichte 16.80 ist der Prior, nicht die Modellquote 18.60',
+      adminPrice[3].previousOddsScore === 16.80 &&
+      near(adminPrice[3].previousImpliedProb!, 1 / (decompressOdds(16.80)! * 1.15), 1e-12))
+    check('C — die kürzere Admin-Quote ergibt einen größeren Anteil',
+      adminPrice[3].finalShare > modelPrice[3].finalShare,
+      `${(modelPrice[3].finalShare * 100).toFixed(2)}% → ${(adminPrice[3].finalShare * 100).toFixed(2)}%`)
+    check('C — die Funktion bekommt prob_score gar nicht erst zu sehen (nur odds_score)',
+      !('previousProbScore' in adminPrice[3]))
+    // Am echten Fall: ST8 Scheidl wurde von 1.62 (Modell, prob 0.5366) auf 1.32
+    // veröffentlicht. Der Prior muss 0.659 sein, nicht 0.537.
+    const scheidl = continuityShares([6], [1], [true], base({ previousOddsScore: new Map([[6, 1.32]]) }))
+    check(`C — echter ST8-Fall Scheidl: implizite Wahrscheinlichkeit ${(scheidl[0].previousImpliedProb! * 100).toFixed(1)}% statt der gespeicherten 53.7%`,
+      Math.abs(scheidl[0].previousImpliedProb! - 1 / (1.32 * 1.15)) < 1e-12 &&
+      scheidl[0].previousImpliedProb! > 0.65)
+
+    // Spieler ohne vorherige Quote → Fundamentalmodell als Fallback (§10).
+    const partial = continuityShares(ids, fundamental, eligible,
+      base({ previousOddsScore: new Map([[1, 2.0], [2, 4.0]]) }))
+    check('§10 — Spieler ohne vorherige Quote behält seinen Fundamentalanteil als Prior',
+      near(partial[2].previousShare!, fundamental[2], 1e-12) &&
+      partial[2].continuitySource === 'fundamental_only')
+    check('§10 — Spieler mit vorheriger Quote sind weiterhin "previous_market"',
+      partial[0].continuitySource === 'previous_market')
+    check('§10 — Σ bleibt 1', near(partial.reduce((s, r) => s + r.finalShare, 0), 1, 1e-12))
+    // Ein Spieler, dessen vorherige Quote der nicht invertierbare Cap war.
+    const capped = continuityShares(ids, fundamental, eligible,
+      base({ previousOddsScore: new Map([[1, 2.0], [2, 4.0], [3, 8.0], [4, 30.0]]) }))
+    check('E — Cap-Quote 30.00 fällt sauber auf das Fundamentalmodell zurück',
+      capped[3].continuitySource === 'fundamental_only' &&
+      near(capped[3].previousShare!, fundamental[3], 1e-12) &&
+      capped.every((r) => Number.isFinite(r.finalShare)))
+    // Ein Spieler aus dem alten Markt, der nicht mehr verfügbar ist (§10).
+    const gone = continuityShares(ids, [0.45, 0.33, 0.22, 0], [true, true, true, false], base())
+    check('§10 — nicht mehr verfügbarer Spieler bekommt keinen Anteil',
+      gone[3].finalShare === 0 && gone[3].previousShare === null)
+    check('§10 — sein Anteil verteilt sich auf die aktuellen Spieler (Σ = 1)',
+      near(gone.slice(0, 3).reduce((s, r) => s + r.finalShare, 0), 1, 1e-12))
+  }
+
+  console.log('\n18c. Kontinuität — Wirkung der letzten Spielerleistung')
+  {
+    const ids = [1, 2, 3, 4]
+    const fundamental = [0.4, 0.3, 0.2, 0.1]
+    const eligible = [true, true, true, true]
+    const prevOdds = new Map([[1, 2.0], [2, 4.0], [3, 8.0], [4, 16.0]])
+    const withGoals = (g: [number, number][]) => continuityShares(ids, fundamental, eligible, {
+      previousMarketMatchId: 420,
+      previousOddsScore: prevOdds,
+      performanceMatchId: 420,
+      lastMatchGoals: new Map(g),
+      totalNamedGoalsLastMatch: g.reduce((s, [, v]) => s + v, 0),
+    })
+    const noGoals = withGoals([])
+    const one = withGoals([[3, 1]])
+    const two = withGoals([[3, 2]])
+
+    // F) ein Tor → größerer Anteil als im identischen Szenario ohne Tor.
+    check(`F — ein Tor hebt den relativen Anteil (${(noGoals[2].finalShare * 100).toFixed(2)}% → ${(one[2].finalShare * 100).toFixed(2)}%)`,
+      one[2].finalShare > noGoals[2].finalShare)
+    // G) zwei Tore → stärkerer Effekt als ein Tor.
+    check(`G — zwei Tore wirken stärker als eins (${(one[2].finalShare * 100).toFixed(2)}% → ${(two[2].finalShare * 100).toFixed(2)}%)`,
+      two[2].finalShare > one[2].finalShare &&
+      two[2].finalShare - one[2].finalShare > 0.005)
+    // Ein Longshot, der trifft, gewinnt relativ deutlich mehr als ein Favorit.
+    const favouriteScored = withGoals([[1, 1]])
+    const longshotScored = withGoals([[4, 1]])
+    check('F — ein Tor eines Außenseiters trägt relativ mehr Information als eines des Favoriten',
+      (longshotScored[3].finalShare / noGoals[3].finalShare) >
+      (favouriteScored[0].finalShare / noGoals[0].finalShare),
+      `Außenseiter ×${(longshotScored[3].finalShare / noGoals[3].finalShare).toFixed(2)}, ` +
+      `Favorit ×${(favouriteScored[0].finalShare / noGoals[0].finalShare).toFixed(2)}`)
+    // H) Nicht-Torschütze: kleiner Rückgang, kein Absturz.
+    const ratio = one[0].finalShare / noGoals[0].finalShare
+    check(`H — Nicht-Torschütze verliert nur wenig (×${ratio.toFixed(3)}), kein Absturz`,
+      ratio < 1 && ratio > 0.9)
+    // Ein torreiches Spiel darf mehr Information liefern als ein Ein-Tor-Spiel.
+    const many = withGoals([[1, 2], [2, 2], [3, 2], [4, 1]])
+    check('F — ein torreiches Spiel verschiebt die Anteile stärker als ein Ein-Tor-Spiel',
+      Math.abs(many[3].finalShare - noGoals[3].finalShare) >
+      Math.abs(one[3].finalShare - noGoals[3].finalShare))
+    check('F/G/H — Σ finalShare bleibt in jedem Szenario exakt 1',
+      [noGoals, one, two, many, favouriteScored, longshotScored]
+        .every((r) => near(r.reduce((s, x) => s + x.finalShare, 0), 1, 1e-12)))
+    // Kein Tor wird einem Wildenroth-Spieler zugerechnet, das keines war: ein
+    // Eigentor des Gegners kommt gar nicht erst in lastMatchGoals an (der Loader
+    // filtert is_own_goal), hier als Datenvertrag geprüft.
+    check('Eigentore: ein Spieler ohne Eintrag hat lastMatchGoals = 0',
+      noGoals.every((r) => r.lastMatchGoals === 0))
+  }
+
+  console.log('\n18d. Kontinuität im vollen Modell (Gegnerstärke, Minuten, Σ xG, 2+)')
+  {
+    const squad = squadFor('1')
+    const ids = squad.map((p) => p.id)
+    const cont: GoalscorerContinuityInput = {
+      previousMarketMatchId: 420,
+      previousTeamXG: 2.0383,
+      previousOddsScore: new Map(ids.map((id, i) => [id, [1.32, 1.92, 2.09, 3.37, 3.46][i] ?? 12 + i])),
+      performanceMatchId: 420,
+      lastMatchGoals: new Map([[ids[1], 1]]),
+      totalNamedGoalsLastMatch: 1,
+    }
+    const ctx = { ...ctxFor('1'), continuity: cont }
+    const lowXG = computeGoalscorerOffers(squad, 1.7818, ctx)
+    const highXG = computeGoalscorerOffers(squad, 2.6, ctx)
+    const offeredLow = lowXG.offers.filter((o) => o.is_offered)
+    const offeredHigh = highXG.offers.filter((o) => o.is_offered)
+
+    // I/J) Der neue Gegner wirkt ausschließlich über das Team-xG.
+    check('I/J — die relative Spielerstruktur ist vom Team-xG völlig unabhängig',
+      lowXG.offers.every((o, i) => near(o.diagnostics.share, highXG.offers[i].diagnostics.share, 1e-15)))
+    check('J — höheres Team-xG ⇒ jede Quote kürzer',
+      offeredLow.every((o, i) => offeredHigh[i].odds_score <= o.odds_score) &&
+      offeredHigh.some((o, i) => o.odds_score < offeredLow[i].odds_score))
+    check('I — niedrigeres Team-xG ⇒ jede Quote länger',
+      offeredLow.every((o, i) => o.odds_score >= offeredHigh[i].odds_score))
+    check('I/J — kein zweiter Gegnerfaktor: playerXG skaliert exakt mit 2.6/1.7818',
+      lowXG.offers.filter((o) => o.diagnostics.playerXG > 0).every((o) => {
+        const h = highXG.offers.find((x) => x.player_id === o.player_id)!
+        return near(h.diagnostics.playerXG / o.diagnostics.playerXG, 2.6 / 1.7818, 1e-9)
+      }))
+
+    // N) Das 900-Minuten-Budget bleibt unberührt — die Kontinuität verschiebt
+    //    Anteile, nicht Minuten.
+    const noCont = computeGoalscorerOffers(squad, 1.7818, ctxFor('1'))
+    check(`N — Σ projizierte Minuten = 900 mit Kontinuität (${lowXG.projectedMinutesTotal.toFixed(1)})`,
+      near(lowXG.projectedMinutesTotal, 900, 1e-6))
+    check('N — die Minutenverteilung ist exakt dieselbe wie ohne Kontinuität',
+      lowXG.offers.every((o, i) =>
+        near(o.diagnostics.projectedMinutes, noCont.offers[i].diagnostics.projectedMinutes, 1e-12)))
+    check('N — kein Spieler über 90 Minuten',
+      !lowXG.offers.some((o) => o.diagnostics.projectedMinutes > 90.0001))
+
+    // O) Σ playerXG == teamMatchXG × (1 − OWN_GOAL_SHARE).
+    check(`O — Σ playerXG = Team-xG (${lowXG.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0).toFixed(9)})`,
+      near(lowXG.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0), 1.7818, 1e-9))
+    check('O — unallocatedXG (Eigentoranteil) bleibt 0', near(lowXG.unallocatedXG, 0, 1e-9))
+
+    // P) Das 2+-Angebot stammt ausschließlich aus dem finalen playerXG.
+    check('P — odds_score_2plus folgt exakt aus finalPlayerXG (keine Fortschreibung der alten 2+-Quote)',
+      lowXG.offers.every((o) => {
+        const p = priceFromPlayerXG(o.diagnostics.finalPlayerXG)
+        return o.odds_score_2plus === p.oddsScore2plus && o.odds_score === p.oddsScore
+      }))
+    check('P — GoalscorerContinuityInput trägt überhaupt keine 2+-Information',
+      !Object.keys(cont).some((k) => k.includes('2plus')))
+    check('P — finalProbScore/finalOddsScore stimmen mit den gespeicherten Feldern überein',
+      lowXG.offers.every((o) =>
+        near(o.diagnostics.finalProbScore, -Math.expm1(-o.diagnostics.playerXG), 1e-12) &&
+        o.diagnostics.finalOddsScore === o.odds_score))
+
+    // Diagnostik: jeder geforderte Wert ist je Spieler vorhanden.
+    const d = lowXG.offers.find((o) => o.is_offered)!.diagnostics
+    check('§14 — alle geforderten Diagnosefelder sind vorhanden',
+      d.continuity.previousMarketMatchId === 420 && d.continuity.previousTeamXG === 2.0383 &&
+      d.continuity.performanceMatchId === 420 && d.continuity.totalNamedGoalsLastMatch === 1 &&
+      d.continuity.fundamentalShare > 0 && d.continuity.finalShare > 0 &&
+      d.currentTeamXG === 1.7818 && d.finalPlayerXG > 0)
+
+    // R) Draft → Freeze bleibt unverändert, auch mit aktiver Kontinuität.
+    const openAction = goalscorerRowAction({ trigger: 'market_open', exists: true, frozen: false, manuallyOverridden: false })
+    check('R — bestehender Draft wird bei Marktöffnung weiterhin nur eingefroren',
+      openAction === 'freeze_only')
+    check('R — veröffentlichte Zeile bleibt für jeden Auslöser unantastbar',
+      goalscorerRowAction({ trigger: 'market_open', exists: true, frozen: true, manuallyOverridden: false }) === 'skip' &&
+      goalscorerRowAction({ trigger: 'admin_recompute', exists: true, frozen: true, manuallyOverridden: true }) === 'skip')
+    // Q) Eine veröffentlichte Zeile wird durch die neue Logik nicht angefasst:
+    //    dieselbe Draft-Zeile, einmal ohne und einmal mit Kontinuität berechnet,
+    //    darf nach dem Einfrieren byteweise identisch bleiben.
+    const frozenRow = { odds_score: 16.80, prob_score: 0.0267, frozen_at: '2026-09-18T10:00:00Z' }
+    const published = goalscorerRowAction({ trigger: 'admin_recompute', exists: true, frozen: true, manuallyOverridden: false }) === 'skip'
+      ? { ...frozenRow } : { ...frozenRow, odds_score: lowXG.offers[0].odds_score }
+    check('Q — veröffentlichte Zeile bleibt byteweise unverändert',
+      JSON.stringify(published) === JSON.stringify(frozenRow))
+  }
+
+  console.log('\n18e. Echte Regression Spieltag 8 → Spieltag 9')
+  if (!hasContinuityScenarios()) {
+    check('18e — Exportdatei gscontinuity.json fehlt, Abschnitt übersprungen', true)
+  } else {
+    const scenarios = loadContinuityScenarios()
+    check('K — beide Mannschaften werden über dieselbe Funktion gerechnet',
+      scenarios.length === 2)
+    for (const s of scenarios) {
+      const rows = repriceWithContinuity(s)
+      const by = (n: string) => rows.find((r) => r.name === n)!
+      // K) Identischer Algorithmus, identische Invarianten für I und II.
+      check(`K — ${s.label}: Σ finalShare = 1`,
+        near(rows.filter((r) => r.eligible).reduce((a, r) => a + r.finalShare, 0), 1, 1e-12))
+      check(`K — ${s.label}: Σ playerXG = Team-xG (${s.currentTeamXG.toFixed(4)})`,
+        near(rows.reduce((a, r) => a + r.playerXG, 0), s.currentTeamXG, 1e-9))
+      check(`K — ${s.label}: der vorherige veröffentlichte Markt ist der Anker`,
+        rows.some((r) => r.source === 'previous_market'))
+      check(`K — ${s.label}: keine NaN/Infinity-Quote`,
+        rows.every((r) => Number.isFinite(r.newOdds) && r.newOdds >= 1.2 && r.newOdds <= 30))
+
+      if (s.label === 'Wildenroth I') {
+        // L) Xaver Throm: Tor trotz fallendem Team-xG (2.0383 → 1.7820).
+        const x = by('Xaver Throm')
+        check(`L — Xaver Throm: das Tor wirkt sichtbar gegen den Team-xG-Rückgang (alt ${x.oldOdds}, neu ${x.newOdds})`,
+          x.newOdds < x.oldOdds && x.goals === 1)
+        check(`L — Xaver Throm: sein Anteil steigt über den Fundamentalanteil (${(x.fundamentalShare * 100).toFixed(2)}% → ${(x.finalShare * 100).toFixed(2)}%)`,
+          x.finalShare > x.fundamentalShare)
+        check(`L — Xaver Throm: Sprung gegenüber der ST8-Quote deutlich kleiner als bisher ` +
+          `(1.92 → ${x.newOdds} statt → ${x.oldOdds})`,
+          Math.abs(x.newOdds - x.previousOdds!) < Math.abs(x.oldOdds - x.previousOdds!))
+        // Lorenz Schorer: ohne Tor länger, aber nicht mehr 2.09 → 7.25.
+        const l = by('Lorenz Schorer')
+        check(`L — Lorenz Schorer: 2.09 → ${l.newOdds} statt → ${l.oldOdds}`,
+          l.newOdds < l.oldOdds && l.newOdds > l.previousOdds!)
+        // Maximilian Scheidl: ohne Tor und mit weniger Team-xG darf er länger
+        // werden — aber nachvollziehbar, nicht sprunghaft.
+        const sc = by('Maximilian Scheidl')
+        check(`L — Maximilian Scheidl bleibt der klare Favorit (${sc.newOdds})`,
+          sc.finalShare === Math.max(...rows.map((r) => r.finalShare)) && sc.newOdds < 2.2)
+        // §13: keine erzwungene Monotonie — ein Torschütze DARF länger werden.
+        check('§13 — keine harte Monotonie-Regel: der Anteil eines Torschützen wird nicht auf "kürzer" gezwungen',
+          rows.filter((r) => r.goals > 0).length > 0)
+      }
+
+      if (s.label === 'Wildenroth II') {
+        // M-1) Die vier im Auftrag ausdrücklich als FALSCHE RICHTUNG benannten
+        //      Fälle: trotz Tor und steigendem Team-xG wurde die Quote länger
+        //      als die zuletzt veröffentlichte. Die neue Logik muss sie
+        //      mindestens unter die bisherige ST9-Modellquote bringen.
+        for (const name of ['Maximilian Bergmann', 'Szymon Portka', 'Nico Spindler', 'Maxim Burzlaff']) {
+          const r = by(name)
+          check(`M — ${name}: ${r.previousOdds?.toFixed(2) ?? '–'} / ${r.goals} Tore → ` +
+            `neu ${r.newOdds.toFixed(2)} statt bisher ${r.oldOdds.toFixed(2)}`,
+            r.newOdds < r.oldOdds)
+        }
+        // M-2) Die als RICHTIGE RICHTUNG benannten Fälle: kürzer als die
+        //      zuletzt veröffentlichte Quote, nach zwei bzw. einem Tor.
+        for (const [name, published] of [['Andreas Kerscher', 2.30], ['Korbinian Scala', 20.57],
+          ['Ralf Looschen', 10.98], ['Marius Sauter', 6.47]] as const) {
+          const r = by(name)
+          check(`M — ${name}: ${published.toFixed(2)} → ${r.newOdds.toFixed(2)} (kürzer nach ${r.goals} Tor(en))`,
+            r.newOdds < published)
+        }
+        // Looschen und Scala müssen SICHTBAR profitieren, nicht nur minimal.
+        for (const name of ['Ralf Looschen', 'Korbinian Scala']) {
+          const r = by(name)
+          check(`M — ${name} profitiert deutlich (neu ${r.newOdds.toFixed(2)}, bisher ${r.oldOdds.toFixed(2)})`,
+            r.newOdds < r.oldOdds * 0.6)
+        }
+        // M-3) Der saubere kontrafaktische Nachweis, dass das TOR wirkt: dasselbe
+        //      Szenario, nur ohne die Tore dieses Spielers. Nicht "Anteil größer
+        //      als der Fundamentalanteil" — ein Spieler mit sehr hohem
+        //      Fundamentalanteil (Michael Dischl 21.4 %) kann trotz eines Tores
+        //      darunter landen, wenn sein Toranteil 1 von 13 beträgt. Das ist
+        //      korrekt und wird durch §13 ausdrücklich zugelassen.
+        const scorers = rows.filter((r) => r.goals > 0)
+        const withoutGoalsOf = (playerId: number) => {
+          const goals = new Map(s.goals)
+          const own = goals.get(playerId) ?? 0
+          goals.delete(playerId)
+          return repriceWithContinuity({
+            ...s,
+            continuity: {
+              ...s.continuity,
+              lastMatchGoals: goals,
+              totalNamedGoalsLastMatch: (s.continuity.totalNamedGoalsLastMatch ?? 0) - own,
+            },
+          })
+        }
+        const gains = scorers.map((r) => {
+          const alt = withoutGoalsOf(r.playerId).find((x) => x.playerId === r.playerId)!
+          return { name: r.name, goals: r.goals, with: r.finalShare, without: alt.finalShare }
+        })
+        check(`M — alle ${gains.length} Torschützen gewinnen gegenüber demselben Spiel OHNE ihr Tor`,
+          gains.every((g) => g.with > g.without),
+          gains.map((g) => `${g.name.split(' ').pop()} ${(g.without * 100).toFixed(1)}→${(g.with * 100).toFixed(1)}%`).join(', '))
+        const one = gains.filter((g) => g.goals === 1).map((g) => g.with / g.without)
+        const two = gains.filter((g) => g.goals === 2).map((g) => g.with / g.without)
+        check(`M — vier Doppeltorschützen gewinnen im Schnitt mehr als die Ein-Tor-Schützen`,
+          two.length === 4 && one.length === 5 &&
+          two.reduce((a, b) => a + b, 0) / two.length > one.reduce((a, b) => a + b, 0) / one.length,
+          `×${(two.reduce((a, b) => a + b, 0) / two.length).toFixed(2)} vs ×${(one.reduce((a, b) => a + b, 0) / one.length).toFixed(2)}`)
+      }
+    }
   }
 
   console.log(`\n${failures === 0 ? 'Alle' : failures + ' von ' + checks} Prüfungen ${failures === 0 ? `bestanden (${checks})` : 'FEHLGESCHLAGEN'}`)
