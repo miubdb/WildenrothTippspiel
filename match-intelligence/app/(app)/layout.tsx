@@ -6,6 +6,8 @@ import { signOut } from '../(auth)/actions'
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/matches', label: 'Spiele' },
+  { href: '/squads', label: 'Mannschaften' },
+  { href: '/players', label: 'Spieler' },
   { href: '/scouting', label: 'Gegner-Scouting' },
   { href: '/scenes', label: 'Szenendatenbank' },
   { href: '/trends', label: 'Saisontrends' },

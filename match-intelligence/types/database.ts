@@ -27,6 +27,7 @@ export type AnalysisStage = 'candidate_detection' | 'scene_observation' | 'tacti
 export type AnalysisJobStatus = 'queued' | 'waiting_for_worker' | 'processing' | 'requires_review' | 'completed' | 'failed'
 export type ReportType = 'post_match' | 'scouting'
 export type ReportStatus = 'draft' | 'published'
+export type SyncRunStatus = 'running' | 'completed' | 'failed'
 export type DataSourceType = 'bfv' | 'fupa' | 'wildenroth_tippspiel' | 'veo' | 'trainer' | 'manual' | 'video_analysis' | 'computed_statistic'
 export type RecordingProvider = 'veo' | 'manual' | 'external'
 
@@ -85,12 +86,16 @@ export interface Database {
         { id?: string; org_id: string; name: string; short_name?: string | null; is_own_club?: boolean; external_ref?: Json | null; created_at?: string }
       >
       players: Table<
-        { id: string; org_id: string; name: string; jersey_number: number | null; position: string | null; birth_year: number | null; is_active: boolean; created_at: string },
-        { id?: string; org_id: string; name: string; jersey_number?: number | null; position?: string | null; birth_year?: number | null; is_active?: boolean; created_at?: string }
+        { id: string; org_id: string; first_name: string; last_name: string; is_goalkeeper: boolean; birth_year: number | null; is_active: boolean; external_ids: Json; created_at: string },
+        { id?: string; org_id: string; first_name: string; last_name: string; is_goalkeeper?: boolean; birth_year?: number | null; is_active?: boolean; external_ids?: Json; created_at?: string }
       >
       player_squad_memberships: Table<
-        { id: string; player_id: string; squad_id: string; season_id: string; status: 'active' | 'injured' | 'transferred_out' | 'retired' | 'guest'; created_at: string },
-        { id?: string; player_id: string; squad_id: string; season_id: string; status?: 'active' | 'injured' | 'transferred_out' | 'retired' | 'guest'; created_at?: string }
+        { id: string; player_id: string; squad_id: string; season_id: string; position: string | null; jersey_number: number | null; status: 'active' | 'injured' | 'transferred_out' | 'retired' | 'guest'; created_at: string },
+        { id?: string; player_id: string; squad_id: string; season_id: string; position?: string | null; jersey_number?: number | null; status?: 'active' | 'injured' | 'transferred_out' | 'retired' | 'guest'; created_at?: string },
+        [
+          { foreignKeyName: 'player_squad_memberships_player_id_fkey'; columns: ['player_id']; referencedRelation: 'players'; referencedColumns: ['id'] },
+          { foreignKeyName: 'player_squad_memberships_squad_id_fkey'; columns: ['squad_id']; referencedRelation: 'squads'; referencedColumns: ['id'] },
+        ]
       >
       matches: Table<
         {
@@ -98,18 +103,21 @@ export interface Database {
           opponent_team_id: string; matchday: number | null; home_away: HomeAway; kickoff_at: string
           status: MatchStatus; our_score: number | null; opponent_score: number | null
           ht_our_score: number | null; ht_opponent_score: number | null; venue: string | null
-          goalscorer_squad_confirmed_at: string | null; created_at: string; updated_at: string
+          goalscorer_squad_confirmed_at: string | null; manually_edited_fields: string[]
+          created_at: string; updated_at: string
         },
         {
           id?: string; org_id: string; squad_id: string; season_id: string; competition_id?: string | null
           opponent_team_id: string; matchday?: number | null; home_away: HomeAway; kickoff_at: string
           status?: MatchStatus; our_score?: number | null; opponent_score?: number | null
           ht_our_score?: number | null; ht_opponent_score?: number | null; venue?: string | null
-          goalscorer_squad_confirmed_at?: string | null; created_at?: string; updated_at?: string
+          goalscorer_squad_confirmed_at?: string | null; manually_edited_fields?: string[]
+          created_at?: string; updated_at?: string
         },
         [
           { foreignKeyName: 'matches_opponent_team_id_fkey'; columns: ['opponent_team_id']; referencedRelation: 'teams'; referencedColumns: ['id'] },
           { foreignKeyName: 'matches_squad_id_fkey'; columns: ['squad_id']; referencedRelation: 'squads'; referencedColumns: ['id'] },
+          { foreignKeyName: 'matches_competition_id_fkey'; columns: ['competition_id']; referencedRelation: 'competitions'; referencedColumns: ['id'] },
         ]
       >
       match_lineups: Table<
@@ -118,15 +126,20 @@ export interface Database {
       >
       lineup_players: Table<
         {
-          id: string; lineup_id: string; player_id: string | null; opponent_player_name: string | null
-          jersey_number: number | null; is_starting: boolean; minutes_played: number | null
-          sub_in_minute: number | null; sub_out_minute: number | null; created_at: string
+          id: string; lineup_id: string; player_id: string | null; raw_player_name: string | null
+          jersey_number: number | null; is_starting: boolean; is_captain: boolean; minutes_played: number | null
+          sub_in_minute: number | null; sub_out_minute: number | null
+          goals: number; assists: number; yellow_cards: number; red_card_minute: number | null
+          penalty_missed: boolean; manually_edited_fields: string[]; created_at: string
         },
         {
-          id?: string; lineup_id: string; player_id?: string | null; opponent_player_name?: string | null
-          jersey_number?: number | null; is_starting?: boolean; minutes_played?: number | null
-          sub_in_minute?: number | null; sub_out_minute?: number | null; created_at?: string
-        }
+          id?: string; lineup_id: string; player_id?: string | null; raw_player_name?: string | null
+          jersey_number?: number | null; is_starting?: boolean; is_captain?: boolean; minutes_played?: number | null
+          sub_in_minute?: number | null; sub_out_minute?: number | null
+          goals?: number; assists?: number; yellow_cards?: number; red_card_minute?: number | null
+          penalty_missed?: boolean; manually_edited_fields?: string[]; created_at?: string
+        },
+        [{ foreignKeyName: 'lineup_players_player_id_fkey'; columns: ['player_id']; referencedRelation: 'players'; referencedColumns: ['id'] }]
       >
       match_events: Table<
         {
@@ -156,7 +169,8 @@ export interface Database {
           id?: string; org_id: string; data_source_id: string; entity_type: string; entity_id: string
           source_identifier?: string | null; confidence?: number | null; raw_payload?: Json | null
           imported_at?: string; last_synced_at?: string | null
-        }
+        },
+        [{ foreignKeyName: 'source_imports_data_source_id_fkey'; columns: ['data_source_id']; referencedRelation: 'data_sources'; referencedColumns: ['id'] }]
       >
       data_conflicts: Table<
         {
@@ -309,6 +323,19 @@ export interface Database {
           id?: string; org_id: string; actor_id?: string | null; entity_type: string; entity_id: string
           action: string; before_value?: Json | null; after_value?: Json | null; comment?: string | null; created_at?: string
         }
+      >
+      sync_runs: Table<
+        {
+          id: string; org_id: string; data_source_id: string; squad_id: string; status: SyncRunStatus
+          matches_created: number; matches_updated: number; matches_unchanged: number; conflicts_created: number
+          error: string | null; started_at: string; finished_at: string | null; started_by: string | null
+        },
+        {
+          id?: string; org_id: string; data_source_id: string; squad_id: string; status?: SyncRunStatus
+          matches_created?: number; matches_updated?: number; matches_unchanged?: number; conflicts_created?: number
+          error?: string | null; started_at?: string; finished_at?: string | null; started_by?: string | null
+        },
+        [{ foreignKeyName: 'sync_runs_data_source_id_fkey'; columns: ['data_source_id']; referencedRelation: 'data_sources'; referencedColumns: ['id'] }]
       >
     }
     Views: Record<string, never>

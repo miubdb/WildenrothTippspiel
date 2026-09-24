@@ -18,8 +18,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <nav className="flex gap-4 border-b border-slate-800 pb-3 text-sm">
         <Link href="/admin" className="text-slate-300 hover:text-white">Übersicht</Link>
         <Link href="/admin/users" className="text-slate-300 hover:text-white">Benutzer</Link>
-        <Link href="/admin/squads" className="text-slate-300 hover:text-white">Mannschaften</Link>
-        <Link href="/admin/data-sources" className="text-slate-300 hover:text-white">Datenquellen</Link>
+        <Link href="/squads" className="text-slate-300 hover:text-white">Mannschaften</Link>
+        <Link href="/settings/data-sources" className="text-slate-300 hover:text-white">Datenquellen</Link>
       </nav>
       {children}
     </div>

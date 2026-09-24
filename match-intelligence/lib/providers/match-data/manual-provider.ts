@@ -1,4 +1,4 @@
-import type { MatchDataProvider, ProviderLineup, ProviderMatch } from './types'
+import type { MatchDataProvider, ProviderMatch, ProviderMatchLineups } from './types'
 
 /**
  * The always-available fallback: no automatic fetching, just a typed target
@@ -6,7 +6,11 @@ import type { MatchDataProvider, ProviderLineup, ProviderMatch } from './types'
  * ist, zunächst sauberen Adapter + CSV/JSON-Import-Fallback bauen"). The
  * actual parsing lives in the admin import route; this provider's job is
  * only to satisfy the MatchDataProvider contract so callers don't need a
- * special case for "no automated source configured".
+ * special case for "no automated source configured". Manual matches/players/
+ * lineups are otherwise created directly through the app's own forms and
+ * server actions (app/(app)/matches, app/(app)/players) — those write with
+ * `source_type: 'manual'` in source_imports, they don't go through this
+ * provider's (empty) fetch methods at all.
  */
 export class ManualProvider implements MatchDataProvider {
   readonly id = 'manual'
@@ -20,7 +24,7 @@ export class ManualProvider implements MatchDataProvider {
     return []
   }
 
-  async fetchLineup(): Promise<ProviderLineup | null> {
+  async fetchLineups(): Promise<ProviderMatchLineups | null> {
     return null
   }
 }

@@ -20,6 +20,11 @@ create table matches (
   ht_opponent_score int,
   venue text,
   goalscorer_squad_confirmed_at timestamptz, -- optional: admin confirms matchday squad is final
+  -- Names of columns on THIS row a human has explicitly corrected (e.g.
+  -- 'kickoff_at', 'our_score', 'status'). A later provider sync must never
+  -- silently overwrite a field listed here — see lib/import/reconcile.ts.
+  -- Written only by the manual-edit API route, never by the sync route.
+  manually_edited_fields text[] not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -42,20 +47,43 @@ create table match_lineups (
 create table lineup_players (
   id uuid primary key default gen_random_uuid(),
   lineup_id uuid not null references match_lineups(id) on delete cascade,
-  -- Own-side rows reference a real player; opponent-side rows may only have a
-  -- name + jersey number (we don't maintain opponent squads as `players` rows).
+  -- A resolved own-side player references `players` directly. `raw_player_name`
+  -- holds the source's plain-text name whenever player_id can't be resolved
+  -- yet — always for an opponent (we don't maintain opponent squads as
+  -- `players` rows), and temporarily for an imported own-side row until an
+  -- admin links it to a real player (see lib/import/linkPlayer.ts) rather
+  -- than the importer silently guessing among same-named players.
   player_id uuid references players(id) on delete set null,
-  opponent_player_name text,
+  raw_player_name text,
   jersey_number int,
   is_starting boolean not null default false,
+  is_captain boolean not null default false,
   minutes_played int,
   sub_in_minute int,
   sub_out_minute int,
+  -- Denormalized per-player counts, deliberately not exploded into
+  -- match_events: the only source available in V1 (the Tippspiel import)
+  -- gives goals/assists/yellow cards as season-import-time counts with no
+  -- minute, and match_events exists for genuinely time-stamped facts —
+  -- inventing a minute to force these into that table would fabricate
+  -- evidence that doesn't exist. `red_card_minute` is the one exception the
+  -- source actually timestamps, so it's carried as an honest nullable minute
+  -- here rather than a boolean.
+  goals int not null default 0,
+  assists int not null default 0,
+  yellow_cards int not null default 0,
+  red_card_minute int,
+  penalty_missed boolean not null default false,
+  -- Same manual-edit protection as matches.manually_edited_fields (see
+  -- there) — a re-sync must not clobber a field a trainer already corrected
+  -- on this specific player's row.
+  manually_edited_fields text[] not null default '{}',
   created_at timestamptz not null default now(),
-  check (player_id is not null or opponent_player_name is not null)
+  check (player_id is not null or raw_player_name is not null)
 );
 
 create index lineup_players_lineup_idx on lineup_players(lineup_id);
+create unique index lineup_players_one_captain_idx on lineup_players(lineup_id) where is_captain;
 
 create type match_event_type as enum ('goal', 'own_goal', 'yellow_card', 'second_yellow', 'red_card', 'substitution', 'penalty_scored', 'penalty_missed', 'halftime', 'fulltime');
 

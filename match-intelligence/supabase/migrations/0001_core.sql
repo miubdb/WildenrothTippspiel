@@ -89,14 +89,25 @@ create table teams (
   unique (org_id, name)
 );
 
+-- Identity only. Everything that can legitimately differ season to season
+-- (jersey number, which squad, roster status) lives on
+-- player_squad_memberships instead — a player who wore #8 for the 1.
+-- Mannschaft in 2026/2027 and moves to the 2. Mannschaft with #14 in
+-- 2027/2028 must keep BOTH historical rows intact, not have the earlier one
+-- overwritten in place.
 create table players (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references organizations(id) on delete cascade,
-  name text not null,
-  jersey_number int,
-  position text,
+  first_name text not null,
+  last_name text not null,
+  is_goalkeeper boolean not null default false,
   birth_year int,
   is_active boolean not null default true,
+  -- Structured external identifiers for future BFV/FuPa matching (spec
+  -- section 2/23) — e.g. { "bfv_player_id": "...", "fupa_id": "..." }. Never
+  -- populated by guessing; only ever written once a real, confirmed source
+  -- supplies it.
+  external_ids jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
 
@@ -105,9 +116,20 @@ create table player_squad_memberships (
   player_id uuid not null references players(id) on delete cascade,
   squad_id uuid not null references squads(id) on delete cascade,
   season_id uuid not null references seasons(id) on delete cascade,
+  -- Free text, deliberately not an enum: the source data (Tippspiel import)
+  -- uses German position groups ('Torwart'/'Abwehr'/'Mittelfeld'/'Angriff')
+  -- that don't map cleanly onto a fixed set without inventing distinctions
+  -- the source doesn't make.
+  position text,
+  jersey_number int,
   status text not null default 'active' check (status in ('active', 'injured', 'transferred_out', 'retired', 'guest')),
   created_at timestamptz not null default now(),
-  unique (player_id, squad_id, season_id)
+  unique (player_id, squad_id, season_id),
+  -- Two different players on the same squad/season can't legitimately share
+  -- a jersey number. Standard Postgres NULL semantics apply here (each NULL
+  -- is distinct from every other), so any number of players may still have
+  -- no jersey number assigned yet.
+  unique (squad_id, season_id, jersey_number)
 );
 
 create index player_squad_memberships_squad_idx on player_squad_memberships(squad_id, season_id);

@@ -94,6 +94,37 @@ npm test            # Anti-Halluzination- und Kernlogik-Tests (node:test)
   KI-Ausgabe wird gegen ein Zod-Schema validiert; eine ungültige Antwort wird verworfen, nie
   teilweise übernommen.
 
+## Tippspiel-Import: Datenmapping (verifiziert, nicht geraten)
+
+Das reale Schema der Tippspiel-Supabase-DB wurde per Supabase-MCP live geprüft (`information_schema`,
+`pg_policies`) — nichts davon ist geraten. Details und Grenzen stehen als Kommentar direkt in
+`lib/providers/match-data/existing-tippspiel-provider.ts`. Kurzfassung:
+
+| Übernehmbar (read-only, ohne Login) | Tippspiel-Quelle | Anmerkung |
+|---|---|---|
+| Spiele, Datum/Uhrzeit, Spieltag | `matches.match_date/matchday` | `match_date` enthält bereits Datum+Uhrzeit |
+| Heim/Auswärts, Ergebnis | `matches.home_team_id/away_team_id/home_score/away_score` | |
+| Wettbewerb/Liga | `matches.competition_name`/`match_category` | |
+| Aufstellung (Name, Start/Bank, Minuten, Tore, Assists, Gelb, Rot-Minute) | `match_lineups.*` | `team_name` ist Freitext, kein FK |
+| Team-Namen | `teams.name/short_name` | |
+
+| Nicht vorhanden — bewusst nicht geschätzt | Grund |
+|---|---|
+| Rückennummer in der Aufstellung | `match_lineups` hat keine Spalte dafür |
+| Halbzeitergebnis, Spielstätte | Keine Spalten in `matches` |
+| Externe BFV-/FuPa-IDs für Teams | `teams` hat keine externen IDs |
+| Formation | Keine Quelle liefert sie — UI zeigt „Formation unbekannt" |
+| Rückennummer/Torwart-Flag/Karrierestats des eigenen Kaders | Liegen in `wildenroth_players`, aber dessen RLS-Policy ist auf `authenticated` beschränkt — mit einem reinen Read-Only-Anon-Key nicht lesbar. Muss aktuell manuell in Match Intelligence gepflegt werden. |
+| Torschützen mit Minute | `match_goalscorers` existiert, ist aber ebenfalls `authenticated`-only |
+
+**Idempotenz & Konflikte**: jeder importierte Match/Team wird über `source_imports`
+(`entity_type` + `source_identifier`, z. B. `tippspiel:220`) wiedererkannt — ein erneuter Sync
+legt nie ein Duplikat an. Ein Feld, das ein Trainer manuell korrigiert hat
+(`matches.manually_edited_fields`), wird von einem späteren Sync nie überschrieben; stattdessen
+entsteht ein `data_conflicts`-Eintrag, den ein Admin unter „Einstellungen → Datenquellen" auflöst
+(„Tippspiel-Wert übernehmen" oder „Manuellen Wert behalten"). Siehe `lib/import/reconcile.ts` +
+`lib/import/tippspielSync.ts` sowie `tests/tippspielSync.test.ts` für die genaue Semantik.
+
 ## Kostenprinzip
 
 Kein vollständiges 90-Minuten-Video wird dauerhaft gespeichert — nur Referenzen auf die
@@ -103,11 +134,16 @@ funktioniert vollständig ohne konfigurierten kostenpflichtigen AI-Provider.
 ## Projektstatus
 
 Dieses Repository wird phasenweise aufgebaut (siehe Implementierungsreihenfolge der
-Spezifikation). **Stand jetzt (Phase 1 abgeschlossen):**
+Spezifikation). **Stand jetzt (Phase 1 + 2 abgeschlossen):**
 
 - ✅ Projekt-Setup, Architektur, DB-Schema mit RLS, Auth, Grundlayout/Navigation
-- 🚧 Mannschaften/Spieler/Spiele-Verwaltung, Import-Adapter (Phase 2)
-- 🚧 Gegner-Scouting, Statistiken, Datenqualität (Phase 3)
+- ✅ Mannschaften (`/squads`), Spieler (`/players`, saisonabhängige Kaderzuordnung mit
+  Rückennummer), Spiele (`/matches`, Filter, manuelles Anlegen/Korrigieren), Match-Detailseite
+  mit echten Übersicht-Daten (Aufstellung, Datenqualität) + vorbereiteten Tabs
+- ✅ Tippspiel-Import: read-only `ExistingTippspielProvider` gegen die echte Tippspiel-DB
+  (Schema live per Supabase-MCP verifiziert, nicht geraten), idempotenter Sync mit
+  Konflikterkennung (`/settings/data-sources`)
+- 🚧 Gegner-Scouting, tiefere Statistiken (Phase 3)
 - 🚧 Veo-Recording, Trainer-Notizen, Szenendatenbank, Review-UI (Phase 4)
 - 🚧 Analysepipeline, AIProvider-Verkabelung, lokaler Video-Worker (Phase 5)
 - 🚧 Saisontrends, Spieleranalyse, Trainingsvorschläge, PDF-Export (Phase 6)
