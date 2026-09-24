@@ -38,6 +38,17 @@ export async function GET(request: NextRequest) {
     if (!error) {
       return NextResponse.redirect(new URL(next, request.url))
     }
+    // Logged (not shown to the user — the generic /reset-password error page
+    // never leaks whether this was "expired", "already used", or something
+    // else) so a real failure shows up in Vercel's runtime logs instead of
+    // being an unexplained dead link from the outside. verifyOtp tokens are
+    // single-use — a link opened twice (e.g. an email/chat app's automatic
+    // link preview consuming it before the user's real tap) lands here on
+    // the second, real attempt with no way to tell the two apart from the
+    // request alone.
+    console.error('[auth/confirm] verifyOtp failed', { type, message: error.message, status: error.status })
+  } else {
+    console.error('[auth/confirm] missing token_hash or type', { hasTokenHash: !!token_hash, type })
   }
 
   const errorUrl = new URL('/reset-password', request.url)
