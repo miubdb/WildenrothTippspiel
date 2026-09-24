@@ -1701,6 +1701,7 @@ export default async function TippsPage({
                     goalscorerLockedUntil={goalscorerLockUntilByMatch[match.id] ?? null}
                     originalMatchday={isRescheduledMatch(match, mdIndex) ? match.matchday : null}
                     exactScores={exactScoreOffersMap[match.id] ?? []}
+                    effectiveMatchday={effectiveMatchdayOf(match)}
                   />
                 ))}
                 {bklasse.length > 0 && (
@@ -1725,6 +1726,7 @@ export default async function TippsPage({
                         goalscorers={goalscorerOffersByMatch[match.id] ?? null}
                         goalscorerLockedUntil={goalscorerLockUntilByMatch[match.id] ?? null}
                         exactScores={exactScoreOffersMap[match.id] ?? []}
+                        effectiveMatchday={effectiveMatchdayOf(match)}
                       />
                     ))}
                   </>

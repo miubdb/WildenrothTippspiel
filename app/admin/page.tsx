@@ -1256,6 +1256,10 @@ interface OddsPreviewMatch {
   // bettors is derived client-side via mergeExactScoreOffers (auto + override,
   // filtered to MAX_EXACT_ODDS only).
   exact_scores: { score: string; odds: number }[]
+  // Wildenroth handicap-perspective override (see lib/oddsMarkets.ts) — null
+  // when the normal favourite-based rule applies (no Wildenroth side, or
+  // before that team's Spieltag cutover), true/false forces that side.
+  handicapForceHomeSide: boolean | null
 }
 
 interface OddsPreviewResponse {
@@ -1688,13 +1692,13 @@ function OddsPreviewMatchCard({
           ['Ja', displayOdds('btts_yes', o.btts_yes), isOverridden('btts_yes')],
           ['Nein', displayOdds('btts_no', o.btts_no), isOverridden('btts_no')],
         ]} />
-        <OddsRow label={`Handicap (Heim favorisiert${homeHandicapFavored(o) ? ' – angeboten' : ''})`} cells={[
+        <OddsRow label={`Handicap (Heim${match.handicapForceHomeSide != null ? ' – Wildenroth-Seite' : ' favorisiert'}${homeHandicapFavored(o, match.handicapForceHomeSide) ? ' – angeboten' : ''})`} cells={[
           ['H -1,5', displayOdds('hdp_home_minus_1_5', o.hdp_home_minus_1_5), isOverridden('hdp_home_minus_1_5')],
           ['G +1,5', displayOdds('hdp_away_plus_1_5', o.hdp_away_plus_1_5), isOverridden('hdp_away_plus_1_5')],
           ['H -2,5', displayOdds('hdp_home_minus_2_5', o.hdp_home_minus_2_5), isOverridden('hdp_home_minus_2_5')],
           ['G +2,5', displayOdds('hdp_away_plus_2_5', o.hdp_away_plus_2_5), isOverridden('hdp_away_plus_2_5')],
         ]} />
-        <OddsRow label={`Handicap (Gast favorisiert${!homeHandicapFavored(o) ? ' – angeboten' : ''})`} cells={[
+        <OddsRow label={`Handicap (Gast${match.handicapForceHomeSide != null ? ' – Wildenroth-Seite' : ' favorisiert'}${!homeHandicapFavored(o, match.handicapForceHomeSide) ? ' – angeboten' : ''})`} cells={[
           ['G -1,5', displayOdds('hdp_away_minus_1_5', o.hdp_away_minus_1_5), isOverridden('hdp_away_minus_1_5')],
           ['H +1,5', displayOdds('hdp_home_plus_1_5', o.hdp_home_plus_1_5), isOverridden('hdp_home_plus_1_5')],
           ['G -2,5', displayOdds('hdp_away_minus_2_5', o.hdp_away_minus_2_5), isOverridden('hdp_away_minus_2_5')],

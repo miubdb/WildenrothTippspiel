@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getMatchXG, oddsFromXG, getFullExactScoreMatrix } from '@/lib/odds'
+import { wildenrothHandicapForceHomeSide } from '@/lib/oddsMarkets'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import { loadOddsModelInputs, snapshotMatches } from '@/lib/oddsInputs'
@@ -97,6 +98,19 @@ export async function GET(request: Request) {
   const frozenMap = new Map((frozenRows ?? []).map((r) => [r.match_id, r.frozen_at]))
   const exactAutoMap = new Map((frozenRows ?? []).map((r) => [r.match_id, r.exact_score_odds as Record<string, number> | null]))
 
+  // Wildenroth handicap-perspective override (see lib/oddsMarkets.ts) — same
+  // stable team-id lookup app/api/bets/place/route.ts uses, so the admin
+  // preview's "Handicap ... angeboten" label can never disagree with what a
+  // bettor actually gets offered.
+  const { data: wtRows } = await supabase
+    .from('teams')
+    .select('id, name')
+    .in('name', ['SpVgg Wildenroth', 'SpVgg Wildenroth II'])
+  const wildenrothTeamIds = {
+    team1Id: wtRows?.find((t) => t.name === 'SpVgg Wildenroth')?.id ?? null,
+    team2Id: wtRows?.find((t) => t.name === 'SpVgg Wildenroth II')?.id ?? null,
+  }
+
   // Match-specific model xG override — same mechanism tipps/page.tsx's freeze
   // pipeline uses (see there for the full rationale). Only affects the
   // exact-score grid for a not-yet-frozen match's preview; standard markets
@@ -154,6 +168,7 @@ export async function GET(request: Request) {
       odds,
       diagnostics,
       exact_scores: exact,
+      handicapForceHomeSide: wildenrothHandicapForceHomeSide(m, targetMd, wildenrothTeamIds) ?? null,
     })
   }
 

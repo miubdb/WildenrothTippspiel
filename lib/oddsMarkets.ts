@@ -75,14 +75,75 @@ export const HANDICAP_OPPOSITE: Record<string, string> = {
  * on the same card. Used by both the UI (BettingMatchCard) and bet placement
  * validation (app/api/bets/place) — must be called with the exact same odds
  * row in both places.
+ *
+ * `forceHomeSide`, when not null/undefined, overrides the favourite-based
+ * pick outright — true forces the home side offered, false the away side.
+ * See `wildenrothHandicapForceHomeSide` below: a Wildenroth match's handicap
+ * is offered from WILDENROTH's own side regardless of which team the model
+ * favours, so a Wildenroth underdog still offers a backable (longer) minus
+ * line on Wildenroth rather than silently switching to the opponent.
  */
-export function homeHandicapFavored(odds: { home_win: number; away_win: number }): boolean {
+export function homeHandicapFavored(odds: { home_win: number; away_win: number }, forceHomeSide?: boolean | null): boolean {
+  if (forceHomeSide != null) return forceHomeSide
   return odds.home_win <= odds.away_win
 }
 
 /** The 4 handicap selection keys actually offered for a match (2 lines × 2 sides). */
-export function offeredHandicapSelections(odds: { home_win: number; away_win: number }): string[] {
-  return homeHandicapFavored(odds)
+export function offeredHandicapSelections(odds: { home_win: number; away_win: number }, forceHomeSide?: boolean | null): string[] {
+  return homeHandicapFavored(odds, forceHomeSide)
     ? ['home_minus_1_5', 'away_plus_1_5', 'home_minus_2_5', 'away_plus_2_5']
     : ['away_minus_1_5', 'home_plus_1_5', 'away_minus_2_5', 'home_plus_2_5']
+}
+
+/**
+ * First effective (Tippspiel-)Spieltag from which each Wildenroth team's
+ * handicap market is forced onto Wildenroth's own side (see
+ * `wildenrothHandicapForceHomeSide`) instead of the model's favourite.
+ *
+ * Team II starts one Spieltag later than Team I: at the moment this rule was
+ * introduced, Spieltag 9 already had two live handicap bets placed on Team
+ * II's own match (both on `home_minus_2_5`, i.e. already on Wildenroth II's
+ * side) under the old favourite-based rule — changing which side an
+ * already-live market offers mid-Spieltag would retroactively reinterpret an
+ * already-placed bet's own selection, so Spieltag 9 stays on the old rule for
+ * Team II specifically. Team I's Spieltag-9 match had zero handicap bets at
+ * that point and switches immediately. From Spieltag 10 on both constants
+ * agree and this split stops mattering — kept as two named constants rather
+ * than collapsed into one, so a future reader doesn't have to rediscover why
+ * they were ever different.
+ */
+export const WILDENROTH_HANDICAP_FROM_MATCHDAY = { team1: 9, team2: 10 } as const
+
+/**
+ * Resolves whether a match's handicap market should be forced onto
+ * Wildenroth's side rather than the model's favourite — true forces the home
+ * side, false the away side, undefined leaves the normal favourite-based
+ * logic in `homeHandicapFavored`/`offeredHandicapSelections` untouched
+ * (either team doesn't play Wildenroth, or its effective Spieltag is before
+ * that team's cutover above).
+ *
+ * `wildenrothTeamIds` must come from the app's one stable team-id lookup
+ * (`teams.name IN ('SpVgg Wildenroth', 'SpVgg Wildenroth II')`, the same
+ * resolution app/api/bets/place/route.ts's conflict-of-interest check already
+ * does) — never a display-name string comparison on the match itself.
+ * `effectiveMatchday` must be the Tippspiel-Spieltag from
+ * `lib/season.ts#effectiveMatchdayOf`, not the raw `matches.matchday` column
+ * (a Wildenroth-II/Topspiel match runs its own independent BFV numbering).
+ */
+export function wildenrothHandicapForceHomeSide(
+  match: { home_team_id: number | null; away_team_id: number | null },
+  effectiveMatchday: number | null | undefined,
+  wildenrothTeamIds: { team1Id?: number | null; team2Id?: number | null },
+): boolean | undefined {
+  if (effectiveMatchday == null) return undefined
+  const cutovers: [number | null | undefined, number][] = [
+    [wildenrothTeamIds.team1Id, WILDENROTH_HANDICAP_FROM_MATCHDAY.team1],
+    [wildenrothTeamIds.team2Id, WILDENROTH_HANDICAP_FROM_MATCHDAY.team2],
+  ]
+  for (const [teamId, fromMatchday] of cutovers) {
+    if (teamId == null || effectiveMatchday < fromMatchday) continue
+    if (match.home_team_id === teamId) return true
+    if (match.away_team_id === teamId) return false
+  }
+  return undefined
 }

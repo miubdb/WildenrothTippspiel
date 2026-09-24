@@ -6,7 +6,7 @@ import type { OddsData } from '@/types'
 import { useBetSlip, bsKey } from '@/context/BetSlipContext'
 import { getForm, getTeamRecord } from '@/lib/odds'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
-import { homeHandicapFavored } from '@/lib/oddsMarkets'
+import { homeHandicapFavored, wildenrothHandicapForceHomeSide } from '@/lib/oddsMarkets'
 import { TeamLogo } from '@/components/TeamLogo'
 
 function isBKlasseTopspiel(match: Match): boolean {
@@ -54,11 +54,15 @@ interface BettingMatchCardProps {
    *  order. Empty/undefined when odds aren't available yet (match not
    *  scheduled or betting not open). */
   exactScores?: { score: string; odds: number }[]
+  /** This match's effective Tippspiel-Spieltag (lib/season.ts#effectiveMatchdayOf),
+   *  needed only for the Wildenroth handicap-perspective override — see
+   *  lib/oddsMarkets.ts#wildenrothHandicapForceHomeSide. */
+  effectiveMatchday?: number | null
 }
 
 type Tab = '1x2' | 'goals' | 'exact' | 'handicap' | 'goalscorer'
 
-export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, goalscorerLockedUntil, originalMatchday, exactScores: exactScoresProp }: BettingMatchCardProps) {
+export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, goalscorerLockedUntil, originalMatchday, exactScores: exactScoresProp, effectiveMatchday }: BettingMatchCardProps) {
   const { selections, addSelection, mode } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
@@ -562,7 +566,8 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
                 which one is meaningful to show — same decision the server
                 enforces in app/api/bets/place. */}
             {activeTab === 'handicap' && (() => {
-              const homeFavored = homeHandicapFavored(odds)
+              const forceHomeSide = wildenrothHandicapForceHomeSide(match, effectiveMatchday, { team1Id: wildenrothTeamId, team2Id: wildenrothIiTeamId })
+              const homeFavored = homeHandicapFavored(odds, forceHomeSide)
               const minusName = homeFavored ? homeName : awayName
               const plusName = homeFavored ? awayName : homeName
               const minusSel15 = homeFavored ? 'home_minus_1_5' : 'away_minus_1_5'

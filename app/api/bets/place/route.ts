@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isAgainstWildenroth } from '@/lib/wildenroth'
 import { isSeasonStarted, buildEffectiveMatchdayIndex, effectiveMatchdayOf, SEASON_START } from '@/lib/season'
-import { ODDS_COLUMN, offeredHandicapSelections, HANDICAP_OPPOSITE } from '@/lib/oddsMarkets'
+import { ODDS_COLUMN, offeredHandicapSelections, HANDICAP_OPPOSITE, wildenrothHandicapForceHomeSide } from '@/lib/oddsMarkets'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { RISKY_ODDS_THRESHOLD, evaluateSlips, recomputeRiskyForUserMatchday, type RiskySlip } from '@/lib/risky'
 import { sendPushToUser } from '@/lib/push'
@@ -378,6 +378,21 @@ export async function POST(request: NextRequest) {
   const oddsCheckedSels = selections.filter(s => ODDS_COLUMN[s.marketType])
   const exactScoreSels = selections.filter(s => s.marketType === 'exact_score')
 
+  // Wildenroth handicap-perspective override (see lib/oddsMarkets.ts) — only
+  // resolved when a handicap selection is actually present. Same stable
+  // team-id lookup as the conflict-of-interest check further below.
+  let wildenrothHandicapTeamIds: { team1Id: number | null; team2Id: number | null } = { team1Id: null, team2Id: null }
+  if (oddsCheckedSels.some(s => s.marketType === 'handicap')) {
+    const { data: wtRows } = await supabase
+      .from('teams')
+      .select('id, name')
+      .in('name', ['SpVgg Wildenroth', 'SpVgg Wildenroth II'])
+    wildenrothHandicapTeamIds = {
+      team1Id: wtRows?.find(t => t.name === 'SpVgg Wildenroth')?.id ?? null,
+      team2Id: wtRows?.find(t => t.name === 'SpVgg Wildenroth II')?.id ?? null,
+    }
+  }
+
   if (oddsCheckedSels.length > 0 || exactScoreSels.length > 0) {
     const { data: oddsRows } = await supabase
       .from('odds')
@@ -417,8 +432,14 @@ export async function POST(request: NextRequest) {
       // are always computed/stored (an admin can override either), but the
       // non-offered direction is never a real bettable market and must be
       // rejected here even though its price validates fine.
-      if (s.marketType === 'handicap' && !offeredHandicapSelections(row as { home_win: number; away_win: number }).includes(s.selection)) {
-        return NextResponse.json({ error: 'Handicap-Richtung nicht verfügbar. Bitte Seite neu laden.' }, { status: 400 })
+      if (s.marketType === 'handicap') {
+        const hMatch = matches.find(mm => mm.id === s.matchId)
+        const forceHomeSide = hMatch
+          ? wildenrothHandicapForceHomeSide(hMatch, effectiveMatchdayOf(hMatch as Match, mdIndex), wildenrothHandicapTeamIds)
+          : undefined
+        if (!offeredHandicapSelections(row as { home_win: number; away_win: number }, forceHomeSide).includes(s.selection)) {
+          return NextResponse.json({ error: 'Handicap-Richtung nicht verfügbar. Bitte Seite neu laden.' }, { status: 400 })
+        }
       }
       if (Math.abs(Number(row[col]) - s.oddsValue) > 0.02) {
         return NextResponse.json({ error: 'Quote hat sich geändert. Bitte Auswahl aktualisieren.' }, { status: 400 })
