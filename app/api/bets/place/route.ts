@@ -597,7 +597,16 @@ export async function POST(request: NextRequest) {
           // line counts as a hedge here. Every other market has just one
           // line, where any two different selections genuinely are opposite
           // outcomes.
-          (b.market_type !== 'handicap' || HANDICAP_OPPOSITE[s.selection] === b.selection)
+          (b.market_type !== 'handicap' || HANDICAP_OPPOSITE[s.selection] === b.selection) &&
+          // Goalscorer/2+: `selection` is a player_id, and different players'
+          // scoring markets are independent, not opposite outcomes — both can
+          // (and often do) score in the same match. The bet slip (see
+          // context/BetSlipContext.tsx#bsKey) already keys these by player so
+          // the UI treats two different players as two separate slips; this
+          // server-side hedge check must agree, or a second, unrelated
+          // Torschütze bet on the same match gets wrongly rejected as a
+          // same-market contradiction.
+          b.market_type !== 'goalscorer' && b.market_type !== 'goalscorer_2plus'
       )
       if (conflict) {
         // Name the actual match/Special + market so the user knows exactly
