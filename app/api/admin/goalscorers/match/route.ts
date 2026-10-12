@@ -4,7 +4,7 @@ import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type Goalscorer
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadOddsModelInputs } from '@/lib/oddsInputs'
 import { bettingOpenTime, parseBettingOpenOverrides } from '@/lib/season'
-import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, CURRENT_SEASON, WILDENROTH_TEAM_NAMES } from '@/lib/goalscorerContext'
+import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, goalscorerOfferState, loadPreviousPublishedOfferState, CURRENT_SEASON, WILDENROTH_TEAM_NAMES } from '@/lib/goalscorerContext'
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser()
@@ -240,11 +240,18 @@ export async function POST(request: NextRequest) {
   // silently reverts a manual edit back to the model's own numbers.
   const { data: existingRows } = await supabase
     .from('match_goalscorer_odds')
-    .select('player_id, manually_overridden, frozen_at')
+    .select('player_id, manually_overridden, frozen_at, is_offered')
     .eq('match_id', matchId)
   const overriddenIds = new Set((existingRows ?? []).filter(r => r.manually_overridden).map(r => r.player_id))
   const alreadyFrozenIds = new Set((existingRows ?? []).filter(r => r.frozen_at).map(r => r.player_id))
-  const existingIds = new Set((existingRows ?? []).map(r => r.player_id))
+  const existingById = new Map((existingRows ?? []).map(r => [r.player_id, r]))
+
+  // Offer status of the last PUBLISHED market of THIS side. Only decides the two
+  // is_offered flags of a row the model writes — never its price, and never a
+  // frozen or hand-edited row (see goalscorerOfferState).
+  const previouslyOffered = await loadPreviousPublishedOfferState(supabase, {
+    matchDate: match.match_date, modelMatches, teamId: wildenrothId,
+  })
 
   const now = new Date().toISOString()
   let repriced = 0
@@ -262,8 +269,9 @@ export async function POST(request: NextRequest) {
     // This route IS the explicit admin recompute — the one place a draft may be
     // rebuilt. The automatic market open takes a different path (see
     // goalscorerRowAction and app/(app)/tipps/page.tsx).
+    const existing = existingById.get(o.player_id) ?? null
     const action = goalscorerRowAction({
-      trigger: 'admin_recompute', exists: existingIds.has(o.player_id), frozen, manuallyOverridden: overridden,
+      trigger: 'admin_recompute', exists: existing != null, frozen, manuallyOverridden: overridden,
     })
     if (frozen) { priceProtected++; continue }
     if (action === 'skip') {
@@ -275,12 +283,18 @@ export async function POST(request: NextRequest) {
       }
       continue
     }
+    // Price always from the model. Only the offer flags may follow the previous
+    // published market — decided when this write creates the row; an existing
+    // draft is never switched off again (see goalscorerOfferState).
+    const offer = goalscorerOfferState({
+      model: o, existing, previouslyOffered: previouslyOffered.get(o.player_id),
+    })
     await supabase.from('match_goalscorer_odds').upsert({
       match_id: matchId,
       player_id: o.player_id,
       status: 'available',
-      is_offered: o.is_offered,
-      is_offered_2plus: o.is_offered_2plus,
+      is_offered: offer.is_offered,
+      is_offered_2plus: offer.is_offered_2plus,
       prob_score: o.prob_score,
       prob_score_2plus: o.prob_score_2plus,
       odds_score: o.odds_score,

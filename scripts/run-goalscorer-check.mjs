@@ -16,4 +16,4 @@ register(pathToFileURL(path.join(ROOT, 'scripts/ts-resolver.mjs')).href, pathToF
 const { run } = await import(pathToFileURL(path.join(ROOT, 'scripts/goalscorer-check.ts')).href)
 
 console.log('=== Konsistenzprüfungen Torschützenmodell ===')
-process.exit(run() === 0 ? 0 : 1)
+process.exit((await run()) === 0 ? 0 : 1)

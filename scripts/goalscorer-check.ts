@@ -38,7 +38,15 @@ import {
   loadContinuityScenarios,
   repriceWithContinuity,
 } from './goalscorer-continuity-report'
-import { hasConcurrentOtherSquadFixture, wildenrothGoalsPerMatch, goalscorerRowAction, BLOCKING_GOALSCORER_STATUSES } from '@/lib/goalscorerContext'
+import {
+  hasConcurrentOtherSquadFixture,
+  wildenrothGoalsPerMatch,
+  goalscorerRowAction,
+  goalscorerOfferState,
+  loadPreviousPublishedOfferState,
+  loadGoalscorerContinuity,
+  BLOCKING_GOALSCORER_STATUSES,
+} from '@/lib/goalscorerContext'
 import { loadData } from './backtest'
 
 const DATA_DIR = process.env.BACKTEST_DATA_DIR ?? '/tmp/bt'
@@ -105,7 +113,87 @@ function check(name: string, ok: boolean, detail = '') {
 }
 const near = (a: number, b: number, eps = 1e-9) => Math.abs(a - b) <= eps
 
-export function run(): number {
+/** In-memory stand-in for the Supabase client: only the read chain the
+ *  goalscorer loaders use (select / in / eq / not-is-null). It has no
+ *  insert/update/upsert at all, so a loader that tried to write would throw. */
+type FakeTables = Record<string, Record<string, unknown>[]>
+function fakeSupabase(tables: FakeTables) {
+  const from = (table: string) => {
+    let rows = [...(tables[table] ?? [])]
+    const q = {
+      select: () => q,
+      in: (col: string, vals: unknown[]) => { rows = rows.filter((r) => vals.includes(r[col])); return q },
+      eq: (col: string, v: unknown) => { rows = rows.filter((r) => r[col] === v); return q },
+      not: (col: string, op: string, v: unknown) => {
+        if (op !== 'is' || v !== null) throw new Error(`fakeSupabase: not(${col}, ${op}) unsupported`)
+        rows = rows.filter((r) => r[col] != null)
+        return q
+      },
+      then: <T>(resolve: (v: { data: Record<string, unknown>[]; error: null }) => T) =>
+        Promise.resolve({ data: rows.map((r) => ({ ...r })), error: null }).then(resolve),
+    }
+    return q
+  }
+  return { from } as unknown as Parameters<typeof loadPreviousPublishedOfferState>[0]
+}
+
+/** One stored `match_goalscorer_odds` row, as far as these checks need it. */
+type GsRow = {
+  match_id: number; player_id: number; status: string
+  is_offered: boolean; is_offered_2plus: boolean
+  prob_score: number; prob_score_2plus: number; odds_score: number; odds_score_2plus: number
+  frozen_at: string | null; manually_overridden: boolean
+}
+
+/**
+ * The write loops of POST /api/admin/goalscorers/match ('admin_recompute') and
+ * the automatic market open in app/(app)/tipps/page.tsx ('market_open'),
+ * reduced to their decisions: goalscorerRowAction picks WHETHER a row is
+ * written, goalscorerOfferState picks its two offer flags, and every price /
+ * probability comes straight from the model offer.
+ */
+function simulateGoalscorerWrite(
+  table: GsRow[],
+  matchId: number,
+  offers: ReturnType<typeof computeGoalscorerOffers>['offers'],
+  previouslyOffered: ReadonlyMap<number, boolean>,
+  trigger: 'admin_recompute' | 'market_open',
+  allowFreeze: boolean,
+  now = '2026-10-12T10:00:00Z',
+): void {
+  for (const o of offers) {
+    const idx = table.findIndex((r) => r.match_id === matchId && r.player_id === o.player_id)
+    const existing = idx >= 0 ? table[idx] : null
+    const frozen = existing?.frozen_at != null
+    const action = goalscorerRowAction({
+      trigger, exists: existing != null, frozen, manuallyOverridden: existing?.manually_overridden ?? false,
+    })
+    if (frozen) continue
+    if (action === 'skip' || action === 'freeze_only') {
+      // admin route: a skipped (hand-edited) draft is only frozen when allowed;
+      // market open: the draft is published verbatim.
+      if (existing && (action === 'freeze_only' || allowFreeze)) existing.frozen_at = now
+      continue
+    }
+    // tipps/page.tsx only ever INSERTS here (existing is always null there).
+    const offer = goalscorerOfferState({
+      model: o, existing, previouslyOffered: previouslyOffered.get(o.player_id),
+    })
+    const row: GsRow = {
+      match_id: matchId, player_id: o.player_id, status: 'available',
+      is_offered: offer.is_offered, is_offered_2plus: offer.is_offered_2plus,
+      prob_score: o.prob_score, prob_score_2plus: o.prob_score_2plus,
+      odds_score: o.odds_score, odds_score_2plus: o.odds_score_2plus,
+      frozen_at: trigger === 'market_open' || allowFreeze ? now : null,
+      // An upsert does not name manually_overridden, so it keeps its value.
+      manually_overridden: existing?.manually_overridden ?? false,
+    }
+    if (idx >= 0) table[idx] = row
+    else table.push(row)
+  }
+}
+
+export async function run(): Promise<number> {
   const data = loadData()
   const players = loadWildenrothPlayers()
   const priorCtx = buildPriorContext(data.priorMatches, data.teamNames, data.leaguePlayers, data.lineups)
@@ -1070,6 +1158,194 @@ export function run(): number {
           `×${(two.reduce((a, b) => a + b, 0) / two.length).toFixed(2)} vs ×${(one.reduce((a, b) => a + b, 0) / one.length).toFixed(2)}`)
       }
     }
+  }
+
+  console.log('\n19. Angebotsstatus wird vom letzten veröffentlichten Markt derselben Mannschaft geerbt')
+  if (W1 == null || W2 == null) {
+    check('Wildenroth I/II in den Exportdaten gefunden', false)
+  } else {
+    const OPP = 990001
+    const fx = (id: number, teamId: number, date: string, matchday: number, status: string) =>
+      ({ id, home_team_id: teamId, away_team_id: OPP, match_date: date, matchday, status }) as unknown as Match
+    // Spieltag numbers deliberately out of chronological order (BFV rescheduling).
+    const w2a = fx(9001, W2, '2026-09-27T11:00:00Z', 5, 'finished')   // older WII market
+    const w2b = fx(9002, W2, '2026-10-04T11:00:00Z', 3, 'finished')   // LAST published WII market
+    const w1a = fx(9101, W1, '2026-10-11T13:00:00Z', 11, 'finished')  // WI, later than w2b
+    const w2draft = fx(9003, W2, '2026-10-12T17:00:00Z', 9, 'finished') // WII, draft only
+    const w2new = fx(9004, W2, '2026-10-18T11:00:00Z', 8, 'scheduled') // the new WII market ("ST12")
+    const w2next = fx(9006, W2, '2026-10-25T11:00:00Z', 10, 'scheduled') // the one after ("ST13")
+    const fixtures = [w2a, w2b, w1a, w2draft, w2new, w2next]
+
+    const squad2 = squadFor('2')
+    const squad1 = squadFor('1')
+    const model = computeGoalscorerOffers(squad2, 2.651, ctxFor('2'))
+    const byId = new Map(model.offers.map((o) => [o.player_id, o]))
+    const outfield = model.offers.filter((o) => o.is_offered)
+
+    const george = squad2.find((p) => p.name === 'George Condor') ?? squad2.find((p) => !p.is_goalkeeper)!
+    // The 2+ case needs a player the model WOULD offer 2+ for.
+    const top = [...outfield].filter((o) => o.player_id !== george.id).sort((a, b) => b.prob_score - a.prob_score)[0]
+    const both = outfield.find((o) => o.player_id !== george.id && o.player_id !== top.player_id
+      && squad1.some((p) => p.id === o.player_id))!
+    const absent = [...outfield].reverse().find((o) =>
+      ![george.id, top.player_id, both.player_id].includes(o.player_id))!
+    const regular = outfield.find((o) =>
+      ![george.id, top.player_id, both.player_id, absent.player_id].includes(o.player_id))!
+
+    const model1ById = new Map(computeGoalscorerOffers(squad1, 2.038, ctxFor('1')).offers.map((o) => [o.player_id, o]))
+    const published = (matchId: number, offered: (id: number) => boolean, ids: number[], frozen = true): GsRow[] =>
+      ids.map((id) => {
+        const o = byId.get(id) ?? model1ById.get(id)!
+        return {
+          match_id: matchId, player_id: id, status: 'available',
+          is_offered: offered(id), is_offered_2plus: offered(id) && o.is_offered_2plus,
+          prob_score: o.prob_score, prob_score_2plus: o.prob_score_2plus,
+          odds_score: o.odds_score, odds_score_2plus: o.odds_score_2plus,
+          frozen_at: frozen ? '2026-09-01T10:00:00Z' : null, manually_overridden: !offered(id),
+        }
+      })
+    const squad2Ids = model.offers.map((o) => o.player_id)
+    const table: GsRow[] = [
+      // Older WII market: everybody offered — must NOT be what George inherits.
+      ...published(w2a.id, () => true, squad2Ids),
+      // Last published WII market: George and `top` not offered, `absent` missing.
+      ...published(w2b.id, (id) => id !== george.id && id !== top.player_id,
+        squad2Ids.filter((id) => id !== absent.player_id)),
+      // WI market, chronologically later: George offered, `both` NOT offered.
+      ...published(w1a.id, (id) => id !== both.player_id, squad1.map((p) => p.id)),
+      // A later WII draft that was never published: everybody offered.
+      ...published(w2draft.id, () => true, squad2Ids, false),
+    ]
+    const db = fakeSupabase({ match_goalscorer_odds: table as unknown as Record<string, unknown>[], match_goalscorers: [] })
+    const prevFor = (m: Match, teamId: number) =>
+      loadPreviousPublishedOfferState(db, { matchDate: m.match_date, modelMatches: fixtures, teamId })
+
+    const prevW2 = await prevFor(w2new, W2)
+    const snapshotBefore = JSON.stringify(table)
+
+    // 1) Last WII market: George not offered → new WII draft priced, but not offered.
+    const draft: GsRow[] = []
+    simulateGoalscorerWrite(draft, w2new.id, model.offers, prevW2, 'admin_recompute', false)
+    const gRow = draft.find((r) => r.player_id === george.id)!
+    const gModel = byId.get(george.id)!
+    check(`1 — ${george.name}: im letzten WII-Markt nicht angeboten → neuer Draft is_offered=false`,
+      prevW2.get(george.id) === false && gRow.is_offered === false && gRow.is_offered_2plus === false)
+    check(`1 — ${george.name}: Quote trotzdem normal berechnet und gespeichert (Trifft @${gRow.odds_score}, 2+ @${gRow.odds_score_2plus})`,
+      gModel.is_offered && gRow.odds_score === gModel.odds_score && gRow.odds_score_2plus === gModel.odds_score_2plus
+      && gRow.prob_score === gModel.prob_score && gRow.prob_score_2plus === gModel.prob_score_2plus
+      && gRow.odds_score > 1 && Number.isFinite(gRow.odds_score) && gRow.prob_score > 0)
+    check('1 — Status bleibt `available` (kein blockierender Status kopiert), Draft unveröffentlicht',
+      draft.every((r) => r.status === 'available' && !BLOCKING_GOALSCORER_STATUSES.has(r.status) && r.frozen_at == null))
+
+    // 2) Previously offered → the current offer logic, unchanged.
+    const reg = draft.find((r) => r.player_id === regular.player_id)!
+    check(`2 — ${regular.player_name}: zuletzt angeboten → aktuelle Offer-Logik (Trifft ${reg.is_offered}, 2+ ${reg.is_offered_2plus})`,
+      prevW2.get(regular.player_id) === true
+      && reg.is_offered === regular.is_offered && reg.is_offered_2plus === regular.is_offered_2plus)
+    const prevOffered = draft.filter((r) => prevW2.get(r.player_id) === true)
+    check(`2 — alle ${prevOffered.length} zuletzt angebotenen Spieler: Flags exakt wie das Modell`,
+      prevOffered.length > 0 && prevOffered.every((r) =>
+        r.is_offered === byId.get(r.player_id)!.is_offered && r.is_offered_2plus === byId.get(r.player_id)!.is_offered_2plus))
+
+    // 3) Strict team separation and chronology.
+    const prevW1 = await prevFor(w2new, W1)
+    check(`3 — WII erbt nicht vom (späteren) WI-Markt: ${both.player_name} dort nicht angeboten, in WII weiter angeboten`,
+      prevW1.get(both.player_id) === false && prevW2.get(both.player_id) === true
+      && draft.find((r) => r.player_id === both.player_id)!.is_offered === true)
+    check(`3 — ${george.name} (squad both): WI-Markt sagt angeboten, WII-Markt nicht → WII bleibt nicht angeboten`,
+      prevW1.get(george.id) === true && gRow.is_offered === false)
+    check('3 — WI-Lookup liest ausschließlich den WI-Markt',
+      prevW1.size === squad1.length && [...prevW1.entries()].every(([id, v]) => v === (id !== both.player_id)))
+    check('3 — chronologisch nach match_date (ST3 nach ST5 gespielt → ST3 ist die Referenz), nicht nach matchday',
+      prevW2.get(george.id) === false && prevW2.size === squad2Ids.length - 1)
+    check('3 — ein späterer, nie veröffentlichter Draft ist keine Referenz',
+      prevW2.get(george.id) === false && prevW2.get(top.player_id) === false)
+    const prevAtW2b = await prevFor(w2b, W2)
+    check('3 — nur FRÜHERE Märkte: der Markt des Spiels selbst zählt nicht',
+      prevAtW2b.get(george.id) === true && prevAtW2b.size === squad2Ids.length)
+
+    // 4) No previous market at all → today's behaviour exactly.
+    const none = await prevFor(fx(9000, W2, '2026-09-01T11:00:00Z', 1, 'scheduled'), W2)
+    const plain: GsRow[] = []
+    simulateGoalscorerWrite(plain, 9000, model.offers, none, 'admin_recompute', false)
+    check('4 — kein vorheriger Markt → leere Referenz, alle Flags exakt wie das Modell',
+      none.size === 0 && plain.length === model.offers.length && plain.every((r) =>
+        r.is_offered === byId.get(r.player_id)!.is_offered && r.is_offered_2plus === byId.get(r.player_id)!.is_offered_2plus))
+    const noneW1 = await prevFor(fx(9100, W1, '2026-10-05T13:00:00Z', 10, 'scheduled'), W1)
+    check('4 — WI vor seinem ersten veröffentlichten Markt sieht keinen WII-Markt', noneW1.size === 0)
+
+    // 5) Player missing from the previous market → today's behaviour, even
+    //    though an OLDER market of the same side has him.
+    const abs = draft.find((r) => r.player_id === absent.player_id)!
+    check(`5 — ${absent.player_name}: im letzten Markt nicht vorhanden → aktuelle Offer-Logik`,
+      !prevW2.has(absent.player_id) && abs.is_offered === absent.is_offered && abs.is_offered_2plus === absent.is_offered_2plus)
+
+    // 8) 2+ follows the inherited "not offered", the price is still computed.
+    const tRow = draft.find((r) => r.player_id === top.player_id)!
+    check(`8 — ${top.player_name}: Modell würde 2+ anbieten (Voraussetzung, p=${top.prob_score_2plus})`, top.is_offered_2plus)
+    check(`8 — geerbt nicht angeboten → is_offered=false UND is_offered_2plus=false`,
+      tRow.is_offered === false && tRow.is_offered_2plus === false)
+    check(`8 — 2+-Quote und -Wahrscheinlichkeit trotzdem gespeichert (@${tRow.odds_score_2plus}, p=${tRow.prob_score_2plus})`,
+      tRow.odds_score_2plus === top.odds_score_2plus && tRow.prob_score_2plus === top.prob_score_2plus
+      && tRow.odds_score === top.odds_score && tRow.prob_score_2plus > 0)
+
+    // 9) Still part of the allocation pool — nothing like `not_in_squad`.
+    const sumXG = model.offers.reduce((s, o) => s + o.diagnostics.playerXG, 0)
+    check('9 — Σ playerXG == teamMatchXG, die geerbt nicht angebotenen Spieler eingerechnet',
+      near(sumXG, model.teamMatchXG, 1e-9) && near(model.allocatedXG, model.teamMatchXG, 1e-9)
+      && gModel.diagnostics.playerXG > 0 && top.diagnostics.playerXG > 0)
+    const priceKey = (r: GsRow) => `${r.player_id}:${r.odds_score}:${r.odds_score_2plus}:${r.prob_score}:${r.prob_score_2plus}`
+    check('9 — alle Quoten/Wahrscheinlichkeiten identisch mit dem Draft OHNE Vererbung',
+      JSON.stringify(draft.map(priceKey)) === JSON.stringify(plain.map(priceKey)))
+    const blocked = computeGoalscorerOffers(squad2, 2.651, { ...ctxFor('2'), blockedPlayerIds: new Set([george.id, top.player_id]) })
+    const moved = blocked.offers.filter((o) => o.is_offered && o.odds_score !== byId.get(o.player_id)!.odds_score)
+    check(`9 — Gegenprobe not_in_squad: dort verschieben sich ${moved.length} andere Quoten, hier keine`,
+      moved.length > 0 && blocked.offers.find((o) => o.player_id === top.player_id)!.diagnostics.playerXG === 0
+      && draft.filter((r) => r.player_id !== george.id && r.player_id !== top.player_id)
+        .every((r) => r.odds_score === byId.get(r.player_id)!.odds_score))
+
+    // 6) Manual re-activation in the current draft survives every recompute.
+    gRow.is_offered = true // POST /api/admin/goalscorers/availability { is_offered: true }
+    gRow.manually_overridden = true
+    const tBefore = { ...tRow }
+    const repriced = computeGoalscorerOffers(squad2, 2.40, ctxFor('2'))
+    simulateGoalscorerWrite(draft, w2new.id, repriced.offers, prevW2, 'admin_recompute', false)
+    const gAfter = draft.find((r) => r.player_id === george.id)!
+    check(`6 — ${george.name} manuell reaktiviert → Recompute deaktiviert ihn nicht wieder`,
+      gAfter.is_offered === true && gAfter.manually_overridden)
+    const tAfter = draft.find((r) => r.player_id === top.player_id)!
+    check(`6 — nicht reaktivierter ${top.player_name}: Recompute rechnet die Quote neu (${tBefore.odds_score} → ${tAfter.odds_score}), Angebotsstatus bleibt`,
+      tAfter.odds_score !== tBefore.odds_score && tAfter.is_offered === false && tAfter.is_offered_2plus === false)
+    check('6 — ein angebotener Draft wird durch die Vererbung nie wieder abgeschaltet',
+      goalscorerOfferState({ model: { is_offered: true, is_offered_2plus: true }, existing: { is_offered: true }, previouslyOffered: false })
+        .is_offered === true)
+
+    // 6/7) ST11 → ST12 → ST13: the published state of ST12 is the next reference.
+    simulateGoalscorerWrite(draft, w2new.id, repriced.offers, prevW2, 'market_open', true)
+    check('7 — Marktöffnung veröffentlicht den Draft unverändert (George bleibt angeboten)',
+      draft.every((r) => r.frozen_at != null) && draft.find((r) => r.player_id === george.id)!.is_offered === true)
+    const publishedSnapshot = JSON.stringify(draft)
+    simulateGoalscorerWrite(draft, w2new.id, model.offers, new Map(squad2Ids.map((id) => [id, false])), 'admin_recompute', true, '2030-01-01T00:00:00Z')
+    simulateGoalscorerWrite(draft, w2new.id, model.offers, new Map(squad2Ids.map((id) => [id, false])), 'market_open', true, '2030-01-01T00:00:00Z')
+    check('7 — veröffentlichter Markt wird von keinem Auslöser geändert, auch wenn die Referenz „nicht angeboten“ sagt',
+      JSON.stringify(draft) === publishedSnapshot)
+    check('7 — der Lookup selbst ist read-only (Fake-DB nach allen Abfragen byteweise unverändert)',
+      JSON.stringify(table) === snapshotBefore)
+
+    table.push(...draft)
+    const prevForNext = await prevFor(w2next, W2)
+    const next: GsRow[] = []
+    simulateGoalscorerWrite(next, w2next.id, model.offers, prevForNext, 'admin_recompute', false)
+    check(`6 — ST13: Referenz ist jetzt ST12 → ${george.name} startet wieder angeboten`,
+      prevForNext.get(george.id) === true && next.find((r) => r.player_id === george.id)!.is_offered === true)
+    check(`6 — ST13: ${top.player_name} blieb in ST12 nicht angeboten → startet weiter nicht angeboten`,
+      prevForNext.get(top.player_id) === false && next.find((r) => r.player_id === top.player_id)!.is_offered === false)
+
+    // The shared lookup still gives the price continuity the same market.
+    const cont = await loadGoalscorerContinuity(db, { matchDate: w2new.match_date, modelMatches: fixtures, teamId: W2 })
+    check('Kontinuität nutzt denselben Referenzmarkt; nicht angebotene Spieler liefern weiterhin keinen Preis-Prior',
+      cont.previousMarketMatchId === w2b.id && !cont.previousOddsScore!.has(george.id)
+      && cont.previousOddsScore!.get(regular.player_id) === regular.odds_score)
   }
 
   console.log(`\n${failures === 0 ? 'Alle' : failures + ' von ' + checks} Prüfungen ${failures === 0 ? `bestanden (${checks})` : 'FEHLGESCHLAGEN'}`)

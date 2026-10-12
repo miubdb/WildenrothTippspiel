@@ -240,6 +240,114 @@ function priorFixtures(matches: Match[], teamId: number, beforeDate: string): Ma
     .sort((a, b) => new Date(b.match_date).getTime() - new Date(a.match_date).getTime())
 }
 
+interface PublishedMarketRow {
+  match_id: number
+  player_id: number
+  odds_score: number | string | null
+  is_offered: boolean
+}
+
+/**
+ * The chronologically last EARLIER fixture of THIS Wildenroth side whose
+ * goalscorer market was published (`frozen_at IS NOT NULL`), with its published
+ * rows. A draft is explicitly not one: nobody could bet on it, so it never
+ * became the market's statement.
+ *
+ * Shared by the price continuity (`loadGoalscorerContinuity`) and the offer
+ * status inheritance (`loadPreviousPublishedOfferState`), so "the previous
+ * market" can never mean two different fixtures for the two of them.
+ */
+async function findPreviousPublishedMarket(
+  supabase: Client,
+  earlier: Match[],
+): Promise<{ match: Match; rows: PublishedMarketRow[] } | null> {
+  const candidates = earlier.slice(0, CONTINUITY_LOOKBACK_FIXTURES)
+  if (candidates.length === 0) return null
+  const { data: frozenRows } = await supabase
+    .from('match_goalscorer_odds')
+    .select('match_id, player_id, odds_score, is_offered')
+    .in('match_id', candidates.map((m) => m.id))
+    .not('frozen_at', 'is', null)
+
+  const rows = (frozenRows ?? []) as PublishedMarketRow[]
+  const publishedIds = new Set(rows.map((r) => r.match_id))
+  for (const m of candidates) {
+    if (publishedIds.has(m.id)) return { match: m, rows: rows.filter((r) => r.match_id === m.id) }
+  }
+  return null
+}
+
+/**
+ * OFFER STATUS INHERITANCE — the data half. player_id → `is_offered` as it
+ * stands in the last PUBLISHED goalscorer market of THIS Wildenroth side
+ * (the final state, including any toggle the admin made on that row).
+ *
+ * Same fixture as the continuity anchor: chronological by kickoff, never by
+ * matchday number, and strictly per side — team I only ever inherits from
+ * team I and team II only from team II, because every lookup is filtered on
+ * `teamId`. Empty map when there is no earlier published market; a player
+ * absent from the map simply was not part of it.
+ *
+ * Nothing here touches pricing: it never reaches computeGoalscorerOffers, and
+ * the only consumer is `goalscorerOfferState`. READ-ONLY.
+ */
+export async function loadPreviousPublishedOfferState(
+  supabase: Client,
+  opts: { matchDate: string; modelMatches: Match[]; teamId: number },
+): Promise<Map<number, boolean>> {
+  const previous = await findPreviousPublishedMarket(
+    supabase, priorFixtures(opts.modelMatches, opts.teamId, opts.matchDate),
+  )
+  return new Map((previous?.rows ?? []).map((r) => [r.player_id, r.is_offered === true]))
+}
+
+type OfferFlags = { is_offered: boolean; is_offered_2plus: boolean }
+
+/**
+ * OFFER STATUS INHERITANCE — the decision. Which `is_offered` /
+ * `is_offered_2plus` a goalscorer row gets written with when the model has
+ * (re)priced it. Only ever reached for rows `goalscorerRowAction` lets the
+ * model write ('reprice'), so a published row (`frozen_at`) and a hand-edited
+ * draft (`manually_overridden`, which every /availability toggle sets) never
+ * get here at all.
+ *
+ * PRICE AND OFFER ARE SEPARATE. The caller writes the model's odds_score,
+ * odds_score_2plus, prob_score and prob_score_2plus unchanged in every case;
+ * this function only picks the two booleans. The player stays in the
+ * allocation pool with his full share — unlike a blocking status such as
+ * `not_in_squad` (BLOCKING_GOALSCORER_STATUSES), which this deliberately is not.
+ *
+ *   previous market: not offered, row NEW         → both false (inherited)
+ *   previous market: not offered, draft NOT offered → both false — the default
+ *                    set when the row was created stands; a recompute does not
+ *                    quietly undo it
+ *   previous market: not offered, draft offered    → model (a draft that is
+ *                    offered is never switched off again by a recompute)
+ *   previous market: offered / player absent / no previous market → model
+ *
+ * So the inheritance only ever DECIDES at the creation of a row; afterwards it
+ * at most keeps a draft where it already is, and never turns an offered draft
+ * into a not-offered one. Once the admin re-activates the player, that is the
+ * row's state, and once this market is published it is the reference for the
+ * next one.
+ */
+export function goalscorerOfferState(input: {
+  /** The model's own offer decision for this player. */
+  model: OfferFlags
+  /** The stored draft row being repriced, or null when this write CREATES it. */
+  existing: { is_offered: boolean } | null
+  /** `is_offered` in the previous published market of this side; undefined if
+   *  there is none or the player was not in it. */
+  previouslyOffered: boolean | undefined
+}): OfferFlags {
+  const model = { is_offered: input.model.is_offered, is_offered_2plus: input.model.is_offered_2plus }
+  if (input.previouslyOffered !== false) return model
+  if (input.existing == null || !input.existing.is_offered) {
+    return { is_offered: false, is_offered_2plus: false }
+  }
+  return model
+}
+
 /**
  * The PAST half of the continuity chain: the last published goalscorer market
  * of THIS Wildenroth side, and the goals of the last match it actually played.
@@ -275,29 +383,16 @@ export async function loadGoalscorerContinuity(
 
   // 1) The last PUBLISHED market. A draft (frozen_at IS NULL) is explicitly not
   //    one: nobody could bet on it, so it never became the market's statement.
-  const candidates = earlier.slice(0, CONTINUITY_LOOKBACK_FIXTURES)
-  const { data: frozenRows } = await supabase
-    .from('match_goalscorer_odds')
-    .select('match_id, player_id, odds_score, is_offered')
-    .in('match_id', candidates.map((m) => m.id))
-    .not('frozen_at', 'is', null)
-
-  let previousMarketMatch: Match | null = null
-  const publishedIds = new Set((frozenRows ?? []).map((r) => r.match_id as number))
-  for (const m of candidates) {
-    if (publishedIds.has(m.id)) { previousMarketMatch = m; break }
-  }
+  const previous = await findPreviousPublishedMarket(supabase, earlier)
+  const previousMarketMatch: Match | null = previous?.match ?? null
 
   const previousOddsScore = new Map<number, number>()
-  if (previousMarketMatch) {
-    for (const r of frozenRows ?? []) {
-      if (r.match_id !== previousMarketMatch.id) continue
-      // Not offered = there was no price anybody could take. The player falls
-      // back to the fundamental model rather than inheriting a phantom number.
-      if (!r.is_offered) continue
-      const odds = Number(r.odds_score)
-      if (Number.isFinite(odds) && odds > 0) previousOddsScore.set(r.player_id as number, odds)
-    }
+  for (const r of previous?.rows ?? []) {
+    // Not offered = there was no price anybody could take. The player falls
+    // back to the fundamental model rather than inheriting a phantom number.
+    if (!r.is_offered) continue
+    const odds = Number(r.odds_score)
+    if (Number.isFinite(odds) && odds > 0) previousOddsScore.set(r.player_id, odds)
   }
 
   // 2) The last match actually PLAYED — possibly a different fixture, e.g. one

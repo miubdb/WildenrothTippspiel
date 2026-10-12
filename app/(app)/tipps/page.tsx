@@ -17,7 +17,7 @@ import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { ODDS_MATCH_COLUMNS, ODDS_MATCH_JOINS, SEASON_START, priorContextFromRows } from '@/lib/oddsInputs'
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerDisplayOffer, type GoalscorerMatchContext } from '@/lib/goalscorer'
-import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction } from '@/lib/goalscorerContext'
+import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, goalscorerOfferState, loadPreviousPublishedOfferState } from '@/lib/goalscorerContext'
 import Link from 'next/link'
 import { CUP_MARKET_LABEL, plainSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
@@ -845,15 +845,23 @@ export default async function TippsPage({
           const { offers } = computeGoalscorerOffersForMatch(
             oddsMatches, m.home_team_id, m.away_team_id, wildenrothId, playersWithStats, priorCtx, gsXgOverride, gsCtx,
           )
+          // New rows only: their offer flags start from the last PUBLISHED
+          // market of this side; the price above is the model's regardless.
+          const previouslyOffered = await loadPreviousPublishedOfferState(supabase, {
+            matchDate: m.match_date, modelMatches: oddsMatches, teamId: wildenrothId,
+          })
           const missingIds = new Set(missing.map(p => p.id))
           for (const o of offers) {
             if (!missingIds.has(o.player_id)) continue
+            const offer = goalscorerOfferState({
+              model: o, existing: null, previouslyOffered: previouslyOffered.get(o.player_id),
+            })
             await adminSupaGs.from('match_goalscorer_odds').insert({
               match_id: m.id,
               player_id: o.player_id,
               status: 'available',
-              is_offered: o.is_offered,
-              is_offered_2plus: o.is_offered_2plus,
+              is_offered: offer.is_offered,
+              is_offered_2plus: offer.is_offered_2plus,
               prob_score: o.prob_score,
               prob_score_2plus: o.prob_score_2plus,
               odds_score: o.odds_score,

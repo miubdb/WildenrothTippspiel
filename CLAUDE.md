@@ -308,6 +308,17 @@ pool later would silently reprice selections people already hold. Only an explic
 (`/api/admin/goalscorers/availability`) may change a published price — a plain status change never
 counts as one.
 
+**Offer status inheritance** (`lib/goalscorerContext.ts#loadPreviousPublishedOfferState` +
+`goalscorerOfferState`) — a player with `is_offered = false` in the last PUBLISHED market of the same
+Wildenroth side (chronological by `match_date`, per team id, never cross-team; the same fixture the
+price continuity anchors on, via the shared `findPreviousPublishedMarket`) starts a NEW draft row
+with `is_offered = is_offered_2plus = false`. It touches only those two booleans: the price,
+`prob_score*`, `status` (`available`) and the player's place in the allocation pool are exactly
+what the model computes — it is NOT a blocking status. Decided when the row is created (admin
+recompute or market open); a later recompute keeps a still-not-offered draft not offered but never
+switches an offered one off, and a hand-edited (`manually_overridden`) or published row never
+reaches it. Once the market is published, its final offer state is the reference for the next one.
+
 **`EXPECTED_OUTFIELD_PLAYERS_USED_DIAGNOSTIC = 15` is a MONITORING VALUE, not a pricing parameter.**
 Ten outfield players start and roughly five more come on, so ~15 different ones feature. That number
 produces exactly one figure — `diagnostics.playProbabilityDiagnostic` — which answers "does the
