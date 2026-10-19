@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus } from '@/components/WetteCard'
 import { plainSelectionLabel, type SpecialDisplayInfo, specialMarketLabel, sortComboLegsChronologically } from '@/lib/betDisplay'
 
-type Bet = {
+export type HistoryBet = {
   id: string
   market_type: string
   selection: string
@@ -27,10 +27,12 @@ type Bet = {
     away_team: { name: string; short_name: string | null } | null
   } | null
 }
+type Bet = HistoryBet
 
-type ComboData = { id: string; stake: number; total_odds: number; status: string; payout: number | null }
+export type HistoryComboData = { id: string; stake: number; total_odds: number; status: string; payout: number | null }
+type ComboData = HistoryComboData
 
-type HistoryItem =
+export type HistoryItem =
   | { kind: 'single'; bet: Bet }
   | { kind: 'combo'; comboId: string; legs: Bet[]; cb: ComboData | undefined }
 
@@ -62,13 +64,22 @@ function betMatchName(bet: Bet, specialsById?: Record<number, SpecialDisplayInfo
   return `${m.home_team?.name ?? '?'} – ${m.away_team?.name ?? '?'}`
 }
 
+/** Für das Wappen-Paar auf dem Wettschein — nie aus `matchName` zurückraten
+ *  (fehleranfällig bei Vereinsnamen mit Trennzeichen), sondern direkt aus dem
+ *  bereits geladenen Match-Join. Specials/fehlendes Match liefern beide `null`,
+ *  WetteCard zeigt dann nur den Text ohne Wappen. */
+function betTeamNames(bet: Bet): { homeTeam: string | null; awayTeam: string | null } {
+  if (bet.market_type === 'matchday_special' || !bet.match) return { homeTeam: null, awayTeam: null }
+  return { homeTeam: bet.match.home_team?.name ?? null, awayTeam: bet.match.away_team?.name ?? null }
+}
+
 function betScore(bet: Bet): string | null {
   const m = bet.match
   if (!m || m.home_score === null) return null
   return `${m.home_score}:${m.away_score}`
 }
 
-function toWetteData(item: HistoryItem, players?: Record<number, string>, specialsById?: Record<number, SpecialDisplayInfo>): WetteData {
+export function toWetteData(item: HistoryItem, players?: Record<number, string>, specialsById?: Record<number, SpecialDisplayInfo>): WetteData {
   if (item.kind === 'single') {
     const b = item.bet
     const special = b.market_type === 'matchday_special' && b.special_id != null ? specialsById?.[b.special_id] : undefined
@@ -89,6 +100,7 @@ function toWetteData(item: HistoryItem, players?: Record<number, string>, specia
         odds: b.odds_value ?? 1,
         status: b.status as WetteStatus,
         score: betScore(b),
+        ...betTeamNames(b),
       }],
     }
   }
@@ -130,9 +142,29 @@ function toWetteData(item: HistoryItem, players?: Record<number, string>, specia
         odds: leg.odds_value ?? 1,
         status: leg.status as WetteStatus,
         score: betScore(leg),
+        ...betTeamNames(leg),
       }
     }),
   }
+}
+
+/** Stornierbar, solange kein Spiel des Scheins angepfiffen wurde (oder das Spiel verschoben ist).
+ *  Serverseitig erneut geprüft (/api/bets/cancel). Exportiert, damit "Meine Wetten"
+ *  (components/meine-wetten/MeineWettenClient.tsx) dieselbe Regel verwendet, statt sie zu kopieren. */
+export function canCancelItem(item: HistoryItem): boolean {
+  const now = new Date()
+  if (item.kind === 'single') {
+    const m = item.bet.match
+    if (!m) return false
+    if (m.status === 'postponed') return true
+    return new Date(m.match_date) > now
+  }
+  for (const leg of item.legs) {
+    const m = leg.match
+    if (!m) continue
+    if (m.status !== 'postponed' && new Date(m.match_date) <= now) return false
+  }
+  return item.legs.length > 0
 }
 
 export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNameMap, highlightDedupeKey, specialsById }: Props) {
@@ -177,22 +209,6 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
     }
   }
 
-  function canCancel(item: HistoryItem): boolean {
-    const now = new Date()
-    if (item.kind === 'single') {
-      const m = item.bet.match
-      if (!m) return false
-      if (m.status === 'postponed') return true
-      return new Date(m.match_date) > now
-    }
-    for (const leg of item.legs) {
-      const m = leg.match
-      if (!m) continue
-      if (m.status !== 'postponed' && new Date(m.match_date) <= now) return false
-    }
-    return item.legs.length > 0
-  }
-
   function getHighlightRef(item: HistoryItem): React.RefObject<HTMLDivElement | null> | undefined {
     if (highlightMatchId === null || isNaN(highlightMatchId)) return undefined
     if (item.kind === 'single' && item.bet.match?.id === highlightMatchId) return highlightRef
@@ -210,7 +226,7 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
       )}
       {items.map((item) => {
         const wette = toWetteData(item, playerNameMap, specialsById)
-        const cancellable = !cancellingId && canCancel(item)
+        const cancellable = !cancellingId && canCancelItem(item)
         const ref = getHighlightRef(item)
         return (
           <div key={wette.id} ref={ref}>

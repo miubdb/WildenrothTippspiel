@@ -6,6 +6,7 @@ import { CommentSection, type CommentData } from '@/components/CommentSection'
 import { wildiLabel } from '@/components/WildiIcon'
 import { oddsColorClass, CUP_MARKET_LABEL } from '@/lib/betDisplay'
 import { cappedPayout } from '@/lib/payout'
+import { TeamLogo } from '@/components/TeamLogo'
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -19,6 +20,10 @@ export type WetteLeg = {
   odds: number
   status: WetteStatus
   score?: string | null
+  /** Nur bei echten Begegnungen (nicht bei Specials) — niemals aus `matchName`
+   *  zurückraten, siehe die Aufrufer (z.B. BetHistoryWithCancel#toWetteData). */
+  homeTeam?: string | null
+  awayTeam?: string | null
 }
 
 export type WetteData = {
@@ -74,10 +79,25 @@ export function fmtOdds(n: number) {
 
 function StatusPill({ status }: { status: WetteStatus }) {
   if (status === 'won')
-    return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 whitespace-nowrap">Gewonnen</span>
+    return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 whitespace-nowrap">Gewonnen 🎉</span>
   if (status === 'lost')
     return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 whitespace-nowrap">Verloren</span>
   return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 whitespace-nowrap">Offen</span>
+}
+
+/** Kleine Wappen vor/nach dem Mannschaftsnamen — nur wenn beide Namen bekannt
+ *  sind (echte Begegnung); Specials/fehlende Zuordnung zeigen nur den Text. */
+function MatchLine({ leg, className }: { leg: WetteLeg; className?: string }) {
+  if (!leg.homeTeam || !leg.awayTeam) {
+    return <div className={className}>{leg.matchName}</div>
+  }
+  return (
+    <div className={`flex items-center gap-1.5 ${className ?? ''}`}>
+      <TeamLogo name={leg.homeTeam} size="sm" />
+      <span className="truncate">{leg.matchName}</span>
+      <TeamLogo name={leg.awayTeam} size="sm" />
+    </div>
+  )
 }
 
 // ── WetteCard ─────────────────────────────────────────────────────────
@@ -109,8 +129,8 @@ export function WetteCard({
   const leg0 = wette.legs[0]
   const possiblePayout = cappedPayout(wette.stake, wette.totalOdds, !!wette.isRisky)
   const typeLine =
-    wette.isRisky && wette.type === 'combo' ? `🎲 Risky · ${wette.legs.length} Tipps` :
-    wette.isRisky ? '🎲 Risky' :
+    wette.isRisky && wette.type === 'combo' ? `🔥 Risky · ${wette.legs.length} Tipps` :
+    wette.isRisky ? '🔥 Risky' :
     wette.type === 'combo' ? `🔗 Kombiwette · ${wette.legs.length} Tipps` :
     'Einzelwette'
 
@@ -132,7 +152,7 @@ export function WetteCard({
               )}
             </div>
             {wette.type === 'single' && leg0 && (
-              <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">{leg0.matchName}</div>
+              <MatchLine leg={leg0} className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug" />
             )}
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className={`text-sm font-black ${oddsColorClass(wette.status)}`}>@{fmtOdds(wette.totalOdds)}</span>
@@ -155,7 +175,7 @@ export function WetteCard({
             </div>
           </div>
 
-          {/* Right: status + storno + chevron */}
+          {/* Right: status + chevron (Storno als eigener Button darunter) */}
           <div className="flex flex-col items-end gap-1 flex-shrink-0 pt-0.5">
             <div className="flex items-center gap-1">
               <StatusPill status={wette.status} />
@@ -166,19 +186,25 @@ export function WetteCard({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
               </svg>
             </div>
-            {canCancel && (
-              <button
-                type="button"
-                onClick={e => { e.stopPropagation(); onCancel(wette.betId, wette.comboId) }}
-                disabled={isCancelling}
-                className="text-[10px] px-1.5 py-0.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-40 font-medium"
-              >
-                {isCancelling ? '…' : 'Storno'}
-              </button>
-            )}
+
           </div>
         </div>
       </button>
+
+      {/* Separate Storno-Aktion: kein Button innerhalb des Klapp-Buttons (gültiges HTML/Touch/Keyboard). */}
+      {canCancel && (
+        <div className="flex justify-end border-t border-gray-100 px-3 py-1.5 dark:border-gray-700">
+          <button
+            type="button"
+            aria-label="Wettschein stornieren"
+            onClick={() => onCancel(wette.betId, wette.comboId)}
+            disabled={isCancelling}
+            className="min-h-9 rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 active:bg-red-50 disabled:opacity-40 dark:border-red-900 dark:text-red-400 dark:active:bg-gray-700"
+          >
+            {isCancelling ? 'Wird storniert …' : 'Stornieren'}
+          </button>
+        </div>
+      )}
 
       {/* ── Expanded: legs + social ── */}
       {open && (
@@ -191,7 +217,7 @@ export function WetteCard({
                 <div key={leg.id} className="flex items-start gap-2">
                   <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5 ${dotCls}`} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-snug">{leg.matchName}</div>
+                    <MatchLine leg={leg} className="text-[11px] text-gray-500 dark:text-gray-400 leading-snug" />
                     <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                       <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1 py-px rounded">
                         {CUP_MARKET_LABEL[leg.market] ?? MARKET_LABEL[leg.market] ?? leg.market}

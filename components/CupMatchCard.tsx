@@ -45,6 +45,9 @@ export function CupMatchCard({
   const { selections, addSelection } = useBetSlip()
   const [blockMsg, setBlockMsg] = useState(false)
   const [tab, setTab] = useState<CupTab>('specials')
+  // Siehe components/BettingMatchCard.tsx — dieselbe kompakte Ergebniszeile
+  // für ein abgeschlossenes Spiel, nur ohne dessen Markt-/Formular-Abschnitte.
+  const [compact, setCompact] = useState(match.status === 'finished')
 
   const homeName = match.home_team?.name ?? 'Heim'
   const awayName = match.away_team?.name ?? 'Gast'
@@ -139,8 +142,40 @@ export function CupMatchCard({
     .filter(g => g.is_offered && g.status === 'available')
     .sort((a, b) => a.odds_score - b.odds_score)
 
+  if (isFinished && compact) {
+    return (
+      <button
+        type="button"
+        onClick={() => setCompact(false)}
+        className="w-full bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-l-4 border-l-amber-500 dark:border-l-amber-600 border-gray-100 dark:border-gray-700 opacity-60 px-4 py-2.5 flex items-center gap-2 active:opacity-80"
+      >
+        <span className="flex-shrink-0 text-[11px]" aria-hidden>🏆</span>
+        <TeamLogo name={homeName} size="sm" />
+        <span className="flex-1 min-w-0 truncate text-left text-xs font-semibold text-gray-700 dark:text-gray-300">{homeName}</span>
+        <span className="flex-shrink-0 bg-gray-800 text-white text-sm font-black px-2.5 py-1 rounded-lg tabular-nums">
+          {match.home_score} : {match.away_score}
+        </span>
+        <span className="flex-1 min-w-0 truncate text-right text-xs font-semibold text-gray-700 dark:text-gray-300">{awayName}</span>
+        <TeamLogo name={awayName} size="sm" />
+        <span className="flex-shrink-0 text-gray-400 dark:text-gray-500 text-xs" aria-hidden>▼</span>
+      </button>
+    )
+  }
+
   return (
     <div className={`bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-l-4 border-l-amber-500 dark:border-l-amber-600 border-gray-100 dark:border-gray-700 overflow-hidden ${isFinished ? 'opacity-60' : ''}`}>
+      {isFinished && (
+        <div className="flex justify-end px-3 pt-1">
+          <button
+            type="button"
+            aria-label="Abgeschlossenes Spiel wieder einklappen"
+            onClick={() => setCompact(true)}
+            className="min-h-9 rounded-lg px-2.5 text-xs font-semibold text-gray-600 underline-offset-2 active:underline dark:text-gray-300"
+          >
+            ▲ Einklappen
+          </button>
+        </div>
+      )}
       {/* Header: a small badge (not a full-width colored banner) is enough to
           mark this as the one-off cup fixture — the card otherwise reads
           like a normal match card, so it doesn't dominate the Spieltag list

@@ -1,0 +1,65 @@
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import type { Match } from '@/types'
+
+/**
+ * Anzeige „Wie viele Wettscheine habe ich für den aktuellen Spieltag schon platziert?“ an „Meine Wetten“ in der Navigation.
+ *
+ * Bedeutung (bewusst NICHT „Anzahl offener Scheine“): gezählt werden die platzierten Scheine des aktuellen Tippspiel-Spieltags –
+ * offen UND bereits abgerechnet (gewonnen/verloren), nur stornierte nicht. Das ist dieselbe Zählung wie in der Platzierungs-API
+ * (`app/api/bets/place`: pending + won + lost belegen einen Platz) und im Kopf der Tipps-Seite (Normal x/2, Risky y/1):
+ * ein früh abgerechneter Schein gibt den Platz nicht wieder frei. Der Pokal-Bonusschein belegt weder Normal- noch Risky-Platz.
+ * Ein Kombischein zählt als EIN Schein; Risky ist er, wenn sein erster Tipp `is_risky` trägt (alle Tipps eines Kombis teilen den Wert).
+ *
+ * „Aktueller Spieltag“ = der früheste Kreisliga-Spieltag (Spielplan-Reihenfolge, Median-Anstoß – nicht BFV-Nummer), der noch ein
+ * nicht beendetes, nicht verschobenes Spiel hat; sind alle durch, der letzte. Gleiche Definition wie `currentMatchday` im Admin-Bereich.
+ * Zwischen dem letzten Abpfiff und Montag 12 Uhr zeigt die Tipps-Seite noch den alten Spieltag mit Rückblick, die Navigation bereits den
+ * kommenden – dort ist noch nichts platziert, also verschwindet die Zahl, bis der neue Spieltag getippt wird.
+ */
+export const NORMAL_SLOTS = 2
+export const RISKY_SLOTS = 1
+
+export type NavBetState = { matchday: number; normal: number; risky: number }
+
+type MatchLite = Pick<Match, 'id' | 'matchday' | 'match_date' | 'status' | 'match_category' | 'is_topspiel' | 'tippspiel_matchday' | 'competition_type'>
+
+export function activeTippMatchday(seasonMatches: MatchLite[]): { matchday: number | null; matchIds: number[] } {
+  const matches = seasonMatches as unknown as Match[]
+  const index = buildEffectiveMatchdayIndex(matches)
+  const order = index.kreisligaMatchdaysDisplayOrder
+  const effOf = (m: Match) => (m.matchday === 999 ? null : effectiveMatchdayOf(m, index))
+  let matchday: number | null = null
+  for (const md of order) {
+    if (matches.some((m) => effOf(m) === md && m.status !== 'finished' && m.status !== 'postponed')) { matchday = md; break }
+  }
+  if (matchday == null) matchday = order[order.length - 1] ?? null
+  if (matchday == null) return { matchday: null, matchIds: [] }
+  return { matchday, matchIds: matches.filter((m) => effOf(m) === matchday).map((m) => m.id) }
+}
+
+type BetLite = { combo_id: number | string | null; is_risky: boolean | null; is_bonus: boolean | null }
+
+/** `bets` = alle nicht stornierten Tipps des Nutzers auf Spielen des Spieltags (eine Zeile je Tipp). */
+export function countPlacedSlots(bets: BetLite[]): { normal: number; risky: number } {
+  let normal = 0
+  let risky = 0
+  const comboSeen = new Set<string>()
+  for (const b of bets) {
+    if (b.combo_id == null) {
+      if (b.is_bonus) continue
+      if (b.is_risky) risky++
+      else normal++
+    } else {
+      const key = String(b.combo_id)
+      if (comboSeen.has(key)) continue
+      comboSeen.add(key)
+      if (b.is_risky) risky++
+      else normal++
+    }
+  }
+  return { normal, risky }
+}
+
+export function navBadgeLabel(s: NavBetState | null): string | undefined {
+  if (!s || s.normal + s.risky === 0) return undefined
+  return `Spieltag ${s.matchday}: Normal ${s.normal} von ${NORMAL_SLOTS}, Risky ${s.risky} von ${RISKY_SLOTS} platziert`
+}

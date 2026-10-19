@@ -1,8 +1,8 @@
+import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { PushSubscribeButton } from '@/components/PushSubscribeButton'
 import { ProfileEditForm } from '@/components/ProfileEditForm'
-import { BetHistoryWithCancel } from '@/components/BetHistoryWithCancel'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { DeleteAccountButton } from '@/components/DeleteAccountButton'
 import { fmtWildi, WildiIcon } from '@/components/WildiIcon'
@@ -13,12 +13,7 @@ import { PokalschrankAwardTile } from '@/components/PokalschrankAwardTile'
 
 export const revalidate = 60
 
-export default async function ProfilPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ highlight?: string }>
-}) {
-  const { highlight } = await searchParams
+export default async function ProfilPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -32,7 +27,7 @@ export default async function ProfilPage({
   // this table — used a few lines below as `user.email`).
   const { data: profile } = await supabase
     .from('profiles')
-    .select('id, display_name, avatar_url, bio, favorite_team, created_at, balance, season_start_balance')
+    .select('id, display_name, avatar_url, bio, favorite_team, created_at, balance, season_start_balance, is_admin')
     .eq('id', user.id)
     .single()
   if (!profile) redirect('/login')
@@ -53,67 +48,17 @@ export default async function ProfilPage({
     .order('matchday', { ascending: false })
   const awards = awardsRaw ?? []
 
-  const { data: betsRaw } = await supabase
+  // Nur noch für die "Letzte Saison"-Kennzahlen gebraucht (Wetthistorie-Liste
+  // entfernt — lebt jetzt unter "Meine Wetten"), daher direkt auf die Vorsaison
+  // eingeschränkt statt wie zuvor alle Wetten zu laden und clientseitig zu
+  // splitten. Kein Match-Join mehr nötig, da keine Zeilen mehr angezeigt werden.
+  const { data: prevBetsRaw } = await supabase
     .from('bets')
-    .select(
-      `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id, season, is_risky, special_id,
-       match:matches(id, matchday, match_date, home_score, away_score, status,
-         home_team:teams!matches_home_team_id_fkey(name, short_name),
-         away_team:teams!matches_away_team_id_fkey(name, short_name)
-       )`
-    )
+    .select('id, stake, status, payout, combo_id')
     .eq('user_id', user.id)
+    .eq('season', PREV_SEASON)
     .neq('status', 'void')
-    .order('created_at', { ascending: false })
-    .limit(120)
-
-  // Every Special referenced by these bets (any status) — a Special bet's own
-  // match_id is only representative_match_id (technical FK anchor, see
-  // lib/matchdaySpecials.ts), never derive its Wett-Historie line from that match.
-  const specialIdsInHistory = [...new Set((betsRaw ?? []).map((b) => b.special_id).filter((id): id is number => id != null))]
-  const specialsById: Record<number, { matchday: number; template_key: string; options: { key: string; label: string }[]; settlement_result: { finalStat: number; winningKey: string } | null }> = {}
-  if (specialIdsInHistory.length > 0) {
-    const { data: specialsRaw } = await supabase
-      .from('matchday_specials')
-      .select('id, matchday, template_key, options, settlement_result')
-      .in('id', specialIdsInHistory)
-    for (const s of specialsRaw ?? []) {
-      specialsById[s.id] = {
-        matchday: s.matchday,
-        template_key: s.template_key,
-        options: s.options as { key: string; label: string }[],
-        settlement_result: s.settlement_result as { finalStat: number; winningKey: string } | null,
-      }
-    }
-  }
-
-  const allBets = (betsRaw ?? []).map(b => ({
-    ...b,
-    match: (() => {
-      const m = Array.isArray(b.match) ? b.match[0] : b.match
-      if (!m) return null
-      return {
-        ...m,
-        home_team: Array.isArray(m.home_team) ? m.home_team[0] : m.home_team,
-        away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
-      }
-    })(),
-  }))
-
-  // Split by season: current = '26/27' (or unknown) + TEST, prev = '25/26'
-  const bets = allBets.filter(b => !b.season || b.season === CURRENT_SEASON || b.season === 'TEST')
-  const prevBets = allBets.filter(b => b.season === PREV_SEASON)
-
-  // Fetch combo_bets metadata — current season
-  const comboIds = [...new Set(bets.filter(b => b.combo_id).map(b => b.combo_id as string))]
-  const comboBetsMap = new Map<string, { id: string; stake: number; total_odds: number; status: string; payout: number | null }>()
-  if (comboIds.length > 0) {
-    const { data: cbData } = await supabase
-      .from('combo_bets')
-      .select('id, stake, total_odds, status, payout')
-      .in('id', comboIds)
-    for (const cb of cbData ?? []) comboBetsMap.set(cb.id, cb)
-  }
+  const prevBets = prevBetsRaw ?? []
 
   // Fetch combo_bets metadata — previous season
   const prevComboIds = [...new Set(prevBets.filter(b => b.combo_id).map(b => b.combo_id as string))]
@@ -124,49 +69,6 @@ export default async function ProfilPage({
       .select('id, stake, total_odds, status, payout')
       .in('id', prevComboIds)
     for (const cb of pcbData ?? []) prevComboBetsMap.set(cb.id, cb)
-  }
-
-  // Wildenroth roster for goalscorer bet labels
-  const { data: rosterRows } = await supabase
-    .from('wildenroth_players')
-    .select('id, name')
-  const playerNameMap: Record<number, string> = Object.fromEntries((rosterRows ?? []).map(r => [r.id, r.name]))
-
-  // Determine per-matchday deadline for cancel eligibility
-  const betMatchdays = [...new Set(bets.filter(b => b.match?.matchday).map(b => b.match!.matchday))]
-  const matchdayDeadlinesPassed: Record<number, boolean> = {}
-  if (betMatchdays.length > 0) {
-    const { data: scheduledFirst } = await supabase
-      .from('matches')
-      .select('matchday, match_date')
-      .eq('status', 'scheduled')
-      .in('matchday', betMatchdays)
-      .order('match_date', { ascending: true })
-    const firstByMd = new Map<number, string>()
-    for (const m of scheduledFirst ?? []) {
-      if (!firstByMd.has(m.matchday)) firstByMd.set(m.matchday, m.match_date)
-    }
-    for (const md of betMatchdays) {
-      const firstDate = firstByMd.get(md)
-      matchdayDeadlinesPassed[md] = !firstDate || new Date(firstDate) <= new Date()
-    }
-  }
-
-  // Build ordered display items (singles in order; combos inserted at position of their first leg)
-  type SingleItem = { kind: 'single'; bet: typeof bets[0] }
-  type ComboItem = { kind: 'combo'; comboId: string; legs: typeof bets[0][]; cb: typeof comboBetsMap extends Map<string, infer V> ? V : never | undefined }
-  type HistoryItem = SingleItem | ComboItem
-
-  const seenCombos = new Set<string>()
-  const historyItems: HistoryItem[] = []
-  for (const bet of bets) {
-    if (!bet.combo_id) {
-      historyItems.push({ kind: 'single', bet })
-    } else if (!seenCombos.has(bet.combo_id)) {
-      seenCombos.add(bet.combo_id)
-      const legs = bets.filter(b => b.combo_id === bet.combo_id)
-      historyItems.push({ kind: 'combo', comboId: bet.combo_id, legs, cb: comboBetsMap.get(bet.combo_id) as never })
-    }
   }
 
   // Zentrale Statistik-Schicht (lib/betStats.ts) — einzige Quelle für
@@ -339,22 +241,16 @@ export default async function ProfilPage({
       {/* Push Notifications */}
       <PushSubscribeButton />
 
-      {/* Bet History */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">Wetthistorie</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Letzte {historyItems.length} Einträge</p>
-        </div>
-
-        {historyItems.length === 0 ? (
-          <div className="text-center py-10 text-gray-400 dark:text-gray-500">
-            <div className="text-3xl mb-2">🎯</div>
-            <div className="text-sm">Noch keine Wetten platziert</div>
-          </div>
-        ) : (
-          <BetHistoryWithCancel items={historyItems as never} matchdayDeadlinesPassed={matchdayDeadlinesPassed} playerNameMap={playerNameMap} highlightDedupeKey={highlight} specialsById={specialsById} />
-        )}
-      </div>
+      {/* Wetthistorie lebt jetzt ausschließlich unter "Meine Wetten"
+          (eigener Hauptnavigationspunkt) — hier nicht mehr doppelt anzeigen.
+          Schnellzugriff dorthin: */}
+      <Link
+        href="/meine-wetten"
+        className="flex items-center justify-between bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-4 py-3.5"
+      >
+        <span className="font-bold text-gray-900 dark:text-gray-100">Meine Wetten ansehen</span>
+        <span aria-hidden className="text-gray-400 dark:text-gray-500">→</span>
+      </Link>
 
       {/* Profile Edit */}
       <ProfileEditForm
@@ -394,6 +290,18 @@ export default async function ProfilPage({
         </details>
       )}
 
+      {/* Admin-Verwaltung — bisher nur über den 6. Bottom-Nav-Punkt erreichbar; die neue
+          Navigation hat fest 5 Plätze (Meine Wetten/Rangliste/Tippen/Liga/Profil), daher
+          hier als eigener Zugang, statt den Zugriff ersatzlos zu verlieren. */}
+      {profile.is_admin && (
+        <Link href="/admin" className="w-full flex items-center justify-center gap-2 py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 font-semibold rounded-xl transition-colors text-sm">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Admin-Bereich
+        </Link>
+      )}
       <SignOutButton />
       <DeleteAccountButton />
     </div>

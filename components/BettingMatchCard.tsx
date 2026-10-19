@@ -69,6 +69,13 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   const [wildenrothBlockMsg, setWildenrothBlockMsg] = useState(false)
   const [wildenrothBlockTeam, setWildenrothBlockTeam] = useState<1 | 2>(1)
   const [replacedMsg, setReplacedMsg] = useState(false)
+  // Abgeschlossene Spiele starten eingeklappt (kompakte Ergebniszeile) — spart
+  // Scrollstrecke auf vergangenen/laufenden Spieltagen. Tippt man sie an, zeigt
+  // sich exakt dieselbe, unveränderte Karte wie bisher; Quoten/Wettmärkte und
+  // deren Sperrlogik sind davon nicht berührt (ein beendetes Spiel bietet
+  // ohnehin keine Märkte mehr an). Nur für `finished` — live/laufende Spiele
+  // bleiben immer vollständig sichtbar.
+  const [compact, setCompact] = useState(match.status === 'finished')
 
   const homeName = match.home_team?.name ?? 'Heim'
   const awayName = match.away_team?.name ?? 'Gast'
@@ -189,6 +196,29 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     .sort((a, b) => new Date(b.match_date).getTime() - new Date(a.match_date).getTime())
     .slice(0, 5)
 
+  // Kompakte Ergebniszeile für ein bereits abgeschlossenes Spiel — identische
+  // Daten (Wappen, Namen, Endergebnis), nur ohne die Markt-/Formular-Abschnitte
+  // darunter. Antippen zeigt exakt dieselbe vollständige Karte wie bisher
+  // (return weiter unten), keine Quoten-/Sperrlogik wird hier berührt.
+  if (isFinished && compact) {
+    return (
+      <button
+        type="button"
+        onClick={() => setCompact(false)}
+        className="w-full bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 opacity-60 px-4 py-2.5 flex items-center gap-2 active:opacity-80"
+      >
+        <TeamLogo name={homeName} size="sm" />
+        <span className="flex-1 min-w-0 truncate text-left text-xs font-semibold text-gray-700 dark:text-gray-300">{homeName}</span>
+        <span className="flex-shrink-0 bg-gray-800 text-white text-sm font-black px-2.5 py-1 rounded-lg tabular-nums">
+          {match.home_score} : {match.away_score}
+        </span>
+        <span className="flex-1 min-w-0 truncate text-right text-xs font-semibold text-gray-700 dark:text-gray-300">{awayName}</span>
+        <TeamLogo name={awayName} size="sm" />
+        <span className="flex-shrink-0 text-gray-400 dark:text-gray-500 text-xs" aria-hidden>▼</span>
+      </button>
+    )
+  }
+
   return (
     <div className={`bg-white dark:bg-gray-800 rounded-2xl shadow-sm border overflow-hidden transition-opacity ${
       isLive
@@ -197,6 +227,18 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         ? 'border-gray-100 dark:border-gray-700 opacity-60'
         : 'border-gray-100 dark:border-gray-700'
     }`}>
+      {isFinished && (
+        <div className="flex justify-end px-3 pt-1">
+          <button
+            type="button"
+            aria-label="Abgeschlossenes Spiel wieder einklappen"
+            onClick={() => setCompact(true)}
+            className="min-h-9 rounded-lg px-2.5 text-xs font-semibold text-gray-600 underline-offset-2 active:underline dark:text-gray-300"
+          >
+            ▲ Einklappen
+          </button>
+        </div>
+      )}
       {/* Match Header */}
       <button
         className={`w-full px-4 py-2.5 flex items-center justify-between active:opacity-80 ${

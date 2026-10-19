@@ -3,7 +3,6 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import { BettingMatchCard } from '@/components/BettingMatchCard'
 import { BetSlip } from '@/components/BetSlip'
-import { MyBets } from '@/components/MyBets'
 import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { MatchdayRecap } from '@/components/MatchdayRecap'
 import { AllTippsSection } from '@/components/AllTippsSection'
@@ -23,6 +22,7 @@ import { CUP_MARKET_LABEL, plainSelectionLabel, type SpecialDisplayInfo, special
 import { computeStornoChamp } from '@/lib/awards'
 import { cappedPayout } from '@/lib/payout'
 import { MatchdaySpecialsSection, type MatchdaySpecialForDisplay } from '@/components/MatchdaySpecialsSection'
+import { defaultCurrentMatchday } from '@/app/_lib/currentMatchday'
 
 export const revalidate = 60
 
@@ -156,7 +156,7 @@ export default async function TippsPage({
   const kreisligaMatches = seasonMatches.filter((m) => m.matchday !== 999 && isKreisligaMatch(m))
 
   const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
-  const { matchdayMinDate, kreisligaMatchdaysSorted } = mdIndex
+  const { kreisligaMatchdaysSorted } = mdIndex
   const effectiveMatchdayOf = (m: Match) => effectiveMatchdayOfShared(m, mdIndex)
 
   // CHRONOLOGICAL list (earliest kickoff first). Feeds `chronologicalMatchdays`
@@ -216,61 +216,12 @@ export default async function TippsPage({
   // betting_open_md_<N> to something other than the natural Monday noon (e.g.
   // a rescheduled Spieltag), leaving the app parked on the old Spieltag (or
   // jumping early) even though betting has actually opened (or hasn't yet).
-  const nextMatchdayOpensAt = firstScheduled != null
-    ? (explicitBettingOpens.get(firstScheduled) ?? bettingOpenTime(new Date(matchdayMinDate.get(firstScheduled) ?? Date.now())))
-    : null
-  const isBeforeMondayNoon = nextMatchdayOpensAt ? new Date() < nextMatchdayOpensAt : true
-  const completedMatchdays = allMatchdays.filter((md) => {
-    // Group by the EFFECTIVE Spieltag, i.e. the matches actually shown under
-    // this tab. Grouping by the raw `matchday` column would keep a Spieltag
-    // "not completed" until an outlier match that is displayed under a
-    // different Spieltag has been played.
-    const mdM = seasonMatches.filter((m) => effectiveMatchdayOf(m) === md)
-    const nonPostponed = mdM.filter((m) => m.status !== 'postponed')
-    return nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
-  })
-  const lastCompletedMd = completedMatchdays.length > 0
-    ? completedMatchdays.reduce((latest, md) =>
-        (mdIndex.matchdayAnchorDate.get(md) ?? 0) > (mdIndex.matchdayAnchorDate.get(latest) ?? 0) ? md : latest
-      )
-    : null
-
-  // A Spieltag that has already KICKED OFF but isn't finished yet fits
-  // neither bucket above: `firstScheduled` only counts Kreisliga matches that
-  // are still scheduled, and `completedMatchdays` demands every match be
-  // finished. So the evening the last Kreisliga match of a Spieltag ends while
-  // its Wildenroth-II/Topspiel game still runs the next day, the page jumped
-  // BACK to the previous fully-completed Spieltag — showing a week-old recap
-  // while the current Spieltag was still live. Takes precedence over
-  // lastCompletedMd, but only while the NEXT Spieltag's betting window is
-  // still closed: once that opens, the bettable Spieltag wins as before.
-  const nowMs = Date.now()
-  const inProgressMd = [...new Set(
-    seasonMatches
-      .map((m) => effectiveMatchdayOf(m))
-      .filter((md): md is number => md != null && md !== 999)
-  )]
-    .filter((md) => {
-      const nonPostponed = seasonMatches
-        .filter((m) => effectiveMatchdayOf(m) === md && m.status !== 'postponed')
-      if (nonPostponed.length === 0) return false
-      const hasStarted = nonPostponed.some(
-        (m) => m.status === 'finished' || new Date(m.match_date).getTime() <= nowMs
-      )
-      const allDone = nonPostponed.every((m) => m.status === 'finished')
-      return hasStarted && !allDone
-    })
-    .sort((a, b) => (mdIndex.matchdayAnchorDate.get(a) ?? 0) - (mdIndex.matchdayAnchorDate.get(b) ?? 0))
-    .at(-1) ?? null
-
-  const latestMatchdayByAnchor = () => allMatchdays.filter(md => md !== 999).reduce((latest, md) =>
-    (mdIndex.matchdayAnchorDate.get(md) ?? 0) > (mdIndex.matchdayAnchorDate.get(latest) ?? 0) ? md : latest
-  )
-  const defaultMatchday = isPreSeason
-    ? (hasTestMatchday ? 999 : 1)
-    : isBeforeMondayNoon
-      ? (inProgressMd ?? lastCompletedMd ?? firstScheduled ?? latestMatchdayByAnchor())
-      : (firstScheduled ?? latestMatchdayByAnchor())
+  //
+  // Extracted to app/_lib/currentMatchday.ts (unchanged behaviour, only
+  // parameterised by `now`) so "Meine Wetten" resolves the exact same current
+  // Spieltag instead of its own, less robust stand-in — see that file's doc
+  // comment.
+  const defaultMatchday = defaultCurrentMatchday(seasonMatches, mdIndex, explicitBettingOpens, { isPreSeason, hasTestMatchday })
   const requestedMd = params.matchday ? parseInt(params.matchday, 10) : null
   const currentMatchday =
     requestedMd && allMatchdays.includes(requestedMd) ? requestedMd : defaultMatchday
@@ -1067,14 +1018,6 @@ export default async function TippsPage({
     }
   }
 
-  const userMatchMap: Record<number, { home: string; away: string; kickoff: string }> = Object.fromEntries(
-    matchdayMatches.map(m => [m.id, {
-      home: m.home_team?.name ?? m.home_team?.short_name ?? '?',
-      away: m.away_team?.name ?? m.away_team?.short_name ?? '?',
-      kickoff: m.match_date,
-    }])
-  )
-
   // Social bets: visible after each individual match kicks off (RLS policy allows this)
   type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number; stake: number | null; special_id: number | null }
   type SocialCombo = { id: number; stake: number; total_odds: number; status: string; payout: number | null }
@@ -1571,21 +1514,6 @@ export default async function TippsPage({
           </div>
         </div>
 
-        {/* Quick jump to the user's own placed bets further down the page —
-            during/around a running Spieltag that's usually the first thing
-            someone wants to check, not another scroll through every match.
-            Only shown once there's actually something to jump to (mirrors
-            MyBets' own render condition below), plain in-page anchor — no
-            JS needed, app/globals.css already sets scroll-behavior: smooth. */}
-        {user && (userSingles.length > 0 || userCombos.length > 0) && (
-          <a
-            href="#meine-tipps"
-            className="mt-3 flex items-center justify-center gap-1.5 bg-red-800/60 hover:bg-red-800/80 transition-colors rounded-xl px-3 py-2 text-sm font-semibold text-white"
-          >
-            Zu meinen Tipps <span aria-hidden>↓</span>
-          </a>
-        )}
-
         {/* Betting window not yet open */}
         {!isBettingOpen && !isDeadlinePassed && bettingOpens && (
           <div className="mt-3 bg-red-800/60 rounded-xl px-3 py-2">
@@ -1768,19 +1696,10 @@ export default async function TippsPage({
         />
       )}
 
-      {/* Own placed bets — id targeted by the "Zu meinen Tipps" jump link above */}
-      {user && (userSingles.length > 0 || userCombos.length > 0) && (
-        <div id="meine-tipps">
-        <MyBets
-          singles={userSingles}
-          combos={userCombos}
-          matchMap={userMatchMap}
-          isDeadlinePassed={isDeadlinePassed}
-          playerNameMap={playerNameMap}
-          specialsById={specialsById}
-        />
-        </div>
-      )}
+      {/* Persönliche Wettübersicht lebt jetzt ausschließlich unter "Meine Wetten"
+          (eigener Hauptnavigationspunkt) — hier nicht mehr doppelt anzeigen.
+          userSingles/userCombos bleiben oben für die Normal/Risky-Zähler
+          im Header nötig, siehe deren Berechnung. */}
 
       <BetSlip />
     </div>

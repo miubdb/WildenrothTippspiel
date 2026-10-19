@@ -1,9 +1,30 @@
 import type { Metadata, Viewport } from 'next'
-import { Inter } from 'next/font/google'
+import localFont from 'next/font/local'
 import './globals.css'
 import { ThemeProvider } from '@/components/ThemeProvider'
 
-const inter = Inter({ subsets: ['latin'] })
+// Barlow / Barlow Condensed, lokal ausgeliefert (public/fonts) — kein Netzwerkzugriff
+// beim Build oder zur Laufzeit. Barlow für Fließtext/UI, Barlow Condensed für
+// Überschriften/Kennzahlen (--font-display in app/globals.css).
+const barlow = localFont({
+  src: [
+    { path: '../public/fonts/Barlow-400.woff2', weight: '400', style: 'normal' },
+    { path: '../public/fonts/Barlow-500.woff2', weight: '500', style: 'normal' },
+    { path: '../public/fonts/Barlow-600.woff2', weight: '600', style: 'normal' },
+    { path: '../public/fonts/Barlow-700.woff2', weight: '700', style: 'normal' },
+  ],
+  variable: '--font-barlow',
+  display: 'swap',
+})
+const barlowCondensed = localFont({
+  src: [
+    { path: '../public/fonts/BarlowCondensed-600.woff2', weight: '600', style: 'normal' },
+    { path: '../public/fonts/BarlowCondensed-700.woff2', weight: '700', style: 'normal' },
+    { path: '../public/fonts/BarlowCondensed-800.woff2', weight: '800', style: 'normal' },
+  ],
+  variable: '--font-barlow-condensed',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'Wildenroth Tippspiel',
@@ -29,6 +50,9 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  // Unter die Statusleiste/den Home-Indicator zeichnen, damit die Bottom-Navigation
+  // echte safe-area-inset-bottom-Werte bekommt (sonst bleiben sie auf iOS teils 0).
+  viewportFit: 'cover',
 }
 
 export default function RootLayout({
@@ -37,7 +61,7 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="de" className="h-full">
+    <html lang="de" className={`h-full ${barlow.variable} ${barlowCondensed.variable}`}>
       <head>
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -54,7 +78,7 @@ export default function RootLayout({
           } catch(e) {}
         `}} />
       </head>
-      <body className={`${inter.className} h-full`} style={{ background: 'var(--background)', color: 'var(--foreground)' }}>
+      <body className="h-full font-sans" style={{ background: 'var(--background)', color: 'var(--foreground)' }}>
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

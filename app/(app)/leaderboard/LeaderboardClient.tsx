@@ -145,6 +145,8 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
           odds: b.odds_value,
           status: b.status as WetteStatus,
           score,
+          homeTeam: special || !m ? null : m.home_team.name,
+          awayTeam: special || !m ? null : m.away_team.name,
         }],
       })
     } else if (!seen.has(b.combo_id)) {
@@ -189,6 +191,8 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
             odds: leg.odds_value,
             status: leg.status as WetteStatus,
             score: lscore,
+            homeTeam: legSpecial || !lm ? null : lm.home_team.name,
+            awayTeam: legSpecial || !lm ? null : lm.away_team.name,
           }
         }),
       })
