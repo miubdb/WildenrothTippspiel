@@ -306,7 +306,9 @@ export function BetSlip() {
       {count > 0 && !open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-20 left-3 right-3 z-40 bg-gradient-to-r from-red-700 to-red-800 text-white rounded-2xl shadow-2xl flex items-center gap-3 px-4 py-3 active:scale-[0.985] transition-transform"
+          // Keep the collapsed slip above the raised center navigation coin and iPhone safe area.
+          style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom, 0px))' }}
+          className="fixed left-3 right-3 z-40 bg-gradient-to-r from-red-700 to-red-800 text-white rounded-2xl shadow-2xl flex items-center gap-3 px-4 py-3 active:scale-[0.985] transition-transform"
         >
           <span className="w-7 h-7 bg-white/20 text-white rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 border border-white/30">
             {count}
