@@ -5,6 +5,7 @@ import { SURVEY_SECTIONS, SURVEY_VERSION, visibleQuestionsForAnswers, type Answe
 import type {
   SurveyOverview, QuestionStat, SurveyCrossTabs, SingleChoiceStat, ScaleStat, MultiStat, FreetextStat,
 } from '@/lib/surveyAggregate'
+import { Btn, EmptyNote, LoadingBlock, Notice, Panel, Pill, Section, useConfirm } from '@/components/admin/ui'
 
 interface Participant {
   userId: string
@@ -40,12 +41,17 @@ function fmtPct(n: number) {
   return `${n.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 1 })}%`
 }
 
-export function SurveyTab() {
+/** `onMessage` ersetzt die frühere eigene `message`-Mini-Leiste (immer rot, egal ob Erfolg oder
+ *  Fehler, mit eigenem ✕-Dismiss) — läuft jetzt über dieselbe globale Banner-Stelle wie überall
+ *  sonst im Admin-Bereich. Die beiden `ConfirmDialog`-Aufrufe (eigenes natives Modal) sind durch
+ *  `useConfirm()` ersetzt, denselben Dialog, der an jeder anderen destruktiven Aktion im Admin-
+ *  Bereich bereits verwendet wird. Alle Datenabrufe/Aktionen (`load`, `postAction`,
+ *  `setMode`/`setAllowReset`/`deleteResponse`/`resetAll`) sind unverändert. */
+export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void }) {
+  const confirmDialog = useConfirm()
   const [data, setData] = useState<SurveyData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [message, setMessage] = useState<string | null>(null)
-  const [confirmDeleteUser, setConfirmDeleteUser] = useState<{ userId: string; username: string } | null>(null)
-  const [confirmResetAll, setConfirmResetAll] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [viewParticipant, setViewParticipant] = useState<Participant | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -54,14 +60,17 @@ export function SurveyTab() {
     try {
       const res = await fetch('/api/admin/survey')
       const json = await res.json()
-      if (res.ok) setData(json)
-      else setMessage(`Fehler: ${json.error ?? 'Laden fehlgeschlagen.'}`)
+      if (res.ok) { setData(json); setLoadFailed(false) } else {
+        onMessage(`Fehler: ${json.error ?? 'Laden fehlgeschlagen.'}`)
+        setLoadFailed(true)
+      }
     } catch {
-      setMessage('Fehler: Netzwerkfehler.')
+      onMessage('Fehler: Netzwerkfehler.')
+      setLoadFailed(true)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [onMessage])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial async data fetch on mount, same pattern used throughout app/admin/page.tsx
@@ -78,12 +87,12 @@ export function SurveyTab() {
       })
       const json = await res.json()
       if (!res.ok) {
-        setMessage(`Fehler: ${json.error ?? 'Aktion fehlgeschlagen.'}`)
+        onMessage(`Fehler: ${json.error ?? 'Aktion fehlgeschlagen.'}`)
         return false
       }
       return true
     } catch {
-      setMessage('Fehler: Netzwerkfehler.')
+      onMessage('Fehler: Netzwerkfehler.')
       return false
     } finally {
       setBusy(false)
@@ -99,105 +108,98 @@ export function SurveyTab() {
   }
 
   async function deleteResponse(userId: string) {
-    if (await postAction({ action: 'delete_response', userId })) {
-      setConfirmDeleteUser(null)
-      await load()
-    }
+    if (await postAction({ action: 'delete_response', userId })) await load()
+  }
+
+  async function confirmDeleteResponse(userId: string, username: string) {
+    if (!(await confirmDialog({
+      title: 'Antworten löschen?',
+      message: `Möchtest du die Umfrageantworten von ${username} wirklich löschen? Der Nutzer kann die Umfrage anschließend erneut von vorne ausfüllen.`,
+      confirmLabel: 'Antworten löschen', tone: 'danger',
+    }))) return
+    await deleteResponse(userId)
   }
 
   async function resetAll() {
-    if (await postAction({ action: 'reset_all' })) {
-      setConfirmResetAll(false)
-      await load()
-    }
+    if (await postAction({ action: 'reset_all' })) await load()
   }
 
-  if (loading && !data) return <div className="text-center text-sm text-gray-400 py-8">Lädt…</div>
-  if (!data) return <div className="text-center text-sm text-red-500 py-8">{message ?? 'Keine Daten.'}</div>
+  async function confirmResetAll() {
+    if (!(await confirmDialog({
+      title: 'Wirklich alle Antworten löschen?',
+      message: `Wirklich alle Antworten der Umfrage ${SURVEY_VERSION} löschen?`,
+      confirmLabel: 'Alle löschen', tone: 'danger',
+    }))) return
+    await resetAll()
+  }
+
+  if (loading && !data) return <LoadingBlock label="Umfragedaten werden geladen …" />
+  if (!data) return (
+    <Panel tone="critical" className="space-y-2 p-4">
+      <Notice tone="critical" action={<Btn size="sm" onClick={load}>Erneut laden</Btn>}>
+        {loadFailed ? 'Umfragedaten konnten nicht geladen werden.' : 'Keine Daten.'}
+      </Notice>
+    </Panel>
+  )
 
   const { settings, overview, perQuestion, crossTabs, participants } = data
   const statById = new Map(perQuestion.map((s) => [s.stat.questionId, s]))
 
   return (
     <div className="space-y-4">
-      {message && (
-        <div className="px-4 py-3 rounded-xl text-sm font-medium bg-red-50 text-red-700 border border-red-100">
-          {message}
-          <button onClick={() => setMessage(null)} className="ml-2 opacity-60 hover:opacity-100">✕</button>
-        </div>
-      )}
-
-      {/* Rollout config */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-        <h3 className="font-bold text-gray-900 mb-3">Sichtbarkeit &amp; Konfiguration</h3>
-        <div className="flex bg-gray-50 border border-gray-200 rounded-xl p-1 mb-3">
-          {(['hidden', 'help_only', 'prominent'] as const).map((m) => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              disabled={busy}
-              className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
-                settings.surveyMode === m ? 'bg-red-700 text-white shadow' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {MODE_LABEL[m]}
-            </button>
-          ))}
-        </div>
-        <p className="text-xs text-gray-500 mb-3">
-          Aktuell: <strong>{MODE_LABEL[settings.surveyMode] ?? settings.surveyMode}</strong> ·
-          {' '}„Nur unter Hilfe&rdquo; = nur über Hilfe → Feedback &amp; Umfrage erreichbar, kein Hinweis auf der Startseite.
-          „Prominent&rdquo; zeigt zusätzlich einen Banner auf der Startseite.
-        </p>
-        <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-          <div>
-            <div className="text-sm font-semibold text-gray-900">Bulk-Reset erlaubt (Testphase)</div>
-            <div className="text-xs text-gray-500 mt-0.5">Schaltet den Button „Alle Testantworten löschen&rdquo; unten frei/aus.</div>
+      <Section id="uf-sichtbarkeit" title="Sichtbarkeit & Konfiguration" subtitle="Umfrage-Rollout steuern" defaultOpen>
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            {(['hidden', 'help_only', 'prominent'] as const).map((m) => (
+              <Btn key={m} variant={settings.surveyMode === m ? 'primary' : 'secondary'} size="sm" className="flex-1" disabled={busy} onClick={() => setMode(m)}>
+                {MODE_LABEL[m]}
+              </Btn>
+            ))}
           </div>
-          <button
-            onClick={() => setAllowReset(!settings.allowReset)}
-            disabled={busy}
-            className={`px-4 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${settings.allowReset ? 'bg-gray-500 hover:bg-gray-600' : 'bg-red-700 hover:bg-red-800'}`}
-          >
-            {settings.allowReset ? 'Deaktivieren' : 'Aktivieren'}
-          </button>
-        </div>
-      </div>
-
-      {/* Overview */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-        <h3 className="font-bold text-gray-900 mb-3">Übersicht</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <Metric label="Aktive User" value={overview.activeUsers} />
-          <Metric label="Umfrage begonnen" value={overview.started} />
-          <Metric label="Vollständig abgegeben" value={overview.submitted} highlight="green" />
-          <Metric label="Noch nicht teilgenommen" value={overview.notStarted} />
-          <Metric label="Teilnahmequote" value={fmtPct(overview.participationRatePct)} />
-          <Metric label="Ø Zufriedenheit (Q1)" value={fmtNum(overview.avgQ1, 1)} />
-          <Metric label="Ø Wiederteilnahme (Q30)" value={fmtNum(overview.avgQ30, 1)} />
-        </div>
-        {overview.startedNotSubmitted > 0 && (
-          <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
-            <strong>{overview.startedNotSubmitted}</strong> Person(en) haben begonnen, aber noch nicht abgegeben.
+          <p className="text-[13px] leading-5 text-gray-600">
+            Aktuell: <strong>{MODE_LABEL[settings.surveyMode] ?? settings.surveyMode}</strong> ·
+            {' '}„Nur unter Hilfe&rdquo; = nur über Hilfe → Feedback &amp; Umfrage erreichbar, kein Hinweis auf der Startseite.
+            „Prominent&rdquo; zeigt zusätzlich einen Banner auf der Startseite.
+          </p>
+          <div className="flex flex-col gap-3 rounded-xl bg-gray-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-[15px] font-bold text-gray-900">Bulk-Reset erlaubt (Testphase)</div>
+              <div className="text-[13px] text-gray-600">Schaltet den Button „Alle Testantworten löschen&rdquo; unten frei/aus.</div>
+            </div>
+            <Btn variant={settings.allowReset ? 'secondary' : 'primary'} disabled={busy} onClick={() => setAllowReset(!settings.allowReset)}>
+              {settings.allowReset ? 'Deaktivieren' : 'Aktivieren'}
+            </Btn>
           </div>
-        )}
-      </div>
+        </div>
+      </Section>
 
-      {/* Cross-tabs */}
-      <CrossTabsSection crossTabs={crossTabs} />
-
-      {/* Per-question stats, grouped by section */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-        <h3 className="font-bold text-gray-900 mb-1">Auswertung je Frage</h3>
-        <p className="text-xs text-gray-500 mb-3">Basierend auf {overview.submitted} vollständig abgegebenen Antworten.</p>
+      <Section id="uf-uebersicht" title="Übersicht" subtitle="Teilnahme & kombinierte Auswertungen" defaultOpen badge={<Pill tone="neutral">{overview.submitted} abgegeben</Pill>}>
         <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <Metric label="Aktive User" value={overview.activeUsers} />
+            <Metric label="Umfrage begonnen" value={overview.started} />
+            <Metric label="Vollständig abgegeben" value={overview.submitted} highlight="green" />
+            <Metric label="Noch nicht teilgenommen" value={overview.notStarted} />
+            <Metric label="Teilnahmequote" value={fmtPct(overview.participationRatePct)} />
+            <Metric label="Ø Zufriedenheit (Q1)" value={fmtNum(overview.avgQ1, 1)} />
+            <Metric label="Ø Wiederteilnahme (Q30)" value={fmtNum(overview.avgQ30, 1)} />
+          </div>
+          {overview.startedNotSubmitted > 0 && (
+            <Notice tone="open"><strong>{overview.startedNotSubmitted}</strong> Person(en) haben begonnen, aber noch nicht abgegeben.</Notice>
+          )}
+          <CrossTabsSection crossTabs={crossTabs} />
+        </div>
+      </Section>
+
+      <Section id="uf-fragen" title="Auswertung je Frage" subtitle={`Basierend auf ${overview.submitted} vollständig abgegebenen Antworten`}>
+        <div className="space-y-3">
           {SURVEY_SECTIONS.map((section) => (
-            <details key={section.id} className="group border border-gray-100 rounded-xl overflow-hidden">
-              <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
-                <span className="font-semibold text-sm text-gray-800">{section.id}. {section.title}</span>
-                <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            <details key={section.id} className="group rounded-xl border border-gray-200">
+              <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between px-4 text-[14px] font-semibold text-gray-800 select-none [&::-webkit-details-marker]:hidden">
+                {section.id}. {section.title}
+                <svg className="h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
               </summary>
-              <div className="p-4 space-y-4">
+              <div className="space-y-4 border-t border-gray-200 p-4">
                 {section.questions.map((q) => {
                   const stat = statById.get(q.id)
                   if (!stat) return null
@@ -207,98 +209,65 @@ export function SurveyTab() {
             </details>
           ))}
         </div>
-      </div>
+      </Section>
 
-      {/* Individual participants */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="font-bold text-gray-900">Einzelantworten</h3>
-          <a href="/api/admin/survey/export" className="text-xs font-semibold text-red-700 hover:underline">CSV Export</a>
+      <Section id="uf-antworten" title="Einzelantworten" subtitle="Je Teilnehmer ansehen oder löschen" badge={<Pill tone="neutral">{participants.length}</Pill>}>
+        <div className="space-y-3">
+          <a href="/api/admin/survey/export" className="text-[13px] font-semibold text-red-700 hover:underline">CSV Export</a>
+          {participants.length === 0 ? <EmptyNote>Noch keine Antworten.</EmptyNote> : (
+            <div className="-mx-4 overflow-x-auto px-4">
+              <table className="w-full min-w-[640px] text-[13px]">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left text-gray-500">
+                    <th className="py-2 pr-2 font-semibold">Nutzer</th>
+                    <th className="py-2 pr-2 font-semibold">Status</th>
+                    <th className="py-2 pr-2 font-semibold">Gestartet</th>
+                    <th className="py-2 pr-2 font-semibold">Abgegeben</th>
+                    <th className="py-2 pr-2 font-semibold">Geändert</th>
+                    <th className="py-2 pr-2 font-semibold"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {participants.map((p) => (
+                    <tr key={p.userId} className="border-b border-gray-100">
+                      <td className="py-2 pr-2 font-medium text-gray-800">{p.username}</td>
+                      <td className="py-2 pr-2">
+                        <Pill tone={p.status === 'abgegeben' ? 'success' : 'open'}>{p.status}</Pill>
+                      </td>
+                      <td className="py-2 pr-2 text-gray-500">{fmtDate(p.startedAt)}</td>
+                      <td className="py-2 pr-2 text-gray-500">{fmtDate(p.submittedAt)}</td>
+                      <td className="py-2 pr-2 text-gray-500">{fmtDate(p.updatedAt)}</td>
+                      <td className="py-2 pr-2">
+                        <div className="flex justify-end gap-1.5">
+                          <Btn size="sm" variant="secondary" onClick={() => setViewParticipant(p)}>Ansehen</Btn>
+                          <Btn size="sm" variant="danger" onClick={() => confirmDeleteResponse(p.userId, p.username)}>Löschen</Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-        <div className="overflow-x-auto -mx-4 px-4">
-          <table className="w-full text-xs min-w-[640px]">
-            <thead>
-              <tr className="text-left text-gray-400 border-b border-gray-100">
-                <th className="py-2 pr-2 font-semibold">Nutzer</th>
-                <th className="py-2 pr-2 font-semibold">Status</th>
-                <th className="py-2 pr-2 font-semibold">Gestartet</th>
-                <th className="py-2 pr-2 font-semibold">Abgegeben</th>
-                <th className="py-2 pr-2 font-semibold">Geändert</th>
-                <th className="py-2 pr-2 font-semibold"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {participants.map((p) => (
-                <tr key={p.userId} className="border-b border-gray-50">
-                  <td className="py-2 pr-2 font-medium text-gray-800">{p.username}</td>
-                  <td className="py-2 pr-2">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${p.status === 'abgegeben' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {p.status}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-2 text-gray-500">{fmtDate(p.startedAt)}</td>
-                  <td className="py-2 pr-2 text-gray-500">{fmtDate(p.submittedAt)}</td>
-                  <td className="py-2 pr-2 text-gray-500">{fmtDate(p.updatedAt)}</td>
-                  <td className="py-2 pr-2">
-                    <div className="flex gap-1.5 justify-end">
-                      <button onClick={() => setViewParticipant(p)} className="px-2 py-1 rounded-lg text-[10px] font-bold bg-gray-100 text-gray-700 hover:bg-gray-200">Ansehen</button>
-                      <button onClick={() => setConfirmDeleteUser({ userId: p.userId, username: p.username })} className="px-2 py-1 rounded-lg text-[10px] font-bold bg-red-100 text-red-700 hover:bg-red-200">Löschen</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {participants.length === 0 && (
-                <tr><td colSpan={6} className="py-6 text-center text-gray-400">Noch keine Antworten.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      </Section>
 
-      {/* Danger zone */}
-      <div className="border border-red-200 rounded-2xl p-4 bg-red-50">
-        <h4 className="font-bold text-red-800 mb-1 text-sm">Testphase — Alle Antworten löschen</h4>
-        <p className="text-xs text-red-700 mb-3">
-          Löscht alle Umfrageantworten der Version {SURVEY_VERSION} unwiderruflich. Nur für die Testphase gedacht —
-          über „Bulk-Reset erlaubt&rdquo; oben deaktivierbar, bevor die Winterpause beginnt.
-        </p>
-        {settings.isProduction && (
-          <p className="text-xs font-semibold text-red-800 mb-3">
-            ⚠️ Auf Production (main) ist der Bulk-Reset immer gesperrt, unabhängig vom Schalter oben — Schutz gegen versehentliches Löschen echter Antworten.
+      <Section id="uf-danger" title="Testphase — Alle Antworten löschen" subtitle="Unwiderruflich, nur für die Testphase" tone="critical">
+        <div className="space-y-3">
+          <p className="text-[14px] leading-6 text-red-900">
+            Löscht alle Umfrageantworten der Version {SURVEY_VERSION} unwiderruflich. Nur für die Testphase gedacht —
+            über „Bulk-Reset erlaubt&rdquo; oben deaktivierbar, bevor die Winterpause beginnt.
           </p>
-        )}
-        <button
-          onClick={() => setConfirmResetAll(true)}
-          disabled={!settings.allowReset || settings.isProduction || busy}
-          className="w-full py-2.5 bg-red-700 hover:bg-red-800 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-colors text-sm"
-        >
-          {settings.isProduction ? 'Auf Production gesperrt' : settings.allowReset ? 'Alle Testantworten löschen' : 'Bulk-Reset deaktiviert'}
-        </button>
-      </div>
-
-      {/* Confirm: delete one participant */}
-      {confirmDeleteUser && (
-        <ConfirmDialog
-          title="Antworten löschen?"
-          text={`Möchtest du die Umfrageantworten von ${confirmDeleteUser.username} wirklich löschen? Der Nutzer kann die Umfrage anschließend erneut von vorne ausfüllen.`}
-          confirmLabel="Antworten löschen"
-          busy={busy}
-          onCancel={() => setConfirmDeleteUser(null)}
-          onConfirm={() => deleteResponse(confirmDeleteUser.userId)}
-        />
-      )}
-
-      {/* Confirm: bulk reset */}
-      {confirmResetAll && (
-        <ConfirmDialog
-          title="Wirklich alle Antworten löschen?"
-          text={`Wirklich alle Antworten der Umfrage ${SURVEY_VERSION} löschen?`}
-          confirmLabel="Alle löschen"
-          busy={busy}
-          onCancel={() => setConfirmResetAll(false)}
-          onConfirm={resetAll}
-        />
-      )}
+          {settings.isProduction && (
+            <Notice tone="critical">
+              Auf Production (main) ist der Bulk-Reset immer gesperrt, unabhängig vom Schalter oben — Schutz gegen versehentliches Löschen echter Antworten.
+            </Notice>
+          )}
+          <Btn variant="danger" block disabled={!settings.allowReset || settings.isProduction || busy} onClick={confirmResetAll}>
+            {settings.isProduction ? 'Auf Production gesperrt' : settings.allowReset ? 'Alle Testantworten löschen' : 'Bulk-Reset deaktiviert'}
+          </Btn>
+        </div>
+      </Section>
 
       {/* Participant detail */}
       {viewParticipant && (
@@ -424,9 +393,9 @@ function FreetextBlock({ stat }: { stat: FreetextStat }) {
 function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
   const { wettoeffnung, startgeld, preise, teilnahme, mechanik, auszahlungsdeckel, kommunikation, statsMarkets, bKlasse } = crossTabs
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-      <h3 className="font-bold text-gray-900 mb-3">Kombinierte Auswertungen</h3>
-      <div className="space-y-4">
+    <div>
+      <h4 className="mb-2 text-[14px] font-bold text-gray-900">Kombinierte Auswertungen</h4>
+      <div className="space-y-3">
         <details className="group border border-gray-100 rounded-xl overflow-hidden" open>
           <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
             <span className="font-semibold text-sm text-gray-800">Wettöffnung (Q3)</span>
@@ -667,7 +636,7 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
                 <div className="text-[9px] text-gray-400">komplette B-Klasse</div>
               </div>
             </div>
-            <div className="text-[10px] text-gray-400 mb-2">n={bKlasse.total} — restliche Antworten ("interessiert mich kaum" / "egal") sind hier nicht mitgezählt, volle Verteilung unten:</div>
+            <div className="text-[10px] text-gray-400 mb-2">n={bKlasse.total} — restliche Antworten (&quot;interessiert mich kaum&quot; / &quot;egal&quot;) sind hier nicht mitgezählt, volle Verteilung unten:</div>
             <SingleBlock stat={bKlasse.raw} />
           </div>
         </details>
@@ -715,22 +684,6 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
   )
 }
 
-function ConfirmDialog({ title, text, confirmLabel, busy, onCancel, onConfirm }: {
-  title: string; text: string; confirmLabel: string; busy: boolean; onCancel: () => void; onConfirm: () => void
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4" onClick={onCancel}>
-      <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h4 className="font-bold text-gray-900 mb-2">{title}</h4>
-        <p className="text-sm text-gray-600 mb-4">{text}</p>
-        <div className="flex gap-2">
-          <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-700">Abbrechen</button>
-          <button onClick={onConfirm} disabled={busy} className="flex-1 py-2.5 rounded-xl bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-sm font-bold">{confirmLabel}</button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 function ParticipantDetail({ participant, onClose }: { participant: Participant; onClose: () => void }) {
   const visibleQs = visibleQuestionsForAnswers(participant.answers)

@@ -206,15 +206,35 @@ export default async function TabellePage({
 
   const supabase = await createClient()
 
-  const { data: rawMatches } = await supabase
-    .from('matches')
-    .select(
-      `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, competition_type,
-       home_team:teams!matches_home_team_id_fkey(id, name, short_name),
-       away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
-    )
-    .gte('match_date', SEASON_START)
-    .order('match_date', { ascending: true })
+  // `rawMatches` und die B-Klasse-Torjägerliste (unten, `priorScorers`) lesen
+  // unterschiedliche Tabellen und keine braucht das Ergebnis der anderen (die
+  // Torjägerliste hängt nur an `isB`, das schon aus `searchParams` da ist) —
+  // deshalb gemeinsam starten statt nacheinander. `getPriorStandings` bleibt
+  // bewusst NICHT hier drin: ob sie überhaupt gebraucht wird, entscheidet sich
+  // erst aus `hasCurrentSeasonData`, das selbst aus `rawMatches` berechnet wird —
+  // eine echte, keine zufällige Abhängigkeit.
+  const scorerTeamNames = new Set(BKLASSE_TEAM_NAMES)
+  const [{ data: rawMatches }, priorScorersRaw] = await Promise.all([
+    supabase
+      .from('matches')
+      .select(
+        `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, competition_type,
+         home_team:teams!matches_home_team_id_fkey(id, name, short_name),
+         away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
+      )
+      .gte('match_date', SEASON_START)
+      .order('match_date', { ascending: true }),
+    isB
+      ? fetchAllRows((from, to) => supabase
+          .from('league_players')
+          .select('name, team_name, goals, status')
+          .eq('season', '25/26')
+          .gt('goals', 0)
+          .order('goals', { ascending: false })
+          .range(from, to)
+        )
+      : Promise.resolve([] as { name: string; team_name: string; goals: number; status: string }[]),
+  ])
 
   const allMatches: Match[] = (rawMatches ?? [])
     // matchday 999 is the reserved test matchday — always excluded from the
@@ -291,22 +311,13 @@ export default async function TabellePage({
   // kürzere Torjägerliste hier direkt darunter wäre eine reine Dopplung.
   // B-Klasse hat noch keine Aufstellungsdaten für /liga-stats, deshalb bleibt
   // der bewährte Vorsaison-Fallback hier für die B-Klasse-Ansicht bestehen.
-  const scorerTeamNames = new Set(BKLASSE_TEAM_NAMES)
   const currentScorers: { name: string; team: string; goals: number }[] = []
   const hasCurrentScorerData = false
-  const priorScorers = isB ? await (async () => {
-    const rows = await fetchAllRows((from, to) => supabase
-      .from('league_players')
-      .select('name, team_name, goals, status')
-      .eq('season', '25/26')
-      .gt('goals', 0)
-      .order('goals', { ascending: false })
-      .range(from, to)
-    )
-    return rows
-      .filter((p) => scorerTeamNames.has(p.team_name) && (p.status === 'active' || p.status === 'internal_move'))
-      .slice(0, 10)
-  })() : []
+  // Rohdaten kommen schon aus der Promise.all oben (`priorScorersRaw`) — hier
+  // nur noch der Filter/Slice, keine zweite Abfrage.
+  const priorScorers = priorScorersRaw
+    .filter((p) => scorerTeamNames.has(p.team_name) && (p.status === 'active' || p.status === 'internal_move'))
+    .slice(0, 10)
 
   // Zones are shown regardless of whether a season match has been played yet
   // — they mark fixed table POSITIONS (1, 2, etc.), not results, so they're

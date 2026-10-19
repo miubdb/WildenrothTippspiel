@@ -18,69 +18,74 @@ export default async function ProfilPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Explicit column list, not select('*') — Postgres requires SELECT on
-  // EVERY column of the table for a bare `SELECT *` to succeed, not just
-  // the ones actually granted; `authenticated` intentionally has no grant
-  // on profiles.email (see the security hardening pass), so `select('*')`
-  // here would fail outright and this page never actually needed email
-  // anyway (the user's own email comes from supabase.auth.getUser(), not
-  // this table — used a few lines below as `user.email`).
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, display_name, avatar_url, bio, favorite_team, created_at, balance, season_start_balance, is_admin')
-    .eq('id', user.id)
-    .single()
-  if (!profile) redirect('/login')
-
   const CURRENT_SEASON = STATS_CURRENT_SEASON
   const PREV_SEASON = STATS_PREV_SEASON
 
-  const { data: awardsRaw } = await supabase
-    .from('user_awards')
-    .select('award_type, award_title, award_icon, award_description, matchday, season, value, value_text, ref_bet_id, ref_combo_id')
-    .eq('user_id', user.id)
-    // Season first, then matchday — matchday numbers reset every season, so
-    // ordering by matchday alone can rank a higher-numbered Spieltag from a
-    // PRIOR season ahead of a lower-numbered one from the current season,
-    // making the Pokalschrank's "latest" badge season-wrong. Season strings
-    // sort correctly lexically ("25/26" < "26/27").
-    .order('season', { ascending: false })
-    .order('matchday', { ascending: false })
+  // Welle 1: vier Abfragen, von denen KEINE das Ergebnis einer anderen braucht
+  // (profile/awards/prevBets lesen nur user.id; computeUserBetStats bekommt
+  // user.id direkt, nicht profile) — deshalb gemeinsam per Promise.all statt
+  // nacheinander. balancePoints und die Combo-Metadaten bleiben bewusst
+  // draußen: die brauchen echte Werte aus dieser Welle (siehe Welle 2).
+  const [{ data: profile }, { data: awardsRaw }, { data: prevBetsRaw }, stats] = await Promise.all([
+    // Explicit column list, not select('*') — Postgres requires SELECT on
+    // EVERY column of the table for a bare `SELECT *` to succeed, not just
+    // the ones actually granted; `authenticated` intentionally has no grant
+    // on profiles.email (see the security hardening pass), so `select('*')`
+    // here would fail outright and this page never actually needed email
+    // anyway (the user's own email comes from supabase.auth.getUser(), not
+    // this table — used a few lines below as `user.email`).
+    supabase
+      .from('profiles')
+      .select('id, display_name, avatar_url, bio, favorite_team, created_at, balance, season_start_balance, is_admin')
+      .eq('id', user.id)
+      .single(),
+    supabase
+      .from('user_awards')
+      .select('award_type, award_title, award_icon, award_description, matchday, season, value, value_text, ref_bet_id, ref_combo_id')
+      .eq('user_id', user.id)
+      // Season first, then matchday — matchday numbers reset every season, so
+      // ordering by matchday alone can rank a higher-numbered Spieltag from a
+      // PRIOR season ahead of a lower-numbered one from the current season,
+      // making the Pokalschrank's "latest" badge season-wrong. Season strings
+      // sort correctly lexically ("25/26" < "26/27").
+      .order('season', { ascending: false })
+      .order('matchday', { ascending: false }),
+    // Nur noch für die "Letzte Saison"-Kennzahlen gebraucht (Wetthistorie-Liste
+    // entfernt — lebt jetzt unter "Meine Wetten"), daher direkt auf die Vorsaison
+    // eingeschränkt statt wie zuvor alle Wetten zu laden und clientseitig zu
+    // splitten. Kein Match-Join mehr nötig, da keine Zeilen mehr angezeigt werden.
+    supabase
+      .from('bets')
+      .select('id, stake, status, payout, combo_id')
+      .eq('user_id', user.id)
+      .eq('season', PREV_SEASON)
+      .neq('status', 'void'),
+    // Zentrale Statistik-Schicht (lib/betStats.ts) — einzige Quelle für
+    // Wett-Kennzahlen, dieselbe Funktion wie auf einem fremden Spielerprofil.
+    computeUserBetStats(supabase, user.id, CURRENT_SEASON),
+  ])
+  if (!profile) redirect('/login')
   const awards = awardsRaw ?? []
-
-  // Nur noch für die "Letzte Saison"-Kennzahlen gebraucht (Wetthistorie-Liste
-  // entfernt — lebt jetzt unter "Meine Wetten"), daher direkt auf die Vorsaison
-  // eingeschränkt statt wie zuvor alle Wetten zu laden und clientseitig zu
-  // splitten. Kein Match-Join mehr nötig, da keine Zeilen mehr angezeigt werden.
-  const { data: prevBetsRaw } = await supabase
-    .from('bets')
-    .select('id, stake, status, payout, combo_id')
-    .eq('user_id', user.id)
-    .eq('season', PREV_SEASON)
-    .neq('status', 'void')
   const prevBets = prevBetsRaw ?? []
 
-  // Fetch combo_bets metadata — previous season
-  const prevComboIds = [...new Set(prevBets.filter(b => b.combo_id).map(b => b.combo_id as string))]
-  const prevComboBetsMap = new Map<string, { id: string; stake: number; total_odds: number; status: string; payout: number | null }>()
-  if (prevComboIds.length > 0) {
-    const { data: pcbData } = await supabase
-      .from('combo_bets')
-      .select('id, stake, total_odds, status, payout')
-      .in('id', prevComboIds)
-    for (const cb of pcbData ?? []) prevComboBetsMap.set(cb.id, cb)
-  }
-
-  // Zentrale Statistik-Schicht (lib/betStats.ts) — einzige Quelle für
-  // Wett-Kennzahlen, dieselbe Funktion wie auf einem fremden Spielerprofil.
-  const stats = await computeUserBetStats(supabase, user.id, CURRENT_SEASON)
   // "Wettbilanz" = realisierte Bilanz aus abgeschlossenen Wettscheinen — NICHT
   // dasselbe wie balance-vs-start, das auch Taschengeld/Strafen enthält.
   const wettbilanz = stats.realizedNet
   const profit = profile.balance - (profile.season_start_balance ?? 1000)
   const sonstigeBuchungen = profit - wettbilanz
 
-  const balancePoints = await computeBalanceHistory(supabase, user.id, profile.balance, profile.season_start_balance ?? 1000, CURRENT_SEASON)
+  // Welle 2: beide hängen von Welle 1 ab (balancePoints braucht profile.balance,
+  // die Combo-Metadaten brauchen die combo_id-Liste aus prevBets) — aber
+  // UNTEREINANDER sind sie unabhängig, laufen also wieder gemeinsam statt
+  // nacheinander.
+  const prevComboIds = [...new Set(prevBets.filter(b => b.combo_id).map(b => b.combo_id as string))]
+  const [balancePoints, pcbData] = await Promise.all([
+    computeBalanceHistory(supabase, user.id, profile.balance, profile.season_start_balance ?? 1000, CURRENT_SEASON),
+    prevComboIds.length > 0
+      ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', prevComboIds).then((r) => r.data ?? [])
+      : Promise.resolve([] as { id: string; stake: number; total_odds: number; status: string; payout: number | null }[]),
+  ])
+  const prevComboBetsMap = new Map(pcbData.map((cb) => [cb.id, cb]))
 
   // Previous season quick stats (singles + combos)
   const prevSingleBets = prevBets.filter(b => !b.combo_id)

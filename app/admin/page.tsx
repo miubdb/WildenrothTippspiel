@@ -1,45 +1,27 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import Image from 'next/image'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { mergeExactScoreOffers } from '@/lib/odds'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
-import { oddsColorClass, CUP_MARKET_LABEL, cupSelectionLabel, specialMarketLabel, specialSelectionLabel, type SpecialDisplayInfo } from '@/lib/betDisplay'
-import { cappedPayout } from '@/lib/payout'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, type EffectiveMatchdayIndex, SEASON_START } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, SEASON_START } from '@/lib/season'
 import { SurveyTab } from '@/components/admin/SurveyTab'
 import { BonusTipsAdmin } from '@/components/admin/BonusTipsAdmin'
 import { SpieltagSpecialsAdmin } from '@/components/admin/SpieltagSpecialsAdmin'
+import { Btn, Chips, EmptyNote, Field, inputCls, LoadingBlock, Notice, Panel, Pill, Section, selectCls, useConfirm, wl } from '@/components/admin/ui'
+import { AdminShellNav } from '@/components/admin/AdminShellNav'
+import { ErgebnisseTabView } from '@/components/admin/ErgebnisseTabView'
+import { SpieltagTabView } from '@/components/admin/SpieltagTabView'
+import { EMPTY_CUP, type CupInput } from '@/components/admin/ResultCards'
+import { cx } from '@/components/ui'
 import type { Match } from '@/types'
+import type { MatchRow, ScorerDraft } from '@/components/admin/types'
 
 // Matchday numbers repeat across seasons — without this filter the admin
 // match list (and everything fed by it: "Abgerechnete Spiele", the Spieltag
 // picker, the bets viewer) mixes in the prior season's identically-numbered
 // fixtures. matchday 999 (test) is exempt, same as everywhere else in the app.
-
-interface MatchRow {
-  id: number
-  match_number: number
-  matchday: number
-  match_date: string
-  status: string
-  home_score: number | null
-  away_score: number | null
-  home_team: { name: string; short_name: string } | null
-  away_team: { name: string; short_name: string } | null
-  match_category: string | null
-  is_topspiel: boolean
-  competition_type?: string | null
-  tippspiel_matchday?: number | null
-}
-
-/** Draft row for the inline Spieltag-tab scorer entry — mirrors the shape
- *  `/api/admin/goalscorers/scorers` expects, minus the DB-only `id`. */
-interface ScorerDraft {
-  playerId: number
-  goals: number
-  isOwnGoal: boolean
-}
 
 interface AdminUser {
   id: string
@@ -59,8 +41,18 @@ type Tab = 'ergebnisse' | 'spieltag' | 'quoten' | 'verwaltung' | 'umfrage'
 
 const TAB_VALUES: Tab[] = ['ergebnisse', 'spieltag', 'quoten', 'verwaltung', 'umfrage']
 
+const TAB_LABEL: Record<Tab, string> = { ergebnisse: 'Ergebnisse', spieltag: 'Spieltag', quoten: 'Quoten', verwaltung: 'Verwaltung', umfrage: 'Umfrage' }
+const TAB_DESC: Record<Tab, string> = {
+  ergebnisse: 'Ergebnisse eintragen und Wetten abrechnen',
+  spieltag: 'Spiele, Tipps, Topspiel, Torschützen',
+  quoten: 'Neu berechnen, Vorschau, überschreiben',
+  verwaltung: 'Spieler, Kader, Saison, Technik',
+  umfrage: 'Antworten und Auswertungen',
+}
+
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('ergebnisse')
+  const confirm = useConfirm()
 
   // Deep-link support for the "🎫 Neue Wette" push notification — it opens
   // /admin?tab=spieltag so tapping it lands directly on the bets view instead
@@ -77,12 +69,16 @@ export default function AdminPage() {
   const [scores, setScores] = useState<Record<number, { home: string; away: string }>>({})
   // Cup-only manual settlement inputs (see app/api/admin/settle/route.ts) —
   // only ever read/sent for a match with competition_type='cup'.
-  const [cupInputs, setCupInputs] = useState<Record<number, { shootoutWinner: string; firstGoalTeam: string; firstGoalMinute: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }>>({})
+  const [cupInputs, setCupInputs] = useState<Record<number, CupInput>>({})
   const [loading, setLoading] = useState(false)
   const [settleLoading, setSettleLoading] = useState<number | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [seasonResetLoading, setSeasonResetLoading] = useState(false)
   const [oddsLoading, setOddsLoading] = useState(false)
+  // Zusätzlich zur globalen message-Leiste: bleibt stehen, auch wenn der Admin danach woanders
+  // hinklickt (die globale Meldung verschwindet beim nächsten setMessage(null) andernorts) —
+  // reine Anzeige desselben recalculateOdds()-Ergebnisses, keine zweite Berechnung.
+  const [lastOddsRun, setLastOddsRun] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [preview, setPreview] = useState<OddsPreviewResponse | null>(null)
   const [previewMd, setPreviewMd] = useState<number | null>(null)
@@ -97,20 +93,29 @@ export default function AdminPage() {
   const [newUsersSeenAt, setNewUsersSeenAt] = useState<string | null>(null)
   const [eligBalance, setEligBalance] = useState<Record<string, string>>({})
   const [pendingBetsByMatch, setPendingBetsByMatch] = useState<Record<number, number>>({})
-  const [compFilter, setCompFilter] = useState<'all' | 'kreisliga' | 'wildenroth_ii' | 'b-klasse'>('all')
-  const [mdFilter, setMdFilter] = useState<number | 'all'>('all')
-  const [settledShown, setSettledShown] = useState(10)
+  // Liga-/Spieltag-/Status-Filter und "weitere anzeigen" für den Ergebnisse-Tab leben jetzt
+  // vollständig in ErgebnisseTabView (reiner Darstellungs-Zustand, nichts, was andere Tabs
+  // oder Handler hier brauchen).
   // Scorer drafts for the inline "Ergebnis + Torschützen" entry on Wildenroth
   // matches in the Spieltag tab — keyed by matchId, mirrors the `scores` state
   // pattern below so both submit together from the same "Ergebnis & abrechnen".
   const [scorers, setScorers] = useState<Record<number, ScorerDraft[]>>({})
   // Verwaltung tab: Spieler-Verwaltung search filter (display_name/username)
   const [userSearch, setUserSearch] = useState('')
+  // Verwaltung tab: Spieler-Verwaltung Chips-Filter — rein client-seitig über die bereits
+  // geladenen `users`, keine eigene Abfrage.
+  const [userFilter, setUserFilter] = useState<'alle' | 'neu' | 'gesperrt' | 'geloescht'>('alle')
   // Verwaltung tab: awards backfill button (Part A)
   const [awardsBackfillLoading, setAwardsBackfillLoading] = useState(false)
-  // Tracks whether mdFilter's default (see below) has already been applied
-  // once matches load, so we don't fight a manual dropdown change afterward.
-  const [mdFilterInitialized, setMdFilterInitialized] = useState(false)
+
+  const visibleUsers = users.filter((u) => {
+    if (userFilter === 'neu' && (u.is_admin || (newUsersSeenAt && u.created_at <= newUsersSeenAt))) return false
+    if (userFilter === 'gesperrt' && (u.deleted_at || u.eligible_for_current_season)) return false
+    if (userFilter === 'geloescht' && !u.deleted_at) return false
+    const q = userSearch.trim().toLowerCase()
+    if (!q) return true
+    return (u.display_name ?? '').toLowerCase().includes(q) || u.username.toLowerCase().includes(q)
+  })
 
   const supabase = createClient()
 
@@ -227,7 +232,11 @@ export default function AdminPage() {
   // & Co. — bleibt aber hier in der Verwaltung sichtbar (mit Badge), damit
   // er jederzeit reaktiviert werden kann.
   async function deleteUser(userId: string, username: string) {
-    if (!confirm(`${username} wirklich löschen? Login wird gesperrt, er verschwindet aus Rangliste & Kader. Historische Wetten bleiben erhalten, Reaktivieren ist jederzeit möglich.`)) return
+    if (!(await confirm({
+      title: `${username} wirklich löschen?`,
+      message: 'Login wird gesperrt, er verschwindet aus Rangliste & Kader. Historische Wetten bleiben erhalten, Reaktivieren ist jederzeit möglich.',
+      confirmLabel: 'Löschen', tone: 'danger',
+    }))) return
     setMessage(null)
     const res = await fetch('/api/admin/season', {
       method: 'POST',
@@ -274,16 +283,6 @@ export default function AdminPage() {
   useEffect(() => {
     fetchMatches()
   }, [fetchMatches])
-
-  // B3: default "Bevorstehende Spiele" to the current Spieltag instead of
-  // 'all' — applied once, the first time matches (and therefore
-  // currentMatchday) become available, so it never fights a manual dropdown
-  // change made afterward.
-  useEffect(() => {
-    if (mdFilterInitialized || matches.length === 0) return
-    if (currentMatchday != null) setMdFilter(currentMatchday)
-    setMdFilterInitialized(true)
-  }, [matches, currentMatchday, mdFilterInitialized])
 
   useEffect(() => {
     supabase.from('league_players').select('name').then(({ data }) => {
@@ -440,7 +439,9 @@ export default function AdminPage() {
     setOddsLoading(false)
     if (res.ok) {
       const frozenNote = data.skippedFrozen > 0 ? ` (${data.skippedFrozen} bereits eingefroren, übersprungen)` : ''
-      setMessage(`Quoten berechnet: ${data.updated}/${data.total} Spiele aktualisiert.${frozenNote}`)
+      const msg = `Quoten berechnet: ${data.updated}/${data.total} Spiele aktualisiert.${frozenNote}`
+      setMessage(msg)
+      setLastOddsRun(`${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })} Uhr – ${msg}`)
     } else {
       setMessage(`Fehler: ${data.error}`)
     }
@@ -460,7 +461,11 @@ export default function AdminPage() {
   }
 
   async function resetSeasonBalances() {
-    if (!confirm('Alle Guthaben auf 1.000 Wildis zurücksetzen? Das kann nicht rückgängig gemacht werden.')) return
+    if (!(await confirm({
+      title: 'Alle Guthaben auf 1.000 Wildis zurücksetzen?',
+      message: 'Das kann nicht rückgängig gemacht werden.',
+      confirmLabel: 'Zurücksetzen', tone: 'danger',
+    }))) return
     setSeasonResetLoading(true)
     setMessage(null)
     const res = await fetch('/api/admin/season-reset', { method: 'POST' })
@@ -491,13 +496,6 @@ export default function AdminPage() {
     if (tab === 'quoten' && !preview) loadPreview()
   }, [tab, preview, loadPreview])
 
-  function matchesCompFilter(m: MatchRow) {
-    if (compFilter === 'all') return true
-    if (compFilter === 'kreisliga') return !m.match_category || m.match_category === 'kreisliga'
-    if (compFilter === 'wildenroth_ii') return m.match_category === 'wildenroth_ii'
-    // 'b-klasse' filter covers plain B-Klasse matches and the flagged Topspiel/bklasse_topspiel category
-    return m.match_category === 'b-klasse' || m.match_category === 'bklasse_topspiel'
-  }
   // Kreisliga defines the Tippspiel-Spieltag structure (lib/season.ts) — the
   // filter must group EVERY match, including Wildenroth II and B-Klasse, by
   // that same effective Spieltag (date-based), not each category's own raw
@@ -518,544 +516,245 @@ export default function AdminPage() {
     if (eff != null) return eff
     return nearestMatchdayByDate(new Date(m.match_date).getTime(), mdIndex)
   }
-  const availableMatchdays = [
-    ...mdIndex.kreisligaMatchdaysDisplayOrder,
-    ...(matches.some(m => m.matchday === 999) ? [999] : []),
-  ]
-  const filteredMatches = matches.filter(m => matchesCompFilter(m) && (mdFilter === 'all' || matchdayForFilter(m) === mdFilter))
+  // Liga-/Spieltag-Filterung und die Aufteilung in ausstehend/bevorstehend/verschoben/
+  // abgerechnet passiert jetzt in ErgebnisseTabView, auf denselben `matches` — siehe dort.
 
-  const settledMatchesAll = filteredMatches.filter((m) => m.status === 'finished')
-  const settledMatches = [...settledMatchesAll].reverse() // most recent first
-  // Past scheduled games awaiting result entry
-  const pendingMatches = filteredMatches.filter(
-    (m) => m.status === 'scheduled' && new Date(m.match_date) <= new Date()
-  )
-  // Future games — shown read-only, but with optional early result entry for rescheduled games
-  const upcomingMatches = filteredMatches.filter(
-    (m) => m.status === 'scheduled' && new Date(m.match_date) > new Date()
-  )
-  // Postponed games — awaiting reschedule
-  const postponedMatches = filteredMatches.filter((m) => m.status === 'postponed')
+  /** Schreibt ein einzelnes Pokal-Zusatzfeld für ein Spiel, wie zuvor inline im JSX. */
+  function handleCupInputChange(matchId: number, field: keyof CupInput, val: string) {
+    setCupInputs(prev => ({ ...prev, [matchId]: { ...(prev[matchId] ?? EMPTY_CUP), [field]: val } }))
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-red-700 text-white px-4 py-4 shadow-lg">
-        <div className="max-w-2xl mx-auto">
+        <div className="mx-auto max-w-7xl">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center">
-              <span className="text-red-700 font-black text-xs">SpVgg</span>
+            <div className="w-9 h-9 rounded-full bg-white flex items-center justify-center overflow-hidden shrink-0">
+              <Image src="/crests/spvgg-wildenroth.png" alt="" width={28} height={28} className="w-7 h-7 object-contain" />
             </div>
             <div>
-              <h1 className="font-black text-xl">Admin Panel</h1>
+              <h1 className="font-display text-xl font-extrabold uppercase tracking-wide leading-5">Admin Panel</h1>
               <p className="text-red-200 text-xs">Wildenroth Tippspiel</p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 py-4">
-        {/* Message */}
-        {message && (
-          <div
-            className={`mb-4 px-4 py-3 rounded-xl text-sm font-medium ${
-              message.startsWith('Fehler')
-                ? 'bg-red-50 text-red-700 border border-red-100'
-                : 'bg-green-50 text-green-700 border border-green-100'
-            }`}
-          >
-            {message}
-            <button onClick={() => setMessage(null)} className="ml-2 opacity-60 hover:opacity-100">
-              ✕
-            </button>
-          </div>
-        )}
+      {/* Echtes Grundgerüst: Desktop feste Seitenleiste + breiterer Arbeitsbereich,
+          mobil feste Tab-Leiste unten (beides in AdminShellNav) statt einer einzigen
+          Zeile für alle Breiten. */}
+      <div className="mx-auto max-w-3xl px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] pt-4 lg:flex lg:max-w-7xl lg:gap-8 lg:pb-12 lg:pt-6">
+        <AdminShellNav tab={tab} onTabChange={setTab} newUserCount={newUserCount} />
 
-        {/* Tab Bar */}
-        <div className="flex bg-white border border-gray-200 rounded-xl p-1 mb-4 shadow-sm overflow-x-auto">
-          {(['ergebnisse', 'spieltag', 'quoten', 'verwaltung', 'umfrage'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`relative flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
-                tab === t ? 'bg-red-700 text-white shadow' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {t === 'ergebnisse' ? 'Ergebnisse' : t === 'spieltag' ? 'Spieltag' : t === 'quoten' ? 'Quoten' : t === 'verwaltung' ? 'Verwaltung' : 'Umfrage'}
-              {t === 'verwaltung' && newUserCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center">
-                  {newUserCount}
-                </span>
+        <div className="min-w-0 flex-1">
+          <header className="mb-4 hidden lg:block">
+            <h2 className="font-display text-[30px] font-extrabold uppercase leading-8 tracking-wide text-gray-900">{TAB_LABEL[tab]}</h2>
+            <p className="text-[14px] text-gray-600">{TAB_DESC[tab]}</p>
+          </header>
+          <p className="mb-4 px-1 text-[12px] text-gray-500 lg:hidden">{TAB_DESC[tab]}</p>
+
+          {/* Message */}
+          {message && (
+            <div
+              className={cx(
+                'mb-4 flex items-start gap-2 px-4 py-3 rounded-xl text-sm font-medium border',
+                message.startsWith('Fehler')
+                  ? 'bg-red-50 text-red-700 border-red-100'
+                  : 'bg-green-50 text-green-700 border-green-100'
               )}
-            </button>
-          ))}
-        </div>
+            >
+              <span aria-hidden className="mt-0.5">{message.startsWith('Fehler') ? '⚠' : '✓'}</span>
+              <span className="min-w-0 flex-1">{message}</span>
+              <button onClick={() => setMessage(null)} aria-label="Meldung schließen" className="opacity-60 hover:opacity-100">
+                ✕
+              </button>
+            </div>
+          )}
 
         {/* Ergebnisse Tab — result entry is the admin's most frequent daily
             action, so it gets its own tab up front instead of being buried
-            below the Tipps overview and B-Klasse-Topspiel picker. */}
+            below the Tipps overview and B-Klasse-Topspiel picker. Visuelle
+            Darstellung lebt in ErgebnisseTabView; alle Daten/Handler kommen
+            von hier, wie bisher. */}
         {tab === 'ergebnisse' && (
-          <div className="space-y-4">
-            {/* Competition filter */}
-            <div className="flex bg-white border border-gray-200 rounded-xl p-1 shadow-sm overflow-x-auto">
-              {([
-                ['all', 'Alle'],
-                ['kreisliga', 'Kreisliga'],
-                ['wildenroth_ii', 'Wildenroth II'],
-                ['b-klasse', 'B-Klasse'],
-              ] as const).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => { setCompFilter(key); setSettledShown(10) }}
-                  className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold transition-all whitespace-nowrap ${
-                    compFilter === key ? 'bg-gray-800 text-white shadow' : 'text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Spieltag filter */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 flex-shrink-0">Spieltag:</span>
-              <select
-                value={mdFilter}
-                onChange={(e) => { setMdFilter(e.target.value === 'all' ? 'all' : Number(e.target.value)); setSettledShown(10) }}
-                className="text-xs font-semibold py-1.5 px-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500"
-              >
-                <option value="all">Alle</option>
-                {availableMatchdays.map(md => (
-                  <option key={md} value={md}>{md === 999 ? 'Test' : `Spieltag ${md}`}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Status overview */}
-            {(() => {
-              const noResult = matches.filter(m => m.status !== 'finished' && m.status !== 'postponed' && new Date(m.match_date) <= new Date())
-              const unsettled = matches.filter(m => m.home_score != null && m.away_score != null && m.status !== 'finished')
-              const openBets = Object.values(pendingBetsByMatch).reduce((a, b) => a + b, 0)
-              return (
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-3 text-center">
-                    <div className="text-2xl font-black text-red-600">{noResult.length}</div>
-                    <div className="text-[10px] text-red-700 font-semibold mt-0.5 leading-tight">Spiele ohne Ergebnis</div>
-                  </div>
-                  <div className="bg-orange-50 border border-orange-200 rounded-xl px-3 py-3 text-center">
-                    <div className="text-2xl font-black text-orange-600">{unsettled.length}</div>
-                    <div className="text-[10px] text-orange-700 font-semibold mt-0.5 leading-tight">Spiele nicht settled</div>
-                  </div>
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl px-3 py-3 text-center">
-                    <div className="text-2xl font-black text-blue-600">{openBets}</div>
-                    <div className="text-[10px] text-blue-700 font-semibold mt-0.5 leading-tight">offene Wetten</div>
-                  </div>
-                </div>
-              )
-            })()}
-
-            {/* Pending settlement */}
-            {pendingMatches.length > 0 && (
-              <div>
-                <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">
-                  Ausstehende Ergebnisse ({pendingMatches.length})
-                </h2>
-                <div className="space-y-2">
-                  {pendingMatches.map((match) => (
-                    <MatchSettleCard
-                      key={match.id}
-                      match={match}
-                      score={scores[match.id] ?? { home: '', away: '' }}
-                      onChange={(side, val) => handleScoreChange(match.id, side, val)}
-                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', firstGoalMinute: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }}
-                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', firstGoalMinute: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }), [field]: val } }))}
-                      onSettle={() => settleMatch(match.id)}
-                      onPostpone={() => postponeMatch(match.id)}
-                      loading={settleLoading === match.id}
-                      pendingBets={pendingBetsByMatch[match.id]}
-                      onCategoryChange={handleCategoryChange}
-                      scorerDraft={scorers[match.id]}
-                      onScorersChange={(draft) => handleScorersChange(match.id, draft)}
-                      effectiveMatchday={matchdayForFilter(match)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Postponed — shown above upcoming so it's immediately visible */}
-            {postponedMatches.length > 0 && (
-              <div>
-                <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">
-                  Verschobene Spiele ({postponedMatches.length})
-                </h2>
-                <p className="text-xs text-gray-400 mb-2">
-                  Sobald ein neuer Termin feststeht, Datum aktualisieren → Spiel wird wieder als &quot;Geplant&quot; geführt.
-                </p>
-                <div className="space-y-2">
-                  {postponedMatches.map((match) => (
-                    <PostponedMatchCard
-                      key={match.id}
-                      match={match}
-                      onRescheduled={fetchMatches}
-                      onMessage={setMessage}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Upcoming matches — also allow early settle for rescheduled games */}
-            {upcomingMatches.length > 0 && (
-              <div>
-                <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">
-                  Bevorstehende Spiele ({upcomingMatches.length})
-                </h2>
-                <p className="text-xs text-gray-400 mb-2">
-                  Verlegt? Ergebnis kann auch vorab eingetragen werden.
-                </p>
-                <div className="space-y-2">
-                  {upcomingMatches.map((match) => (
-                    <MatchSettleCard
-                      key={match.id}
-                      match={match}
-                      score={scores[match.id] ?? { home: '', away: '' }}
-                      onChange={(side, val) => handleScoreChange(match.id, side, val)}
-                      cupInput={cupInputs[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', firstGoalMinute: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }}
-                      onCupInputChange={(field, val) => setCupInputs(prev => ({ ...prev, [match.id]: { ...(prev[match.id] ?? { shootoutWinner: '', firstGoalTeam: '', firstGoalMinute: '', halftimeHome: '', halftimeAway: '', awayTeamLed: '' }), [field]: val } }))}
-                      onSettle={() => settleMatch(match.id)}
-                      onPostpone={() => postponeMatch(match.id)}
-                      loading={settleLoading === match.id}
-                      isUpcoming
-                      pendingBets={pendingBetsByMatch[match.id]}
-                      onCategoryChange={handleCategoryChange}
-                      scorerDraft={scorers[match.id]}
-                      onScorersChange={(draft) => handleScorersChange(match.id, draft)}
-                      effectiveMatchday={matchdayForFilter(match)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Settled — most recent first */}
-            {settledMatches.length > 0 && (
-              <div>
-                <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-2">
-                  Abgerechnete Spiele ({settledMatches.length})
-                </h2>
-                <div className="space-y-2">
-                  {settledMatches.slice(0, settledShown).map((match) => (
-                    <MatchRow key={match.id} match={match} playerSuggestions={playerSuggestions} effectiveMatchday={matchdayForFilter(match)} />
-                  ))}
-                </div>
-                {settledShown < settledMatches.length && (
-                  <button
-                    onClick={() => setSettledShown((n) => n + 20)}
-                    className="w-full mt-2 py-2 text-xs font-semibold text-gray-500 hover:text-gray-700 bg-white border border-gray-200 rounded-lg"
-                  >
-                    Weitere anzeigen ({settledMatches.length - settledShown} übrig)
-                  </button>
-                )}
-              </div>
-            )}
-
-            {loading && (
-              <div className="text-center py-8 text-gray-400">Lade Spiele...</div>
-            )}
-          </div>
+          <ErgebnisseTabView
+            matches={matches}
+            loading={loading}
+            mdIndex={mdIndex}
+            currentMatchday={currentMatchday}
+            pendingByMatch={pendingBetsByMatch}
+            matchdayForFilter={matchdayForFilter}
+            playerSuggestions={playerSuggestions}
+            scores={scores}
+            onScoreChange={handleScoreChange}
+            cupInputs={cupInputs}
+            onCupInputChange={handleCupInputChange}
+            onSettle={settleMatch}
+            onPostpone={postponeMatch}
+            settleLoading={settleLoading}
+            onCategoryChange={handleCategoryChange}
+            scorers={scorers}
+            onScorersChange={handleScorersChange}
+            onMessage={setMessage}
+            onRescheduled={fetchMatches}
+          />
         )}
 
         {/* Spieltag Tab */}
         {tab === 'spieltag' && (
-          <div className="space-y-4">
-            {/* Tipps — accordion (seeing today's bets at a glance is a
-                frequent admin use case) */}
-            <TippsAccordion matches={matches} mdIndex={mdIndex} currentMatchday={currentMatchday} />
-
-            {/* B-Klasse Topspiel selection */}
-            {(() => {
-              const now = new Date()
-              // Scope candidates to the Spieltag the admin is currently
-              // working on (currentMatchday) rather than a raw forward-looking
-              // date window — a plain B-Klasse match has no effective Spieltag
-              // of its own (effectiveMatchdayOf returns null unless already
-              // flagged Topspiel), so fall back to date-proximity to that
-              // Spieltag's own median kickoff date (matchdayAnchorDate) with a
-              // roughly one-week tolerance (same as EFFECTIVE_OUTLIER_DAYS),
-              // instead of a hardcoded "21 days from today" firehose that let
-              // a later Spieltag's B-Klasse fixtures show up too.
-              const anchor = currentMatchday != null ? mdIndex.matchdayAnchorDate.get(currentMatchday) : null
-              const anchorWindowMs = 7 * 24 * 60 * 60 * 1000
-              const bklasseUpcoming = matches
-                .filter(m => m.match_category === 'b-klasse' && m.status === 'scheduled' && new Date(m.match_date) >= now)
-                .filter(m => {
-                  if (anchor == null) return true // no Spieltag anchor known yet — don't hide everything
-                  return Math.abs(new Date(m.match_date).getTime() - anchor) <= anchorWindowMs
-                })
-                .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
-              const currentTopspiel = matches.find(m => m.match_category === 'b-klasse' && m.is_topspiel && m.status === 'scheduled')
-              if (bklasseUpcoming.length === 0 && !currentTopspiel) return null
-              return (
-                <div>
-                  <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-1">
-                    B-Klasse-Topspiel der Woche
-                  </h2>
-                  <p className="text-xs text-gray-400 mb-2">
-                    Genau ein B-Klasse-Spiel pro Woche kann als zusätzliches, wettbares Topspiel markiert werden.
-                  </p>
-                  <div className="space-y-1.5">
-                    {(currentTopspiel && !bklasseUpcoming.some(m => m.id === currentTopspiel.id) ? [currentTopspiel, ...bklasseUpcoming] : bklasseUpcoming).map((match) => (
-                      <label
-                        key={match.id}
-                        className={`flex items-start gap-2 rounded-xl px-3 py-2 border cursor-pointer ${match.is_topspiel ? 'bg-yellow-50 border-yellow-300' : 'bg-white border-gray-200'}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={match.is_topspiel}
-                          onChange={(e) => toggleTopspiel(match.id, e.target.checked)}
-                          className="w-4 h-4 accent-yellow-500 flex-shrink-0 mt-0.5"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-gray-800">
-                            {match.home_team?.name ?? '?'} – {match.away_team?.name ?? '?'}
-                          </div>
-                          <div className="text-xs text-gray-400">
-                            {new Date(match.match_date).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}
-                          </div>
-                        </div>
-                        {match.is_topspiel && <span className="text-xs flex-shrink-0">⭐</span>}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )
-            })()}
-          </div>
+          <SpieltagTabView
+            matches={matches}
+            mdIndex={mdIndex}
+            currentMatchday={currentMatchday}
+            pendingByMatch={pendingBetsByMatch}
+            matchdayForFilter={matchdayForFilter}
+            onToggleTopspiel={toggleTopspiel}
+            onMessage={setMessage}
+          />
         )}
 
-        {/* Quoten & Torschützen Tab */}
+        {/* Quoten Tab — Torschützen zog nach Spieltag um (siehe SpieltagTabView, Abschnitt
+            sp-torschuetzen); das Modell selbst (lib/odds.ts, lib/oddsMarkets.ts) bleibt hier wie
+            überall nur AUFGERUFEN, nie verändert. */}
         {tab === 'quoten' && (
-          <div className="space-y-6">
-            {/* Odds section */}
-            <div className="space-y-4">
-              <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Quoten</h2>
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                <h3 className="font-bold text-gray-900 mb-1">Quoten neu berechnen</h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  Berechnet die Quoten für alle geplanten Spiele neu auf Basis der Saisondaten.
+          <div className="space-y-4">
+            <Section id="qu-berechnung" title="Quoten neu berechnen" subtitle="Alle noch nicht eingefrorenen Spiele aus den Saisondaten neu rechnen" defaultOpen>
+              <div className="space-y-3">
+                <p className="text-[14px] leading-6 text-gray-700">
+                  Quoten werden automatisch aus Kopf-an-Kopf-Statistiken und Saisonleistungen berechnet (Hausmarge 10%). Sobald das Wettfenster eines Spieltags geöffnet ist, werden seine Quoten eingefroren und nicht mehr neu berechnet.
                 </p>
-                <button
-                  onClick={recalculateOdds}
-                  disabled={oddsLoading}
-                  className="w-full py-3 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
-                >
-                  {oddsLoading ? (
-                    <>
-                      <span className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
-                      Berechne...
-                    </>
-                  ) : (
-                    'Quoten neu berechnen'
-                  )}
-                </button>
+                <Btn variant="primary" block loading={oddsLoading} onClick={recalculateOdds}>{oddsLoading ? 'Berechne …' : 'Quoten neu berechnen'}</Btn>
+                {lastOddsRun && <Notice tone="success">Zuletzt: {lastOddsRun}</Notice>}
               </div>
+            </Section>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
-                <strong>Hinweis:</strong> Quoten werden automatisch aus Kopf-an-Kopf-Statistiken
-                und Saisonleistungen berechnet. Eine 10% Marge wird angewendet.
-              </div>
-
-              <OddsPreviewSection
-                preview={preview}
-                loading={previewLoading}
-                selectedMd={previewMd}
-                onSelectMd={(md) => { setPreviewMd(md); loadPreview(md) }}
-                onReload={() => loadPreview(previewMd)}
-              />
-            </div>
-
-            {/* Divider */}
-            <div className="border-t border-gray-200" />
-
-            {/* Goalscorers section */}
-            <div className="space-y-4">
-              <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Torschützen</h2>
-              <GoalscorersTab matches={matches} onMessage={setMessage} matchday={previewMd} mdIndex={mdIndex} />
+            <div id="qu-vorschau" className="scroll-mt-24">
+              <Panel className="p-4">
+                <OddsPreviewSection
+                  preview={preview}
+                  loading={previewLoading}
+                  selectedMd={previewMd}
+                  onSelectMd={(md) => { setPreviewMd(md); loadPreview(md) }}
+                  onReload={() => loadPreview(previewMd)}
+                  onMessage={setMessage}
+                />
+              </Panel>
             </div>
           </div>
         )}
 
         {/* Verwaltung Tab */}
         {tab === 'verwaltung' && (
-          <div className="space-y-3">
+          <div className="space-y-4">
 
-            {/* Spieler-Verwaltung */}
-            <VerwaltungSection title="Spieler-Verwaltung" subtitle="Accounts: Rolle, Guthaben, Berechtigung, Löschen/Reaktivieren" defaultOpen>
-              <input
-                type="text"
-                value={userSearch}
-                onChange={(e) => setUserSearch(e.target.value)}
-                placeholder="Suche nach Name…"
-                className="w-full mb-3 text-sm py-2 px-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              <div className="space-y-2">
-                {users.filter((u) => {
-                  const q = userSearch.trim().toLowerCase()
-                  if (!q) return true
-                  return (u.display_name ?? '').toLowerCase().includes(q) || u.username.toLowerCase().includes(q)
-                }).map((u) => (
-                  <div key={u.id} className={`flex items-center gap-2 flex-wrap rounded-xl px-3 py-2.5 ${u.deleted_at ? 'bg-red-50 opacity-70' : 'bg-gray-50'}`}>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-gray-900 flex items-center gap-1 flex-wrap">
-                        {u.display_name || u.username}
-                        {!u.is_admin && (!newUsersSeenAt || u.created_at > newUsersSeenAt) && (
-                          <span className="text-[10px] text-white font-bold bg-green-500 px-1 rounded">NEU</span>
-                        )}
-                        {u.deleted_at && <span className="text-[10px] text-red-600 font-bold bg-red-100 px-1 rounded">GELÖSCHT</span>}
-                        {u.is_admin && <span className="text-[10px] text-red-600 font-bold">ADMIN</span>}
-                        {u.is_wildenroth && u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ Beide</span>}
-                        {u.is_wildenroth && !u.is_wildenroth_ii && <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-1 rounded">⚽ 1</span>}
-                        {!u.is_wildenroth && u.is_wildenroth_ii && <span className="text-[10px] text-purple-600 font-bold bg-purple-50 px-1 rounded">⚽ 2</span>}
-                      </div>
-                      {u.email && (
-                        <div className="text-[11px] text-gray-500 break-all">{u.email}</div>
-                      )}
-                      <div className="text-[11px] text-gray-400">
-                        {u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} {wl(u.balance)} · {u.eligible_for_current_season ? <span className="text-green-600">berechtigt</span> : <span className="text-amber-600">nicht berechtigt</span>}
-                      </div>
-                    </div>
-                    <select
-                      value={u.is_wildenroth && u.is_wildenroth_ii ? 'both' : u.is_wildenroth ? 'team1' : u.is_wildenroth_ii ? 'team2' : 'fan'}
-                      onChange={(e) => setUserWildenrothRole(u.id, e.target.value as 'fan' | 'team1' | 'team2' | 'both')}
-                      className="text-xs font-semibold py-1.5 px-2 border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-red-500"
-                      title="Spieler/Fan-Rolle"
-                    >
-                      <option value="fan">Fan</option>
-                      <option value="team1">1. Mannschaft</option>
-                      <option value="team2">2. Mannschaft</option>
-                      <option value="both">Beide Mannschaften</option>
-                    </select>
-                    <input
-                      type="number"
-                      placeholder="Guthaben"
-                      value={eligBalance[u.id] ?? ''}
-                      onChange={(e) => setEligBalance(prev => ({ ...prev, [u.id]: e.target.value }))}
-                      className="w-24 text-sm py-1.5 px-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
-                    <button
-                      onClick={() => {
+            <Section id="vw-spieler" title="Spieler-Verwaltung" subtitle="Accounts: Rolle, Guthaben, Berechtigung, Löschen/Reaktivieren" defaultOpen
+              badge={newUserCount > 0 ? <Pill tone="success">{newUserCount} neu</Pill> : <Pill tone="neutral">{users.length}</Pill>}>
+              <div className="space-y-3">
+                <input
+                  type="text"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  placeholder="Suche nach Name…"
+                  className={inputCls}
+                />
+                <Chips value={userFilter} onChange={setUserFilter} label="Spieler filtern" items={[
+                  { value: 'alle', label: `Alle · ${users.length}` },
+                  { value: 'neu', label: `Neu · ${newUserCount}` },
+                  { value: 'gesperrt', label: `Nicht berechtigt · ${users.filter((u) => !u.deleted_at && !u.eligible_for_current_season).length}` },
+                  { value: 'geloescht', label: `Gelöscht · ${users.filter((u) => u.deleted_at).length}` },
+                ]} />
+                {users.length === 0 && <EmptyNote>Keine Spieler geladen.</EmptyNote>}
+                {users.length > 0 && visibleUsers.length === 0 && <EmptyNote>Keine Treffer{userSearch ? ` für „${userSearch}“` : ' für diesen Filter'}.</EmptyNote>}
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {visibleUsers.map((u) => (
+                    <UserCard
+                      key={u.id}
+                      u={u}
+                      isNew={!u.is_admin && (!newUsersSeenAt || u.created_at > newUsersSeenAt)}
+                      balance={eligBalance[u.id] ?? ''}
+                      onBalanceChange={(v) => setEligBalance((prev) => ({ ...prev, [u.id]: v }))}
+                      onRole={(role) => setUserWildenrothRole(u.id, role)}
+                      onEligible={() => {
                         const raw = eligBalance[u.id]
                         const bal = raw != null && raw !== '' ? parseFloat(raw) : undefined
                         setUserEligible(u.id, !u.eligible_for_current_season, bal)
                       }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white ${u.eligible_for_current_season ? 'bg-gray-500 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'}`}
-                    >
-                      {u.eligible_for_current_season ? 'Sperren' : 'Freischalten'}
-                    </button>
-                    <button
-                      onClick={() => u.deleted_at ? restoreUser(u.id, u.display_name || u.username) : deleteUser(u.id, u.display_name || u.username)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold text-white ${u.deleted_at ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-700 hover:bg-red-800'}`}
-                      title={u.deleted_at ? 'Account reaktivieren' : 'Account löschen (Login sperren, aus Rangliste ausblenden, historische Daten bleiben)'}
-                    >
-                      {u.deleted_at ? 'Reaktivieren' : 'Löschen'}
-                    </button>
-                  </div>
-                ))}
-                {users.length === 0 && <div className="text-sm text-gray-400 text-center py-4">Keine Spieler geladen.</div>}
-                {users.length > 0 && users.filter((u) => {
-                  const q = userSearch.trim().toLowerCase()
-                  if (!q) return true
-                  return (u.display_name ?? '').toLowerCase().includes(q) || u.username.toLowerCase().includes(q)
-                }).length === 0 && (
-                  <div className="text-sm text-gray-400 text-center py-4">Keine Treffer für &quot;{userSearch}&quot;.</div>
-                )}
-              </div>
-            </VerwaltungSection>
-
-            {/* Kader & Transfers */}
-            <VerwaltungSection title="Kader & Transfers" subtitle="Kaderdaten, Transfers, Spielerstatus (reale Roster-Daten)" defaultOpen>
-              <KaderSection />
-            </VerwaltungSection>
-
-            {/* Saison-Verwaltung */}
-            <VerwaltungSection title="Saison-Verwaltung" subtitle="Saisonstart-Flag & Guthaben-Reset" defaultOpen>
-              {/* Start-Flag */}
-              <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 mb-3">
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">Saisonstart</div>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    {seasonStarted ? <span className="text-green-600 font-medium">Gestartet</span> : <span className="text-gray-400">Nicht gestartet</span>}
-                    {' '}· neue Nutzer brauchen manuelle Freischaltung
-                  </div>
+                      onDelete={() => deleteUser(u.id, u.display_name || u.username)}
+                      onRestore={() => restoreUser(u.id, u.display_name || u.username)}
+                    />
+                  ))}
                 </div>
-                <button
-                  onClick={() => toggleSeasonStarted(!seasonStarted)}
-                  disabled={seasonToggleLoading}
-                  className={`px-4 py-2 rounded-lg text-sm font-bold text-white disabled:opacity-50 ${seasonStarted ? 'bg-gray-500 hover:bg-gray-600' : 'bg-red-700 hover:bg-red-800'}`}
-                >
-                  {seasonStarted ? 'Flag entfernen' : 'Saison starten'}
-                </button>
               </div>
-              {/* Reset — danger zone */}
-              <details className="group">
-                <summary className="cursor-pointer text-xs font-semibold text-gray-400 hover:text-red-600 select-none list-none flex items-center gap-1">
-                  <svg className="w-3 h-3 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7"/></svg>
-                  Neue Saison (Guthaben reset)
-                </summary>
-                <div className="mt-3 border border-red-200 rounded-xl p-4 bg-red-50">
-                  <p className="text-xs text-red-700 mb-3">
-                    Setzt <strong>alle Guthaben auf 1.000 Wildis</strong> zurück. Bisherige Wetten bleiben als Saison 25/26 erhalten.
-                  </p>
-                  <button
-                    onClick={resetSeasonBalances}
-                    disabled={seasonResetLoading}
-                    className="w-full py-2 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white font-bold rounded-lg transition-colors text-sm"
-                  >
-                    {seasonResetLoading ? 'Wird zurückgesetzt…' : 'Alle Guthaben auf 1.000 Wildis zurücksetzen'}
-                  </button>
-                </div>
-              </details>
-            </VerwaltungSection>
+            </Section>
 
-            {/* Sonstiges — infrequent utility actions */}
-            <VerwaltungSection title="Sonstiges" subtitle="Push-Benachrichtigungen, Test-Spieltag, Awards-Backfill">
-              <div className="space-y-3">
-                <AdminPushTab />
+            <Section id="vw-kader" title="Kader & Transfers" subtitle="Kaderdaten, Transfers, Spielerstatus (reale Roster-Daten)" defaultOpen>
+              <KaderSection onMessage={setMessage} />
+            </Section>
+
+            <Section id="vw-saison" title="Saison-Verwaltung" subtitle="Saisonstart-Flag & Guthaben-Reset" defaultOpen
+              badge={seasonStarted ? <Pill tone="success">gestartet</Pill> : <Pill tone="neutral">nicht gestartet</Pill>}>
+              <div className="space-y-4">
+                <div className="flex flex-col gap-3 rounded-xl bg-gray-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-[15px] font-bold text-gray-900">Saisonstart</div>
+                    <div className="text-[13px] text-gray-600">
+                      {seasonStarted ? <span className="font-medium text-green-600">Gestartet</span> : <span className="text-gray-500">Nicht gestartet</span>}
+                      {' '}· neue Nutzer brauchen manuelle Freischaltung
+                    </div>
+                  </div>
+                  <Btn variant={seasonStarted ? 'secondary' : 'primary'} loading={seasonToggleLoading} onClick={() => toggleSeasonStarted(!seasonStarted)}>
+                    {seasonStarted ? 'Flag entfernen' : 'Saison starten'}
+                  </Btn>
+                </div>
+                <details className="group rounded-xl border-2 border-red-200">
+                  <summary className="flex min-h-[44px] cursor-pointer list-none items-center gap-1.5 px-3 text-[14px] font-semibold text-red-700 select-none [&::-webkit-details-marker]:hidden">
+                    <svg className="h-3.5 w-3.5 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+                    Neue Saison (Guthaben-Reset)
+                  </summary>
+                  <div className="space-y-3 border-t border-red-200 bg-red-50 p-4">
+                    <p className="text-[14px] leading-6 text-red-900">
+                      Setzt <b>alle Guthaben auf 1.000 Wildis</b> zurück. Bisherige Wetten bleiben als Saison 25/26 erhalten.
+                    </p>
+                    <Btn variant="danger" block loading={seasonResetLoading} onClick={resetSeasonBalances}>
+                      {seasonResetLoading ? 'Wird zurückgesetzt …' : 'Alle Guthaben auf 1.000 Wildis zurücksetzen'}
+                    </Btn>
+                  </div>
+                </details>
+              </div>
+            </Section>
+
+            <Section id="vw-sonstiges" title="Technik & Tests" subtitle="Push-Benachrichtigungen, Test-Spieltag, Awards-Backfill">
+              <div className="space-y-4">
+                <AdminPushTab onMessage={setMessage} />
                 <TestMatchdayPanel />
-
-                {/* Awards-Backfill (Part A) */}
-                <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
-                  <h4 className="font-bold text-gray-900 mb-1 text-sm">Awards rückwirkend berechnen</h4>
-                  <p className="text-xs text-gray-500 mb-3">
-                    Berechnet alle Pokal-Kategorien (inkl. der 3 neuen: Großer Wurf, Torschützen-König,
-                    Zocker des Spieltags) für jeden bereits abgerechneten Spieltag der aktuellen Saison neu.
-                    Gefahrlos wiederholbar.
+                <Panel className="space-y-3 p-4">
+                  <h4 className="text-[16px] font-bold text-gray-900">Awards rückwirkend berechnen</h4>
+                  <p className="text-[14px] leading-6 text-gray-700">
+                    Berechnet alle Pokal-Kategorien (inkl. der 3 neuen: Großer Wurf, Torschützen-König, Zocker des
+                    Spieltags) für jeden bereits abgerechneten Spieltag der aktuellen Saison neu. Gefahrlos wiederholbar.
                   </p>
-                  <button
-                    onClick={backfillAwards}
-                    disabled={awardsBackfillLoading}
-                    className="w-full py-2.5 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-lg transition-colors text-sm"
-                  >
-                    {awardsBackfillLoading ? 'Wird berechnet…' : 'Awards rückwirkend berechnen (inkl. 3 neue Kategorien)'}
-                  </button>
-                </div>
+                  <Btn variant="primary" block loading={awardsBackfillLoading} onClick={backfillAwards}>
+                    {awardsBackfillLoading ? 'Wird berechnet …' : 'Awards rückwirkend berechnen (inkl. 3 neue Kategorien)'}
+                  </Btn>
+                </Panel>
               </div>
-            </VerwaltungSection>
+            </Section>
 
-            <VerwaltungSection title="Bonus-Tipps" subtitle="Sondertipps ohne Einsatz: erstellen, verwalten, auswerten">
-              <BonusTipsAdmin />
-            </VerwaltungSection>
+            <Section id="vw-bonus" title="Bonus-Tipps" subtitle="Sondertipps ohne Einsatz: erstellen, verwalten, auswerten">
+              <BonusTipsAdmin onMessage={setMessage} />
+            </Section>
 
-            <VerwaltungSection title="Spieltag-Specials" subtitle="Spieltag-weite Wettmärkte mit Einsatz/Quote: vorschlagen, aktivieren, verwalten">
-              <SpieltagSpecialsAdmin />
-            </VerwaltungSection>
+            <Section id="vw-specials" title="Spieltag-Specials" subtitle="Spieltag-weite Wettmärkte mit Einsatz/Quote: vorschlagen, aktivieren, verwalten">
+              <SpieltagSpecialsAdmin onMessage={setMessage} />
+            </Section>
 
           </div>
         )}
 
         {/* Umfrage Tab */}
-        {tab === 'umfrage' && <SurveyTab />}
+        {tab === 'umfrage' && <SurveyTab onMessage={setMessage} />}
+        </div>
       </div>
     </div>
   )
@@ -1064,55 +763,76 @@ export default function AdminPage() {
 /** Collapsible, visually-separated section wrapper for the Verwaltung tab
  *  (B6) — groups related admin actions under a clear heading instead of one
  *  long flat stack. */
-function VerwaltungSection({
-  title, subtitle, defaultOpen = false, children,
-}: {
-  title: string; subtitle?: string; defaultOpen?: boolean; children: ReactNode
+type WRole = 'fan' | 'team1' | 'team2' | 'both'
+const WROLE_LABEL: Record<WRole, string> = { fan: 'Fan', team1: '1. Mannschaft', team2: '2. Mannschaft', both: 'Beide Mannschaften' }
+const wroleOf = (u: AdminUser): WRole => (u.is_wildenroth && u.is_wildenroth_ii ? 'both' : u.is_wildenroth ? 'team1' : u.is_wildenroth_ii ? 'team2' : 'fan')
+
+/** Visuelle Übernahme aus dem alten, verworfenen Admin-Redesign (dort components/admin/
+ *  VerwaltungTab.tsx#UserCard) — die 5 Handler bleiben die bestehenden, unveränderten
+ *  Funktionen aus AdminPage (kein `confirm()` wurde hier neu hinzugefügt: das alte Redesign
+ *  bestätigt Rollenwechsel/Freischalten zusätzlich, was eine Verhaltensänderung wäre und laut
+ *  Vorgabe nicht ungeprüft mit der Design-Modernisierung vermischt werden soll — `deleteUser`
+ *  bestätigt bereits heute, das bleibt unverändert). */
+function UserCard({ u, isNew, balance, onBalanceChange, onRole, onEligible, onDelete, onRestore }: {
+  u: AdminUser; isNew: boolean; balance: string
+  onBalanceChange: (v: string) => void
+  onRole: (role: WRole) => void
+  onEligible: () => void
+  onDelete: () => void
+  onRestore: () => void
 }) {
   return (
-    <details open={defaultOpen} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden group">
-      <summary className="cursor-pointer select-none list-none px-5 py-4 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="font-bold text-gray-900">{title}</h3>
-          {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
-        </div>
-        <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </summary>
-      <div className="px-5 pb-5 border-t border-gray-50 pt-4">
-        {children}
+    <Panel as="article" tone={u.deleted_at ? 'critical' : u.eligible_for_current_season ? undefined : 'open'} className={`space-y-3 p-4 ${u.deleted_at ? 'opacity-90' : ''}`}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <h4 className="min-w-0 break-words text-[17px] font-bold leading-tight text-gray-900">{u.display_name || u.username}</h4>
+        {isNew && <Pill tone="success">NEU</Pill>}
+        {u.is_admin && <Pill tone="info">Admin</Pill>}
+        {u.deleted_at && <Pill tone="critical">Gelöscht</Pill>}
+        {u.is_wildenroth && u.is_wildenroth_ii && <Pill tone="neutral">⚽ Beide</Pill>}
+        {u.is_wildenroth && !u.is_wildenroth_ii && <Pill tone="neutral">⚽ 1</Pill>}
+        {!u.is_wildenroth && u.is_wildenroth_ii && <Pill tone="neutral">⚽ 2</Pill>}
       </div>
-    </details>
-  )
-}
+      {u.email && <div className="break-all text-[13px] text-gray-600">{u.email}</div>}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px]">
+        <span className="font-semibold tabular-nums text-gray-900">{u.balance.toLocaleString('de-DE', { minimumFractionDigits: 2 })} {wl(u.balance)}</span>
+        {u.eligible_for_current_season ? <Pill tone="success">berechtigt</Pill> : <Pill tone="open">nicht berechtigt</Pill>}
+      </div>
 
-function TippsAccordion({ matches, mdIndex, currentMatchday }: { matches: MatchRow[]; mdIndex: EffectiveMatchdayIndex; currentMatchday: number | null }) {
-  // Defaults open — seeing today's bets at a glance is the admin's primary
-  // daily use case, so it shouldn't require a click after a page load. Still
-  // collapsible for when it's not needed.
-  const [open, setOpen] = useState(true)
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-left"
-      >
-        <span className="font-bold text-gray-900 text-sm">Tipps anzeigen</span>
-        <svg className={`w-4 h-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {open && (
-        <div className="px-4 pb-4 border-t border-gray-50">
-          <AdminBetsTab matches={matches} mdIndex={mdIndex} currentMatchday={currentMatchday} />
+      <div className="grid grid-cols-2 gap-2">
+        <Btn variant={u.eligible_for_current_season ? 'secondary' : 'success'} onClick={onEligible}>
+          {u.eligible_for_current_season ? 'Sperren' : 'Freischalten'}
+        </Btn>
+        {u.deleted_at
+          ? <Btn variant="secondary" onClick={onRestore}>Reaktivieren</Btn>
+          : <Btn variant="danger" onClick={onDelete}>Löschen</Btn>}
+      </div>
+
+      <details className="group rounded-xl border border-gray-200">
+        <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-3 text-[14px] font-semibold text-gray-700 [&::-webkit-details-marker]:hidden">
+          Rolle &amp; Guthaben · {WROLE_LABEL[wroleOf(u)]}
+          <svg className="h-4 w-4 shrink-0 text-gray-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+        </summary>
+        <div className="space-y-3 border-t border-gray-200 p-3">
+          <Field label="Rolle (Wildenroth-Zugehörigkeit)">
+            <select value={wroleOf(u)} onChange={(e) => onRole(e.target.value as WRole)} className={selectCls}>
+              {(Object.keys(WROLE_LABEL) as WRole[]).map((r) => <option key={r} value={r}>{WROLE_LABEL[r]}</option>)}
+            </select>
+          </Field>
+          <Field label="Guthaben setzen (optional)" hint="Wird beim nächsten Freischalten/Sperren dieses Spielers gesetzt. Leer = unverändert.">
+            <input type="number" inputMode="decimal" placeholder="z. B. 1000" value={balance} onChange={(e) => onBalanceChange(e.target.value)} className={inputCls} />
+          </Field>
         </div>
-      )}
-    </div>
+      </details>
+    </Panel>
   )
 }
 
-function AdminPushTab() {
+/** `onMessage` ersetzt die frühere eigene `message`-Mini-Leiste (immer grau, kein Unterschied
+ *  zwischen Erfolg und Fehler) — läuft jetzt über dieselbe globale Banner-Stelle wie überall
+ *  sonst im Admin-Bereich. `loadStats`s fehlender else-Zweig (Netzwerk-/Serverfehler beim ersten
+ *  Laden blieben bisher komplett unsichtbar — "Fehler beim Laden" nur bei explizitem !stats,
+ *  was nie den eigentlichen Grund nannte) ist jetzt auch über `onMessage` sichtbar. */
+function AdminPushTab({ onMessage }: { onMessage: (m: string | null) => void }) {
   const [stats, setStats] = useState<{
     totalEligibleUsers: number
     usersWithPushEnabled: number
@@ -1121,8 +841,8 @@ function AdminPushTab() {
     recentErrors: Array<{ category: string; title: string; error_message: string | null }>
   } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [testLoading, setTestLoading] = useState(false)
-  const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
     loadStats()
@@ -1130,10 +850,13 @@ function AdminPushTab() {
 
   async function loadStats() {
     setLoading(true)
+    setLoadError(false)
     const res = await fetch('/api/push/test')
     if (res.ok) {
       const data = await res.json()
       setStats(data.pushOverview)
+    } else {
+      setLoadError(true)
     }
     setLoading(false)
   }
@@ -1147,85 +870,66 @@ function AdminPushTab() {
     setTestLoading(false)
 
     if (res.ok) {
-      setMessage('✓ Test-Push gesendet')
-      setTimeout(() => setMessage(null), 3000)
+      onMessage('Test-Push gesendet.')
     } else {
-      const err = await res.json()
-      setMessage(`✗ ${err.error}`)
+      const err = await res.json().catch(() => ({}))
+      onMessage(`Fehler: ${err.error ?? 'Test-Push fehlgeschlagen'}`)
     }
   }
 
-  if (loading) return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <h3 className="font-bold text-gray-900 mb-3">Push-Benachrichtigungen</h3>
-      <div className="text-center py-4 text-gray-400 text-sm">Lade…</div>
-    </div>
-  )
+  if (loading) return <Panel className="p-4"><LoadingBlock label="Push-Statistik wird geladen …" /></Panel>
 
   if (!stats) return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <h3 className="font-bold text-gray-900 mb-1">Push-Benachrichtigungen</h3>
-      <div className="text-red-600 text-sm">Fehler beim Laden</div>
-    </div>
+    <Panel tone="critical" className="space-y-2 p-4">
+      <h4 className="text-[16px] font-bold text-gray-900">Push-Benachrichtigungen</h4>
+      <Notice tone="critical" action={<Btn size="sm" onClick={loadStats}>Erneut laden</Btn>}>
+        {loadError ? 'Statistik konnte nicht geladen werden.' : 'Unbekannter Fehler beim Laden.'}
+      </Notice>
+    </Panel>
   )
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <h3 className="font-bold text-gray-900 mb-3">Push-Benachrichtigungen</h3>
-      <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className="bg-blue-50 border border-blue-100 rounded-xl px-3 py-2 text-center">
-          <div className="text-xl font-black text-blue-600">{stats.usersWithPushEnabled}</div>
-          <div className="text-[10px] text-blue-700 font-semibold leading-tight">Push aktiv</div>
+    <Panel className="space-y-3 p-4">
+      <h4 className="text-[16px] font-bold text-gray-900">Push-Benachrichtigungen</h4>
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-center">
+          <div className="text-xl font-black text-sky-700">{stats.usersWithPushEnabled}</div>
+          <div className="text-[11px] leading-tight font-semibold text-sky-800">Push aktiv</div>
         </div>
-        <div className="bg-green-50 border border-green-100 rounded-xl px-3 py-2 text-center">
-          <div className="text-xl font-black text-green-600">{stats.activeSubscriptions}</div>
-          <div className="text-[10px] text-green-700 font-semibold leading-tight">Subscriptions</div>
+        <div className="rounded-xl border border-green-100 bg-green-50 px-3 py-2 text-center">
+          <div className="text-xl font-black text-green-700">{stats.activeSubscriptions}</div>
+          <div className="text-[11px] leading-tight font-semibold text-green-800">Subscriptions</div>
         </div>
-        <div className="bg-purple-50 border border-purple-100 rounded-xl px-3 py-2 text-center">
-          <div className="text-xl font-black text-purple-600">
+        <div className="rounded-xl border border-purple-100 bg-purple-50 px-3 py-2 text-center">
+          <div className="text-xl font-black text-purple-700">
             {typeof stats.enablementRate === 'string' ? stats.enablementRate : stats.enablementRate.toFixed(0)}%
           </div>
-          <div className="text-[10px] text-purple-700 font-semibold leading-tight">Aktiviert</div>
+          <div className="text-[11px] leading-tight font-semibold text-purple-800">Aktiviert</div>
         </div>
       </div>
 
-      <button
-        onClick={sendTestToMe}
-        disabled={testLoading}
-        className="w-full py-2 px-3 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white font-semibold rounded-lg text-sm transition-colors"
-      >
-        {testLoading ? '🧪 Wird gesendet…' : '🧪 Test-Push an mich'}
-      </button>
-
-      {message && (
-        <div className="mt-2 px-3 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg">{message}</div>
-      )}
+      <Btn variant="primary" block loading={testLoading} onClick={sendTestToMe}>
+        {testLoading ? 'Wird gesendet …' : '🧪 Test-Push an mich'}
+      </Btn>
 
       {stats.recentErrors && stats.recentErrors.length > 0 && (
-        <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-3">
-          <div className="text-xs font-semibold text-red-700 mb-1">⚠️ Letzte Fehler</div>
-          <div className="space-y-1 text-[11px] text-red-600">
+        <Notice tone="critical">
+          <div className="mb-1 font-semibold">Letzte Fehler</div>
+          <div className="space-y-1 text-[13px]">
             {stats.recentErrors.slice(0, 3).map((err, i) => (
               <div key={i} className="line-clamp-1">
                 <strong>{err.title}:</strong> {err.error_message}
               </div>
             ))}
           </div>
-        </div>
+        </Notice>
       )}
 
-      <div className="mt-3 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-[11px] text-gray-500">
+      <p className="text-[12px] text-gray-500">
         <strong>Scheduler:</strong> GitHub Actions läuft alle 30 Min (:07 und :37) — Haupt-Scheduler. Vercel Cron (täglich 08:00 UTC) ist nur Fallback.
-      </div>
-    </div>
+      </p>
+    </Panel>
   )
-}
-
-const MARKET_LABELS: Record<string, string> = {
-  '1x2': '1X2', double_chance: 'Dopp. Chance', over_under: 'Ü/U 2,5',
-  over_under_3_5: 'Ü/U 3,5', over_under_5_5: 'Ü/U 5,5', over_under_7_5: 'Ü/U 7,5',
-  btts: 'Beide treffen', exact_score: 'Ergebnis', handicap: 'Handicap',
-  goalscorer: 'Torschütze', goalscorer_2plus: 'Mind. 2 Tore',
 }
 
 interface OddsValues {
@@ -1274,9 +978,6 @@ function fmt(n: number): string {
   return n.toFixed(2).replace('.', ',')
 }
 
-function wl(n: number): string {
-  return Math.abs(n) === 1 ? 'Wildi' : 'Wildis'
-}
 
 type OverrideRow = {
   match_id: number
@@ -1285,22 +986,26 @@ type OverrideRow = {
 type OverrideValues = Record<string, number | null> & { exact_score_overrides?: Record<string, number> | null }
 
 function OddsPreviewSection({
-  preview, loading, selectedMd, onSelectMd, onReload,
+  preview, loading, selectedMd, onSelectMd, onReload, onMessage,
 }: {
   preview: OddsPreviewResponse | null
   loading: boolean
   selectedMd: number | null
   onSelectMd: (md: number) => void
   onReload: () => void
+  /** Ersetzt die frühere eigene `overrideMsg`-Mini-Leiste — dieselbe Meldung läuft jetzt über
+   *  dieselbe globale Banner-Stelle wie überall sonst im Admin-Bereich. */
+  onMessage: (m: string | null) => void
 }) {
   const [overrides, setOverrides] = useState<Record<number, OverrideRow>>({})
-  const [overrideMsg, setOverrideMsg] = useState<string | null>(null)
+  const [overridesError, setOverridesError] = useState<string | null>(null)
 
   const matchday = selectedMd ?? preview?.matchday
 
   // Load overrides when matchday changes
   useEffect(() => {
     if (!matchday) return
+    setOverridesError(null)
     fetch(`/api/admin/odds/overrides?matchday=${matchday}`)
       .then(r => r.json())
       .then(data => {
@@ -1308,6 +1013,8 @@ function OddsPreviewSection({
         for (const ov of data.overrides ?? []) map[ov.match_id] = ov
         setOverrides(map)
       })
+      // Vorher kein .catch() — ein Netzwerkfehler blieb unsichtbar, Overrides schienen leer.
+      .catch(() => setOverridesError('Überschreibungen konnten nicht geladen werden.'))
   }, [matchday])
 
   async function saveOverride(matchId: number, values: OverrideValues) {
@@ -1319,10 +1026,10 @@ function OddsPreviewSection({
     const data = await res.json()
     if (res.ok) {
       setOverrides(prev => ({ ...prev, [matchId]: { match_id: matchId, ...values } }))
-      setOverrideMsg('Überschreibung gespeichert.')
+      onMessage('Überschreibung gespeichert.')
       onReload()
     } else {
-      setOverrideMsg(`Fehler: ${data.error}`)
+      onMessage(`Fehler: ${data.error}`)
     }
   }
 
@@ -1334,38 +1041,32 @@ function OddsPreviewSection({
     })
     if (res.ok) {
       setOverrides(prev => { const n = { ...prev }; delete n[matchId]; return n })
-      setOverrideMsg('Überschreibung zurückgesetzt.')
+      onMessage('Überschreibung zurückgesetzt.')
       onReload()
+    } else {
+      // Vorher kein else-Zweig — ein fehlgeschlagenes Zurücksetzen blieb unsichtbar, die
+      // Überschreibung stand scheinbar unverändert weiter.
+      const data = await res.json().catch(() => ({}))
+      onMessage(`Fehler: ${data.error ?? 'Zurücksetzen fehlgeschlagen'}`)
     }
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <div className="flex items-start justify-between gap-3 mb-3">
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="font-bold text-gray-900">Quoten-Vorschau</h3>
           <p className="text-xs text-gray-500 mt-0.5">
             Berechnete Quoten · gelb = manuell überschrieben
           </p>
         </div>
-        <button
-          onClick={onReload}
-          disabled={loading}
-          className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40"
-        >
-          {loading ? '…' : 'Neu laden'}
-        </button>
+        <Btn size="sm" variant="secondary" onClick={onReload} disabled={loading}>{loading ? '…' : 'Neu laden'}</Btn>
       </div>
 
-      {overrideMsg && (
-        <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-center gap-2">
-          <span className="flex-1">{overrideMsg}</span>
-          <button onClick={() => setOverrideMsg(null)}>✕</button>
-        </div>
-      )}
+      {overridesError && <Notice tone="critical" action={<Btn size="sm" onClick={onReload}>Erneut laden</Btn>}>{overridesError}</Notice>}
 
       {preview?.matchdays && preview.matchdays.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-3">
+        <div className="flex flex-wrap gap-1.5">
           {preview.matchdays.map((md) => (
             <button
               key={md}
@@ -1394,8 +1095,8 @@ function OddsPreviewSection({
 
       {preview && preview.matches.length > 0 && (
         <>
-          <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
-            <div className="font-semibold mb-0.5">
+          <Notice tone="open">
+            <div className="font-semibold">
               Spieltag {preview.matchday}
               {preview.matches.every((m) => m.frozen_at)
                 ? ' · bereits eingefroren'
@@ -1418,7 +1119,7 @@ function OddsPreviewSection({
                 Uhr
               </div>
             )}
-          </div>
+          </Notice>
 
           <div className="space-y-3">
             {preview.matches.map((m) => (
@@ -1476,9 +1177,14 @@ function OddsPreviewMatchCard({
   onSave: (values: OverrideValues) => Promise<void>
   onReset: () => Promise<void>
 }) {
+  const confirm = useConfirm()
   const o = match.odds
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Ersetzt die beiden früheren alert()-Aufrufe in handleSave — Validierungsfehler laufen
+  // jetzt wie überall sonst im Admin-Bereich über eine lokale <Notice>, nicht über einen
+  // blockierenden Browser-Dialog (der auf iPhone zudem schlecht lesbar abschneidet).
+  const [formError, setFormError] = useState<string | null>(null)
   const allFields = OVERRIDE_FIELDS.flat()
   const initDraft = () => Object.fromEntries(
     allFields.map(f => [f.col, override?.[f.col] != null ? String(override[f.col]) : ''])
@@ -1497,10 +1203,12 @@ function OddsPreviewMatchCard({
   function openEdit() {
     setDraft(initDraft())
     setExactDraft(initExactDraft())
+    setFormError(null)
     setEditing(true)
   }
 
   async function handleSave() {
+    setFormError(null)
     const values: OverrideValues = {}
     for (const { col } of allFields) {
       const raw = draft[col].trim().replace(',', '.')
@@ -1509,7 +1217,7 @@ function OddsPreviewMatchCard({
       } else {
         const n = parseFloat(raw)
         if (isNaN(n) || n <= 1.0 || n > 999) {
-          alert(`Ungültiger Wert für ${col}: muss >1,00 sein.`)
+          setFormError(`Ungültiger Wert für ${col}: muss >1,00 sein.`)
           return
         }
         values[col] = n
@@ -1521,7 +1229,7 @@ function OddsPreviewMatchCard({
       if (raw === '') continue
       const n = parseFloat(raw)
       if (isNaN(n) || n <= 1.0 || n > 999) {
-        alert(`Ungültiger Wert für Ergebnis ${es.score}: muss >1,00 sein.`)
+        setFormError(`Ungültiger Wert für Ergebnis ${es.score}: muss >1,00 sein.`)
         return
       }
       exactValues[es.score] = n
@@ -1534,7 +1242,7 @@ function OddsPreviewMatchCard({
   }
 
   async function handleReset() {
-    if (!confirm('Alle Überschreibungen für dieses Spiel zurücksetzen?')) return
+    if (!(await confirm({ title: 'Alle Überschreibungen für dieses Spiel zurücksetzen?', confirmLabel: 'Zurücksetzen', tone: 'danger' }))) return
     setSaving(true)
     await onReset()
     setSaving(false)
@@ -1564,41 +1272,35 @@ function OddsPreviewMatchCard({
   )
 
   return (
-    <div className={`border rounded-xl overflow-hidden ${hasOverride ? 'border-amber-300' : 'border-gray-100'}`}>
-      <div className="bg-gray-50 px-3 py-2 space-y-1">
-        <div className="flex items-start gap-2">
-          <div className="text-sm font-semibold text-gray-800 flex-1 min-w-0">
+    <Panel className="overflow-hidden" tone={hasOverride ? 'open' : undefined}>
+      <div className="flex items-start gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2.5">
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="break-words text-[14px] font-bold leading-snug text-gray-900">
             {match.home_team} – {match.away_team}
           </div>
-          <button
-            onClick={editing ? () => setEditing(false) : openEdit}
-            className="text-[10px] px-2 py-1 rounded border border-gray-200 text-gray-600 hover:bg-gray-100 flex-shrink-0"
-          >
-            {editing ? 'Schließen' : 'Bearbeiten'}
-          </button>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {hasOverride && (
-            <span className="text-[10px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded flex-shrink-0">
-              Überschrieben
+          <div className="flex flex-wrap items-center gap-1.5">
+            {hasOverride && <Pill tone="open">Überschrieben</Pill>}
+            <span className="text-[12px] text-gray-500">
+              {new Date(match.match_date).toLocaleString('de-DE', {
+                timeZone: 'Europe/Berlin',
+                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+              })}
+              {match.frozen_at && <span className="ml-1 font-semibold text-amber-700">· eingefroren</span>}
             </span>
-          )}
-          <div className="text-[10px] text-gray-500">
-            {new Date(match.match_date).toLocaleString('de-DE', {
-              timeZone: 'Europe/Berlin',
-              day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-            })}
-            {match.frozen_at && <span className="ml-1 text-amber-700 font-semibold">· eingefroren</span>}
           </div>
         </div>
+        <Btn size="sm" variant="secondary" className="shrink-0" onClick={editing ? () => setEditing(false) : openEdit}>
+          {editing ? 'Schließen' : 'Bearbeiten'}
+        </Btn>
       </div>
 
       {/* Override edit form */}
       {editing && (
-        <div className="px-3 py-3 bg-amber-50 border-b border-amber-200 space-y-2">
-          <div className="text-xs font-semibold text-amber-800 mb-1">
+        <div className="space-y-2 border-b border-amber-200 bg-amber-50 px-3 py-3">
+          <div className="mb-1 text-[13px] font-semibold text-amber-800">
             Manuelle Quoten-Überschreibung · leer lassen = Auto-Quote
           </div>
+          {formError && <Notice tone="critical">{formError}</Notice>}
           {OVERRIDE_FIELDS.map((group, gi) => (
             <div key={gi} className="flex flex-wrap gap-2">
               {group.map(({ col, label }) => (
@@ -1645,21 +1347,13 @@ function OddsPreviewMatchCard({
             </div>
           )}
           <div className="flex gap-2 pt-1">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
-            >
-              {saving ? 'Speichern…' : 'Speichern'}
-            </button>
+            <Btn size="sm" variant="primary" onClick={handleSave} loading={saving}>
+              Speichern
+            </Btn>
             {hasOverride && (
-              <button
-                onClick={handleReset}
-                disabled={saving}
-                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 text-gray-700 text-xs font-semibold rounded-lg transition-colors"
-              >
+              <Btn size="sm" variant="secondary" onClick={handleReset} disabled={saving}>
                 Zurücksetzen
-              </button>
+              </Btn>
             )}
           </div>
         </div>
@@ -1721,7 +1415,7 @@ function OddsPreviewMatchCard({
         <InlineExplain matchId={match.match_id} />
         <SingleMatchRecalc matchId={match.match_id} />
       </div>
-    </div>
+    </Panel>
   )
 }
 
@@ -2026,1380 +1720,6 @@ function OddsRow({ label, cells }: { label: string; cells: [string, string, bool
   )
 }
 
-const SELECTION_LABELS: Record<string, string> = {
-  home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg',
-  '1x': '1X', x2: 'X2', '12': '12',
-  'over_2.5': 'Über 2,5', 'under_2.5': 'Unter 2,5',
-  'over_3.5': 'Über 3,5', 'under_3.5': 'Unter 3,5',
-  'over_5.5': 'Über 5,5', 'under_5.5': 'Unter 5,5',
-  'over_7.5': 'Über 7,5', 'under_7.5': 'Unter 7,5',
-  yes: 'Beide treffen', no: 'Nicht beide',
-  home_minus_1_5: 'Heim –1,5', away_plus_1_5: 'Gast +1,5',
-  home_minus_2_5: 'Heim –2,5', away_plus_2_5: 'Gast +2,5',
-  away_minus_1_5: 'Gast –1,5', home_plus_1_5: 'Heim +1,5',
-  away_minus_2_5: 'Gast –2,5', home_plus_2_5: 'Heim +2,5',
-}
-
-function selLabel(marketType: string, selection: string, players?: Record<number, string>): string {
-  if (marketType === 'exact_score') return selection
-  if (marketType === 'goalscorer' || marketType === 'goalscorer_2plus') {
-    const id = parseInt(selection, 10)
-    const name = players?.[id] ?? `Spieler #${id}`
-    return marketType === 'goalscorer_2plus' ? `${name} (mind. 2 Tore)` : name
-  }
-  // matchday_special checked before SELECTION_LABELS (keyed by selection code
-  // ALONE, not market_type) — a Special's plain 'yes'/'no' would otherwise
-  // wrongly match btts's "Beide treffen"/"Nicht beide". Generic fallback only
-  // (no title/line) — this admin listing doesn't join matchday_specials.
-  if (marketType === 'matchday_special') {
-    return { over: 'Über', under: 'Unter', yes: 'Ja', no: 'Nein' }[selection] ?? selection
-  }
-  // Cup markets checked first — SELECTION_LABELS is keyed by selection code
-  // alone, so a cup_comeback_advance 'yes' would otherwise wrongly match
-  // btts's "Beide treffen".
-  return cupSelectionLabel(marketType, selection) ?? SELECTION_LABELS[selection] ?? selection
-}
-
-function AdminBetsTab({ matches, mdIndex, currentMatchday }: { matches: MatchRow[]; mdIndex: EffectiveMatchdayIndex; currentMatchday: number | null }) {
-  // Effective (not raw) matchday numbers — /api/admin/bets filters by
-  // effectiveMatchdayOf, so the picker buttons and the fetched data must use
-  // the same numbering, or a rescheduled match's raw matchday could pick a
-  // button that silently fetches the wrong (or empty) Spieltag's bets.
-  const allMatchdays = [...new Set(
-    matches.map(m => effectiveMatchdayOf(m as unknown as Match, mdIndex)).filter((md): md is number => md !== null)
-  )].sort((a, b) => a - b)
-  // matches (and therefore currentMatchday) is still empty on this
-  // component's very first render — the parent fetches it async and there's
-  // no loading gate before <TippsAccordion> mounts — so a plain useState
-  // initializer would freeze at the "1"/last-matchday fallback forever, even
-  // once currentMatchday later becomes available. Same guarded-effect
-  // pattern as the parent's mdFilter (B3): sync once when currentMatchday
-  // first arrives, never again after that so a manual pick always wins.
-  const [selectedMd, setSelectedMd] = useState<number>(currentMatchday ?? allMatchdays[allMatchdays.length - 1] ?? 1)
-  const [selectedMdInitialized, setSelectedMdInitialized] = useState(currentMatchday != null)
-  useEffect(() => {
-    if (selectedMdInitialized || currentMatchday == null) return
-    setSelectedMd(currentMatchday)
-    setSelectedMdInitialized(true)
-  }, [currentMatchday, selectedMdInitialized])
-  const [bets, setBets] = useState<{ id: string; user_id: string; match_id: number; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; is_risky: boolean; stake: number | null; special_id: number | null; created_at: string }[]>([])
-  const [profiles, setProfiles] = useState<{ id: string; display_name: string | null; username: string }[]>([])
-  const [matchMap, setMatchMap] = useState<Record<number, { home: string; away: string }>>({})
-  const [playerMap, setPlayerMap] = useState<Record<number, string>>({})
-  const [comboMap, setComboMap] = useState<Record<number, { stake: number; total_odds: number; status: string; payout: number | null }>>({})
-  const [specialsById, setSpecialsById] = useState<Record<number, SpecialDisplayInfo>>({})
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    setLoading(true)
-    fetch(`/api/admin/bets?matchday=${selectedMd}`)
-      .then(r => r.json())
-      .then(data => {
-        setBets(data.bets ?? []); setProfiles(data.profiles ?? [])
-        setMatchMap(data.matchMap ?? {}); setPlayerMap(data.playerNameMap ?? {})
-        setComboMap(data.comboMap ?? {}); setSpecialsById(data.specialsById ?? {})
-      })
-      .finally(() => setLoading(false))
-  }, [selectedMd])
-
-  // "Spieltag N · <Markt>" / "<Antwort>" for a matchday_special leg —
-  // its match_id is only the representative_match_id (technical FK anchor),
-  // so showing that match's team names would misrepresent what was bet on.
-  const specialLegTitle = (leg: { special_id: number | null }): string => {
-    const special = leg.special_id != null ? specialsById[leg.special_id] : undefined
-    return special ? specialMarketLabel(special) : 'Spieltag-Special'
-  }
-  const specialLegSelection = (leg: { special_id: number | null; selection: string }): string => {
-    const special = leg.special_id != null ? specialsById[leg.special_id] : undefined
-    return special ? specialSelectionLabel(special, leg.selection) : selLabel('matchday_special', leg.selection)
-  }
-
-  const profileMap = Object.fromEntries(profiles.map(p => [p.id, p.display_name || p.username]))
-  // `bets` arrives newest-first (see /api/admin/bets's order by created_at
-  // desc) — sort the user cards themselves by their most recent bet too, so
-  // whoever just placed something bubbles to the top instead of sitting
-  // wherever the profiles query happened to return them.
-  const byUser = profiles
-    .map(p => ({
-      profile: p,
-      bets: bets.filter(b => b.user_id === p.id),
-    }))
-    .sort((a, b) => {
-      const at = a.bets[0]?.created_at ?? ''
-      const bt = b.bets[0]?.created_at ?? ''
-      return bt.localeCompare(at)
-    })
-
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-2 flex-wrap">
-        {allMatchdays.map(md => (
-          <button key={md} onClick={() => setSelectedMd(md)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-              md === selectedMd ? 'bg-red-700 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
-            }`}>
-            ST {md}
-          </button>
-        ))}
-      </div>
-
-      {loading && <div className="text-center py-8 text-gray-400 text-sm">Lade Tipps…</div>}
-
-      {!loading && byUser.length === 0 && (
-        <div className="text-center py-8 text-gray-400 text-sm">Keine Tipps für Spieltag {selectedMd}</div>
-      )}
-
-      {!loading && byUser.map(({ profile, bets: userBets }) => {
-        if (userBets.length === 0) return null
-        const shownCombos = new Set<string>()
-        return (
-          <div key={profile.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-              <span className="w-7 h-7 rounded-full bg-red-100 flex items-center justify-center text-red-700 font-bold text-xs flex-shrink-0">
-                {(profile.display_name || profile.username)[0].toUpperCase()}
-              </span>
-              <span className="font-semibold text-sm text-gray-900">{profileMap[profile.id]}</span>
-              <span className="ml-auto text-xs text-gray-400">{userBets.filter(b => !b.combo_id).length} Einzel · {new Set(userBets.filter(b => b.combo_id).map(b => b.combo_id)).size} Kombi</span>
-            </div>
-            <div className="divide-y divide-gray-50">
-              {userBets.map(bet => {
-                if (bet.combo_id) {
-                  if (shownCombos.has(bet.combo_id)) return null
-                  shownCombos.add(bet.combo_id)
-                  const legs = userBets.filter(b => b.combo_id === bet.combo_id)
-                  // Prefer the stored total_odds (combo_bets, always the full,
-                  // correct value) over recomputing from `legs` — `legs` here
-                  // only ever holds whichever legs this Spieltag's /api/admin/bets
-                  // call returned, so a product over it silently understates a
-                  // combo whose fetch was incomplete for any reason.
-                  const comboOdds = comboMap[Number(bet.combo_id)]?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
-                  // Compute effective combo status from legs — same logic as the app.
-                  // 'void' (storniert) legs are neither 'lost' nor 'won', and must be
-                  // checked before the 'pending' fallback — otherwise a cancelled
-                  // combo (all legs 'void') silently reads as "Offen".
-                  const effectiveComboStatus =
-                    legs.some(l => l.status === 'lost') ? 'lost' :
-                    legs.every(l => l.status === 'won') ? 'won' :
-                    legs.every(l => l.status === 'void') ? 'void' :
-                    'pending'
-                  const comboStake = comboMap[Number(bet.combo_id)]?.stake
-                  return (
-                    <div key={bet.combo_id} className="px-4 py-2.5">
-                      <div className="flex items-center gap-1.5 mb-0.5">
-                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded flex-shrink-0">
-                          {bet.is_risky ? '🎲 RISKY' : '🔗 KOMBI'}
-                        </span>
-                        <span className="text-xs text-gray-500 truncate">
-                          {legs.length} Tipps · <span className={`font-semibold ${oddsColorClass(effectiveComboStatus)}`}>@{comboOdds.toFixed(2).replace('.', ',')}</span>
-                        </span>
-                        <span className="ml-auto flex-shrink-0"><StatusChip status={effectiveComboStatus} /></span>
-                      </div>
-                      {comboStake != null && (
-                        <div className="text-[10px] text-gray-400 mb-1.5 pl-0.5">
-                          Einsatz {comboStake} {wl(comboStake)}
-                          {' · '}
-                          {effectiveComboStatus === 'won' && comboMap[Number(bet.combo_id)]?.payout != null
-                            ? <span className="font-bold text-green-600">+{comboMap[Number(bet.combo_id)]!.payout!.toFixed(2)} {wl(comboMap[Number(bet.combo_id)]!.payout!)}</span>
-                            : effectiveComboStatus === 'lost'
-                              ? <span className="text-red-400 line-through">{cappedPayout(comboStake, comboOdds, bet.is_risky).toFixed(2)} {wl(cappedPayout(comboStake, comboOdds, bet.is_risky))}</span>
-                              : <>mög. Gewinn <span className="font-semibold text-gray-600">{cappedPayout(comboStake, comboOdds, bet.is_risky).toFixed(2)} {wl(cappedPayout(comboStake, comboOdds, bet.is_risky))}</span></>
-                          }
-                        </div>
-                      )}
-                      {legs.map(leg => (
-                        <div key={leg.id} className="flex items-center gap-1.5 text-xs text-gray-600 py-0.5 pl-2">
-                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-500' : leg.status === 'void' ? 'bg-gray-300' : 'bg-yellow-400'}`} />
-                          {leg.market_type === 'matchday_special' ? (
-                            <>
-                              <span className="text-gray-400 text-[10px]">{specialLegTitle(leg)}</span>
-                              <span className="font-medium text-gray-800">{specialLegSelection(leg)}</span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="text-gray-400 text-[10px]">{matchMap[leg.match_id]?.home}–{matchMap[leg.match_id]?.away}</span>
-                              <span className="bg-gray-100 text-gray-600 px-1 rounded text-[10px]">{CUP_MARKET_LABEL[leg.market_type] ?? MARKET_LABELS[leg.market_type] ?? leg.market_type}</span>
-                              <span className="font-medium text-gray-800">{selLabel(leg.market_type, leg.selection, playerMap)}</span>
-                            </>
-                          )}
-                          <span className={`font-bold ml-auto ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                }
-                return (
-                  <div key={bet.id} className="px-4 py-2.5">
-                    <div className="flex items-start gap-1.5 text-xs flex-wrap">
-                      {bet.market_type === 'matchday_special' ? (
-                        <>
-                          <span className="text-gray-400 text-[10px]">{specialLegTitle(bet)}</span>
-                          <span className="font-medium text-gray-800">{specialLegSelection(bet)}</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="text-gray-400">{matchMap[bet.match_id]?.home}–{matchMap[bet.match_id]?.away}</span>
-                          <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-[10px] flex-shrink-0">{CUP_MARKET_LABEL[bet.market_type] ?? MARKET_LABELS[bet.market_type] ?? bet.market_type}</span>
-                          <span className="font-medium text-gray-800">{selLabel(bet.market_type, bet.selection, playerMap)}</span>
-                        </>
-                      )}
-                      {bet.is_risky && <span className="text-[10px] font-bold text-purple-700 flex-shrink-0">🎲</span>}
-                      <span className={`font-bold ml-auto flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
-                      <StatusChip status={bet.status} />
-                    </div>
-                    {bet.stake != null && (
-                      <div className="text-[10px] text-gray-400 mt-0.5">
-                        Einsatz {bet.stake} {wl(bet.stake)}
-                        {' · '}
-                        {bet.status === 'won'
-                          ? <span className="font-bold text-green-600">+{cappedPayout(bet.stake, bet.odds_value, bet.is_risky).toFixed(2)} {wl(cappedPayout(bet.stake, bet.odds_value, bet.is_risky))}</span>
-                          : bet.status === 'lost'
-                            ? <span className="text-red-400 line-through">{cappedPayout(bet.stake, bet.odds_value, bet.is_risky).toFixed(2)} {wl(cappedPayout(bet.stake, bet.odds_value, bet.is_risky))}</span>
-                            : <>mög. Gewinn <span className="font-semibold text-gray-600">{cappedPayout(bet.stake, bet.odds_value, bet.is_risky).toFixed(2)} {wl(cappedPayout(bet.stake, bet.odds_value, bet.is_risky))}</span></>
-                        }
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function StatusChip({ status }: { status: string }) {
-  return (
-    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-      status === 'won' ? 'bg-green-100 text-green-700' :
-      status === 'lost' ? 'bg-red-100 text-red-600' :
-      status === 'void' ? 'bg-gray-100 text-gray-500' : 'bg-yellow-50 text-yellow-700'
-    }`}>
-      {status === 'won' ? 'Gewonnen' : status === 'lost' ? 'Verloren' : status === 'void' ? 'Storniert' : 'Offen'}
-    </span>
-  )
-}
-
-function isWildenrothMatch(match: MatchRow) {
-  return !!(match.home_team?.name?.includes('Wildenroth') || match.away_team?.name?.includes('Wildenroth'))
-}
-
-/** Client-side "would settle as" preview for the 6 named-outcome cup markets
- *  (BTTS/Torschütze settle via their own existing mechanisms, not shown
- *  here), computed live from the current form state so the admin can sanity-
- *  check every market BEFORE clicking "Ergebnis & abrechnen" — mirrors
- *  settleBet()/cupAdvanceWinner() in app/api/admin/settle/route.ts exactly;
- *  keep both in sync if that logic ever changes. Purely a display aid, never
- *  submitted anywhere — the server re-derives everything itself. */
-function CupSettlementPreview({
-  match, score, cupInput,
-}: {
-  match: MatchRow
-  score: { home: string; away: string }
-  cupInput?: { shootoutWinner: string; firstGoalTeam: string; firstGoalMinute: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }
-}) {
-  const homeScore = score.home === '' ? null : Number(score.home)
-  const awayScore = score.away === '' ? null : Number(score.away)
-  if (homeScore == null || awayScore == null || !Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null
-
-  const homeName = match.home_team?.short_name ?? match.home_team?.name ?? 'Heim'
-  const awayName = match.away_team?.short_name ?? match.away_team?.name ?? 'Gast'
-  const isDraw = homeScore === awayScore
-  const shootoutWinner = (cupInput?.shootoutWinner || null) as 'home' | 'away' | null
-  const winner: 'home' | 'away' | null = isDraw ? shootoutWinner : (homeScore > awayScore ? 'home' : 'away')
-  const winnerKnown = winner != null
-
-  const htHome = cupInput?.halftimeHome === '' || cupInput?.halftimeHome == null ? null : Number(cupInput.halftimeHome)
-  const htAway = cupInput?.halftimeAway === '' || cupInput?.halftimeAway == null ? null : Number(cupInput.halftimeAway)
-  const homeLedAtHt = htHome != null && htAway != null && htHome > htAway
-  const awayLed = cupInput?.awayTeamLed === 'yes'
-  const firstGoal = homeScore === 0 && awayScore === 0 ? 'none' : (cupInput?.firstGoalTeam || null)
-
-  const needsFirstGoalMinute = homeScore > 0 || awayScore > 0
-  const firstGoalMinute = cupInput?.firstGoalMinute === '' || cupInput?.firstGoalMinute == null ? null : Number(cupInput.firstGoalMinute)
-  const earlyGoal = !needsFirstGoalMinute ? false : (firstGoalMinute != null && firstGoalMinute >= 1 && firstGoalMinute <= 15)
-
-  const htKnown = htHome != null && htAway != null
-  const ht1 = (htHome ?? 0) + (htAway ?? 0)
-  const ht2 = (homeScore - (htHome ?? 0)) + (awayScore - (htAway ?? 0))
-  const moreGoalsOutcome = ht1 > ht2 ? '1. Halbzeit' : ht2 > ht1 ? '2. Halbzeit' : 'Gleich viele'
-  const bothHalvesBtts = htKnown && (htHome ?? 0) > 0 && (htAway ?? 0) > 0 && (homeScore - (htHome ?? 0)) > 0 && (awayScore - (htAway ?? 0)) > 0
-
-  const rows: { label: string; value: string; unresolved?: boolean }[] = [
-    { label: 'Wer kommt weiter?', value: winnerKnown ? (winner === 'home' ? homeName : awayName) : '— Elfmeter-Sieger fehlt', unresolved: !winnerKnown },
-    { label: 'Wie fällt die Entscheidung?', value: isDraw ? 'Elfmeterschießen' : 'Nach 90 Minuten' },
-    { label: 'HZ-Führung + Weiter', value: winnerKnown ? (homeLedAtHt && winner === 'home' ? 'Ja' : 'Nein') : '— Elfmeter-Sieger fehlt', unresolved: !winnerKnown },
-    { label: 'Comeback (Geiselbullach führte) + Weiter', value: winnerKnown ? (awayLed && winner === 'home' ? 'Ja' : 'Nein') : '— Elfmeter-Sieger fehlt', unresolved: !winnerKnown },
-    { label: 'Elfmeterschießen + Weiter', value: isDraw ? (shootoutWinner === 'home' ? 'Ja' : shootoutWinner ? 'Nein' : '— Elfmeter-Sieger fehlt') : 'Nein', unresolved: isDraw && !shootoutWinner },
-    { label: 'Erstes Tor', value: firstGoal === 'home' ? homeName : firstGoal === 'away' ? awayName : firstGoal === 'none' ? 'Kein Tor' : '— fehlt noch', unresolved: !firstGoal },
-    { label: 'Frühes Tor (Min. 1-15)', value: !needsFirstGoalMinute ? 'Nein (kein Tor)' : (firstGoalMinute != null ? (earlyGoal ? 'Ja' : 'Nein') : '— Minute fehlt'), unresolved: needsFirstGoalMinute && firstGoalMinute == null },
-    { label: 'Mehr Tore je Halbzeit', value: htKnown ? moreGoalsOutcome : '— Halbzeitstand fehlt', unresolved: !htKnown },
-    { label: 'Beide Teams in beiden HZ', value: htKnown ? (bothHalvesBtts ? 'Ja' : 'Nein') : '— Halbzeitstand fehlt', unresolved: !htKnown },
-  ]
-
-  return (
-    <div className="bg-white border border-amber-200 rounded-lg p-2 mt-1">
-      <div className="text-[10px] font-bold text-amber-700 uppercase mb-1">So würde abgerechnet</div>
-      <div className="space-y-0.5">
-        {rows.map((r) => (
-          <div key={r.label} className="flex items-center justify-between text-[11px]">
-            <span className="text-gray-500">{r.label}</span>
-            <span className={`font-semibold ${r.unresolved ? 'text-red-600' : 'text-gray-800'}`}>{r.value}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function MatchSettleCard({
-  match,
-  score,
-  onChange,
-  cupInput,
-  onCupInputChange,
-  onSettle,
-  onPostpone,
-  loading,
-  isUpcoming,
-  pendingBets,
-  onCategoryChange,
-  scorerDraft,
-  onScorersChange,
-  effectiveMatchday,
-}: {
-  match: MatchRow
-  score: { home: string; away: string }
-  onChange: (side: 'home' | 'away', val: string) => void
-  cupInput?: { shootoutWinner: string; firstGoalTeam: string; firstGoalMinute: string; halftimeHome: string; halftimeAway: string; awayTeamLed: string }
-  onCupInputChange?: (field: 'shootoutWinner' | 'firstGoalTeam' | 'firstGoalMinute' | 'halftimeHome' | 'halftimeAway' | 'awayTeamLed', val: string) => void
-  onSettle: () => void
-  onPostpone?: () => void
-  loading: boolean
-  isUpcoming?: boolean
-  pendingBets?: number
-  onCategoryChange?: (matchId: number, category: string) => void
-  scorerDraft?: ScorerDraft[]
-  onScorersChange?: (draft: ScorerDraft[]) => void
-  /** Tippspiel-Spieltag this match is actually filtered/grouped under (see
-   *  matchdayForFilter) — for Wildenroth II/B-Klasse this differs from the
-   *  card's own raw `match.matchday` (their own independent BFV numbering),
-   *  so the badge must show this one or the admin sees a different Spieltag
-   *  here than the one just selected in the filter dropdown above. */
-  effectiveMatchday?: number | null
-}) {
-  const matchDate = new Date(match.match_date)
-  const dateStr = matchDate.toLocaleDateString('de-DE', {
-    weekday: 'short',
-    day: '2-digit',
-    month: '2-digit',
-  })
-
-  return (
-    <div className={`bg-white rounded-xl border shadow-sm p-4 ${isUpcoming ? 'border-blue-200' : 'border-orange-200'}`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className={`text-xs font-medium px-2 py-1 rounded-lg ${isUpcoming ? 'text-blue-600 bg-blue-50' : 'text-orange-600 bg-orange-50'}`}>
-          Spieltag {effectiveMatchday ?? match.matchday}
-          {effectiveMatchday != null && effectiveMatchday !== match.matchday && (
-            <span className="opacity-70"> (eigener Spieltag {match.matchday})</span>
-          )}
-          {isUpcoming ? ' · Verlegt?' : ''}
-        </div>
-        <div className="flex items-center gap-2">
-          {pendingBets != null && pendingBets > 0 && (
-            <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-blue-50 text-blue-600">{pendingBets} offen</span>
-          )}
-          <div className="text-xs text-gray-500">{dateStr}</div>
-        </div>
-      </div>
-
-      {/* Team names get their own full-width lines — squeezing long names
-          (e.g. "[SG] TSV Herrsching/SF Breitbrunn 2") into narrow flex
-          columns next to the score inputs made them wrap unpredictably and
-          fight the centered inputs for space. */}
-      <div className="mb-3 space-y-1.5">
-        <div className="text-sm font-semibold text-gray-900">{match.home_team?.name ?? '?'}</div>
-        <div className="flex items-center gap-1.5">
-          <input
-            type="number"
-            min="0"
-            max="20"
-            value={score.home}
-            onChange={(e) => onChange('home', e.target.value)}
-            className="w-12 text-center py-2 border border-gray-200 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-500"
-            placeholder="0"
-          />
-          <span className="text-gray-400 font-bold">:</span>
-          <input
-            type="number"
-            min="0"
-            max="20"
-            value={score.away}
-            onChange={(e) => onChange('away', e.target.value)}
-            className="w-12 text-center py-2 border border-gray-200 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-red-500"
-            placeholder="0"
-          />
-        </div>
-        <div className="text-sm font-semibold text-gray-900">{match.away_team?.name ?? '?'}</div>
-      </div>
-
-      {onCategoryChange && (
-        <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <span className="text-xs text-gray-400 flex-shrink-0">Wettbewerb:</span>
-          <select
-            value={match.match_category ?? 'kreisliga'}
-            onChange={(e) => onCategoryChange(match.id, e.target.value)}
-            className="text-xs border border-gray-200 rounded-lg px-2 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-red-500"
-          >
-            <option value="kreisliga">Kreisliga</option>
-            <option value="wildenroth_ii">Wildenroth II</option>
-            <option value="b-klasse">B-Klasse</option>
-            <option value="bklasse_topspiel">B-Klasse-Topspiel</option>
-          </select>
-        </div>
-      )}
-
-      {/* Cup match: two extra manual settlement inputs — see
-          app/api/admin/settle/route.ts settleBet() doc for why these can't
-          be derived automatically (no extra-time rule, no minute data). */}
-      {match.competition_type === 'cup' && onCupInputChange && (
-        <div className="mb-3 space-y-2 bg-amber-50 border border-amber-200 rounded-lg p-2">
-          <div className="text-[10px] font-bold text-amber-700 uppercase">🏆 Pokalabrechnung</div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 flex-shrink-0 w-28">Elfmeter-Sieger:</span>
-            <select
-              value={cupInput?.shootoutWinner ?? ''}
-              onChange={(e) => onCupInputChange('shootoutWinner', e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1 flex-1"
-            >
-              <option value="">— (nur bei Remis nach 90 Min.)</option>
-              <option value="home">{match.home_team?.name ?? 'Heim'}</option>
-              <option value="away">{match.away_team?.name ?? 'Gast'}</option>
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 flex-shrink-0 w-28">Erstes Tor:</span>
-            <select
-              value={cupInput?.firstGoalTeam ?? ''}
-              onChange={(e) => onCupInputChange('firstGoalTeam', e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1 flex-1"
-            >
-              <option value="">— auswählen —</option>
-              <option value="home">{match.home_team?.name ?? 'Heim'}</option>
-              <option value="away">{match.away_team?.name ?? 'Gast'}</option>
-              <option value="none">Kein Tor (0:0)</option>
-            </select>
-          </div>
-          {cupInput?.firstGoalTeam && cupInput.firstGoalTeam !== 'none' && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 flex-shrink-0 w-28">Minute 1. Tor:</span>
-              <input
-                type="number" min={1} max={120} inputMode="numeric"
-                value={cupInput?.firstGoalMinute ?? ''}
-                onChange={(e) => onCupInputChange?.('firstGoalMinute', e.target.value)}
-                placeholder="z.B. 12"
-                className="text-xs border border-gray-200 rounded-lg px-2 py-1 w-20"
-              />
-              <span className="text-[10px] text-gray-400">für „Frühes Tor Min. 1-15“</span>
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 flex-shrink-0 w-28">Halbzeitstand:</span>
-            <input
-              type="number" min={0} inputMode="numeric"
-              value={cupInput?.halftimeHome ?? ''}
-              onChange={(e) => onCupInputChange('halftimeHome', e.target.value)}
-              placeholder={match.home_team?.short_name ?? 'Heim'}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1 w-16"
-            />
-            <span className="text-xs text-gray-400">:</span>
-            <input
-              type="number" min={0} inputMode="numeric"
-              value={cupInput?.halftimeAway ?? ''}
-              onChange={(e) => onCupInputChange('halftimeAway', e.target.value)}
-              placeholder={match.away_team?.short_name ?? 'Gast'}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1 w-16"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 flex-shrink-0 w-28">{match.away_team?.short_name ?? 'Gast'} führte:</span>
-            <select
-              value={cupInput?.awayTeamLed ?? ''}
-              onChange={(e) => onCupInputChange('awayTeamLed', e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1 flex-1"
-            >
-              <option value="">— auswählen —</option>
-              <option value="yes">Ja, war irgendwann in Führung</option>
-              <option value="no">Nein, nie in Führung</option>
-            </select>
-          </div>
-          <div className="text-[10px] text-gray-400">
-            Halbzeitstand &amp; &bdquo;{match.away_team?.short_name ?? 'Gast'} führte&ldquo; werden für die
-            Pokal-Spezialmärkte benötigt und müssen vor dem Abrechnen ausgefüllt sein.
-          </div>
-          <CupSettlementPreview match={match} score={score} cupInput={cupInput} />
-        </div>
-      )}
-
-      {/* Wildenroth match: enter goalscorers right here — they get submitted
-          together with the score by the same "Ergebnis & abrechnen" click
-          below (see settleMatch/ScorerDraft in the parent), so there's no
-          need to switch to the Quoten tab for this anymore. */}
-      {isWildenrothMatch(match) && onScorersChange && (
-        <InlineScorerEntry matchId={match.id} draft={scorerDraft ?? []} onChange={onScorersChange} />
-      )}
-
-      <div className="flex gap-2">
-        <button
-          onClick={onSettle}
-          disabled={loading || score.home === '' || score.away === ''}
-          className="flex-1 py-2 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white font-semibold rounded-lg transition-colors text-sm flex items-center justify-center gap-2"
-        >
-          {loading ? (
-            <>
-              <span className="animate-spin w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full" />
-              Abrechnen...
-            </>
-          ) : (
-            'Ergebnis & abrechnen'
-          )}
-        </button>
-        {onPostpone && (
-          <button
-            onClick={onPostpone}
-            disabled={loading}
-            className="py-2 px-3 bg-yellow-100 hover:bg-yellow-200 disabled:opacity-50 text-yellow-800 font-semibold rounded-lg transition-colors text-sm"
-          >
-            Verschoben
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/** Inline "Torschützen eintragen" widget for a single Wildenroth match in the
- *  Spieltag tab. Deliberately independent of match_goalscorer_odds/whether
- *  odds were ever frozen for this match — fetches the active squad directly
- *  (/api/admin/goalscorers/roster) so it works even for a match nobody
- *  visited the Quoten tab for. Purely a draft editor; the parent submits
- *  `draft` to /api/admin/goalscorers/scorers alongside the score. */
-function InlineScorerEntry({
-  matchId, draft, onChange,
-}: {
-  matchId: number
-  draft: ScorerDraft[]
-  onChange: (draft: ScorerDraft[]) => void
-}) {
-  const [expanded, setExpanded] = useState(draft.length > 0)
-  const [players, setPlayers] = useState<{ id: number; name: string }[] | null>(null)
-
-  useEffect(() => {
-    if (!expanded || players !== null) return
-    fetch(`/api/admin/goalscorers/roster?matchId=${matchId}`)
-      .then(r => r.json())
-      .then(data => setPlayers(data.players ?? []))
-  }, [expanded, players, matchId])
-
-  function addRow() {
-    onChange([...draft, { playerId: players?.[0]?.id ?? 0, goals: 1, isOwnGoal: false }])
-  }
-  function updateRow(i: number, patch: Partial<ScorerDraft>) {
-    onChange(draft.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
-  }
-  function removeRow(i: number) {
-    onChange(draft.filter((_, idx) => idx !== i))
-  }
-
-  if (!expanded) {
-    return (
-      <button
-        type="button"
-        onClick={() => setExpanded(true)}
-        className="text-[10px] text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded font-medium mb-3"
-      >
-        ⚽ Torschützen eintragen
-      </button>
-    )
-  }
-
-  return (
-    <div className="mb-3 bg-blue-50/60 border border-blue-100 rounded-lg p-2.5 space-y-1.5">
-      <div className="text-[10px] font-semibold text-blue-700">⚽ Torschützen (wird mit abgeschickt)</div>
-      {players === null ? (
-        <div className="text-[11px] text-gray-400">Lade Kader…</div>
-      ) : (
-        <>
-          {draft.map((row, i) => (
-            <div key={i} className="flex items-center gap-1.5">
-              <select
-                value={row.playerId}
-                onChange={(e) => updateRow(i, { playerId: Number(e.target.value) })}
-                className="flex-1 min-w-0 text-xs py-1 px-1.5 border border-gray-200 rounded bg-white"
-              >
-                {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <input
-                type="number"
-                min="1"
-                max="20"
-                value={row.goals}
-                onChange={(e) => updateRow(i, { goals: parseInt(e.target.value) || 1 })}
-                className="w-12 text-center text-xs py-1 border border-gray-200 rounded flex-shrink-0"
-              />
-              <label className="flex items-center gap-1 text-[10px] text-gray-500 flex-shrink-0 whitespace-nowrap">
-                <input type="checkbox" checked={row.isOwnGoal} onChange={(e) => updateRow(i, { isOwnGoal: e.target.checked })} />
-                Eigentor
-              </label>
-              <button type="button" onClick={() => removeRow(i)} className="text-red-500 text-xs flex-shrink-0 px-1">✕</button>
-            </div>
-          ))}
-          {players.length === 0 ? (
-            <div className="text-[11px] text-gray-400">Kein aktiver Kader gefunden.</div>
-          ) : (
-            <button type="button" onClick={addRow} className="text-[10px] text-blue-700 font-semibold">+ Torschütze</button>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
-function PostponedMatchCard({
-  match,
-  onRescheduled,
-  onMessage,
-}: {
-  match: MatchRow
-  onRescheduled: () => void
-  onMessage: (msg: string) => void
-}) {
-  const [newDate, setNewDate] = useState('')
-  const [newTime, setNewTime] = useState('')
-  const [newMatchday, setNewMatchday] = useState(String(match.matchday))
-  const [loading, setLoading] = useState(false)
-
-  async function reschedule() {
-    if (!newDate || !newTime) { onMessage('Bitte Datum und Uhrzeit angeben.'); return }
-    const md = parseInt(newMatchday)
-    if (isNaN(md) || md < 1) { onMessage('Ungültiger Spieltag.'); return }
-    setLoading(true)
-    // Build as local time (admin inputs local time, browser converts to UTC via toISOString)
-    const isoDate = new Date(`${newDate}T${newTime}:00`).toISOString()
-    const res = await fetch('/api/admin/match-status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ matchId: match.id, action: 'reschedule', newDate: isoDate, matchday: md }),
-    })
-    setLoading(false)
-    if (res.ok) {
-      onMessage('Nachholtermin gespeichert — Spiel ist wieder als geplant geführt.')
-      onRescheduled()
-    } else {
-      const d = await res.json()
-      onMessage(`Fehler: ${d.error}`)
-    }
-  }
-
-  return (
-    <div className="bg-white rounded-xl border border-yellow-200 shadow-sm p-4">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-semibold px-2 py-1 rounded-lg bg-yellow-100 text-yellow-800">
-          Spieltag {match.matchday} · Verschoben
-        </span>
-      </div>
-      <div className="text-sm font-semibold text-gray-900 mb-3">
-        {match.home_team?.name ?? '?'} – {match.away_team?.name ?? '?'}
-      </div>
-      <p className="text-xs text-gray-500 mb-2">Neuen Termin eintragen:</p>
-      <div className="flex gap-2 mb-2">
-        <input
-          type="date"
-          value={newDate}
-          onChange={(e) => setNewDate(e.target.value)}
-          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-        />
-        <input
-          type="time"
-          value={newTime}
-          onChange={(e) => setNewTime(e.target.value)}
-          className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-        />
-      </div>
-      <div className="flex items-center gap-2 mb-3">
-        <label className="text-xs text-gray-500 flex-shrink-0">Spieltag:</label>
-        <input
-          type="number"
-          min="1"
-          value={newMatchday}
-          onChange={(e) => setNewMatchday(e.target.value)}
-          className="w-20 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-        />
-        {parseInt(newMatchday) !== match.matchday && (
-          <span className="text-xs text-amber-600 font-medium">⚡ Spieltag wird geändert</span>
-        )}
-      </div>
-      <button
-        onClick={reschedule}
-        disabled={loading || !newDate || !newTime}
-        className="w-full py-2 bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white font-semibold rounded-lg transition-colors text-sm"
-      >
-        {loading ? 'Speichern...' : 'Nachholtermin speichern'}
-      </button>
-    </div>
-  )
-}
-
-function MatchRow({ match, playerSuggestions, effectiveMatchday }: { match: MatchRow; playerSuggestions?: string[]; effectiveMatchday?: number | null }) {
-  const matchDate = new Date(match.match_date)
-  const dateStr = matchDate.toLocaleDateString('de-DE', {
-    weekday: 'short',
-    day: '2-digit',
-    month: '2-digit',
-  })
-  const timeStr = matchDate.toLocaleTimeString('de-DE', {
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-  const [showLineups, setShowLineups] = useState(false)
-
-  return (
-    <div
-      className={`bg-white rounded-xl border shadow-sm overflow-hidden ${
-        match.status === 'finished' ? 'border-gray-100' : 'border-gray-100'
-      }`}
-    >
-      <div className="px-4 py-3 flex items-center gap-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400">
-              ST {effectiveMatchday ?? match.matchday}
-              {effectiveMatchday != null && effectiveMatchday !== match.matchday && ` (eigener ST ${match.matchday})`}
-            </span>
-            <span className="text-xs text-gray-300">·</span>
-            <span className="text-xs text-gray-400">
-              {dateStr} {timeStr}
-            </span>
-          </div>
-          <div className="text-sm font-semibold text-gray-900 mt-0.5">
-            {match.home_team?.name ?? '?'} –{' '}
-            {match.away_team?.name ?? '?'}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {match.status === 'finished' && match.home_score !== null ? (
-            <span className="inline-block bg-gray-800 text-white text-xs font-bold px-2.5 py-1 rounded-lg">
-              {match.home_score}:{match.away_score}
-            </span>
-          ) : (
-            <span className="inline-block bg-blue-50 text-blue-700 text-xs font-semibold px-2.5 py-1 rounded-lg">
-              Geplant
-            </span>
-          )}
-          {match.status === 'finished' && (
-            <button
-              onClick={() => setShowLineups(v => !v)}
-              className="text-[10px] px-2 py-1 border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50"
-            >
-              {showLineups ? 'Aufstellung ▲' : 'Aufstellung ▼'}
-            </button>
-          )}
-        </div>
-      </div>
-      {showLineups && match.status === 'finished' && (
-        <LineupsSection
-          matchId={match.id}
-          homeTeam={match.home_team?.name ?? ''}
-          awayTeam={match.away_team?.name ?? ''}
-          playerSuggestions={playerSuggestions ?? []}
-        />
-      )}
-    </div>
-  )
-}
-
-type LineupEntryRow = {
-  id: number
-  match_id: number
-  team_name: string
-  player_name: string
-  player_id: number | null
-  minutes_played: number
-  goals: number
-  assists: number
-  is_starter: boolean | null
-  penalty_missed: boolean
-}
-
-function isWildenrothTeamName(name: string) {
-  return name.includes('Wildenroth')
-}
-
-function LineupsSection({
-  matchId,
-  homeTeam,
-  awayTeam,
-  playerSuggestions,
-}: {
-  matchId: number
-  homeTeam: string
-  awayTeam: string
-  playerSuggestions: string[]
-}) {
-  const [lineups, setLineups] = useState<LineupEntryRow[]>([])
-  const [loading, setLoading] = useState(true)
-  const [addingTeam, setAddingTeam] = useState<string | null>(null)
-  const [newPlayer, setNewPlayer] = useState('')
-  const [newPlayerId, setNewPlayerId] = useState<number | null>(null)
-  const [newMinutes, setNewMinutes] = useState('90')
-  const [newGoals, setNewGoals] = useState('0')
-  const [newAssists, setNewAssists] = useState('0')
-  const [newStarter, setNewStarter] = useState(true)
-  const [newPenaltyMissed, setNewPenaltyMissed] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Wildenroth's own squad, for a real dropdown instead of free text — the
-  // opponent has no roster data in this app, so they keep the old free-text
-  // input. Fetched once; the roster endpoint 400s for a non-Wildenroth match,
-  // which just means neither side gets a dropdown (silently, not an error
-  // worth surfacing here).
-  const [roster, setRoster] = useState<{ id: number; name: string }[]>([])
-  const datalistId = `players-${matchId}`
-
-  const reload = useCallback(async () => {
-    const res = await fetch(`/api/admin/lineups?match_id=${matchId}`)
-    const data = await res.json()
-    setLoading(false)
-    if (res.ok) setLineups(data.lineups ?? [])
-  }, [matchId])
-
-  useEffect(() => { reload() }, [reload])
-
-  useEffect(() => {
-    if (!isWildenrothTeamName(homeTeam) && !isWildenrothTeamName(awayTeam)) return
-    fetch(`/api/admin/goalscorers/roster?matchId=${matchId}`)
-      .then(r => r.json())
-      .then(data => setRoster(data.players ?? []))
-      .catch(() => {})
-  }, [matchId, homeTeam, awayTeam])
-
-  function resetForm() {
-    setNewPlayer(''); setNewPlayerId(null); setNewMinutes('90'); setNewGoals('0'); setNewAssists('0')
-    setNewStarter(true); setNewPenaltyMissed(false)
-  }
-
-  async function addEntry(teamName: string) {
-    if (!newPlayer.trim()) return
-    setSaving(true)
-    setError(null)
-    const res = await fetch('/api/admin/lineups', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        match_id: matchId,
-        team_name: teamName,
-        player_name: newPlayer.trim(),
-        player_id: newPlayerId,
-        minutes_played: parseInt(newMinutes) || 90,
-        goals: parseInt(newGoals) || 0,
-        assists: parseInt(newAssists) || 0,
-        is_starter: newStarter,
-        penalty_missed: newPenaltyMissed,
-      }),
-    })
-    const data = await res.json()
-    setSaving(false)
-    if (res.ok) {
-      resetForm()
-      setAddingTeam(null)
-      reload()
-    } else {
-      setError(data.error ?? 'Fehler')
-    }
-  }
-
-  async function deleteEntry(id: number) {
-    const res = await fetch(`/api/admin/lineups?id=${id}`, { method: 'DELETE' })
-    if (res.ok) reload()
-  }
-
-  const homeLineup = lineups.filter(e => e.team_name === homeTeam)
-  const awayLineup = lineups.filter(e => e.team_name === awayTeam)
-
-  return (
-    <div className="border-t border-gray-100 bg-gray-50 px-3 py-3">
-      <datalist id={datalistId}>
-        {playerSuggestions.map(p => <option key={p} value={p} />)}
-      </datalist>
-
-      {loading && <div className="text-xs text-gray-400 py-2 text-center">Lade Aufstellung…</div>}
-      {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
-
-      {!loading && (
-        <div className="grid grid-cols-2 gap-3">
-          {[{ team: homeTeam, entries: homeLineup }, { team: awayTeam, entries: awayLineup }].map(({ team, entries }) => {
-            const hasRoster = isWildenrothTeamName(team) && roster.length > 0
-            return (
-            <div key={team}>
-              <div className="text-[11px] font-bold text-gray-700 mb-1 truncate">{team}</div>
-              <div className="space-y-1 mb-2">
-                {entries.length === 0 && (
-                  <div className="text-[10px] text-gray-400 italic">Keine Einträge</div>
-                )}
-                {entries.map(e => (
-                  <div key={e.id} className="flex items-center gap-1 text-[10px] bg-white border border-gray-100 rounded px-1.5 py-1">
-                    <span className="flex-1 font-medium text-gray-800 truncate">{e.player_name}</span>
-                    {e.is_starter === false && <span className="text-gray-400" title="Einwechslung">🔁</span>}
-                    {e.penalty_missed && <span title="Elfer verschossen">❌</span>}
-                    <span className="text-gray-400">{e.minutes_played}&apos;</span>
-                    {e.goals > 0 && <span className="text-green-700 font-bold">{e.goals}T</span>}
-                    {e.assists > 0 && <span className="text-blue-600 font-bold">{e.assists}A</span>}
-                    <button onClick={() => deleteEntry(e.id)} className="text-red-500 ml-1">✕</button>
-                  </div>
-                ))}
-              </div>
-
-              {addingTeam === team ? (
-                <div className="space-y-1">
-                  {hasRoster ? (
-                    <select
-                      value={newPlayerId ?? ''}
-                      onChange={e => {
-                        const id = Number(e.target.value)
-                        setNewPlayerId(id || null)
-                        setNewPlayer(roster.find(p => p.id === id)?.name ?? '')
-                      }}
-                      className="w-full text-[11px] border border-gray-200 rounded px-2 py-1 bg-white"
-                    >
-                      <option value="">Spieler wählen…</option>
-                      {roster.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
-                  ) : (
-                    <input
-                      list={datalistId}
-                      value={newPlayer}
-                      onChange={e => setNewPlayer(e.target.value)}
-                      placeholder="Spielername"
-                      className="w-full text-[11px] border border-gray-200 rounded px-2 py-1"
-                    />
-                  )}
-                  <div className="flex gap-1">
-                    <input
-                      type="number" min="0" max="120" value={newMinutes}
-                      onChange={e => setNewMinutes(e.target.value)}
-                      className="w-14 text-[11px] border border-gray-200 rounded px-1.5 py-1 text-center"
-                      placeholder="Min"
-                    />
-                    <input
-                      type="number" min="0" max="20" value={newGoals}
-                      onChange={e => setNewGoals(e.target.value)}
-                      className="w-10 text-[11px] border border-gray-200 rounded px-1.5 py-1 text-center"
-                      placeholder="T"
-                    />
-                    <input
-                      type="number" min="0" max="20" value={newAssists}
-                      onChange={e => setNewAssists(e.target.value)}
-                      className="w-10 text-[11px] border border-gray-200 rounded px-1.5 py-1 text-center"
-                      placeholder="A"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-gray-600">
-                    <label className="flex items-center gap-1">
-                      <input type="checkbox" checked={newStarter} onChange={e => setNewStarter(e.target.checked)} />
-                      Startelf
-                    </label>
-                    <label className="flex items-center gap-1">
-                      <input type="checkbox" checked={newPenaltyMissed} onChange={e => setNewPenaltyMissed(e.target.checked)} />
-                      Elfer verschossen
-                    </label>
-                  </div>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => addEntry(team)}
-                      disabled={saving || !newPlayer.trim()}
-                      className="flex-1 py-1 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white text-[10px] font-semibold rounded"
-                    >
-                      {saving ? '…' : 'Hinzufügen'}
-                    </button>
-                    <button
-                      onClick={() => { setAddingTeam(null); resetForm() }}
-                      className="px-2 py-1 border border-gray-200 rounded text-[10px] text-gray-600"
-                    >
-                      Abbrechen
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => { setAddingTeam(team); resetForm() }}
-                  className="w-full py-1 border border-dashed border-gray-300 rounded text-[10px] text-gray-500 hover:border-red-300 hover:text-red-600"
-                >
-                  + Spieler
-                </button>
-              )}
-            </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Goalscorers Admin Tab ───────────────────────────────────────────────
-
-type GsRow = {
-  match_id: number
-  player_id: number
-  status: string
-  is_offered: boolean
-  is_offered_2plus: boolean
-  odds_score: number | null
-  odds_score_2plus: number | null
-  prob_score: number | null
-  prob_score_2plus: number | null
-  frozen_at: string | null
-  player: {
-    id: number; name: string; position: string | null; games: number; minutes: number
-    goals: number; assists: number; is_goalkeeper: boolean
-  }
-  /** Season record for the team ACTUALLY playing this fixture
-   *  (wildenroth_player_team_stats). `player.games/minutes/goals` is club-wide
-   *  and pools a squad='both' player's Kreisliga and B-Klasse appearances, so it
-   *  must not be shown as this team's record. null = no row yet. */
-  team_stats: { games: number; minutes: number; goals: number; assists: number; as_of_matches: number } | null
-}
-
-type ScorerRow = { id: number; player_id: number; goals: number; is_own_goal: boolean }
-
-const STATUS_LABELS: Record<string, string> = {
-  available: 'Verfügbar', questionable: 'Fraglich', missing: 'Fehlt',
-  injured: 'Verletzt', suspended: 'Gesperrt', not_bettable: 'Nicht wettbar',
-}
-
-function GoalscorersTab({ matches, onMessage, matchday, mdIndex }: { matches: MatchRow[]; onMessage: (m: string | null) => void; matchday: number | null; mdIndex: EffectiveMatchdayIndex }) {
-  // Wildenroth match filter: matches whose teams contain "Wildenroth"
-  const wildenrothMatches = matches.filter(m =>
-    (m.home_team?.name?.includes('Wildenroth') || m.away_team?.name?.includes('Wildenroth'))
-  )
-  // Default to the Wildenroth match belonging to the currently-selected
-  // matchday (mirrors the odds-preview section above, `previewMd` in the
-  // parent) — falling back to the season's first Wildenroth match if none
-  // exists for that Spieltag. Only auto-follows when `matchday` itself
-  // changes (see effect below), so it never fights a manual dropdown pick.
-  const matchForMatchday = (md: number | null) =>
-    (md != null ? wildenrothMatches.find(m => effectiveMatchdayOf(m as unknown as Match, mdIndex) === md) : null) ?? wildenrothMatches[0]
-  const [selectedMatchId, setSelectedMatchId] = useState<number | null>(matchForMatchday(matchday)?.id ?? null)
-  const lastAutoMatchday = useRef<number | null>(matchday)
-  useEffect(() => {
-    if (matchday === lastAutoMatchday.current) return
-    lastAutoMatchday.current = matchday
-    setSelectedMatchId(matchForMatchday(matchday)?.id ?? null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matchday])
-  const [rows, setRows] = useState<GsRow[]>([])
-  // '1' | '2' — which Wildenroth side's season record the rows show.
-  const [statsTeam, setStatsTeam] = useState<string | null>(null)
-  const [scorers, setScorers] = useState<ScorerRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [freezing, setFreezing] = useState(false)
-  const [savingScorers, setSavingScorers] = useState(false)
-  const [oddsDraft, setOddsDraft] = useState<Record<number, { score: string; score2plus: string }>>({})
-
-  // Re-sync the editable odds drafts whenever the rows are (re)loaded — e.g.
-  // after "Quoten neu berechnen" recomputes them from the model.
-  useEffect(() => {
-    const next: Record<number, { score: string; score2plus: string }> = {}
-    for (const r of rows) {
-      next[r.player_id] = {
-        score: r.odds_score != null ? String(r.odds_score) : '',
-        score2plus: r.odds_score_2plus != null ? String(r.odds_score_2plus) : '',
-      }
-    }
-    setOddsDraft(next)
-  }, [rows])
-
-  const reload = useCallback(async () => {
-    if (selectedMatchId == null) return
-    setLoading(true)
-    const res = await fetch(`/api/admin/goalscorers/match?matchId=${selectedMatchId}`)
-    const data = await res.json()
-    setLoading(false)
-    if (res.ok) {
-      setRows(data.rows ?? [])
-      setStatsTeam(data.statsTeam ?? null)
-      setScorers(data.scorers ?? [])
-    } else {
-      onMessage(`Fehler: ${data.error}`)
-    }
-  }, [selectedMatchId, onMessage])
-
-  useEffect(() => { reload() }, [reload])
-
-  async function freezeOrRefresh() {
-    if (selectedMatchId == null) return
-    setFreezing(true)
-    const res = await fetch('/api/admin/goalscorers/match', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ matchId: selectedMatchId, force: true }),
-    })
-    const data = await res.json()
-    setFreezing(false)
-    if (res.ok) {
-      onMessage(data.frozen ? 'Torschützen-Quoten berechnet und eingefroren.' : 'Torschützen-Quoten-Vorschau berechnet (noch nicht eingefroren — Wettfenster ist noch nicht offen).')
-      reload()
-    }
-    else onMessage(`Fehler: ${data.error}`)
-  }
-
-  async function updateAvailability(playerId: number, patch: Partial<{ status: string; is_offered: boolean; is_offered_2plus: boolean; odds_score: number; odds_score_2plus: number }>) {
-    if (selectedMatchId == null) return
-    const res = await fetch('/api/admin/goalscorers/availability', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ matchId: selectedMatchId, playerId, ...patch }),
-    })
-    if (res.ok) reload()
-    else {
-      const data = await res.json()
-      onMessage(`Fehler: ${data.error}`)
-    }
-  }
-
-  // Manual odds edit (Trifft/2+) — saved on blur, mirroring "leer = kein Wert
-  // gesetzt": an empty/unparseable field is silently ignored rather than
-  // erroring, since the row's odds_score can legitimately be null (e.g. a
-  // player not yet offered) before the first "Quoten neu berechnen".
-  async function saveOddsField(playerId: number, field: 'odds_score' | 'odds_score_2plus', raw: string) {
-    const trimmed = raw.trim().replace(',', '.')
-    if (trimmed === '') return
-    const n = parseFloat(trimmed)
-    if (isNaN(n) || n <= 1.0 || n > 999) {
-      onMessage('Ungültiger Quotenwert (muss >1,00 sein).')
-      return
-    }
-    await updateAvailability(playerId, { [field]: n })
-  }
-
-  async function cancelPlayer(playerId: number, playerName: string) {
-    if (selectedMatchId == null) return
-    if (!confirm(`${playerName} entfernen?\nAlle offenen Torschützenwetten auf diesen Spieler werden storniert und die Einsätze zurückgebucht.`)) return
-    const res = await fetch('/api/admin/goalscorers/cancel-player', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ matchId: selectedMatchId, playerId }),
-    })
-    const data = await res.json()
-    if (res.ok) {
-      onMessage(`Storniert: ${data.cancelledSingles} Einzelwetten, ${data.cancelledCombos} Kombiwetten.`)
-      reload()
-    } else {
-      onMessage(`Fehler: ${data.error}`)
-    }
-  }
-
-  async function saveScorers() {
-    if (selectedMatchId == null) return
-    setSavingScorers(true)
-    const res = await fetch('/api/admin/goalscorers/scorers', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        matchId: selectedMatchId,
-        scorers: scorers.map(s => ({ playerId: s.player_id, goals: s.goals, isOwnGoal: s.is_own_goal })),
-      }),
-    })
-    const data = await res.json()
-    setSavingScorers(false)
-    if (res.ok) {
-      onMessage(`Torschützen gespeichert · ${data.settled} Wette(n) abgerechnet, ${data.combosChecked} Kombi(s) geprüft.`)
-      reload()
-    } else onMessage(`Fehler: ${data.error}`)
-  }
-
-  function addScorerRow() {
-    setScorers(s => [...s, { id: -Date.now(), player_id: rows[0]?.player_id ?? 0, goals: 1, is_own_goal: false }])
-  }
-
-  const selectedMatch = wildenrothMatches.find(m => m.id === selectedMatchId) ?? null
-  const isFinished = selectedMatch?.status === 'finished'
-  const allFrozen = rows.length > 0 && rows.every(r => r.frozen_at)
-
-  return (
-    <div className="space-y-4">
-      {wildenrothMatches.length === 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm rounded-xl px-4 py-3">
-          Keine Wildenroth-Spiele gefunden.
-        </div>
-      )}
-
-      <div className="flex gap-2 flex-wrap">
-        {wildenrothMatches.map(m => {
-          const date = new Date(m.match_date).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
-          const opp = m.home_team?.name?.includes('Wildenroth') ? m.away_team?.short_name : m.home_team?.short_name
-          return (
-            <button key={m.id} onClick={() => setSelectedMatchId(m.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
-                m.id === selectedMatchId ? 'bg-red-700 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:border-red-300'
-              }`}>
-              ST {m.matchday} · {opp} · {date}
-            </button>
-          )
-        })}
-      </div>
-
-      {selectedMatch && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <div className="min-w-0 flex-1">
-              <h3 className="font-bold text-gray-900">
-                {selectedMatch.home_team?.name} – {selectedMatch.away_team?.name}
-              </h3>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {allFrozen ? 'Quoten gefroren' : 'Quoten noch nicht berechnet'} · Trifft/2+ manuell bearbeitbar (Feld verlassen = speichern)
-              </p>
-            </div>
-            <button onClick={freezeOrRefresh} disabled={freezing}
-              className="px-3 py-1.5 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white rounded-lg text-xs font-semibold">
-              {freezing ? '…' : 'Quoten neu berechnen'}
-            </button>
-          </div>
-
-          {loading && <div className="text-center py-6 text-gray-400 text-sm">Lade…</div>}
-
-          {!loading && rows.length === 0 && (
-            <div className="text-center py-6 text-gray-400 text-sm">
-              Noch keine Spieler. &bdquo;Quoten neu berechnen&ldquo; klicken.
-            </div>
-          )}
-
-          {!loading && rows.length > 0 && (
-            <div className="divide-y divide-gray-50">
-              {rows
-                .filter(r => !r.player?.is_goalkeeper)
-                .sort((a, b) => (a.odds_score ?? 99) - (b.odds_score ?? 99))
-                .map(r => (
-                <div key={r.player_id} className="px-3 py-2.5 text-xs">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-gray-900 truncate">{r.player.name}</div>
-                      <div className="text-[10px] text-gray-400">
-                        {r.player.position ?? '–'} ·{' '}
-                        {r.team_stats
-                          ? `${r.team_stats.games}Sp / ${r.team_stats.minutes}min · ${r.team_stats.goals}T / ${r.team_stats.assists}A`
-                          : '0Sp / 0min · 0T / 0A'}
-                        {statsTeam ? ` (Mannschaft ${statsTeam})` : ''}
-                        {!r.team_stats && <span className="text-amber-600"> · keine Saisondaten für diese Mannschaft</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-gray-500">Trifft</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={oddsDraft[r.player_id]?.score ?? ''}
-                        placeholder="–"
-                        onChange={e => setOddsDraft(prev => ({ ...prev, [r.player_id]: { ...prev[r.player_id], score: e.target.value, score2plus: prev[r.player_id]?.score2plus ?? '' } }))}
-                        onBlur={e => saveOddsField(r.player_id, 'odds_score', e.target.value)}
-                        className="w-14 text-center font-bold text-red-700 tabular-nums border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-red-400"
-                      />
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-gray-500">2+</span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={oddsDraft[r.player_id]?.score2plus ?? ''}
-                        placeholder="–"
-                        disabled={!r.is_offered_2plus}
-                        onChange={e => setOddsDraft(prev => ({ ...prev, [r.player_id]: { ...prev[r.player_id], score2plus: e.target.value, score: prev[r.player_id]?.score ?? '' } }))}
-                        onBlur={e => saveOddsField(r.player_id, 'odds_score_2plus', e.target.value)}
-                        className="w-14 text-center font-bold text-red-700 tabular-nums border border-gray-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-red-400 disabled:bg-gray-50 disabled:text-gray-300"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-                    <select
-                      value={r.status}
-                      onChange={e => updateAvailability(r.player_id, { status: e.target.value })}
-                      className="text-[11px] border border-gray-200 rounded px-1.5 py-0.5"
-                    >
-                      {Object.entries(STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                    </select>
-                    <button type="button"
-                      onClick={() => updateAvailability(r.player_id, { is_offered: !r.is_offered })}
-                      className={`text-[11px] font-medium px-2 py-0.5 rounded-full border transition-colors ${
-                        r.is_offered ? 'bg-red-700 border-red-700 text-white' : 'bg-white border-gray-200 text-gray-500'
-                      }`}>
-                      angeboten
-                    </button>
-                    <button type="button"
-                      onClick={() => updateAvailability(r.player_id, { is_offered_2plus: !r.is_offered_2plus })}
-                      className={`text-[11px] font-medium px-2 py-0.5 rounded-full border transition-colors ${
-                        r.is_offered_2plus ? 'bg-red-700 border-red-700 text-white' : 'bg-white border-gray-200 text-gray-500'
-                      }`}>
-                      2+
-                    </button>
-                    <button onClick={() => cancelPlayer(r.player_id, r.player.name)}
-                      className="ml-auto text-[10px] text-red-600 border border-red-200 rounded px-1.5 py-0.5 hover:bg-red-50">
-                      Spieler entfernen
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Scorers entry — only after match finished */}
-          {isFinished && (
-            <div className="border-t border-gray-100 px-3 py-3 bg-gray-50">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-bold text-sm text-gray-900">Torschützen eintragen</h4>
-                <button onClick={addScorerRow}
-                  className="text-xs px-2 py-1 bg-white border border-gray-200 rounded-lg text-gray-700 hover:border-red-300">
-                  + Tor
-                </button>
-              </div>
-              <div className="space-y-1.5">
-                {scorers.map((s, idx) => (
-                  <div key={s.id} className="flex items-center gap-1.5 text-xs">
-                    <select value={s.player_id}
-                      onChange={e => setScorers(arr => arr.map((x, i) => i === idx ? { ...x, player_id: parseInt(e.target.value) } : x))}
-                      className="flex-1 border border-gray-200 rounded px-2 py-1">
-                      {rows.filter(r => !r.player?.is_goalkeeper).map(r => (
-                        <option key={r.player_id} value={r.player_id}>{r.player.name}</option>
-                      ))}
-                    </select>
-                    <input type="number" min="1" max="10" value={s.goals}
-                      onChange={e => setScorers(arr => arr.map((x, i) => i === idx ? { ...x, goals: parseInt(e.target.value) || 1 } : x))}
-                      className="w-12 text-center border border-gray-200 rounded px-1 py-1" />
-                    <button type="button"
-                      onClick={() => setScorers(arr => arr.map((x, i) => i === idx ? { ...x, is_own_goal: !x.is_own_goal } : x))}
-                      className={`text-[11px] font-medium px-2 py-1 rounded-full border transition-colors ${
-                        s.is_own_goal ? 'bg-red-700 border-red-700 text-white' : 'bg-white border-gray-200 text-gray-500'
-                      }`}>
-                      ET
-                    </button>
-                    <button onClick={() => setScorers(arr => arr.filter((_, i) => i !== idx))}
-                      className="text-red-600">✕</button>
-                  </div>
-                ))}
-                {scorers.length === 0 && (
-                  <div className="text-xs text-gray-500 italic">Noch keine Torschützen eingetragen.</div>
-                )}
-              </div>
-              <button onClick={saveScorers} disabled={savingScorers}
-                className="mt-3 w-full py-2 bg-red-700 hover:bg-red-800 disabled:bg-red-300 text-white text-sm font-bold rounded-lg">
-                {savingScorers ? '…' : 'Torschützen speichern & abrechnen'}
-              </button>
-              <p className="text-[10px] text-gray-500 mt-2">
-                Eigentore (ET) zählen nicht für Torschützenwetten.
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ── Test-Spieltag Panel ────────────────────────────────────────────────────
 
@@ -3412,6 +1732,7 @@ interface TestMatch {
 }
 
 function TestMatchdayPanel() {
+  const confirm = useConfirm()
   const [exists, setExists] = useState(false)
   const [matches, setMatches] = useState<TestMatch[]>([])
   const [loading, setLoading] = useState(true)
@@ -3426,6 +1747,10 @@ function TestMatchdayPanel() {
       const data = await res.json()
       setExists(data.exists)
       setMatches(data.matches ?? [])
+    } else {
+      // Bisher kein else-Zweig: ein Fehler beim initialen Laden blieb komplett unsichtbar —
+      // weder Status noch Fehlermeldung, die Karte zeigte stillschweigend "nicht angelegt".
+      setResult('✗ Status konnte nicht geladen werden.')
     }
     setLoading(false)
   }
@@ -3433,7 +1758,7 @@ function TestMatchdayPanel() {
   useEffect(() => { loadStatus() }, [])
 
   async function seed() {
-    if (!confirm('Test-Spieltag 999 anlegen? Kickoff-Zeiten ab jetzt +5 Min bis +270 Min.')) return
+    if (!(await confirm({ title: 'Test-Spieltag 999 anlegen?', message: 'Kickoff-Zeiten ab jetzt +5 Min bis +270 Min.', confirmLabel: 'Anlegen' }))) return
     setActionLoading(true)
     setResult(null)
     const res = await fetch('/api/admin/test-matchday', {
@@ -3448,7 +1773,11 @@ function TestMatchdayPanel() {
   }
 
   async function teardown() {
-    if (!confirm('Test-Spieltag 999 vollständig entfernen? Alle Testdaten werden gelöscht und alle User-Guthaben auf den Snapshot-Stand zurückgesetzt.')) return
+    if (!(await confirm({
+      title: 'Test-Spieltag 999 vollständig entfernen?',
+      message: 'Alle Testdaten werden gelöscht und alle User-Guthaben auf den Snapshot-Stand zurückgesetzt.',
+      confirmLabel: 'Entfernen', tone: 'danger',
+    }))) return
     setActionLoading(true)
     setResult(null)
     const res = await fetch('/api/admin/test-matchday', {
@@ -3580,12 +1909,16 @@ const KADER_STATUS_LABELS: Record<string, string> = {
   transferred_in: 'Zugang',
 }
 
-function KaderSection() {
+/** `onMessage` ersetzt die frühere eigene `error`-Mini-Leiste — läuft jetzt über dieselbe
+ *  globale Banner-Stelle wie überall sonst im Admin-Bereich. Supabase-Zugriff, Query, RLS-
+ *  Erwartungen und alle Handler-Signaturen sind unverändert (reiner Session-Client, wie
+ *  handleCategoryChange — siehe CLAUDE.md). */
+function KaderSection({ onMessage }: { onMessage: (m: string | null) => void }) {
+  const confirm = useConfirm()
   const supabase = createClient()
   const [players, setPlayers] = useState<LeaguePlayerRow[]>([])
   const [teamFilter, setTeamFilter] = useState(KADER_TEAMS[0])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [newName, setNewName] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -3597,30 +1930,30 @@ function KaderSection() {
       .eq('team_name', teamFilter)
       .order('name')
     setLoading(false)
-    if (error) { setError(error.message); return }
+    if (error) { onMessage(`Fehler: ${error.message}`); return }
     setPlayers((data ?? []) as LeaguePlayerRow[])
-  }, [supabase, teamFilter])
+  }, [supabase, teamFilter, onMessage])
 
   useEffect(() => { load() }, [load])
 
   async function updateStatus(id: number, status: string) {
-    setError(null)
+    onMessage(null)
     const { error } = await supabase.from('league_players').update({ status }).eq('id', id)
-    if (error) { setError(error.message); return }
+    if (error) { onMessage(`Fehler: ${error.message}`); return }
     setPlayers(prev => prev.map(p => p.id === id ? { ...p, status } : p))
   }
 
   async function updateTransferTo(id: number, transfer_to: string) {
-    setError(null)
+    onMessage(null)
     const { error } = await supabase.from('league_players').update({ transfer_to: transfer_to || null }).eq('id', id)
-    if (error) { setError(error.message); return }
+    if (error) { onMessage(`Fehler: ${error.message}`); return }
     setPlayers(prev => prev.map(p => p.id === id ? { ...p, transfer_to: transfer_to || null } : p))
   }
 
   async function addPlayer() {
     if (!newName.trim()) return
     setSaving(true)
-    setError(null)
+    onMessage(null)
     const { error } = await supabase.from('league_players').insert({
       season: '26/27',
       team_name: teamFilter,
@@ -3630,49 +1963,41 @@ function KaderSection() {
       matches: 0,
     })
     setSaving(false)
-    if (error) { setError(error.message); return }
+    if (error) { onMessage(`Fehler: ${error.message}`); return }
     setNewName('')
     load()
   }
 
   async function deletePlayer(id: number) {
-    if (!confirm('Spieler aus dem Kader entfernen?')) return
+    if (!(await confirm({ title: 'Spieler aus dem Kader entfernen?', confirmLabel: 'Entfernen', tone: 'danger' }))) return
     const { error } = await supabase.from('league_players').delete().eq('id', id)
-    if (error) { setError(error.message); return }
+    if (error) { onMessage(`Fehler: ${error.message}`); return }
     setPlayers(prev => prev.filter(p => p.id !== id))
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <h3 className="font-bold text-gray-900 mb-1">Kader &amp; Transfers</h3>
-      <p className="text-sm text-gray-500 mb-3">
+    <Panel className="space-y-3 p-4">
+      <p className="text-[14px] leading-6 text-gray-700">
         Fließt in den Kader-Faktor der Quotenberechnung ein — Abgänge, Zugänge und Karriereenden pflegen.
       </p>
 
-      <div className="flex bg-gray-100 rounded-xl p-1 mb-3">
+      <div className="flex gap-2">
         {KADER_TEAMS.map(t => (
-          <button
-            key={t}
-            onClick={() => setTeamFilter(t)}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${teamFilter === t ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
-          >
+          <Btn key={t} variant={teamFilter === t ? 'primary' : 'secondary'} size="sm" className="flex-1" onClick={() => setTeamFilter(t)}>
             {t}
-          </button>
+          </Btn>
         ))}
       </div>
 
-      {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
-      {loading ? (
-        <div className="text-sm text-gray-400 text-center py-4">Lädt…</div>
-      ) : (
-        <div className="space-y-1.5 mb-3">
+      {loading ? <LoadingBlock label="Kader wird geladen …" /> : (
+        <div className="space-y-1.5">
           {players.map(p => (
-            <div key={p.id} className="flex items-center gap-2 flex-wrap bg-gray-50 rounded-xl px-3 py-2 text-xs">
-              <span className="font-semibold text-gray-800 flex-shrink-0 min-w-[110px]">{p.name}</span>
+            <div key={p.id} className="flex flex-wrap items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 text-[13px]">
+              <span className="min-w-[110px] shrink-0 font-semibold text-gray-800">{p.name}</span>
               <select
                 value={p.status}
                 onChange={(e) => updateStatus(p.id, e.target.value)}
-                className="border border-gray-200 rounded-lg px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-500"
+                className="rounded-lg border border-gray-200 px-1.5 py-1 text-[13px] focus:outline-none focus:ring-1 focus:ring-red-500"
               >
                 {Object.entries(KADER_STATUS_LABELS).map(([val, label]) => (
                   <option key={val} value={val}>{label}</option>
@@ -3683,20 +2008,20 @@ function KaderSection() {
                   value={p.transfer_to ?? ''}
                   onChange={(e) => updateTransferTo(p.id, e.target.value)}
                   placeholder="wohin?"
-                  className="w-28 border border-gray-200 rounded-lg px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-red-500"
+                  className="w-28 rounded-lg border border-gray-200 px-1.5 py-1 text-[13px] focus:outline-none focus:ring-1 focus:ring-red-500"
                 />
               )}
-              <span className="text-gray-400 ml-auto">{p.goals} Tore · {p.matches} Sp.</span>
+              <span className="ml-auto text-gray-500">{p.goals} Tore · {p.matches} Sp.</span>
               <button
                 onClick={() => deletePlayer(p.id)}
-                className="text-gray-300 hover:text-red-600 flex-shrink-0"
+                className="shrink-0 text-gray-400 hover:text-red-600"
                 title="Entfernen"
               >
                 ✕
               </button>
             </div>
           ))}
-          {players.length === 0 && <div className="text-sm text-gray-400 text-center py-3">Kein Kader hinterlegt.</div>}
+          {players.length === 0 && <EmptyNote>Kein Kader hinterlegt.</EmptyNote>}
         </div>
       )}
 
@@ -3705,16 +2030,12 @@ function KaderSection() {
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           placeholder="Neuer Spieler (Name)"
-          className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+          className={`flex-1 ${inputCls}`}
         />
-        <button
-          onClick={addPlayer}
-          disabled={saving || !newName.trim()}
-          className="px-3 py-1.5 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white text-xs font-bold rounded-lg"
-        >
+        <Btn variant="primary" size="sm" disabled={saving || !newName.trim()} onClick={addPlayer}>
           + Hinzufügen
-        </button>
+        </Btn>
       </div>
-    </div>
+    </Panel>
   )
 }
