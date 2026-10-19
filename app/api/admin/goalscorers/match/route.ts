@@ -3,8 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerMatchContext } from '@/lib/goalscorer'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadOddsModelInputs } from '@/lib/oddsInputs'
-import { bettingOpenTime, parseBettingOpenOverrides } from '@/lib/season'
-import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, goalscorerOfferState, loadPreviousPublishedOfferState, CURRENT_SEASON, WILDENROTH_TEAM_NAMES } from '@/lib/goalscorerContext'
+import { parseBettingOpenOverrides, buildEffectiveMatchdayIndex } from '@/lib/season'
+import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, goalscorerOfferState, loadPreviousPublishedOfferState, resolveGoalscorerBettingOpen, CURRENT_SEASON, WILDENROTH_TEAM_NAMES } from '@/lib/goalscorerContext'
 
 async function requireAdmin(supabase: Awaited<ReturnType<typeof createClient>>) {
   const { data: { user } } = await supabase.auth.getUser()
@@ -101,10 +101,22 @@ export async function POST(request: NextRequest) {
 
   const { data: match } = await supabase
     .from('matches')
-    .select('id, matchday, tippspiel_matchday, home_team_id, away_team_id, match_date, match_category, home_score, away_score, status, goalscorer_squad_confirmed_at')
+    .select('id, match_number, matchday, tippspiel_matchday, match_category, is_topspiel, home_team_id, away_team_id, match_date, home_score, away_score, status, goalscorer_squad_confirmed_at')
     .eq('id', matchId)
     .single()
   if (!match) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 404 })
+
+  // Model inputs from the SAME central loader the 1X2/O-U/BTTS markets use —
+  // loaded here (rather than further down, right before computing the
+  // offers) so `seasonMatches` is already available for the effective-Spieltag
+  // lookup below and isn't fetched twice. This route used to run its own
+  // `matches` query that selected neither `match_category` nor
+  // `competition_type` and was not paginated. Without `match_category`
+  // getMatchXG infers the league tier from nothing and treats a Wildenroth II
+  // B-Klasse fixture as Kreisliga — measured on the Spieltag-8 fixture that
+  // meant 2.518 xG here against 2.651 in the main market, a 5% disagreement
+  // on the same match. See lib/oddsInputs.ts.
+  const { seasonMatches, modelMatches, priorCtx } = await loadOddsModelInputs(supabase)
 
   // Freezing (setting frozen_at, i.e. making these odds count for real bets)
   // must happen no earlier than the standard 1X2 market for the same Spieltag
@@ -118,14 +130,14 @@ export async function POST(request: NextRequest) {
   // Monday-noon formula is only a fallback for Spieltage without one (e.g.
   // the test matchday).
   //
-  // N is the Spieltag the match is actually BET UNDER, i.e. `tippspiel_matchday`
-  // where the club pinned one (`effectiveMatchdayOf`), and only otherwise the
-  // raw BFV `matchday`. Keying on the raw number alone froze a market early:
-  // SpVgg Wildenroth II vs Herrsching/Breitbrunn II carries B-Klasse matchday 5
-  // but is bet under Spieltag 9, so this route looked up `betting_open_md_5`
-  // — a date four weeks in the past — and published the Spieltag-9 goalscorer
-  // draft while the member-facing page (which reads the effective Spieltag)
-  // still had Spieltag 9 closed. Every B-Klasse fixture has that mismatch.
+  // N is the effective Spieltag the match is actually BET UNDER — resolved via
+  // `resolveGoalscorerBettingOpen` (lib/goalscorerContext.ts), which uses the
+  // SAME `buildEffectiveMatchdayIndex`/`effectiveMatchdayOf` that
+  // tipps/page.tsx and the odds preview use, not a local `tippspiel_matchday
+  // ?? matchday` shortcut. See that function's doc for why the shortcut is
+  // wrong for a match reassigned dynamically by kickoff date (match 307 —
+  // SpVgg Wildenroth vs. SV Igling — carries raw `matchday=2` with no
+  // `tippspiel_matchday` set, but is actually played as part of Spieltag 13).
   // The market opens with the whole active squad; the admin removes players who
   // turn out not to be in the matchday squad afterwards (status 'not_in_squad').
   // Before the market is open that removal redistributes his xG share across the
@@ -137,11 +149,13 @@ export async function POST(request: NextRequest) {
   if (match.status === 'scheduled') {
     const { data: settingsRows } = await supabase.from('app_settings').select('key, value')
     const appSettings = new Map((settingsRows ?? []).map(r => [r.key, r.value] as const))
-    const earlyBettingOpen = appSettings.get('early_betting_open') === 'true'
-    const overrides = parseBettingOpenOverrides(appSettings)
-    const bettingMatchday = match.tippspiel_matchday ?? match.matchday
-    const openTime = overrides.get(bettingMatchday) ?? bettingOpenTime(new Date(match.match_date))
-    allowFreeze = earlyBettingOpen || new Date() >= openTime
+    const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
+    allowFreeze = resolveGoalscorerBettingOpen({
+      match,
+      mdIndex,
+      overrides: parseBettingOpenOverrides(appSettings),
+      earlyBettingOpen: appSettings.get('early_betting_open') === 'true',
+    }).allowFreeze
   }
 
   // Resolve which Wildenroth side (if either) is playing, by exact name — an
@@ -186,15 +200,6 @@ export async function POST(request: NextRequest) {
   // Players from the squad that's actually playing this match
   const { data: playersRaw } = await supabase.from('wildenroth_players').select('*').eq('active', true).in('squad', squads)
   const players = (playersRaw ?? []) as WildenrothPlayer[]
-
-  // Model inputs from the SAME central loader the 1X2/O-U/BTTS markets use.
-  // This route used to run its own `matches` query that selected neither
-  // `match_category` nor `competition_type` and was not paginated. Without
-  // `match_category` getMatchXG infers the league tier from nothing and treats
-  // a Wildenroth II B-Klasse fixture as Kreisliga — measured on the Spieltag-8
-  // fixture that meant 2.518 xG here against 2.651 in the main market, a 5%
-  // disagreement on the same match. See lib/oddsInputs.ts.
-  const { modelMatches, priorCtx } = await loadOddsModelInputs(supabase)
 
   // Match-specific model xG override, same lookup as tipps/page.tsx and the
   // 1X2 recompute — this route previously ignored it entirely, so an admin

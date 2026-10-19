@@ -2,6 +2,7 @@ import type { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import type { TeamStats, WildenrothPlayer, GoalscorerMatchContext, GoalscorerContinuityInput } from '@/lib/goalscorer'
 import { getMatchXG, type PriorContext } from '@/lib/odds'
+import { bettingOpenTime, effectiveMatchdayOf, type EffectiveMatchdayIndex } from '@/lib/season'
 
 /**
  * Per-match goalscorer inputs — availability, the matchday squad, and the
@@ -95,6 +96,53 @@ export type GoalscorerRowAction =
   | 'freeze_only'
   /** Leave the row completely alone. */
   | 'skip'
+
+/**
+ * Which Spieltag the goalscorer admin recompute/freeze route (POST
+ * /api/admin/goalscorers/match) is BET UNDER, and whether that Spieltag's
+ * betting window is already open — the single decision point so the route
+ * and `goalscorerRowAction`/the write loop never have to resolve this
+ * themselves.
+ *
+ * Resolved through the SAME `effectiveMatchdayOf` that tipps/page.tsx and the
+ * admin odds preview use on an `EffectiveMatchdayIndex` built from the full
+ * current-season `seasonMatches` — never a local `tippspiel_matchday ??
+ * matchday` shortcut. That shortcut is right for an explicit override and for
+ * a normal fixture, but wrong for a Kreisliga match reassigned dynamically by
+ * kickoff date (a match whose kickoff drifted far from its own Spieltag's
+ * median — see `effectiveMatchdayOf`'s EFFECTIVE_OUTLIER_DAYS): match 307
+ * (SpVgg Wildenroth – SV Igling) carries raw `matchday=2` with no
+ * `tippspiel_matchday` set, but is actually played as part of Spieltag 13 —
+ * the shortcut looked up `betting_open_md_2` (long past) and froze the
+ * Spieltag-13 goalscorer draft a week early, while the member-facing page
+ * (which reads the effective Spieltag) still had Spieltag 13 closed.
+ *
+ * A match `effectiveMatchdayOf` cannot place on any Spieltag (a plain,
+ * non-Topspiel B-Klasse fixture — returns null) falls back to the old
+ * `tippspiel_matchday ?? matchday` shortcut so the lookup stays total; this
+ * route is only ever called for a Wildenroth fixture, which always resolves
+ * through one of `effectiveMatchdayOf`'s other branches, so that fallback is
+ * never actually exercised here.
+ *
+ * A match that is no longer `scheduled` (live/finished) may always freeze —
+ * same as the un-refactored route previously did.
+ */
+export function resolveGoalscorerBettingOpen(input: {
+  match: Pick<Match, 'matchday' | 'tippspiel_matchday' | 'match_category' | 'is_topspiel' | 'match_date' | 'status'>
+  mdIndex: EffectiveMatchdayIndex
+  /** `betting_open_md_<N>` overrides, Spieltag → instant (parseBettingOpenOverrides). */
+  overrides: ReadonlyMap<number, Date>
+  earlyBettingOpen: boolean
+  /** Injectable for tests; defaults to the real current time. */
+  now?: Date
+}): { effectiveMatchday: number; allowFreeze: boolean } {
+  const { match, mdIndex, overrides, earlyBettingOpen } = input
+  const effectiveMatchday = effectiveMatchdayOf(match as Match, mdIndex) ?? match.tippspiel_matchday ?? match.matchday
+  if (match.status !== 'scheduled') return { effectiveMatchday, allowFreeze: true }
+  const now = input.now ?? new Date()
+  const openTime = overrides.get(effectiveMatchday) ?? bettingOpenTime(new Date(match.match_date))
+  return { effectiveMatchday, allowFreeze: earlyBettingOpen || now >= openTime }
+}
 
 /**
  * DRAFT → LIVE. The single decision point for whether a goalscorer row may be

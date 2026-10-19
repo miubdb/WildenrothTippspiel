@@ -17,6 +17,54 @@ export function oddsColorClass(status: BetOutcomeStatus | string | null | undefi
 }
 
 /**
+ * Sort key for one leg of a combo bet, for DISPLAY ordering only — never used
+ * for pricing, status, cancellation, settlement or any other combo logic
+ * (those all stay keyed by database id / leg array order, untouched).
+ */
+export interface ComboLegSortKey {
+  /** ISO kickoff of the real match this leg is about, or null when unknown —
+   *  deliberately ALSO null for a `matchday_special` leg: its match_id is
+   *  only a technical anchor (representative_match_id, see
+   *  lib/matchdaySpecials.ts), not the Special's own chronological time, so
+   *  it must never drive the order. */
+  kickoff: string | null
+  matchId: number
+  legId: number | string
+}
+
+/**
+ * Orders a combo's legs by real kickoff time, earliest first. "Meine
+ * Wetten", Wetthistorie and "Alle Tipps" (the leaderboard detail view) must
+ * show a combo in the order its games are actually played, not the order the
+ * user happened to click them while building the slip (BetSlipContext.tsx
+ * appends selections in click order, and that order is what lands in
+ * `bets`/`combo_bets`). A leg with no known kickoff (including a
+ * Spieltag-Special, see `ComboLegSortKey.kickoff`) sorts after every leg with
+ * a real one; two legs tie-break deterministically on `matchId` then `legId`
+ * so the order can never flicker between renders. Returns a NEW array —
+ * never mutates `legs`, so callers must pass a copy to anything that expects
+ * the original array order/identity preserved (e.g. odds-product reductions).
+ */
+export function sortComboLegsChronologically<T>(
+  legs: readonly T[],
+  keyOf: (leg: T) => ComboLegSortKey,
+): T[] {
+  return [...legs].sort((a, b) => {
+    const ka = keyOf(a)
+    const kb = keyOf(b)
+    const ta = ka.kickoff ? new Date(ka.kickoff).getTime() : NaN
+    const tb = kb.kickoff ? new Date(kb.kickoff).getTime() : NaN
+    const va = Number.isFinite(ta) ? ta : null
+    const vb = Number.isFinite(tb) ? tb : null
+    if (va != null && vb != null && va !== vb) return va - vb
+    if (va != null && vb == null) return -1
+    if (va == null && vb != null) return 1
+    if (ka.matchId !== kb.matchId) return ka.matchId - kb.matchId
+    return ka.legId < kb.legId ? -1 : ka.legId > kb.legId ? 1 : 0
+  })
+}
+
+/**
  * Display labels for the one-off Pokal-Spezial cup fixture's markets (see
  * components/CupMatchCard.tsx). Internal `cup_*` market_type/selection codes
  * must never reach the user, and must never fall through to a generic

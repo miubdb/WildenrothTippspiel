@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus } from '@/components/WetteCard'
-import { plainSelectionLabel, type SpecialDisplayInfo, specialMarketLabel } from '@/lib/betDisplay'
+import { plainSelectionLabel, type SpecialDisplayInfo, specialMarketLabel, sortComboLegsChronologically } from '@/lib/betDisplay'
 
 type Bet = {
   id: string
@@ -114,7 +114,13 @@ function toWetteData(item: HistoryItem, players?: Record<number, string>, specia
     payout: cb?.payout,
     status,
     comboId: parseInt(item.comboId),
-    legs: legs.map(leg => {
+    // Display order only — chronological by kickoff, earliest first, not the
+    // order the legs were selected/stored in (see sortComboLegsChronologically).
+    legs: sortComboLegsChronologically(legs, (leg) => ({
+      kickoff: leg.market_type === 'matchday_special' ? null : leg.match?.match_date ?? null,
+      matchId: leg.match?.id ?? 0,
+      legId: leg.id,
+    })).map(leg => {
       const legSpecial = leg.market_type === 'matchday_special' && leg.special_id != null ? specialsById?.[leg.special_id] : undefined
       return {
         id: parseInt(leg.id),

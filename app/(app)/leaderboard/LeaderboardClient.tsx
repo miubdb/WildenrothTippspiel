@@ -8,7 +8,7 @@ import { MatchdayScroller } from '@/components/MatchdayScroller'
 import { WetteCard, type WetteData, type WetteStatus, type WetteSocial } from '@/components/WetteCard'
 import type { CommentData } from '@/components/CommentSection'
 import { MatchdayRecap, type RecapData } from '@/components/MatchdayRecap'
-import { type SpecialDisplayInfo, plainSelectionLabel, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
+import { type SpecialDisplayInfo, plainSelectionLabel, specialMarketLabel, specialSelectionLabel, sortComboLegsChronologically } from '@/lib/betDisplay'
 
 const STARTING_BALANCE = 1000
 
@@ -170,7 +170,14 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
         payout: cb?.payout,
         status: effectiveStatus,
         comboId: b.combo_id,
-        legs: comboLegs.map(leg => {
+        // Display order only — chronological by kickoff, earliest first, not
+        // the order the legs were selected/stored in (see
+        // sortComboLegsChronologically).
+        legs: sortComboLegsChronologically(comboLegs, (leg) => ({
+          kickoff: leg.market_type === 'matchday_special' ? null : leg.match?.match_date ?? null,
+          matchId: leg.match?.id ?? 0,
+          legId: leg.id,
+        })).map(leg => {
           const lm = leg.match
           const lscore = lm?.home_score != null ? `${lm.home_score}:${lm.away_score}` : null
           const legSpecial = leg.market_type === 'matchday_special' && leg.special_id != null ? specialsById?.[leg.special_id] : undefined

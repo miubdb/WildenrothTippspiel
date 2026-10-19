@@ -21,7 +21,7 @@
 import { readFileSync } from 'node:fs'
 import type { Match } from '@/types'
 import { getMatchXG, buildPriorContext, oddsFromXG, buildMatchScoreMatrix, MAX_EXACT_ODDS } from '@/lib/odds'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, parseBettingOpenOverrides } from '@/lib/season'
 import {
   compressOdds,
   decompressOdds,
@@ -45,6 +45,7 @@ import {
   goalscorerOfferState,
   loadPreviousPublishedOfferState,
   loadGoalscorerContinuity,
+  resolveGoalscorerBettingOpen,
   BLOCKING_GOALSCORER_STATUSES,
 } from '@/lib/goalscorerContext'
 import { loadData } from './backtest'
@@ -1346,6 +1347,72 @@ export async function run(): Promise<number> {
     check('Kontinuität nutzt denselben Referenzmarkt; nicht angebotene Spieler liefern weiterhin keinen Preis-Prior',
       cont.previousMarketMatchId === w2b.id && !cont.previousOddsScore!.has(george.id)
       && cont.previousOddsScore!.get(regular.player_id) === regular.odds_score)
+  }
+
+  console.log('\n20. Betting-Open-Fenster: effektiver Spieltag statt tippspiel_matchday ?? matchday (Match 307)')
+  {
+    const mdFx = (id: number, matchday: number, date: string, opts: { tippspiel?: number | null; status?: string } = {}) =>
+      ({
+        id, match_number: id, home_team_id: 1, away_team_id: 2, match_date: date,
+        home_score: null, away_score: null, status: opts.status ?? 'scheduled',
+        matchday, tippspiel_matchday: opts.tippspiel ?? null, match_category: 'kreisliga',
+      }) as unknown as Match
+
+    // Spieltag 2's own cluster anchors it around 2026-09-16 — already finished.
+    const md2Cluster = [1, 2, 3].map((i) => mdFx(30000 + i, 2, '2026-09-16T17:00:00Z', { status: 'finished' }))
+    // Spieltag 13's own cluster anchors it around 2026-10-24 — not yet played.
+    const md13Cluster = [1, 2, 3].map((i) => mdFx(30010 + i, 13, '2026-10-24T13:00:00Z'))
+    // A normal fixture with no drift and no override — case C.
+    const normalFixture = mdFx(30020, 7, '2026-09-13T13:00:00Z')
+    // Match 307 (SpVgg Wildenroth – SV Igling): raw matchday=2, no tippspiel_matchday,
+    // but kicks off deep inside Spieltag 13's window — the actual reported bug.
+    const match307 = mdFx(307, 2, '2026-10-21T19:30:00Z')
+    // An explicit tippspiel_matchday override resolves to 13 regardless of its
+    // own (here deliberately far-off) kickoff date — case B.
+    const explicitOverride = mdFx(30030, 5, '2026-08-20T16:00:00Z', { tippspiel: 13 })
+
+    const mdFixtures = [...md2Cluster, ...md13Cluster, normalFixture, match307, explicitOverride]
+    const mdIdxTest = buildEffectiveMatchdayIndex(mdFixtures)
+
+    // A) Dynamisch verschobenes Nachholspiel wie Match 307 → effektiv Spieltag 13.
+    check(`A — Match 307 (roh matchday=2, kein tippspiel_matchday) löst zu Spieltag ${effectiveMatchdayOf(match307, mdIdxTest)} auf`,
+      effectiveMatchdayOf(match307, mdIdxTest) === 13)
+    // B) Explizites tippspiel_matchday gewinnt unabhängig vom Datum.
+    check('B — explizites tippspiel_matchday=13 bleibt 13',
+      effectiveMatchdayOf(explicitOverride, mdIdxTest) === 13)
+    // C) Normales Spiel ohne Sonderzuordnung → eigener roher Spieltag.
+    check('C — normales Spiel ohne Drift/Override bleibt bei seinem eigenen Spieltag',
+      effectiveMatchdayOf(normalFixture, mdIdxTest) === 7)
+
+    const overrides = parseBettingOpenOverrides([
+      // Spieltag 2 öffnete längst — würde der alte `tippspiel_matchday ?? matchday`-Shortcut
+      // diese Nummer nachschlagen, wäre der Markt für Match 307 fälschlich sofort offen.
+      ['betting_open_md_2', '2026-09-08T10:00:00Z'],
+      ['betting_open_md_13', '2026-10-19T10:00:00Z'],
+    ])
+
+    // D) Vor Öffnung von Spieltag 13: Draft wird berechnet, frozen_at bleibt NULL.
+    const beforeOpen = resolveGoalscorerBettingOpen({
+      match: match307, mdIndex: mdIdxTest, overrides, earlyBettingOpen: false,
+      now: new Date('2026-10-17T00:00:00Z'),
+    })
+    check(`D — vor Spieltag-13-Öffnung: effectiveMatchday=${beforeOpen.effectiveMatchday}, allowFreeze=false`,
+      beforeOpen.effectiveMatchday === 13 && beforeOpen.allowFreeze === false)
+
+    // E) Nach Öffnung von Spieltag 13: darf veröffentlichen.
+    const afterOpen = resolveGoalscorerBettingOpen({
+      match: match307, mdIndex: mdIdxTest, overrides, earlyBettingOpen: false,
+      now: new Date('2026-10-20T00:00:00Z'),
+    })
+    check('E — nach Spieltag-13-Öffnung: allowFreeze=true', afterOpen.allowFreeze === true)
+
+    // F) Bereits gefrorene Zeile bleibt geschützt — auch nachdem Spieltag 13 offen ist
+    // und `allowFreeze` dadurch true liefert, und auch unter `force`.
+    const protectedRow = goalscorerRowAction({
+      trigger: 'admin_recompute', exists: true, frozen: true, manuallyOverridden: false,
+    })
+    check('F — eine bereits veröffentlichte Zeile wird trotz offenem Fenster nie neu berechnet',
+      afterOpen.allowFreeze === true && protectedRow === 'skip')
   }
 
   console.log(`\n${failures === 0 ? 'Alle' : failures + ' von ' + checks} Prüfungen ${failures === 0 ? `bestanden (${checks})` : 'FEHLGESCHLAGEN'}`)

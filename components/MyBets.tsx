@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus, type WetteLeg } from '@/components/WetteCard'
-import { plainSelectionLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel, specialResultText } from '@/lib/betDisplay'
+import { plainSelectionLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel, specialResultText, sortComboLegsChronologically } from '@/lib/betDisplay'
 
 type Leg = {
   id: number
@@ -152,7 +152,15 @@ export function MyBets({ singles, combos, matchMap, isDeadlinePassed, playerName
         payout: combo.payout,
         status: effectiveSt,
         comboId: combo.id,
-        legs: combo.legs.map(l => legToWetteLeg(l, matchMap, playerNameMap, specialsById)),
+        // Display order only — chronological by kickoff, earliest first, not
+        // the order the legs were selected/stored in (see
+        // sortComboLegsChronologically). `comboEffOdds`/`anyLegLocked` above
+        // already read `combo.legs` directly and stay unaffected.
+        legs: sortComboLegsChronologically(combo.legs, (l) => ({
+          kickoff: l.market_type === 'matchday_special' ? null : matchMap[l.match_id]?.kickoff ?? null,
+          matchId: l.match_id,
+          legId: l.id,
+        })).map(l => legToWetteLeg(l, matchMap, playerNameMap, specialsById)),
         locked: anyLegLocked,
       }
     }),
