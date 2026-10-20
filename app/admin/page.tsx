@@ -3,13 +3,14 @@
 import Image from 'next/image'
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import { mergeExactScoreOffers } from '@/lib/odds'
+import type { OddsAnomaly } from '@/lib/oddsAnomalies'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, SEASON_START } from '@/lib/season'
 import { SurveyTab } from '@/components/admin/SurveyTab'
-import { BonusTipsAdmin } from '@/components/admin/BonusTipsAdmin'
-import { SpieltagSpecialsAdmin } from '@/components/admin/SpieltagSpecialsAdmin'
-import { Btn, Chips, EmptyNote, Field, inputCls, LoadingBlock, Notice, Panel, Pill, Section, selectCls, useConfirm, wl } from '@/components/admin/ui'
+import { AuditLogPanel } from '@/components/admin/AuditLogPanel'
+import { Btn, CategoryGroup, Chips, EmptyNote, Field, inputCls, LoadingBlock, Notice, Panel, Pill, Section, selectCls, useConfirm, wl } from '@/components/admin/ui'
 import { AdminShellNav } from '@/components/admin/AdminShellNav'
 import { ErgebnisseTabView } from '@/components/admin/ErgebnisseTabView'
 import { SpieltagTabView } from '@/components/admin/SpieltagTabView'
@@ -37,17 +38,18 @@ interface AdminUser {
   created_at: string
 }
 
-type Tab = 'ergebnisse' | 'spieltag' | 'quoten' | 'verwaltung' | 'umfrage'
+// Admin 3.0: von 5 auf 4 Hauptbereiche reduziert — "Verwaltung" und "Umfrage" sind keine
+// eigenen Tabs mehr, sondern Kategorien im neuen Tab "Mehr" (siehe AdminShellNav.tsx).
+type Tab = 'ergebnisse' | 'spieltag' | 'quoten' | 'mehr'
 
-const TAB_VALUES: Tab[] = ['ergebnisse', 'spieltag', 'quoten', 'verwaltung', 'umfrage']
+const TAB_VALUES: Tab[] = ['ergebnisse', 'spieltag', 'quoten', 'mehr']
 
-const TAB_LABEL: Record<Tab, string> = { ergebnisse: 'Ergebnisse', spieltag: 'Spieltag', quoten: 'Quoten', verwaltung: 'Verwaltung', umfrage: 'Umfrage' }
+const TAB_LABEL: Record<Tab, string> = { ergebnisse: 'Ergebnisse', spieltag: 'Spieltag', quoten: 'Quoten', mehr: 'Mehr' }
 const TAB_DESC: Record<Tab, string> = {
   ergebnisse: 'Ergebnisse eintragen und Wetten abrechnen',
-  spieltag: 'Spiele, Tipps, Topspiel, Torschützen',
-  quoten: 'Neu berechnen, Vorschau, überschreiben',
-  verwaltung: 'Spieler, Kader, Saison, Technik',
-  umfrage: 'Antworten und Auswertungen',
+  spieltag: 'Cockpit, Spiele, Tipps, Topspiel, Torschützen',
+  quoten: 'Neu berechnen, Vorschau, Quotenprüfung',
+  mehr: 'Spieler, Kader, Umfrage, System & Wartung',
 }
 
 export default function AdminPage() {
@@ -59,9 +61,17 @@ export default function AdminPage() {
   // of the default "Ergebnisse" tab. Read via plain URLSearchParams in an
   // effect (not useSearchParams()) since this page has no Suspense boundary
   // and useSearchParams() would require one.
+  //
+  // Admin 3.0, Punkt 13: ein älterer Deep-Link/Bookmark kann noch ?tab=verwaltung oder
+  // ?tab=umfrage tragen (die 5-Tab-Struktur vor Admin 3.0) — diese zwei Namen bildet LEGACY_TAB
+  // auf den neuen Tab "mehr" ab, statt den Link stillschweigend auf die Standardansicht
+  // zurückfallen zu lassen.
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get('tab')
-    if (requested && (TAB_VALUES as string[]).includes(requested)) {
+    const LEGACY_TAB: Record<string, Tab> = { verwaltung: 'mehr', umfrage: 'mehr' }
+    if (requested && requested in LEGACY_TAB) {
+      setTab(LEGACY_TAB[requested])
+    } else if (requested && (TAB_VALUES as string[]).includes(requested)) {
       setTab(requested as Tab)
     }
   }, [])
@@ -180,9 +190,15 @@ export default function AdminPage() {
   }, [newUserCount])
 
   const fetchPendingCounts = useCallback(async () => {
-    const { data } = await supabase.from('bets').select('match_id').eq('status', 'pending')
+    // Admin 3.0, Punkt 10: `.eq('status', 'pending')` zählt nicht als Einschränkung auf eine
+    // Handvoll Zeilen (siehe CLAUDE.md zum 1000-Zeilen-Cap) — `bets` hat laut CLAUDE.md bereits
+    // 1128+ Zeilen, ein unpaginiertes select() hier hätte die "offene Wetten"-Anzeige also
+    // irgendwann silently zu niedrig gezeigt. fetchAllRows() seitet mit stabiler .order('id').
+    const rows = await fetchAllRows<{ match_id: number | null }>((from, to) =>
+      supabase.from('bets').select('match_id').eq('status', 'pending').order('id').range(from, to)
+    )
     const counts: Record<number, number> = {}
-    for (const b of (data ?? []) as { match_id: number | null }[]) {
+    for (const b of rows) {
       if (b.match_id != null) counts[b.match_id] = (counts[b.match_id] ?? 0) + 1
     }
     setPendingBetsByMatch(counts)
@@ -190,7 +206,7 @@ export default function AdminPage() {
 
   useEffect(() => { fetchSeasonData(); fetchPendingCounts() }, [fetchSeasonData, fetchPendingCounts])
 
-  useEffect(() => { if (tab === 'verwaltung') markNewUsersSeen() }, [tab, markNewUsersSeen])
+  useEffect(() => { if (tab === 'mehr') markNewUsersSeen() }, [tab, markNewUsersSeen])
 
   async function toggleSeasonStarted(value: boolean) {
     setSeasonToggleLoading(true)
@@ -426,8 +442,19 @@ export default function AdminPage() {
   // extra B-Klasse match that becomes bettable on the Tippspiel-Spieltag its date
   // falls into. Admin is responsible for only flagging one match per week.
   async function toggleTopspiel(matchId: number, value: boolean) {
-    const supabaseClient = createClient()
-    await supabaseClient.from('matches').update({ is_topspiel: value }).eq('id', matchId)
+    // Admin 3.0, Punkt 9: über eine Admin-API statt direkt per Session-Client, damit die
+    // Topspiel-Auswahl zuverlässig ins Audit-Log kann (app/api/admin/topspiel/route.ts) —
+    // dieselbe Mutation, nur serverseitig protokolliert statt rein clientseitig.
+    const res = await fetch('/api/admin/topspiel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId, value }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setMessage(`Fehler: ${data.error ?? 'Topspiel-Auswahl fehlgeschlagen'}`)
+      return
+    }
     setMatches(prev => prev.map(m => m.id === matchId ? { ...m, is_topspiel: value } : m))
   }
 
@@ -461,10 +488,12 @@ export default function AdminPage() {
   }
 
   async function resetSeasonBalances() {
+    // Admin 3.0, Punkt 11: Saison-Reset ist unwiderruflich — verlangt jetzt eine bewusst
+    // eingetippte Bestätigung statt nur eines Tastendrucks (requireText, components/admin/ui.tsx).
     if (!(await confirm({
       title: 'Alle Guthaben auf 1.000 Wildis zurücksetzen?',
       message: 'Das kann nicht rückgängig gemacht werden.',
-      confirmLabel: 'Zurücksetzen', tone: 'danger',
+      confirmLabel: 'Zurücksetzen', tone: 'danger', requireText: 'ZURÜCKSETZEN',
     }))) return
     setSeasonResetLoading(true)
     setMessage(null)
@@ -644,57 +673,67 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Verwaltung Tab */}
-        {tab === 'verwaltung' && (
-          <div className="space-y-4">
+        {/* "Mehr" Tab (Admin 3.0) — Verwaltung + Umfrage sind keine eigenen Tabs mehr, sondern
+            4 Kategorien hier (CategoryGroup, components/admin/ui.tsx). Bonus-Tipps/Specials sind
+            nach Spieltag umgezogen (siehe dort) — hier bewusst nicht mehr dupliziert. */}
+        {tab === 'mehr' && (
+          <div className="space-y-3">
 
-            <Section id="vw-spieler" title="Spieler-Verwaltung" subtitle="Accounts: Rolle, Guthaben, Berechtigung, Löschen/Reaktivieren" defaultOpen
+            <CategoryGroup id="mh-spieler" title="Spieler & Mitglieder" subtitle="Accounts: Rolle, Guthaben, Berechtigung, Löschen/Reaktivieren" defaultOpen
               badge={newUserCount > 0 ? <Pill tone="success">{newUserCount} neu</Pill> : <Pill tone="neutral">{users.length}</Pill>}>
-              <div className="space-y-3">
-                <input
-                  type="text"
-                  value={userSearch}
-                  onChange={(e) => setUserSearch(e.target.value)}
-                  placeholder="Suche nach Name…"
-                  className={inputCls}
-                />
-                <Chips value={userFilter} onChange={setUserFilter} label="Spieler filtern" items={[
-                  { value: 'alle', label: `Alle · ${users.length}` },
-                  { value: 'neu', label: `Neu · ${newUserCount}` },
-                  { value: 'gesperrt', label: `Nicht berechtigt · ${users.filter((u) => !u.deleted_at && !u.eligible_for_current_season).length}` },
-                  { value: 'geloescht', label: `Gelöscht · ${users.filter((u) => u.deleted_at).length}` },
-                ]} />
-                {users.length === 0 && <EmptyNote>Keine Spieler geladen.</EmptyNote>}
-                {users.length > 0 && visibleUsers.length === 0 && <EmptyNote>Keine Treffer{userSearch ? ` für „${userSearch}“` : ' für diesen Filter'}.</EmptyNote>}
-                <div className="grid gap-3 lg:grid-cols-2">
-                  {visibleUsers.map((u) => (
-                    <UserCard
-                      key={u.id}
-                      u={u}
-                      isNew={!u.is_admin && (!newUsersSeenAt || u.created_at > newUsersSeenAt)}
-                      balance={eligBalance[u.id] ?? ''}
-                      onBalanceChange={(v) => setEligBalance((prev) => ({ ...prev, [u.id]: v }))}
-                      onRole={(role) => setUserWildenrothRole(u.id, role)}
-                      onEligible={() => {
-                        const raw = eligBalance[u.id]
-                        const bal = raw != null && raw !== '' ? parseFloat(raw) : undefined
-                        setUserEligible(u.id, !u.eligible_for_current_season, bal)
-                      }}
-                      onDelete={() => deleteUser(u.id, u.display_name || u.username)}
-                      onRestore={() => restoreUser(u.id, u.display_name || u.username)}
-                    />
-                  ))}
+              <Section id="vw-spieler" title="Spieler verwalten" subtitle="Registrierungen, Berechtigungen, Guthaben, Accounts" defaultOpen>
+                <div className="space-y-3">
+                  <input
+                    type="text"
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    placeholder="Suche nach Name…"
+                    className={inputCls}
+                  />
+                  <Chips value={userFilter} onChange={setUserFilter} label="Spieler filtern" items={[
+                    { value: 'alle', label: `Alle · ${users.length}` },
+                    { value: 'neu', label: `Neu · ${newUserCount}` },
+                    { value: 'gesperrt', label: `Nicht berechtigt · ${users.filter((u) => !u.deleted_at && !u.eligible_for_current_season).length}` },
+                    { value: 'geloescht', label: `Gelöscht · ${users.filter((u) => u.deleted_at).length}` },
+                  ]} />
+                  {users.length === 0 && <EmptyNote>Keine Spieler geladen.</EmptyNote>}
+                  {users.length > 0 && visibleUsers.length === 0 && <EmptyNote>Keine Treffer{userSearch ? ` für „${userSearch}“` : ' für diesen Filter'}.</EmptyNote>}
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {visibleUsers.map((u) => (
+                      <UserCard
+                        key={u.id}
+                        u={u}
+                        isNew={!u.is_admin && (!newUsersSeenAt || u.created_at > newUsersSeenAt)}
+                        balance={eligBalance[u.id] ?? ''}
+                        onBalanceChange={(v) => setEligBalance((prev) => ({ ...prev, [u.id]: v }))}
+                        onRole={(role) => setUserWildenrothRole(u.id, role)}
+                        onEligible={() => {
+                          const raw = eligBalance[u.id]
+                          const bal = raw != null && raw !== '' ? parseFloat(raw) : undefined
+                          setUserEligible(u.id, !u.eligible_for_current_season, bal)
+                        }}
+                        onDelete={() => deleteUser(u.id, u.display_name || u.username)}
+                        onRestore={() => restoreUser(u.id, u.display_name || u.username)}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            </Section>
+              </Section>
+            </CategoryGroup>
 
-            <Section id="vw-kader" title="Kader & Transfers" subtitle="Kaderdaten, Transfers, Spielerstatus (reale Roster-Daten)" defaultOpen>
-              <KaderSection onMessage={setMessage} />
-            </Section>
+            <CategoryGroup id="mh-kader" title="Kader & Transfers" subtitle="Kaderdaten, Transfers, Spielerstatus (reale Roster-Daten)">
+              <Section id="vw-kader" title="Kader verwalten" subtitle="Spieler, Transfers, Kaderinformationen" defaultOpen>
+                <KaderSection onMessage={setMessage} />
+              </Section>
+            </CategoryGroup>
 
-            <Section id="vw-saison" title="Saison-Verwaltung" subtitle="Saisonstart-Flag & Guthaben-Reset" defaultOpen
-              badge={seasonStarted ? <Pill tone="success">gestartet</Pill> : <Pill tone="neutral">nicht gestartet</Pill>}>
-              <div className="space-y-4">
+            <CategoryGroup id="mh-umfrage" title="Umfrage" subtitle="Teilnahme, Auswertungen, Einzelantworten, Einstellungen">
+              <SurveyTab onMessage={setMessage} />
+            </CategoryGroup>
+
+            <CategoryGroup id="mh-system" title="System & Wartung" subtitle="Saison, Push, Tests, Awards — seltene und gefährliche Aktionen">
+              <Section id="vw-saison" title="Saisonstart-Flag" subtitle="Steuert, ob neue Nutzer manuell freigeschaltet werden müssen" defaultOpen
+                badge={seasonStarted ? <Pill tone="success">gestartet</Pill> : <Pill tone="neutral">nicht gestartet</Pill>}>
                 <div className="flex flex-col gap-3 rounded-xl bg-gray-50 p-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div className="text-[15px] font-bold text-gray-900">Saisonstart</div>
@@ -707,53 +746,44 @@ export default function AdminPage() {
                     {seasonStarted ? 'Flag entfernen' : 'Saison starten'}
                   </Btn>
                 </div>
-                <details className="group rounded-xl border-2 border-red-200">
-                  <summary className="flex min-h-[44px] cursor-pointer list-none items-center gap-1.5 px-3 text-[14px] font-semibold text-red-700 select-none [&::-webkit-details-marker]:hidden">
-                    <svg className="h-3.5 w-3.5 transition-transform group-open:rotate-90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-                    Neue Saison (Guthaben-Reset)
-                  </summary>
-                  <div className="space-y-3 border-t border-red-200 bg-red-50 p-4">
-                    <p className="text-[14px] leading-6 text-red-900">
-                      Setzt <b>alle Guthaben auf 1.000 Wildis</b> zurück. Bisherige Wetten bleiben als Saison 25/26 erhalten.
-                    </p>
-                    <Btn variant="danger" block loading={seasonResetLoading} onClick={resetSeasonBalances}>
-                      {seasonResetLoading ? 'Wird zurückgesetzt …' : 'Alle Guthaben auf 1.000 Wildis zurücksetzen'}
-                    </Btn>
-                  </div>
-                </details>
-              </div>
-            </Section>
+              </Section>
 
-            <Section id="vw-sonstiges" title="Technik & Tests" subtitle="Push-Benachrichtigungen, Test-Spieltag, Awards-Backfill">
-              <div className="space-y-4">
-                <AdminPushTab onMessage={setMessage} />
-                <TestMatchdayPanel />
-                <Panel className="space-y-3 p-4">
-                  <h4 className="text-[16px] font-bold text-gray-900">Awards rückwirkend berechnen</h4>
-                  <p className="text-[14px] leading-6 text-gray-700">
-                    Berechnet alle Pokal-Kategorien (inkl. der 3 neuen: Großer Wurf, Torschützen-König, Zocker des
-                    Spieltags) für jeden bereits abgerechneten Spieltag der aktuellen Saison neu. Gefahrlos wiederholbar.
+              <Section id="vw-season-reset" title="Saison-Reset" subtitle="Gefahrenzone — unwiderruflich" tone="critical">
+                <div className="space-y-3">
+                  <p className="text-[14px] leading-6 text-red-900">
+                    Setzt <b>alle Guthaben auf 1.000 Wildis</b> zurück. Bisherige Wetten bleiben als Saison 25/26 erhalten.
+                    Verlangt eine bewusst eingetippte Bestätigung, bevor etwas passiert.
                   </p>
-                  <Btn variant="primary" block loading={awardsBackfillLoading} onClick={backfillAwards}>
-                    {awardsBackfillLoading ? 'Wird berechnet …' : 'Awards rückwirkend berechnen (inkl. 3 neue Kategorien)'}
+                  <Btn variant="danger" block loading={seasonResetLoading} onClick={resetSeasonBalances}>
+                    {seasonResetLoading ? 'Wird zurückgesetzt …' : 'Alle Guthaben auf 1.000 Wildis zurücksetzen'}
                   </Btn>
-                </Panel>
-              </div>
-            </Section>
+                </div>
+              </Section>
 
-            <Section id="vw-bonus" title="Bonus-Tipps" subtitle="Sondertipps ohne Einsatz: erstellen, verwalten, auswerten">
-              <BonusTipsAdmin onMessage={setMessage} />
-            </Section>
+              <Section id="vw-sonstiges" title="Push, Test-Spieltag, Awards" subtitle="Push-Benachrichtigungen, Test-Spieltag 999, Awards-Backfill">
+                <div className="space-y-4">
+                  <AdminPushTab onMessage={setMessage} />
+                  <TestMatchdayPanel />
+                  <Panel className="space-y-3 p-4">
+                    <h4 className="text-[16px] font-bold text-gray-900">Awards rückwirkend berechnen</h4>
+                    <p className="text-[14px] leading-6 text-gray-700">
+                      Berechnet alle Pokal-Kategorien (inkl. der 3 neuen: Großer Wurf, Torschützen-König, Zocker des
+                      Spieltags) für jeden bereits abgerechneten Spieltag der aktuellen Saison neu. Gefahrlos wiederholbar.
+                    </p>
+                    <Btn variant="primary" block loading={awardsBackfillLoading} onClick={backfillAwards}>
+                      {awardsBackfillLoading ? 'Wird berechnet …' : 'Awards rückwirkend berechnen (inkl. 3 neue Kategorien)'}
+                    </Btn>
+                  </Panel>
+                </div>
+              </Section>
 
-            <Section id="vw-specials" title="Spieltag-Specials" subtitle="Spieltag-weite Wettmärkte mit Einsatz/Quote: vorschlagen, aktivieren, verwalten">
-              <SpieltagSpecialsAdmin onMessage={setMessage} />
-            </Section>
+              <Section id="vw-audit" title="Änderungshistorie" subtitle="Protokoll sicherheitsrelevanter Admin-Aktionen">
+                <AuditLogPanel />
+              </Section>
+            </CategoryGroup>
 
           </div>
         )}
-
-        {/* Umfrage Tab */}
-        {tab === 'umfrage' && <SurveyTab onMessage={setMessage} />}
         </div>
       </div>
     </div>
@@ -911,6 +941,9 @@ function AdminPushTab({ onMessage }: { onMessage: (m: string | null) => void }) 
       <Btn variant="primary" block loading={testLoading} onClick={sendTestToMe}>
         {testLoading ? 'Wird gesendet …' : '🧪 Test-Push an mich'}
       </Btn>
+      <p className="text-[12px] text-gray-500">
+        Sendet eine echte Push-Benachrichtigung an dein eigenes Gerät — kein simulierter Versand.
+      </p>
 
       {stats.recentErrors && stats.recentErrors.length > 0 && (
         <Notice tone="critical">
@@ -964,6 +997,9 @@ interface OddsPreviewMatch {
   // when the normal favourite-based rule applies (no Wildenroth side, or
   // before that team's Spieltag cutover), true/false forces that side.
   handicapForceHomeSide: boolean | null
+  // Punkt 8 (Admin 3.0): rein lesende Hinweise, vom Server schon aus `odds`+`diagnostics`
+  // berechnet (lib/oddsAnomalies.ts) — nie leer/erfunden, nie eine Quotenänderung.
+  anomalies: OddsAnomaly[]
 }
 
 interface OddsPreviewResponse {
@@ -1121,6 +1157,40 @@ function OddsPreviewSection({
             )}
           </Notice>
 
+          {/* Punkt 8 (Admin 3.0): reine Hinweis-Übersicht, keine Quotenänderung — siehe
+              lib/oddsAnomalies.ts. Jede Zeile verlinkt per Anker auf die betroffene Karte
+              unten (scroll-mt-24 auf der Karte selbst sorgt für die Höhe der Sticky-Leiste). */}
+          <div id="qu-warnungen" className="scroll-mt-24">
+            {(() => {
+              const flagged = preview.matches.filter((m) => m.anomalies.length > 0)
+              return (
+                <Section
+                  title="Quotenprüfung"
+                  subtitle={`Spieltag ${preview.matchday} — rein informative Hinweise, keine automatische Änderung`}
+                  badge={flagged.length > 0 ? <Pill tone="open">{flagged.length}</Pill> : <Pill tone="success">0</Pill>}
+                  defaultOpen={flagged.length > 0}
+                >
+                  {flagged.length === 0 ? (
+                    <EmptyNote>Keine Auffälligkeiten erkannt.</EmptyNote>
+                  ) : (
+                    <ul className="space-y-2">
+                      {flagged.map((m) => (
+                        <li key={m.match_id}>
+                          <a href={`#qu-match-${m.match_id}`} className="block rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 hover:bg-amber-100">
+                            <div className="text-[14px] font-semibold text-gray-900">{m.home_team} – {m.away_team}</div>
+                            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[13px] text-amber-900">
+                              {m.anomalies.map((a, i) => <li key={i}>{a.reason}</li>)}
+                            </ul>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Section>
+              )
+            })()}
+          </div>
+
           <div className="space-y-3">
             {preview.matches.map((m) => (
               <OddsPreviewMatchCard
@@ -1272,6 +1342,7 @@ function OddsPreviewMatchCard({
   )
 
   return (
+    <div id={`qu-match-${match.match_id}`} className="scroll-mt-24">
     <Panel className="overflow-hidden" tone={hasOverride ? 'open' : undefined}>
       <div className="flex items-start gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2.5">
         <div className="min-w-0 flex-1 space-y-1">
@@ -1293,6 +1364,16 @@ function OddsPreviewMatchCard({
           {editing ? 'Schließen' : 'Bearbeiten'}
         </Btn>
       </div>
+
+      {match.anomalies.length > 0 && (
+        <div className="border-b border-amber-200 bg-amber-50 px-3 py-2">
+          <Notice tone="open">
+            <ul className="list-disc space-y-0.5 pl-4">
+              {match.anomalies.map((a, i) => <li key={i}>{a.reason}</li>)}
+            </ul>
+          </Notice>
+        </div>
+      )}
 
       {/* Override edit form */}
       {editing && (
@@ -1416,6 +1497,7 @@ function OddsPreviewMatchCard({
         <SingleMatchRecalc matchId={match.match_id} />
       </div>
     </Panel>
+    </div>
   )
 }
 

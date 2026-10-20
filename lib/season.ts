@@ -36,6 +36,25 @@ export function bettingOpenTime(refDate: Date): Date {
 }
 
 /**
+ * Admin 3.0, Punkt 7 (Wettfreigabe-Editor): generalisiert denselben DST-sicheren Trick aus
+ * `bettingOpenTime` (dort fest auf 12:00 Berlin) auf eine beliebige Uhrzeit — ein Admin tippt
+ * eine Europe/Berlin-Wanduhrzeit ein (z. B. aus einem `datetime-local`-Feld, das selbst KEINE
+ * Zeitzone trägt), dieser Aufruf macht daraus den korrekten UTC-Zeitpunkt, Sommer-/Winterzeit
+ * inklusive. `Date.UTC` normalisiert eine Stunde außerhalb [0,23] selbst korrekt auf den
+ * Vor-/Folgetag, daher kein Sonderfall nötig.
+ */
+export function berlinWallClockToUtc(dateStr: string, hour: number, minute: number): Date {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const probe = new Date(Date.UTC(y, m - 1, d, 12))
+  const berlinHourAtNoon = parseInt(
+    new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', hour12: false }).format(probe),
+    10
+  )
+  const offsetHours = berlinHourAtNoon - 12
+  return new Date(Date.UTC(y, m - 1, d, hour - offsetHours, minute))
+}
+
+/**
  * Parses the hand-set, final betting-open overrides from app_settings rows
  * (key `betting_open_md_<N>`) into a Spieltag → instant map. These were set
  * once ahead of go-live for every real Tippspiel-Spieltag and are the actual

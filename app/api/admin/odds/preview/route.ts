@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getMatchXG, oddsFromXG, getFullExactScoreMatrix } from '@/lib/odds'
+import { detectOddsAnomalies } from '@/lib/oddsAnomalies'
 import { wildenrothHandicapForceHomeSide } from '@/lib/oddsMarkets'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { bettingOpenTime, buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
@@ -167,6 +168,9 @@ export async function GET(request: Request) {
       frozen_at: frozenMap.get(m.id) ?? null,
       odds,
       diagnostics,
+      // Punkt 8 (Admin 3.0): rein lesende Auffälligkeits-Hinweise aus denselben, hier ohnehin
+      // schon berechneten Werten — siehe lib/oddsAnomalies.ts. Ändert nichts an `odds`.
+      anomalies: detectOddsAnomalies(odds, diagnostics),
       exact_scores: exact,
       handicapForceHomeSide: wildenrothHandicapForceHomeSide(m, targetMd, wildenrothTeamIds) ?? null,
     })

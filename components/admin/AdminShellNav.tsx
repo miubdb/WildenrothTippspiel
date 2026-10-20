@@ -7,37 +7,43 @@ import { ADMIN_TAB_ICONS, AdminTabBadge } from '@/components/admin/ui'
  * Echtes Desktop-/Mobile-Grundgerüst aus dem alten, verworfenen Admin-Redesign übernommen
  * (dort components/admin/AdminShell.tsx) — nur der Navigationsteil, nicht dessen eigene
  * Datenhaltung (useAdminMatches/useAdminUsers/usePendingBetCounts entfallen bewusst; `tab` und
- * der Verwaltungs-Badge-Zähler kommen weiterhin aus AdminPage, wie seit Schritt 1). Desktop:
- * feste Seitenleiste mit Beschreibung + Untermenüs je Bereich. Mobil: feste Leiste unten mit
- * allen fünf Bereichen. Beide steuern denselben `tab`-Zustand.
+ * der Mehr-Badge-Zähler kommen weiterhin aus AdminPage, wie seit Schritt 1). Desktop:
+ * feste Seitenleiste mit Beschreibung + Untermenüs je Bereich. Mobil: feste Leiste unten.
+ * Beide steuern denselben `tab`-Zustand.
+ *
+ * Admin 3.0 (Entschlackung): von 5 auf 4 Hauptbereiche reduziert — "Verwaltung" und "Umfrage"
+ * sind keine eigenen Tabs mehr, sondern leben als Kategorien (`CategoryGroup`, components/admin/
+ * ui.tsx) gemeinsam im neuen Tab "Mehr". Keine bisherige Funktion ist dadurch verloren oder
+ * schwerer erreichbar als vorher gedacht — nur eine Navigationsebene tiefer. Bonus-Tipps und
+ * Spieltag-Specials sind aus der alten Verwaltung in den Spieltag-Tab gewandert (gehören
+ * fachlich zur Spieltagsvorbereitung, siehe dort), daher fehlen ihre alten `vw-bonus`/
+ * `vw-specials`-Sprungziele hier bewusst.
  *
  * Die Untermenüs (`subs`) sind Sprungmarken auf Abschnitts-IDs innerhalb des jeweils aktiven
  * Tabs (`document.getElementById`). Für Ergebnisse gibt es bewusst keine — schon im alten
- * Redesign leer, weil die Filter dort die Rolle übernehmen. Für die anderen vier Tabs
- * (Spieltag/Quoten/Verwaltung/Umfrage) ist inzwischen jede hier gelistete `id` auch tatsächlich
- * ein `<Section id="…">`/`id="…"` in der jeweiligen Tab-Fläche — alle fünf Tabs sind
- * durchgestaltet, kein Sprungziel ins Leere mehr.
+ * Redesign leer, weil die Filter dort die Rolle übernehmen. Für "Mehr" sind es bewusst nur die
+ * 4 Kategorie-Anker (nicht jeder einzelne Abschnitt darunter) — sonst wäre die Untermenü-Liste
+ * selbst wieder überladen, genau das Gegenteil des Auftrags. Jede hier gelistete `id` ist auch
+ * tatsächlich ein `<Section id="…">`/`<CategoryGroup id="…">` in der jeweiligen Tab-Fläche —
+ * kein Sprungziel ins Leere.
  */
 
-export type AdminTab = 'ergebnisse' | 'spieltag' | 'quoten' | 'verwaltung' | 'umfrage'
+export type AdminTab = 'ergebnisse' | 'spieltag' | 'quoten' | 'mehr'
 
 type TabDef = { id: AdminTab; label: string; desc: string; subs: { id: string; label: string }[] }
 
 const TABS: TabDef[] = [
   { id: 'ergebnisse', label: 'Ergebnisse', desc: 'Ergebnisse eintragen und Wetten abrechnen', subs: [] },
-  { id: 'spieltag', label: 'Spieltag', desc: 'Spiele, Tipps der Spieler, Topspiel, Torschützen', subs: [
-    { id: 'sp-spiele', label: 'Spiele' }, { id: 'sp-tipps', label: 'Tipps' }, { id: 'sp-topspiel', label: 'Topspiel' }, { id: 'sp-torschuetzen', label: 'Torschützen & Verfügbarkeit' },
+  { id: 'spieltag', label: 'Spieltag', desc: 'Cockpit, Spiele, Tipps, Topspiel, Torschützen, Bonus-Tipps, Specials', subs: [
+    { id: 'sp-cockpit', label: 'Cockpit' }, { id: 'sp-spiele', label: 'Spiele' }, { id: 'sp-tipps', label: 'Tipps' }, { id: 'sp-topspiel', label: 'Topspiel' },
+    { id: 'sp-torschuetzen', label: 'Torschützen & Verfügbarkeit' }, { id: 'sp-bonus', label: 'Bonus-Tipps' }, { id: 'sp-specials', label: 'Specials' },
   ] },
   { id: 'quoten', label: 'Quoten', desc: 'Neu berechnen, Vorschau, manuell überschreiben', subs: [
-    { id: 'qu-berechnung', label: 'Neu berechnen' }, { id: 'qu-vorschau', label: 'Vorschau & Überschreiben' },
+    { id: 'qu-berechnung', label: 'Neu berechnen' }, { id: 'qu-warnungen', label: 'Quotenprüfung' }, { id: 'qu-vorschau', label: 'Vorschau & Überschreiben' },
   ] },
-  { id: 'verwaltung', label: 'Verwaltung', desc: 'Spieler, Kader & Transfers, Saison, Technik & Tests, Bonus-Tipps, Specials', subs: [
-    { id: 'vw-spieler', label: 'Spieler' }, { id: 'vw-kader', label: 'Kader & Transfers' }, { id: 'vw-saison', label: 'Saison' },
-    { id: 'vw-sonstiges', label: 'Technik & Tests' }, { id: 'vw-bonus', label: 'Bonus-Tipps' }, { id: 'vw-specials', label: 'Specials' },
-  ] },
-  { id: 'umfrage', label: 'Umfrage', desc: 'Antworten, Auswertungen, Sichtbarkeit', subs: [
-    { id: 'uf-sichtbarkeit', label: 'Sichtbarkeit' }, { id: 'uf-uebersicht', label: 'Übersicht' },
-    { id: 'uf-fragen', label: 'Je Frage' }, { id: 'uf-antworten', label: 'Einzelantworten' }, { id: 'uf-danger', label: 'Reset' },
+  { id: 'mehr', label: 'Mehr', desc: 'Spieler, Kader & Transfers, Umfrage, System & Wartung', subs: [
+    { id: 'mh-spieler', label: 'Spieler & Mitglieder' }, { id: 'mh-kader', label: 'Kader & Transfers' },
+    { id: 'mh-umfrage', label: 'Umfrage' }, { id: 'mh-system', label: 'System & Wartung' },
   ] },
 ]
 
@@ -73,7 +79,7 @@ export function AdminShellNav({ tab, onTabChange, newUserCount }: {
                     <span className="block text-[16px] font-bold leading-5">{t.label}</span>
                     <span className={cx('block text-[12px] leading-4', active ? 'text-red-50' : 'text-gray-600')}>{t.desc}</span>
                   </span>
-                  {t.id === 'verwaltung' && <AdminTabBadge n={newUserCount} />}
+                  {t.id === 'mehr' && <AdminTabBadge n={newUserCount} />}
                 </button>
                 {active && t.subs.length > 0 && (
                   <ul className="mb-2 ml-6 mt-1 space-y-0.5 border-l-2 border-gray-300 pl-3">
@@ -99,7 +105,7 @@ export function AdminShellNav({ tab, onTabChange, newUserCount }: {
 
       {/* Mobil: feste Tab-Leiste unten – alle fünf Bereiche mit vollem Namen, aktiver Bereich klar markiert, Safe-Area berücksichtigt */}
       <nav aria-label="Admin-Bereiche" className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-300 bg-white shadow-[0_-4px_16px_rgba(0,0,0,0.08)] lg:hidden">
-        <div className="mx-auto grid max-w-3xl grid-cols-5 pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[max(0.25rem,env(safe-area-inset-bottom))]">
+        <div className="mx-auto grid max-w-3xl grid-cols-4 pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[max(0.25rem,env(safe-area-inset-bottom))]">
           {TABS.map((t) => {
             const Icon = ADMIN_TAB_ICONS[t.id]
             const active = tab === t.id
@@ -109,7 +115,7 @@ export function AdminShellNav({ tab, onTabChange, newUserCount }: {
                 {active && <span aria-hidden className="absolute top-0 h-[3px] w-9 rounded-b-full bg-red-700" />}
                 <span className="relative">
                   <Icon className="h-6 w-6" />
-                  {t.id === 'verwaltung' && <AdminTabBadge n={newUserCount} className="absolute -right-3 -top-1.5 border-2 border-white" />}
+                  {t.id === 'mehr' && <AdminTabBadge n={newUserCount} className="absolute -right-3 -top-1.5 border-2 border-white" />}
                 </span>
                 <span className="whitespace-nowrap leading-none">{t.label}</span>
               </button>

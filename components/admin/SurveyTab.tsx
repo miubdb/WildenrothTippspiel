@@ -125,10 +125,12 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
   }
 
   async function confirmResetAll() {
+    // Admin 3.0, Punkt 11: besonders absichern — bewusst eingetippte Bestätigung statt nur
+    // eines Tastendrucks, wie beim Saison-Reset (app/admin/page.tsx#resetSeasonBalances).
     if (!(await confirmDialog({
       title: 'Wirklich alle Antworten löschen?',
       message: `Wirklich alle Antworten der Umfrage ${SURVEY_VERSION} löschen?`,
-      confirmLabel: 'Alle löschen', tone: 'danger',
+      confirmLabel: 'Alle löschen', tone: 'danger', requireText: 'LÖSCHEN',
     }))) return
     await resetAll()
   }

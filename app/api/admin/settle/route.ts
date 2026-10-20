@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { logAdminAction } from '@/lib/auditLog'
 import { sendPushToUser } from '@/lib/push'
 import { wildiLabel } from '@/components/WildiIcon'
 import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
@@ -358,6 +359,15 @@ export async function POST(request: NextRequest) {
     revalidatePath('/tipps')
     revalidatePath('/spieler/[id]', 'page')
   } catch (e) { console.error('revalidatePath after settlement failed:', e) }
+
+  // Admin 3.0, Punkt 9: Protokoll-Eintrag NACH der eigentlichen Abrechnung — die Wetten/
+  // Guthaben sind an dieser Stelle bereits final geschrieben, siehe Kommentar oben.
+  const { data: actorProfile } = await supabase.from('profiles').select('username, display_name').eq('id', user.id).single()
+  await logAdminAction({
+    actorId: user.id, actorName: actorProfile?.display_name || actorProfile?.username || user.id,
+    action: 'settlement', objectType: 'matches', objectId: body.matchId,
+    newValue: { homeScore: body.homeScore, awayScore: body.awayScore, settled: settledBetIds.length },
+  })
 
   return NextResponse.json({
     success: true,

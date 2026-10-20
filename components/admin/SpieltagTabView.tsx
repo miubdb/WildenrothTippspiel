@@ -2,9 +2,12 @@
 
 import { useMemo, useState } from 'react'
 import { AdminBetsTab } from '@/components/admin/AdminBetsTab'
+import { BonusTipsAdmin } from '@/components/admin/BonusTipsAdmin'
 import { GoalscorersTab } from '@/components/admin/GoalscorersTab'
 import { MatchdayPicker } from '@/components/admin/MatchdayPicker'
 import { CATEGORY_LABEL } from '@/components/admin/ResultCards'
+import { SpieltagCockpit } from '@/components/admin/SpieltagCockpit'
+import { SpieltagSpecialsAdmin } from '@/components/admin/SpieltagSpecialsAdmin'
 import { EmptyNote, Notice, Panel, Pill, Section, type Tone } from '@/components/admin/ui'
 import type { MatchRow } from '@/components/admin/types'
 import type { EffectiveMatchdayIndex } from '@/lib/season'
@@ -92,6 +95,13 @@ export function SpieltagTabView({
         )}
       </Panel>
 
+      <SpieltagCockpit
+        matchday={matchday}
+        topspiel={{ current: !!topspiel.current, hasCandidates: topspiel.list.length > 0 }}
+        dayMatchCount={dayMatches.length}
+        onMessage={onMessage}
+      />
+
       <Section id="sp-spiele" title="Spiele dieses Spieltags" subtitle="Status und offene Wetten je Spiel" defaultOpen badge={<Pill tone="neutral">{dayMatches.length}</Pill>}>
         {dayMatches.length === 0 ? <EmptyNote>Für diesen Spieltag sind keine Spiele hinterlegt.</EmptyNote> : (
           <ul className="divide-y divide-gray-200">
@@ -141,6 +151,18 @@ export function SpieltagTabView({
 
       <Section id="sp-torschuetzen" title="Torschützen & Verfügbarkeit" subtitle="Torschützen-Quoten, Verfügbarkeit der Spieler, Torschützen eintragen (geht auch direkt beim Ergebnis)">
         <GoalscorersTab matches={matches} onMessage={onMessage} matchday={matchday} mdIndex={mdIndex} />
+      </Section>
+
+      {/* Admin 3.0, Punkt 4: aus der alten "Verwaltung" hierher umgezogen — gehören fachlich zur
+          Spieltagsvorbereitung, nicht zur allgemeinen Benutzerverwaltung. Folgen jetzt der
+          zentralen Spieltagsauswahl dieser Ansicht (SpieltagSpecialsAdmin lädt automatisch neu,
+          BonusTipsAdmin schlägt den Spieltag im Erstellen-Formular nur als Default vor). */}
+      <Section id="sp-bonus" title="Bonus-Tipps" subtitle="Sondertipps ohne Einsatz: erstellen, verwalten, auswerten">
+        <BonusTipsAdmin defaultMatchday={matchday} onMessage={onMessage} />
+      </Section>
+
+      <Section id="sp-specials" title="Spieltag-Specials" subtitle="Spieltag-weite Wettmärkte mit Einsatz/Quote: vorschlagen, aktivieren, verwalten">
+        <SpieltagSpecialsAdmin matchday={matchday} onMessage={onMessage} />
       </Section>
     </div>
   )

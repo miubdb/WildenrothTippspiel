@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { logAdminAction } from '@/lib/auditLog'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, SEASON_START } from '@/lib/season'
 import type { Match } from '@/types'
 
@@ -71,8 +72,13 @@ export async function POST(request: NextRequest) {
 
   if (!matchId) return NextResponse.json({ error: 'matchId fehlt.' }, { status: 400 })
 
+  const { data: actorProfile } = await supabase.from('profiles').select('username, display_name').eq('id', user.id).single()
+  const actorName = actorProfile?.display_name || actorProfile?.username || user.id
+
   if (reset) {
-    await supabase.from('match_odds_overrides').delete().eq('match_id', matchId)
+    const { error } = await supabase.from('match_odds_overrides').delete().eq('match_id', matchId)
+    await logAdminAction({ actorId: user.id, actorName, action: 'odds_override_reset', objectType: 'match_odds_overrides', objectId: matchId, success: !error, errorMessage: error?.message })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true, action: 'reset' })
   }
 
@@ -119,6 +125,8 @@ export async function POST(request: NextRequest) {
     updated_by: user.id,
     updated_at: new Date().toISOString(),
   }, { onConflict: 'match_id' })
+
+  await logAdminAction({ actorId: user.id, actorName, action: 'odds_override_set', objectType: 'match_odds_overrides', objectId: matchId, newValue: safeValues, success: !error, errorMessage: error?.message })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ success: true, action: 'upsert' })

@@ -28,7 +28,7 @@ function toLocalInputValue(d: Date) {
  *  Bereich. `remove()` nutzt jetzt `useConfirm()` statt des nativen `confirm()` (auf iPhone
  *  unzuverlässig/inkonsistent gestylt, wie an jeder anderen destruktiven Aktion im Admin-
  *  Bereich bereits behoben). */
-export function BonusTipsAdmin({ onMessage }: { onMessage: (m: string | null) => void }) {
+export function BonusTipsAdmin({ defaultMatchday, onMessage }: { defaultMatchday?: number | null; onMessage: (m: string | null) => void }) {
   const confirmDialog = useConfirm()
   const [tips, setTips] = useState<AdminTip[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -97,7 +97,7 @@ export function BonusTipsAdmin({ onMessage }: { onMessage: (m: string | null) =>
         {showCreate ? 'Formular schließen' : '+ Neuer Bonus-Tipp'}
       </Btn>
 
-      {showCreate && <CreateForm onCreated={() => { setShowCreate(false); load() }} onError={onMessage} />}
+      {showCreate && <CreateForm defaultMatchday={defaultMatchday} onCreated={() => { setShowCreate(false); load() }} onError={onMessage} />}
 
       <div className="space-y-2">
         {(tips ?? []).length === 0 && <EmptyNote>Noch keine Bonus-Tipps angelegt.</EmptyNote>}
@@ -160,11 +160,14 @@ export function BonusTipsAdmin({ onMessage }: { onMessage: (m: string | null) =>
   )
 }
 
-function CreateForm({ onCreated, onError }: { onCreated: () => void; onError: (m: string) => void }) {
+/** `defaultMatchday` (Admin 3.0): vorbelegt das Spieltag-Feld mit der zentralen Spieltagsauswahl
+ *  des Spieltag-Tabs — reiner Komfort-Default, der Admin kann ihn weiterhin ändern. Lädt beim
+ *  Öffnen des Formulars direkt die passenden Spiele, wenn der Typ ohnehin einen Spieltag braucht. */
+function CreateForm({ defaultMatchday, onCreated, onError }: { defaultMatchday?: number | null; onCreated: () => void; onError: (m: string) => void }) {
   const [type, setType] = useState<BonusTipType>('total_goals_matchday')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [matchday, setMatchday] = useState('')
+  const [matchday, setMatchday] = useState(defaultMatchday != null ? String(defaultMatchday) : '')
   const [matches, setMatches] = useState<MatchOption[] | null>(null)
   const [scopeMatchId, setScopeMatchId] = useState<number | null>(null)
   const [rangeOptions, setRangeOptions] = useState([{ label: '0–2 Tore', min: '0', max: '2' }, { label: '3–4 Tore', min: '3', max: '4' }, { label: '5+ Tore', min: '5', max: '' }])
@@ -186,6 +189,14 @@ function CreateForm({ onCreated, onError }: { onCreated: () => void; onError: (m
     const json = await res.json()
     if (res.ok) setMatches(json.matches)
   }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch for the prefilled default matchday, same pattern used throughout
+    if (defaultMatchday != null) void loadMatches(String(defaultMatchday))
+    // Nur beim ersten Rendern mit dem Default befüllen — ein manueller Wechsel der
+    // Spieltagszahl im Formular läuft weiterhin über loadMatches() direkt im onChange.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function buildOptions(): BonusTipOption[] {
     if (type === 'total_goals_matchday' || type === 'match_goals') {

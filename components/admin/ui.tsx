@@ -99,6 +99,37 @@ export function Section({ id, title, subtitle, badge, defaultOpen = false, tone,
   )
 }
 
+/** Eine Kategorie im "Mehr"-Tab (Admin 3.0) — eine Stufe oberhalb von `Section`: fasst mehrere
+ *  `Section`-Karten zu einer selbst wieder einklappbaren Gruppe zusammen ("Spieler & Mitglieder",
+ *  "Kader & Transfers", "Umfrage", "System & Wartung"), damit die Hauptnavigation nicht alle
+ *  bisherigen Funktionen auf einer Ebene zeigen muss. Visuell bewusst kräftiger als `Section`
+ *  (größere Schrift, eigener Hintergrund für die Kopfzeile), damit die Hierarchie Kategorie >
+ *  Abschnitt beim Scannen sofort erkennbar ist. `AdminShellNav#jumpTo` klappt sie wie `Section`
+ *  automatisch auf, wenn ihre `id` angesprungen wird.
+ */
+export function CategoryGroup({ id, title, subtitle, icon, badge, defaultOpen = false, children }: {
+  id: string; title: string; subtitle?: string; icon?: ReactNode; badge?: ReactNode; defaultOpen?: boolean; children: ReactNode
+}) {
+  return (
+    <details id={id} open={defaultOpen} className="group scroll-mt-24 overflow-hidden rounded-2xl border-2 border-gray-300">
+      <summary className="flex min-h-[64px] cursor-pointer list-none items-center gap-3 bg-gray-100 px-4 py-3.5 select-none [&::-webkit-details-marker]:hidden">
+        {icon && <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-gray-700">{icon}</span>}
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[18px] font-black leading-5 text-gray-900">{title}</h2>
+          {subtitle && <p className="mt-0.5 text-[13px] leading-4 text-gray-600">{subtitle}</p>}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {badge}
+          <svg className="h-5 w-5 text-gray-600 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </summary>
+      <div className="space-y-3 bg-gray-50 p-3">{children}</div>
+    </details>
+  )
+}
+
 // ── Formularelemente ────────────────────────────────────────────────────────
 // 16 px Schrift: iOS zoomt beim Fokussieren kleinerer Felder die Seite heran.
 export const inputCls =
@@ -206,8 +237,10 @@ export const ADMIN_TAB_ICONS = {
   ergebnisse: icon('M9 11l2 2 4-4M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z'),
   spieltag: icon('M8 2v4M16 2v4M3 9h18M5 4h14a2 2 0 012 2v13a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z'),
   quoten: icon('M5 19L19 5M7.5 9a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM16.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z'),
-  verwaltung: icon('M17 20h5v-2a4 4 0 00-3-3.9M9 20H4v-2a4 4 0 014-4h2a4 4 0 014 4v2zM12 7a3 3 0 11-6 0 3 3 0 016 0zM17 4.5a3 3 0 010 5.5'),
-  umfrage: icon('M4 20V10M10 20V4M16 20v-7M22 20H2'),
+  // Admin 3.0: ersetzt die vorherigen separaten `verwaltung`/`umfrage`-Icons (beide Bereiche
+  // leben jetzt gemeinsam im 4. Tab "Mehr") durch ein 2×2-Raster, das "mehrere gruppierte
+  // Bereiche" andeutet statt einer einzelnen Funktion.
+  mehr: icon('M4 4h7v7H4V4zM13 4h7v7h-7V4zM4 13h7v7H4v-7zM13 13h7v7h-7v-7z'),
 } as const
 
 /** Zähl-Badge auf einem Reiter (z. B. neue Registrierungen bei „Verwaltung“). */
@@ -230,6 +263,11 @@ type ConfirmOptions = {
   confirmLabel?: string
   cancelLabel?: string
   tone?: 'danger' | 'primary'
+  /** Admin 3.0: für besonders gefährliche Aktionen (Saison-Reset, Umfrage-Reset) — die
+   *  Bestätigen-Schaltfläche bleibt deaktiviert, bis genau dieser Text eingegeben wurde.
+   *  Verhindert ein versehentliches Doppel-Tap/Enter bei Aktionen, die nicht rückgängig zu
+   *  machen sind. */
+  requireText?: string
 }
 type ConfirmFn = (o: ConfirmOptions) => Promise<boolean>
 const ConfirmContext = createContext<ConfirmFn>(async () => false)
@@ -237,8 +275,12 @@ export const useConfirm = () => useContext(ConfirmContext)
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [req, setReq] = useState<(ConfirmOptions & { resolve: (v: boolean) => void }) | null>(null)
+  const [typed, setTyped] = useState('')
   const cancelRef = useRef<HTMLButtonElement | null>(null)
-  const confirm = useCallback<ConfirmFn>((o) => new Promise<boolean>((resolve) => setReq({ ...o, resolve })), [])
+  // `typed` wird direkt beim Öffnen zurückgesetzt (nicht in einem Effect, der auf `req` reagiert)
+  // — sonst wäre das genau das setState-in-Effect-Muster, das anderswo in diesem Projekt als
+  // Fehler behandelt wird.
+  const confirm = useCallback<ConfirmFn>((o) => new Promise<boolean>((resolve) => { setTyped(''); setReq({ ...o, resolve }) }), [])
   const close = useCallback((v: boolean) => setReq((r) => { r?.resolve(v); return null }), [])
 
   useEffect(() => {
@@ -249,6 +291,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [req, close])
+
+  const blocked = req?.requireText != null && typed !== req.requireText
 
   return (
     <ConfirmContext.Provider value={confirm}>
@@ -261,6 +305,19 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           >
             <h2 id="admin-confirm-title" className="text-[18px] font-bold text-gray-900">{req.title}</h2>
             {req.message && <div className="mt-2 text-[15px] leading-6 text-gray-700">{req.message}</div>}
+            {req.requireText != null && (
+              <div className="mt-3">
+                <label className="mb-1 block text-[13px] font-semibold text-gray-700">
+                  Zum Bestätigen <span className="font-mono text-red-700">{req.requireText}</span> eingeben:
+                </label>
+                <input
+                  autoFocus
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  className="w-full rounded-xl border-2 border-gray-300 px-3 py-2.5 text-[16px] focus:border-red-600 focus:outline-none"
+                />
+              </div>
+            )}
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
                 ref={cancelRef} type="button" onClick={() => close(false)}
@@ -269,9 +326,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 {req.cancelLabel ?? 'Abbrechen'}
               </button>
               <button
-                type="button" onClick={() => close(true)}
+                type="button" onClick={() => close(true)} disabled={blocked}
                 className={cx(
-                  'min-h-[48px] rounded-xl px-4 text-[15px] font-bold text-white',
+                  'min-h-[48px] rounded-xl px-4 text-[15px] font-bold text-white disabled:cursor-not-allowed disabled:bg-gray-300',
                   req.tone === 'danger' ? 'bg-red-800 hover:bg-red-900' : 'bg-red-700 hover:bg-red-800'
                 )}
               >

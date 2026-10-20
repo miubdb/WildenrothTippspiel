@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { logAdminAction } from '@/lib/auditLog'
 
 // profiles.email isn't RLS/GRANT-exposed to a normal session-scoped read (see
 // CLAUDE.md) — the admin Verwaltung tab needs it, so this route reads the
@@ -29,22 +30,34 @@ export async function POST(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('profiles').select('is_admin, username, display_name').eq('id', user.id).single()
   if (!profile?.is_admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const actorId = user.id
+  const actorName = profile.display_name || profile.username
 
   const admin = createAdminClient()
   const body = await req.json()
 
   if (body.action === 'toggle_season_started') {
-    await admin.from('app_settings').upsert({ key: 'season_started', value: body.value ? 'true' : 'false', updated_at: new Date().toISOString() })
+    const { error } = await admin.from('app_settings').upsert({ key: 'season_started', value: body.value ? 'true' : 'false', updated_at: new Date().toISOString() })
+    await logAdminAction({ actorId, actorName, action: 'season_start_toggle', objectType: 'app_settings', objectId: 'season_started', newValue: { value: !!body.value }, success: !error, errorMessage: error?.message })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ ok: true })
   }
 
   if (body.action === 'set_user_eligible') {
-    await admin.from('profiles').update({
+    if (!body.userId) return NextResponse.json({ error: 'userId fehlt.' }, { status: 400 })
+    const { data: before } = await admin.from('profiles').select('eligible_for_current_season, balance, season_start_balance').eq('id', body.userId).single()
+    const { error } = await admin.from('profiles').update({
       eligible_for_current_season: body.eligible,
       ...(body.balance != null ? { balance: body.balance, season_start_balance: body.balance } : {})
     }).eq('id', body.userId)
+    await logAdminAction({
+      actorId, actorName, action: 'user_eligibility_change', objectType: 'profiles', objectId: body.userId,
+      oldValue: before, newValue: { eligible_for_current_season: body.eligible, balance: body.balance ?? null },
+      success: !error, errorMessage: error?.message,
+    })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ ok: true })
   }
 
@@ -62,7 +75,10 @@ export async function POST(req: Request) {
     const flags = ROLE_FLAGS[body.role]
     if (!flags) return NextResponse.json({ error: 'Unbekannte Rolle.' }, { status: 400 })
     if (!body.userId) return NextResponse.json({ error: 'userId fehlt.' }, { status: 400 })
-    await admin.from('profiles').update(flags).eq('id', body.userId)
+    const { data: before } = await admin.from('profiles').select('is_wildenroth, is_wildenroth_ii').eq('id', body.userId).single()
+    const { error } = await admin.from('profiles').update(flags).eq('id', body.userId)
+    await logAdminAction({ actorId, actorName, action: 'user_role_change', objectType: 'profiles', objectId: body.userId, oldValue: before, newValue: flags, success: !error, errorMessage: error?.message })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ ok: true })
   }
 
@@ -78,15 +94,19 @@ export async function POST(req: Request) {
   // reversible.
   if (body.action === 'soft_delete_user') {
     if (!body.userId) return NextResponse.json({ error: 'userId fehlt.' }, { status: 400 })
-    await admin.auth.admin.updateUserById(body.userId, { ban_duration: '87600h' })
-    await admin.from('profiles').update({ deleted_at: new Date().toISOString() }).eq('id', body.userId)
+    const { error: banError } = await admin.auth.admin.updateUserById(body.userId, { ban_duration: '87600h' })
+    const { error } = banError ? { error: banError } : await admin.from('profiles').update({ deleted_at: new Date().toISOString() }).eq('id', body.userId)
+    await logAdminAction({ actorId, actorName, action: 'user_delete', objectType: 'profiles', objectId: body.userId, success: !error, errorMessage: error?.message })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ ok: true })
   }
 
   if (body.action === 'restore_user') {
     if (!body.userId) return NextResponse.json({ error: 'userId fehlt.' }, { status: 400 })
-    await admin.auth.admin.updateUserById(body.userId, { ban_duration: 'none' })
-    await admin.from('profiles').update({ deleted_at: null }).eq('id', body.userId)
+    const { error: banError } = await admin.auth.admin.updateUserById(body.userId, { ban_duration: 'none' })
+    const { error } = banError ? { error: banError } : await admin.from('profiles').update({ deleted_at: null }).eq('id', body.userId)
+    await logAdminAction({ actorId, actorName, action: 'user_restore', objectType: 'profiles', objectId: body.userId, success: !error, errorMessage: error?.message })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ ok: true })
   }
 

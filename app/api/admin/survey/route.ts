@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { logAdminAction } from '@/lib/auditLog'
 import { SURVEY_VERSION } from '@/lib/survey'
 import { computeOverview, computePerQuestionStats, computeCrossTabs, type SurveyRow, type ProfileLite } from '@/lib/surveyAggregate'
 
@@ -8,9 +9,9 @@ async function requireAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 }) } as const
-  const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('profiles').select('is_admin, username, display_name').eq('id', user.id).single()
   if (!profile?.is_admin) return { error: NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 }) } as const
-  return { error: null } as const
+  return { error: null, actorId: user.id, actorName: profile.display_name || profile.username } as const
 }
 
 // Aggregate evaluation for the admin "Umfrage" tab: fetches all rows for
@@ -74,7 +75,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const { error } = await requireAdmin()
+  const { error, actorId, actorName } = await requireAdmin()
   if (error) return error
 
   const admin = createAdminClient()
@@ -100,7 +101,9 @@ export async function POST(req: Request) {
   if (action === 'delete_response') {
     const userId = (body as { userId?: string }).userId
     if (!userId) return NextResponse.json({ error: 'userId fehlt.' }, { status: 400 })
-    await admin.from('survey_responses').delete().eq('user_id', userId).eq('survey_version', SURVEY_VERSION)
+    const { error: delError } = await admin.from('survey_responses').delete().eq('user_id', userId).eq('survey_version', SURVEY_VERSION)
+    await logAdminAction({ actorId, actorName, action: 'survey_response_delete', objectType: 'survey_responses', objectId: userId, success: !delError, errorMessage: delError?.message })
+    if (delError) return NextResponse.json({ error: delError.message }, { status: 500 })
     return NextResponse.json({ ok: true })
   }
 
@@ -125,7 +128,9 @@ export async function POST(req: Request) {
     if (allowSetting?.value !== 'true') {
       return NextResponse.json({ error: 'Bulk-Reset ist deaktiviert (survey_admin_allow_reset = false).' }, { status: 403 })
     }
-    await admin.from('survey_responses').delete().eq('survey_version', SURVEY_VERSION)
+    const { error: resetError } = await admin.from('survey_responses').delete().eq('survey_version', SURVEY_VERSION)
+    await logAdminAction({ actorId, actorName, action: 'survey_reset', objectType: 'survey_responses', objectId: SURVEY_VERSION, success: !resetError, errorMessage: resetError?.message })
+    if (resetError) return NextResponse.json({ error: resetError.message }, { status: 500 })
     return NextResponse.json({ ok: true })
   }
 

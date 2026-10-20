@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Btn, EmptyNote, Field, inputCls, Panel, Pill, useConfirm } from '@/components/admin/ui'
+import { Btn, EmptyNote, inputCls, Panel, Pill, useConfirm } from '@/components/admin/ui'
 
 interface SpecialOption {
   key: string
@@ -54,10 +54,14 @@ function fmtOdds(n: number) {
  *  oder Fehler) — läuft jetzt über dieselbe globale Banner-Stelle wie überall sonst im Admin-
  *  Bereich. `remove()`/`voidSpecial()` nutzen jetzt `useConfirm()` statt des nativen `confirm()`
  *  (auf iPhone unzuverlässig/inkonsistent gestylt, wie an jeder anderen destruktiven Aktion im
- *  Admin-Bereich bereits behoben). */
-export function SpieltagSpecialsAdmin({ onMessage }: { onMessage: (m: string | null) => void }) {
+ *  Admin-Bereich bereits behoben).
+ *
+ *  Admin 3.0: `matchday` kommt jetzt als Prop von der zentralen Spieltagsauswahl im Spieltag-Tab
+ *  (effektiver Tippspiel-Spieltag, `effectiveMatchdayOf` — dieselbe Zahl, die auch
+ *  `/api/admin/matchday-specials` erwartet) statt eines eigenen Zahlenfelds mit „Laden"-Button —
+ *  Wechsel der zentralen Auswahl lädt diesen Abschnitt automatisch mit. */
+export function SpieltagSpecialsAdmin({ matchday, onMessage }: { matchday: number | null; onMessage: (m: string | null) => void }) {
   const confirmDialog = useConfirm()
-  const [matchday, setMatchday] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [existing, setExisting] = useState<ExistingSpecial[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -100,7 +104,7 @@ export function SpieltagSpecialsAdmin({ onMessage }: { onMessage: (m: string | n
     const res = await fetch('/api/admin/matchday-specials', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ matchday: parseInt(matchday, 10), templateKey }),
+      body: JSON.stringify({ matchday, templateKey }),
     })
     const json = await res.json()
     if (res.ok) load()
@@ -176,16 +180,13 @@ export function SpieltagSpecialsAdmin({ onMessage }: { onMessage: (m: string | n
         Neu erstellte Specials starten als Entwurf und müssen hier explizit auf „Aktiv“ gesetzt werden, bevor sie auf /tipps erscheinen.
       </p>
 
-      <div className="flex items-end gap-2">
-        <Field label="Spieltag" className="w-28">
-          <input type="number" min={1} value={matchday} onChange={(e) => setMatchday(e.target.value)} placeholder="z.B. 8" className={inputCls} />
-        </Field>
-        <Btn variant="secondary" disabled={!matchday || loading} onClick={load}>
-          {loading ? 'Lädt …' : 'Laden'}
-        </Btn>
-      </div>
+      {matchday == null ? (
+        <EmptyNote>Oben einen Spieltag auswählen.</EmptyNote>
+      ) : loading ? (
+        <p className="text-[13px] text-gray-500">Lädt …</p>
+      ) : null}
 
-      {matchday && includedMatches.length > 0 && (
+      {matchday != null && includedMatches.length > 0 && (
         <div className="text-[13px] text-gray-600">
           <button onClick={() => setShowMatches((v) => !v)} className="underline">
             Dieser Spieltag umfasst {includedMatches.length} Spiele {showMatches ? '▲' : '▼'}
@@ -295,7 +296,7 @@ export function SpieltagSpecialsAdmin({ onMessage }: { onMessage: (m: string | n
         </div>
       )}
 
-      {existing.length === 0 && candidates.length === 0 && matchday && !loading && (
+      {existing.length === 0 && candidates.length === 0 && matchday != null && !loading && (
         <EmptyNote>Für diesen Spieltag sind keine Specials vorhanden.</EmptyNote>
       )}
     </div>

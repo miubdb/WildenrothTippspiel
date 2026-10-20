@@ -26,10 +26,17 @@ import type { EffectiveMatchdayIndex } from '@/lib/season'
  *    Abschnitte geführt (beide zusammen sind exakt die bisherige "Ausstehende Ergebnisse"-
  *    Menge — reine Aufteilung derselben, bereits geladenen matches-Liste nach
  *    home_score/away_score, keine neue Abfrage).
+ *
+ * Admin 3.0, Punkt 3 (Entschlackung): Startansicht ist jetzt "Handlungsbedarf" statt "Alle" —
+ * zeigt sofort nur, was zu erledigen ist (fehlendes Ergebnis + nicht abgerechnet), nicht mehr
+ * automatisch auch Bevorstehendes/Verschobenes/Abgerechnetes gleichzeitig. Die bisherigen 6
+ * Status-Werte sind zu 4 schnellen Umschaltern gruppiert (Handlungsbedarf/Bevorstehend/
+ * Abgerechnet/Alle) — Liga- und Spieltag-Filter sind jetzt unter "Weitere Filter" eingeklappt,
+ * nicht mehr permanent sichtbar. Reine Default-/Gruppierungsänderung, keine neue Abfrage.
  */
 
 type Comp = 'all' | 'kreisliga' | 'wildenroth_ii' | 'b-klasse'
-type StatusFilter = 'alle' | 'missing' | 'unsettled' | 'upcoming' | 'postponed' | 'settled'
+type StatusFilter = 'handlungsbedarf' | 'bevorstehend' | 'abgerechnet' | 'alle'
 
 const COMP_ITEMS: Array<{ value: Comp; label: string }> = [
   { value: 'all', label: 'Alle Ligen' }, { value: 'kreisliga', label: 'Kreisliga' },
@@ -75,7 +82,8 @@ export function ErgebnisseTabView({
   const [comp, setComp] = useState<Comp>('all')
   // null = dem aktuellen Spieltag folgen (solange der Admin nichts wählt); 'all' = alle Spieltage
   const [mdChoice, setMdChoice] = useState<number | 'all' | null>(null)
-  const [status, setStatus] = useState<StatusFilter>('alle')
+  // Admin 3.0, Punkt 3: Default ist "Handlungsbedarf", nicht mehr "Alle" — siehe Kommentar oben.
+  const [status, setStatus] = useState<StatusFilter>('handlungsbedarf')
   const [settledShown, setSettledShown] = useState(10)
   const mdFilter: number | 'all' = mdChoice ?? currentMatchday ?? 'all'
 
@@ -117,7 +125,15 @@ export function ErgebnisseTabView({
 
   if (loading && matches.length === 0) return <div className="text-center py-8 text-gray-400">Lade Spiele...</div>
 
-  const show = (s: StatusFilter) => status === 'alle' || status === s
+  // Admin 3.0, Punkt 3: 4 Schnell-Umschalter statt 6 Einzelwerte — "Handlungsbedarf" fasst
+  // "Ergebnis fehlt" + "Nicht abgerechnet" zusammen, "Bevorstehend" fasst "Bevorstehend" +
+  // "Verschoben" zusammen (reine Anzeige-Gruppierung derselben, längst geladenen Daten).
+  const show = (s: 'missing' | 'unsettled' | 'upcoming' | 'postponed' | 'settled') => {
+    if (status === 'alle') return true
+    if (status === 'handlungsbedarf') return s === 'missing' || s === 'unsettled'
+    if (status === 'bevorstehend') return s === 'upcoming' || s === 'postponed'
+    return s === 'settled'
+  }
   const mdLabel = (md: number) => (md === 999 ? 'Test' : `Spieltag ${md}`)
   const doneInScope = view.settled.length
   const totalInScope = view.scoped.filter((m) => m.status !== 'postponed').length
@@ -140,12 +156,12 @@ export function ErgebnisseTabView({
     <div className="space-y-5">
       {/* Gesamtübersicht – Tippen setzt den passenden Filter */}
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        <button type="button" onClick={() => { setStatus('missing'); setMdChoice('all'); setComp('all') }}
+        <button type="button" onClick={() => { setStatus('handlungsbedarf'); setMdChoice('all'); setComp('all') }}
           className={`rounded-2xl border-2 px-2 py-3 text-center ${overall.noResult > 0 ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white'}`}>
           <div className={`font-display text-[30px] font-extrabold leading-none tabular-nums ${overall.noResult > 0 ? 'text-red-700' : 'text-gray-900'}`}>{overall.noResult}</div>
           <div className="mt-1 text-[12px] font-semibold leading-tight text-gray-800">Ergebnis fehlt</div>
         </button>
-        <button type="button" onClick={() => { setStatus('unsettled'); setMdChoice('all'); setComp('all') }}
+        <button type="button" onClick={() => { setStatus('handlungsbedarf'); setMdChoice('all'); setComp('all') }}
           className={`rounded-2xl border-2 px-2 py-3 text-center ${overall.unsettled > 0 ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white'}`}>
           <div className={`font-display text-[30px] font-extrabold leading-none tabular-nums ${overall.unsettled > 0 ? 'text-amber-800' : 'text-gray-900'}`}>{overall.unsettled}</div>
           <div className="mt-1 text-[12px] font-semibold leading-tight text-gray-800">Nicht abgerechnet</div>
@@ -156,18 +172,25 @@ export function ErgebnisseTabView({
         </div>
       </div>
 
-      {/* Filter */}
+      {/* Filter — Admin 3.0: nur noch der Status-Schnellumschalter ist permanent sichtbar;
+          Liga/Spieltag sind seltener gebraucht und stehen unter "Weitere Filter". */}
       <Panel className="space-y-3 p-4">
-        <Chips<Comp> label="Liga" value={comp} onChange={(v) => { setComp(v); setSettledShown(10) }} items={COMP_ITEMS} />
-        <MatchdayPicker all value={mdFilter} options={availableMatchdays} current={currentMatchday} onChange={(v) => { setMdChoice(v); setSettledShown(10) }} />
         <Chips<StatusFilter> label="Status" value={status} onChange={(v) => { setStatus(v); setSettledShown(10) }} items={[
-          { value: 'alle', label: 'Alle' },
-          { value: 'missing', label: `Ergebnis fehlt · ${view.missing.length}` },
-          { value: 'unsettled', label: `Nicht abgerechnet · ${view.unsettled.length}` },
-          { value: 'upcoming', label: `Bevorstehend · ${view.upcoming.length}` },
-          { value: 'postponed', label: `Verschoben · ${view.postponed.length}` },
-          { value: 'settled', label: `Abgerechnet · ${view.settled.length}` },
+          { value: 'handlungsbedarf', label: `Handlungsbedarf · ${view.missing.length + view.unsettled.length}` },
+          { value: 'bevorstehend', label: `Bevorstehend · ${view.upcoming.length + view.postponed.length}` },
+          { value: 'abgerechnet', label: `Abgerechnet · ${view.settled.length}` },
+          { value: 'alle', label: 'Alle Spiele' },
         ]} />
+        <details className="group rounded-xl border border-gray-200">
+          <summary className="flex min-h-[40px] cursor-pointer list-none items-center justify-between px-3 text-[13px] font-semibold text-gray-600 select-none [&::-webkit-details-marker]:hidden">
+            Weitere Filter (Liga, Spieltag)
+            <svg className="h-4 w-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+          </summary>
+          <div className="space-y-3 border-t border-gray-200 p-3">
+            <Chips<Comp> label="Liga" value={comp} onChange={(v) => { setComp(v); setSettledShown(10) }} items={COMP_ITEMS} />
+            <MatchdayPicker all value={mdFilter} options={availableMatchdays} current={currentMatchday} onChange={(v) => { setMdChoice(v); setSettledShown(10) }} />
+          </div>
+        </details>
         {totalInScope > 0 && (
           <div>
             <div className="mb-1 flex justify-between text-[13px] text-gray-700">
@@ -227,8 +250,12 @@ export function ErgebnisseTabView({
       )}
 
       {status !== 'alle' && view.scoped.length > 0 && (
-        { missing: view.missing, unsettled: view.unsettled, upcoming: view.upcoming, postponed: view.postponed, settled: view.settled }[status].length === 0
-      ) && <EmptyNote>In dieser Auswahl gibt es nichts mit diesem Status.</EmptyNote>}
+        { handlungsbedarf: view.missing.length + view.unsettled.length, bevorstehend: view.upcoming.length + view.postponed.length, abgerechnet: view.settled.length }[status] === 0
+      ) && (
+        status === 'handlungsbedarf'
+          ? <Notice tone="success">Alles erledigt: In dieser Auswahl fehlt kein Ergebnis und nichts ist unabgerechnet.</Notice>
+          : <EmptyNote>In dieser Auswahl gibt es nichts mit diesem Status.</EmptyNote>
+      )}
 
       {status === 'alle' && view.scoped.length > 0 && view.missing.length + view.unsettled.length === 0 && view.settled.length > 0 && (
         <Notice tone="success">Alles erledigt: In dieser Auswahl fehlt kein Ergebnis und nichts ist unabgerechnet.</Notice>
