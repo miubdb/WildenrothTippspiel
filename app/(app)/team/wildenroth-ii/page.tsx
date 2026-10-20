@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
-import { computeTeamRoster, teamRosterHighlights, type TeamRosterEntry } from '@/lib/leagueStats'
+import { computeTeamRoster, type TeamRosterEntry } from '@/lib/leagueStats'
 import { SEASON_START } from '@/lib/season'
 
 export const revalidate = 60
@@ -119,7 +119,6 @@ export default async function WildenrothIITeamPage() {
   // lib/leagueStats.ts — die Sektion bleibt entsprechend leer, bis
   // Aufstellungsdaten für diese Kategorien erfasst werden).
   const roster = await computeTeamRoster(supabase, 'SpVgg Wildenroth II', ['wildenroth_ii', 'b-klasse'])
-  const rosterHighlights = teamRosterHighlights(roster)
   const playersByName = new Map(players.map((p) => [p.name, p]))
 
   const matches: Match[] = (rawMatches ?? []).map((m) => ({
@@ -137,10 +136,8 @@ export default async function WildenrothIITeamPage() {
   // No B-Klasse 25/26 results exist in prior_season_matches (verified), so
   // unlike the 1st-team page there is no prior-season fallback to show here —
   // just an honest "not started yet" until real 26/27 results exist.
-  const hasCurrentGoals = players.some((p) => (p.goals ?? 0) > 0)
-  const topScorers = hasCurrentGoals
-    ? [...players].filter((p) => (p.goals ?? 0) > 0).sort((a, b) => (b.goals ?? 0) - (a.goals ?? 0)).slice(0, 5)
-    : [...players].filter((p) => (p.prev_goals ?? 0) > 0).sort((a, b) => (b.prev_goals ?? 0) - (a.prev_goals ?? 0)).slice(0, 5)
+  // Public current-season player rankings are hidden while statistics
+  // cannot be kept up-to-date. Team standings and internal betting data stay intact.
 
   // Positionsgruppierung wie bei der 1. Mannschaft: bevorzugt
   // match_lineups.position (aktuell nirgends befüllt), fällt auf
@@ -227,61 +224,12 @@ export default async function WildenrothIITeamPage() {
         )}
       </div>
 
-      {/* Top scorers */}
-      {topScorers.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-            <h2 className="font-bold text-gray-900 dark:text-gray-100">Top-Torschützen</h2>
-            {!hasCurrentGoals && (
-              <div className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Vorsaison 25/26</div>
-            )}
-          </div>
-          <div className="divide-y divide-gray-50 dark:divide-gray-700">
-            {topScorers.map((p, idx) => (
-              <div key={p.id} className="flex items-center gap-3 px-4 py-3">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200' : idx === 2 ? 'bg-amber-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'}`}>
-                  {idx + 1}
-                </div>
-                <PlayerAvatar player={p} size={32} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.name}</div>
-                  <div className="text-xs text-gray-400 dark:text-gray-500">{p.position ?? '—'}</div>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <span className="text-xl font-black text-red-700 dark:text-red-400">{hasCurrentGoals ? (p.goals ?? 0) : (p.prev_goals ?? 0)}</span>
-                  <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">Tore</span>
-                </div>
-                <div className="text-right flex-shrink-0 w-14">
-                  <div className="text-sm font-bold text-gray-900 dark:text-gray-100">{hasCurrentGoals ? (p.assists ?? 0) : (p.prev_assists ?? 0)}</div>
-                  <div className="text-[10px] text-gray-400 dark:text-gray-500">Assists</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Kader-Highlights aus derselben Statistik-Schicht wie jede andere
-          Vereinsseite (lib/leagueStats.ts#teamRosterHighlights) — bleibt
-          leer, bis Aufstellungsdaten für wildenroth_ii/b-klasse existieren. */}
-      {(rosterHighlights.ironMan || rosterHighlights.cardKing) && (
-        <div className="grid grid-cols-2 gap-2">
-          {rosterHighlights.ironMan && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-3 py-3">
-              <div className="flex items-center gap-1.5 mb-1"><span className="text-base">⏱</span><span className="text-[11px] text-gray-500 dark:text-gray-400">Dauerbrenner (Saison 26/27)</span></div>
-              <div className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{rosterHighlights.ironMan.playerName}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{rosterHighlights.ironMan.minutes} Min.</div>
-            </div>
-          )}
-          {rosterHighlights.cardKing && (
-            <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-3 py-3">
-              <div className="flex items-center gap-1.5 mb-1"><span className="text-base">🟨</span><span className="text-[11px] text-gray-500 dark:text-gray-400">Kartenkönig (Saison 26/27)</span></div>
-              <div className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{rosterHighlights.cardKing.playerName}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{rosterHighlights.cardKing.yellowCards} Gelb{rosterHighlights.cardKing.redCards > 0 ? ` · ${rosterHighlights.cardKing.redCards} Rot` : ''}</div>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Kader-Highlights (teamRosterHighlights, match_lineups-basiert) hier entfernt — siehe
+          Abschlussbericht "Spielerstatistiken automatisieren oder ausblenden". War für
+          wildenroth_ii/b-klasse ohnehin immer leer (keine erfassten Aufstellungszeilen), jetzt
+          für Konsistenz mit den anderen Vereinsseiten auch strukturell entfernt. Der
+          "Top-Torschützen"-Block oben bleibt unverändert bestehen — er beruht auf
+          wildenroth_players.goals/prev_goals, nicht auf der veralteten match_lineups-Quelle. */}
 
       {/* Squad — hidden for everyone ahead of go-live, see showSquad above.
           Aus lib/leagueStats.ts#computeTeamRoster (dieselbe Quelle wie jede

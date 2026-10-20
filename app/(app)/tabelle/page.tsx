@@ -298,19 +298,19 @@ export default async function TabellePage({
 
   const topAttacks = [...standings].sort((a, b) => b.gf - a.gf).slice(0, 5)
 
-  // Torjäger: current-season goals come from optional admin lineup entries
-  // (match_lineups) — switch to that source as soon as it has anything, since
-  // waiting for `hasCurrentSeasonData` would swap a populated prior-season list
-  // for an empty current one on the very first finished match. Prior-season
-  // goals come from league_players and are only trustworthy for players still
-  // at the club this season (status active/internal_move) — a departed
-  // player's tally isn't "our" scorer anymore, and an incoming transfer's
-  // tally was scored at a different club.
-  // Kreisliga hat jetzt die vollständige, ausführlichere Torjägerliste unter
-  // /liga-stats (Tore/Vorlagen/Scorer/Einsätze/Minuten/Karten) — eine zweite,
-  // kürzere Torjägerliste hier direkt darunter wäre eine reine Dopplung.
-  // B-Klasse hat noch keine Aufstellungsdaten für /liga-stats, deshalb bleibt
-  // der bewährte Vorsaison-Fallback hier für die B-Klasse-Ansicht bestehen.
+  // Torjäger: current-season goals would come from optional admin lineup entries
+  // (match_lineups) — but /liga-stats (die individuelle Liga-Spielerstatistik) wurde
+  // nach technischer/rechtlicher Prüfung von BFV/FuPa entfernt (siehe Abschlussbericht
+  // "Spielerstatistiken automatisieren oder ausblenden" — kein zulässiger automatisierter
+  // Datenabruf möglich, manuelle Nachpflege wollte der Nutzer nicht wiederholen). Eine
+  // Kreisliga-Torjägerliste hier würde also auf genau derselben veralteten Quelle beruhen,
+  // deshalb bleibt currentScorers bewusst leer. Prior-season goals come from league_players
+  // and are only trustworthy for players still at the club this season (status active/
+  // internal_move) — a departed player's tally isn't "our" scorer anymore, and an incoming
+  // transfer's tally was scored at a different club.
+  // B-Klasse hat noch keine Aufstellungsdaten (siehe lib/leagueStats.ts), deshalb bleibt der
+  // bewährte Vorsaison-Fallback (aus league_players, NICHT match_lineups) hier für die
+  // B-Klasse-Ansicht bestehen — das ist keine der "veralteten Quellen" aus dem Abschlussbericht.
   const currentScorers: { name: string; team: string; goals: number }[] = []
   const hasCurrentScorerData = false
   // Rohdaten kommen schon aus der Promise.all oben (`priorScorersRaw`) — hier
@@ -369,16 +369,10 @@ export default async function TabellePage({
         </Link>
       </div>
 
-      {/* Liga-Stats — nur Kreisliga, B-Klasse hat noch keine Aufstellungsdaten (siehe lib/leagueStats.ts) */}
-      {!isB && (
-        <Link
-          href="/liga-stats"
-          className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-sm text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-        >
-          <span>⚽ Liga-Stats — Tore, Vorlagen, Scorer, Einsätze, Minuten &amp; Karten</span>
-          <span className="text-gray-400 dark:text-gray-500">›</span>
-        </Link>
-      )}
+      {/* Liga-Stats (individuelle Liga-Spielerstatistiken) entfernt — siehe Abschlussbericht
+          "Spielerstatistiken automatisieren oder ausblenden": kein zulässiger automatisierter
+          Datenabruf bei BFV/FuPa möglich, manuelle Nachpflege nicht gewünscht. /liga-stats
+          leitet jetzt auf /tabelle weiter, daher hier kein Link mehr. */}
 
       {/* Standings Table */}
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">

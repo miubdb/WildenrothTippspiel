@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
 import { TeamLogo } from '@/components/TeamLogo'
-import { computeTeamRoster, teamRosterHighlights, fetchPlayerSnapshots, groupRosterByPosition, LEAGUE_STATS_SEASON_START } from '@/lib/leagueStats'
+import { LEAGUE_STATS_SEASON_START } from '@/lib/leagueStats'
 
 export const revalidate = 60
 
@@ -74,13 +74,6 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
     return false
   }).length
 
-  const [roster, snapshots] = await Promise.all([
-    computeTeamRoster(supabase, team.name),
-    fetchPlayerSnapshots(supabase, team.name),
-  ])
-  const highlights = teamRosterHighlights(roster)
-  const rosterGroups = groupRosterByPosition(roster)
-
   return (
     <div className="px-4 py-4 space-y-4">
       <div className="bg-gradient-to-br from-gray-700 to-gray-900 text-white rounded-2xl px-5 py-5 shadow-sm">
@@ -137,108 +130,14 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
         )}
       </div>
 
-      {/* Highlights */}
-      {(highlights.topScorerGoals || highlights.topAssister || highlights.ironMan || highlights.cardKing) && (
-        <div className="grid grid-cols-2 gap-2">
-          {highlights.topScorerGoals && (
-            <HighlightCard emoji="⚽" label="Top-Torschütze" name={highlights.topScorerGoals.playerName} value={`${highlights.topScorerGoals.goals} Tore`} />
-          )}
-          {highlights.topAssister && (
-            <HighlightCard emoji="🎯" label="Top-Vorlagengeber" name={highlights.topAssister.playerName} value={`${highlights.topAssister.assists} Vorlagen`} />
-          )}
-          {highlights.topScorer && (
-            <HighlightCard emoji="🌟" label="Top-Scorer" name={highlights.topScorer.playerName} value={`${highlights.topScorer.goals + highlights.topScorer.assists} Scorerpunkte`} />
-          )}
-          {highlights.ironMan && (
-            <HighlightCard emoji="⏱" label="Dauerbrenner" name={highlights.ironMan.playerName} value={`${highlights.ironMan.minutes} Min.`} />
-          )}
-          {highlights.cardKing && (
-            <HighlightCard emoji="🟨" label="Kartenkönig" name={highlights.cardKing.playerName} value={`${highlights.cardKing.yellowCards} Gelb${highlights.cardKing.redCards > 0 ? ` · ${highlights.cardKing.redCards} Rot` : ''}`} />
-          )}
-        </div>
-      )}
-
-      {/* Kader aus erfassten Aufstellungen */}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-          <h2 className="font-bold text-gray-900 dark:text-gray-100">Spieler aus erfassten Aufstellungen</h2>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-            Spielerdaten basieren auf den bisher erfassten Spielberichten. Namenszuordnungen werden aktuell noch bereinigt — Positionsdaten sind derzeit nur für einen Teil der Vereine erfasst.
-          </p>
-        </div>
-        {roster.length > 0 ? (
-          <>
-            {rosterGroups.map((g) => (
-              <div key={g.position}>
-                <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  {g.position}
-                </div>
-                <div className="divide-y divide-gray-50 dark:divide-gray-700">
-                  {g.players.map((p) => {
-                    const snap = snapshots.get(p.playerName)
-                    return (
-                    <div key={p.playerName} className="px-4 py-2.5">
-                      <div className="flex items-center gap-1.5 mb-1.5">
-                        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.playerName}</span>
-                      </div>
-                      <div className="grid grid-cols-7 gap-1 text-center text-[11px]">
-                        <MiniCell label="Sp." value={p.appearances} />
-                        <MiniCell label="Elf" value={p.starts} />
-                        <MiniCell label="Min." value={p.minutes} />
-                        <MiniCell label="Tore" value={p.goals} highlight={p.goals > 0} />
-                        <MiniCell label="Vorl." value={p.assists} highlight={p.assists > 0} />
-                        <MiniCell label="🟨" value={p.yellowCards} />
-                        <MiniCell label="🟥" value={p.redCards} />
-                      </div>
-                      {(p.starterRate != null || p.scorerPer90 != null) && (
-                        <div className="flex items-center gap-3 mt-1 pl-0.5 text-[10px] text-gray-400 dark:text-gray-500">
-                          {p.starterRate != null && <span>Startelfquote {p.starterRate}%</span>}
-                          {p.goalsPer90 != null && <span>Tore/90: {p.goalsPer90.toFixed(2).replace('.', ',')}</span>}
-                          {p.assistsPer90 != null && <span>Vorl./90: {p.assistsPer90.toFixed(2).replace('.', ',')}</span>}
-                          {p.scorerPer90 != null && <span>Scorer/90: {p.scorerPer90.toFixed(2).replace('.', ',')}</span>}
-                        </div>
-                      )}
-                      {snap && (snap.mvpValue != null || snap.penaltiesTaken || snap.subbedIn || snap.subbedOut) && (
-                        <div className="flex items-center gap-3 mt-1 pl-0.5 text-[10px] text-gray-400 dark:text-gray-500">
-                          {snap.mvpValue != null && <span>MVP-Wert {snap.mvpValue}</span>}
-                          {!!snap.penaltiesTaken && <span>11m: {snap.penaltiesScored}/{snap.penaltiesTaken}</span>}
-                          {(!!snap.subbedIn || !!snap.subbedOut) && <span>Ein {snap.subbedIn ?? 0} · Aus {snap.subbedOut ?? 0}</span>}
-                          <span className="text-gray-300 dark:text-gray-600">(FuPa-Snapshot)</span>
-                        </div>
-                      )}
-                    </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-          </>
-        ) : (
-          <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">Für diesen Verein liegen noch keine Aufstellungsdaten vor.</div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function HighlightCard({ emoji, label, name, value }: { emoji: string; label: string; name: string; value: string }) {
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-3 py-3">
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="text-base">{emoji}</span>
-        <span className="text-[11px] text-gray-500 dark:text-gray-400">{label}</span>
-      </div>
-      <div className="text-sm font-bold text-gray-900 dark:text-gray-100 truncate">{name}</div>
-      <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{value}</div>
-    </div>
-  )
-}
-
-function MiniCell({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
-  return (
-    <div className="bg-gray-50 dark:bg-gray-700 rounded-md py-1">
-      <div className={`font-bold ${highlight ? 'text-red-700 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'}`}>{value}</div>
-      <div className="text-gray-400 dark:text-gray-500 text-[9px] leading-tight">{label}</div>
+      {/* Individuelle Spielerstatistiken (Highlights, Kader aus erfassten Aufstellungen) hier
+          entfernt — siehe Abschlussbericht "Spielerstatistiken automatisieren oder ausblenden":
+          kein zulässiger automatisierter Datenabruf bei BFV/FuPa möglich (BFV-Nutzungsbedingungen
+          untersagen die Weiterverarbeitung der DFBnet-Daten außerhalb des offiziellen Widgets,
+          FuPas robots.txt sperrt die match- und playerstats-Pfade sowie die gesamte api.fupa.net
+          für jeden automatisierten Zugriff), manuelle Nachpflege wollte der Nutzer nicht wiederholen.
+          lib/leagueStats.ts (computeTeamRoster, teamRosterHighlights, fetchPlayerSnapshots,
+          groupRosterByPosition) bleibt unverändert bestehen, nur hier nicht mehr aufgerufen. */}
     </div>
   )
 }
