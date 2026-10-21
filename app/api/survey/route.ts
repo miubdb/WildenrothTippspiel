@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { validateIncomingAnswers, isCompleteForSubmission, nextSubmittedAt } from '@/lib/surveyValidation'
-import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion } from '@/lib/surveyMode'
+import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion, surveyModeAllowsAccess } from '@/lib/surveyMode'
 
 // Own-survey endpoint: reads/writes the caller's own survey_responses row for
 // THIS ENVIRONMENT's own survey_version (lib/surveyMode.ts#currentSurveyVersion
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
   // laufenden Umgebung gehörenden Schlüssel (Production vs. Preview/
   // integration) — niemals den der jeweils ANDEREN Umgebung.
   const { data: modeSetting } = await supabase.from('app_settings').select('value').eq('key', currentSurveyModeKey()).maybeSingle()
-  if (resolveSurveyMode(modeSetting?.value) === 'hidden') {
+  if (!surveyModeAllowsAccess(resolveSurveyMode(modeSetting?.value))) {
     return NextResponse.json({ error: 'Die Umfrage ist aktuell nicht verfügbar.' }, { status: 403 })
   }
 
