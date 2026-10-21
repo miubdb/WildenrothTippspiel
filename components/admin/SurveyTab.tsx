@@ -18,7 +18,7 @@ interface Participant {
 }
 
 interface SurveyData {
-  settings: { surveyMode: string; allowReset: boolean; isProduction: boolean }
+  settings: { surveyMode: string; surveyModeKey: string; allowReset: boolean; isProduction: boolean }
   overview: SurveyOverview
   perQuestion: QuestionStat[]
   crossTabs: SurveyCrossTabs
@@ -152,15 +152,17 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
       <Section id="uf-sichtbarkeit" title="Sichtbarkeit & Konfiguration" subtitle="Umfrage-Rollout steuern (V2)" defaultOpen>
         <div className="space-y-3">
           <Notice tone="info">
-            Dieser Schalter steuert ausschließlich <code>app_settings.survey_mode_v2</code> — die
-            Version {SURVEY_VERSION} dieses Abschnitts. Das alte <code>survey_mode</code> (V1,
+            Dieser Schalter steuert ausschließlich <code>app_settings.{settings.surveyModeKey}</code> —
+            die Version {SURVEY_VERSION} dieses Abschnitts, <strong>nur für die Umgebung, in der dieses
+            Admin-Panel gerade läuft</strong> ({settings.isProduction ? 'Production (main)' : 'Preview/integration'}).
+            Production und Preview/integration haben JEWEILS ihren eigenen, komplett getrennten
+            Schlüssel (<code>survey_mode_v2</code> bzw. <code>survey_mode_v2_preview</code>) in derselben
+            Datenbank — eine Freigabe hier wirkt sich nie auf die jeweils andere Umgebung aus, weder
+            sichtbar noch tatsächlich freigeschaltet. Das alte <code>survey_mode</code> (V1,
             winter_2026_v1) bleibt davon unberührt und wird hier nicht mehr angezeigt/gesteuert; V1
-            hat bisher keine abgegebenen Antworten. Solange hier nichts geändert wird, bleibt V2 auf
-            „Versteckt&rdquo; — keine Freischaltung ohne ausdrückliche Freigabe.{' '}
-            <strong>main (Production) und integration (Preview) lesen denselben Wert aus derselben
-            Datenbank</strong> — serverseitig (nicht nur hier in der Anzeige) gilt auf Production
-            deshalb unabhängig von diesem Schalter immer „Versteckt&rdquo;, damit ein Test auf der
-            integration-Preview V2 nie versehentlich auf Production freischaltet.
+            hat bisher keine abgegebenen Antworten. Solange hier nichts geändert wird, bleibt V2 in
+            beiden Umgebungen auf „Versteckt&rdquo; — keine Freischaltung ohne ausdrückliche Freigabe
+            für genau diese Umgebung.
           </Notice>
           <div className="flex gap-2">
             {(['hidden', 'help_only', 'prominent'] as const).map((m) => (
@@ -170,7 +172,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
             ))}
           </div>
           <p className="text-[13px] leading-5 text-gray-600">
-            Aktuell: <strong>{MODE_LABEL[settings.surveyMode] ?? settings.surveyMode}</strong> ·
+            Aktuell ({settings.isProduction ? 'Production' : 'Preview/integration'}): <strong>{MODE_LABEL[settings.surveyMode] ?? settings.surveyMode}</strong> ·
             {' '}„Nur unter Hilfe&rdquo; = nur über Hilfe → Feedback &amp; Umfrage erreichbar, kein Hinweis auf der Startseite.
             „Prominent&rdquo; zeigt zusätzlich einen Banner auf der Startseite.
           </p>

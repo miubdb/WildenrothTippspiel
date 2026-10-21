@@ -2,28 +2,43 @@
 // mode. Deliberately NOT in lib/survey.ts (imported by the 'use client'
 // umfrage/page.tsx — `process.env.VERCEL_ENV` is a server-only variable and
 // must never end up referenced from client-bundled code).
-import { SURVEY_MODE_SETTING_KEY } from './survey'
+//
+// `main` (production) and `integration` (preview) read from the exact SAME
+// Supabase database (see CLAUDE.md "Branch- und Deployment-Strategie"), so
+// a SINGLE shared app_settings key could never let an admin test V2 on an
+// `integration` preview without that same flip simultaneously making it
+// reachable (and, worse, POST-able) on production — and the reverse: a
+// deliberate production release would need its own key anyway to not be at
+// the mercy of whatever preview testing last left behind. Two entirely
+// separate keys, one per environment, make both directions impossible by
+// construction rather than by a one-way "force hidden on production" guard:
+//   - SURVEY_MODE_KEY_PRODUCTION ('survey_mode_v2')          — main only
+//   - SURVEY_MODE_KEY_PREVIEW    ('survey_mode_v2_preview')  — everything else
+// Neither key has a row yet, so every reader's fallback to 'hidden' applies
+// on BOTH environments until someone deliberately sets the ONE key that
+// actually governs where they are — do not pre-set either as part of any
+// code change.
+export const SURVEY_MODE_KEY_PRODUCTION = 'survey_mode_v2'
+export const SURVEY_MODE_KEY_PREVIEW = 'survey_mode_v2_preview'
 
-export { SURVEY_MODE_SETTING_KEY }
+export type SurveyVisibilityMode = 'hidden' | 'help_only' | 'prominent'
 
 /**
- * Resolves the effective V2 survey mode from the raw `app_settings.survey_mode_v2`
- * value, additionally forcing 'hidden' on `main`'s Vercel Production
- * Deployment regardless of what is stored — `main` (production) and
- * `integration` (preview) read the exact SAME app_settings row from the
- * exact same shared database (see CLAUDE.md "Branch- und Deployment-
- * Strategie"). Without this, an admin flipping survey_mode_v2 to
- * 'help_only'/'prominent' to test V2 on an `integration` preview would, in
- * the same instant, also make it reachable — and POST-able — on production.
- * Mirrors the identical VERCEL_ENV guard already used for the survey
- * bulk-reset (app/api/admin/survey/route.ts#reset_all).
- *
- * Used by BOTH the GET (what the client is told, so the wizard doesn't even
- * render on production) and POST (the actual enforcement — never trust the
- * client's rendering decision alone) of app/api/survey/route.ts.
+ * The app_settings key that governs V2's visibility in the CURRENT runtime
+ * environment. Every reader AND the admin toggle's writer must resolve the
+ * key through this one function — never hardcode either key name elsewhere,
+ * or the two can drift apart from what's actually being enforced.
  */
-export function effectiveSurveyMode(rawValue: string | null | undefined): 'hidden' | 'help_only' | 'prominent' {
-  if (process.env.VERCEL_ENV === 'production') return 'hidden'
+export function currentSurveyModeKey(): string {
+  return process.env.VERCEL_ENV === 'production' ? SURVEY_MODE_KEY_PRODUCTION : SURVEY_MODE_KEY_PREVIEW
+}
+
+/**
+ * Normalizes a raw app_settings value (already looked up via
+ * currentSurveyModeKey()) to one of the 3 known modes — missing, null, or
+ * any unrecognized value fails closed to 'hidden', never open.
+ */
+export function resolveSurveyMode(rawValue: string | null | undefined): SurveyVisibilityMode {
   if (rawValue === 'help_only' || rawValue === 'prominent') return rawValue
   return 'hidden'
 }

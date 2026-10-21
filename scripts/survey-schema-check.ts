@@ -15,7 +15,7 @@ import {
   toggleMultiOption, isValidMultiSelection, validateIncomingAnswers, stripHiddenAnswers, nextSubmittedAt,
 } from '@/lib/surveyValidation'
 import { isActuallySubmitted, type SurveyRow } from '@/lib/surveyAggregate'
-import { effectiveSurveyMode } from '@/lib/surveyMode'
+import { currentSurveyModeKey, resolveSurveyMode, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW } from '@/lib/surveyMode'
 
 let failures = 0
 let checks = 0
@@ -268,25 +268,74 @@ export function run(): number {
     check('isActuallySubmitted: kein Zeitstempel → false', !isActuallySubmitted(rowNotSubmitted))
   }
 
-  console.log('\n10. Freigabe-Gate (survey_mode_v2) — serverseitige Durchsetzung')
+  console.log('\n10. Freigabe-Gate: getrennte Schlüssel je Umgebung (survey_mode_v2 / survey_mode_v2_preview)')
   {
     const originalVercelEnv = process.env.VERCEL_ENV
+    // Simuliert, welche Zeile für welchen Schlüssel in der (gemeinsamen) DB
+    // stünde — pro Szenario unten gesetzt; resolveSurveyMode(lookup(currentSurveyModeKey()))
+    // ist exakt das, was GET/POST/Startseite/Hilfe/Admin tatsächlich tun.
+    function lookupFor(stored: Partial<Record<string, string>>) {
+      return (key: string) => stored[key]
+    }
+
     try {
+      console.log('  — resolveSurveyMode: reine Normalisierung —')
+      check('kein Eintrag (undefined) → hidden', resolveSurveyMode(undefined) === 'hidden')
+      check('null → hidden', resolveSurveyMode(null) === 'hidden')
+      check('"hidden" → hidden', resolveSurveyMode('hidden') === 'hidden')
+      check('"help_only" → help_only', resolveSurveyMode('help_only') === 'help_only')
+      check('"prominent" → prominent', resolveSurveyMode('prominent') === 'prominent')
+      check('unbekannter/kaputter Wert → hidden (fail closed)', resolveSurveyMode('irgendwas') === 'hidden')
+
+      console.log('  — currentSurveyModeKey: wählt immer den Schlüssel der LAUFENDEN Umgebung —')
       delete process.env.VERCEL_ENV
-      check('kein Eintrag (undefined) → hidden (Default, keine versehentliche Freischaltung)', effectiveSurveyMode(undefined) === 'hidden')
-      check('null → hidden', effectiveSurveyMode(null) === 'hidden')
-      check('"hidden" → hidden', effectiveSurveyMode('hidden') === 'hidden')
-      check('"help_only" → help_only (außerhalb von Production)', effectiveSurveyMode('help_only') === 'help_only')
-      check('"prominent" → prominent (außerhalb von Production)', effectiveSurveyMode('prominent') === 'prominent')
-      check('unbekannter/kaputter Wert → hidden (fail closed)', effectiveSurveyMode('irgendwas') === 'hidden')
-
-      process.env.VERCEL_ENV = 'production'
-      check('Production zwingt "help_only" auf hidden (main/integration teilen sich die DB)', effectiveSurveyMode('help_only') === 'hidden')
-      check('Production zwingt "prominent" auf hidden', effectiveSurveyMode('prominent') === 'hidden')
-      check('Production bleibt bei explizitem "hidden" ebenfalls hidden', effectiveSurveyMode('hidden') === 'hidden')
-
+      check('kein VERCEL_ENV (z.B. lokal) → Preview-Schlüssel', currentSurveyModeKey() === SURVEY_MODE_KEY_PREVIEW)
       process.env.VERCEL_ENV = 'preview'
-      check('Vercel-Preview (nicht "production") ist NICHT betroffen — help_only bleibt help_only', effectiveSurveyMode('help_only') === 'help_only')
+      check('VERCEL_ENV=preview → Preview-Schlüssel', currentSurveyModeKey() === SURVEY_MODE_KEY_PREVIEW)
+      process.env.VERCEL_ENV = 'production'
+      check('VERCEL_ENV=production → Production-Schlüssel', currentSurveyModeKey() === SURVEY_MODE_KEY_PRODUCTION)
+      check('Production- und Preview-Schlüssel sind zwei unterschiedliche Strings', (SURVEY_MODE_KEY_PRODUCTION as string) !== (SURVEY_MODE_KEY_PREVIEW as string))
+
+      console.log('  — Szenariomatrix (simulierte DB-Zeilen je Schlüssel) —')
+      // Szenario: Preview freigegeben, Production versteckt.
+      {
+        const lookup = lookupFor({ [SURVEY_MODE_KEY_PREVIEW]: 'help_only' }) // Production-Schlüssel hat keinen Eintrag
+        process.env.VERCEL_ENV = 'production'
+        check('Preview freigegeben/Production versteckt: auf Production gilt trotzdem hidden',
+          resolveSurveyMode(lookup(currentSurveyModeKey())) === 'hidden')
+        process.env.VERCEL_ENV = undefined
+        check('Preview freigegeben/Production versteckt: auf Preview gilt help_only',
+          resolveSurveyMode(lookup(currentSurveyModeKey())) === 'help_only')
+      }
+      // Szenario: Production freigegeben, Preview versteckt.
+      {
+        const lookup = lookupFor({ [SURVEY_MODE_KEY_PRODUCTION]: 'prominent' }) // Preview-Schlüssel hat keinen Eintrag
+        process.env.VERCEL_ENV = 'production'
+        check('Production freigegeben/Preview versteckt: auf Production gilt prominent',
+          resolveSurveyMode(lookup(currentSurveyModeKey())) === 'prominent')
+        process.env.VERCEL_ENV = undefined
+        check('Production freigegeben/Preview versteckt: auf Preview gilt trotzdem hidden',
+          resolveSurveyMode(lookup(currentSurveyModeKey())) === 'hidden')
+      }
+      // Szenario: beide versteckt (Ausgangszustand — kein Eintrag für irgendeinen Schlüssel).
+      {
+        const lookup = lookupFor({})
+        process.env.VERCEL_ENV = 'production'
+        check('Beide versteckt: Production liest hidden', resolveSurveyMode(lookup(currentSurveyModeKey())) === 'hidden')
+        process.env.VERCEL_ENV = undefined
+        check('Beide versteckt: Preview liest hidden', resolveSurveyMode(lookup(currentSurveyModeKey())) === 'hidden')
+      }
+      // Beide gleichzeitig freigegeben, aber unterschiedlich — stellt sicher, dass niemals der
+      // Wert der JEWEILS ANDEREN Umgebung gelesen wird, auch wenn beide gesetzt sind.
+      {
+        const lookup = lookupFor({ [SURVEY_MODE_KEY_PRODUCTION]: 'help_only', [SURVEY_MODE_KEY_PREVIEW]: 'prominent' })
+        process.env.VERCEL_ENV = 'production'
+        check('Beide gesetzt, unterschiedlich: Production liest NUR seinen eigenen Wert (help_only, nicht prominent)',
+          resolveSurveyMode(lookup(currentSurveyModeKey())) === 'help_only')
+        process.env.VERCEL_ENV = undefined
+        check('Beide gesetzt, unterschiedlich: Preview liest NUR seinen eigenen Wert (prominent, nicht help_only)',
+          resolveSurveyMode(lookup(currentSurveyModeKey())) === 'prominent')
+      }
     } finally {
       if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV
       else process.env.VERCEL_ENV = originalVercelEnv

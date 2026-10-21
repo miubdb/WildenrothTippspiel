@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { SURVEY_VERSION } from '@/lib/survey'
 import { validateIncomingAnswers, isCompleteForSubmission, nextSubmittedAt } from '@/lib/surveyValidation'
-import { SURVEY_MODE_SETTING_KEY, effectiveSurveyMode } from '@/lib/surveyMode'
+import { currentSurveyModeKey, resolveSurveyMode } from '@/lib/surveyMode'
 
 // Own-survey endpoint: reads/writes the caller's own survey_responses row for
 // SURVEY_VERSION only. RLS (survey_responses_select_own/insert_own/update_own)
@@ -10,14 +10,13 @@ import { SURVEY_MODE_SETTING_KEY, effectiveSurveyMode } from '@/lib/surveyMode'
 // never accepts a userId from the client, so there's no way to target another
 // user's row even if RLS were bypassed by a bug here.
 //
-// V2 reads its own, SEPARATE `survey_mode_v2` app_settings key (defaults to
-// 'hidden' when absent, i.e. right now) rather than the legacy `survey_mode`
-// key V1 used — V1's key is left exactly as the product already set it
-// (currently 'help_only' in the shared database, which both `main` and
-// `integration` read from) and must not be reinterpreted as "V2 is live" the
-// moment V2's code ships to a branch. See the Winter-2026-V2 Abschlussbericht
-// for why this separate gate exists and why it must stay 'hidden' until an
-// explicit, later release decision.
+// V2 reads its own, SEPARATE, per-environment app_settings key (see
+// lib/surveyMode.ts#currentSurveyModeKey — production and preview/integration
+// each have their OWN key, never the legacy `survey_mode` V1 used, and never
+// shared with each other) and defaults to 'hidden' when absent, i.e. right
+// now on both. See the Winter-2026-V2 Abschlussbericht for why this gate
+// exists and why it must stay 'hidden' until an explicit, later release
+// decision for the specific environment being released.
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -30,11 +29,11 @@ export async function GET() {
       .eq('user_id', user.id)
       .eq('survey_version', SURVEY_VERSION)
       .maybeSingle(),
-    supabase.from('app_settings').select('value').eq('key', SURVEY_MODE_SETTING_KEY).maybeSingle(),
+    supabase.from('app_settings').select('value').eq('key', currentSurveyModeKey()).maybeSingle(),
   ])
 
   return NextResponse.json({
-    surveyMode: effectiveSurveyMode(modeSetting?.value),
+    surveyMode: resolveSurveyMode(modeSetting?.value),
     response: response ?? null,
   })
 }
@@ -48,11 +47,11 @@ export async function POST(req: Request) {
   // GET's surveyMode respektiert). Kein Admin-Ausnahmefall: ein solcher wurde
   // nicht ausdrücklich angefordert und wäre nicht ohne Weiteres sicher zu
   // begründen, also gilt dieselbe Regel für jeden angemeldeten Nutzer,
-  // Admins eingeschlossen. effectiveSurveyMode erzwingt zusätzlich 'hidden'
-  // auf main/Production, unabhängig vom in der (mit integration geteilten)
-  // Datenbank gespeicherten Wert.
-  const { data: modeSetting } = await supabase.from('app_settings').select('value').eq('key', SURVEY_MODE_SETTING_KEY).maybeSingle()
-  if (effectiveSurveyMode(modeSetting?.value) === 'hidden') {
+  // Admins eingeschlossen. currentSurveyModeKey() wählt automatisch den zur
+  // laufenden Umgebung gehörenden Schlüssel (Production vs. Preview/
+  // integration) — niemals den der jeweils ANDEREN Umgebung.
+  const { data: modeSetting } = await supabase.from('app_settings').select('value').eq('key', currentSurveyModeKey()).maybeSingle()
+  if (resolveSurveyMode(modeSetting?.value) === 'hidden') {
     return NextResponse.json({ error: 'Die Umfrage ist aktuell nicht verfügbar.' }, { status: 403 })
   }
 

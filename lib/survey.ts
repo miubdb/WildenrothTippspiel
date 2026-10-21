@@ -27,19 +27,15 @@ export const SURVEY_VERSION = 'winter_2026_v2'
  *  module reads or writes it. */
 export const SURVEY_VERSION_V1 = 'winter_2026_v1'
 
-/**
- * app_settings key gating V2's visibility — deliberately a NEW, SEPARATE key
- * from V1's `survey_mode` (which the product already set to 'help_only' in
- * the shared database that both `main` and `integration` read from). Reusing
- * that key would make V2 instantly reachable the moment this code reaches
- * ANY deployed environment, including an `integration` preview — exactly the
- * "Aktivierung/Veröffentlichung der Umfrage" this task explicitly forbids
- * without a later, explicit release instruction. This key has no row yet, so
- * every reader's `?? 'hidden'` fallback applies until someone deliberately
- * sets it — do not pre-set it as part of this implementation. Same 3-value
- * model as V1 ('hidden' | 'help_only' | 'prominent').
- */
-export const SURVEY_MODE_SETTING_KEY = 'survey_mode_v2'
+// app_settings key(s) gating V2's visibility — deliberately separate from
+// V1's `survey_mode` (which the product already set to 'help_only' in the
+// shared database both `main` and `integration` read from), AND split
+// per-environment (production vs. preview) rather than one shared key — see
+// lib/surveyMode.ts for the full reasoning and the actual key names/
+// resolution logic. That module is server-only (reads process.env.VERCEL_ENV,
+// which must never be referenced from this file — it's imported by the
+// 'use client' umfrage/page.tsx); nothing here needs to know which key
+// applies, only app/api/survey/route.ts and the other server-side readers do.
 
 export type Answers = Record<string, number | string | string[] | undefined>
 

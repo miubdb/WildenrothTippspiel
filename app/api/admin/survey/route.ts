@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { logAdminAction } from '@/lib/auditLog'
-import { SURVEY_VERSION, SURVEY_MODE_SETTING_KEY } from '@/lib/survey'
+import { SURVEY_VERSION } from '@/lib/survey'
 import { computeOverview, computePerQuestionStats, computeCrossTabs, isActuallySubmitted, type SurveyRow, type ProfileLite } from '@/lib/surveyAggregate'
+import { currentSurveyModeKey, resolveSurveyMode } from '@/lib/surveyMode'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -29,7 +30,7 @@ export async function GET() {
     admin.from('survey_responses').select('user_id, answers, started_at, submitted_at, updated_at').eq('survey_version', SURVEY_VERSION),
     admin.from('profiles').select('id').eq('eligible_for_current_season', true).is('deleted_at', null),
     admin.from('profiles').select('id, username, display_name'),
-    admin.from('app_settings').select('key, value').in('key', [SURVEY_MODE_SETTING_KEY, 'survey_admin_allow_reset']),
+    admin.from('app_settings').select('key, value').in('key', [currentSurveyModeKey(), 'survey_admin_allow_reset']),
   ])
 
   const rows = (rowsRaw ?? []) as SurveyRow[]
@@ -63,7 +64,16 @@ export async function GET() {
 
   return NextResponse.json({
     settings: {
-      surveyMode: settings.get(SURVEY_MODE_SETTING_KEY) ?? 'hidden',
+      // resolveSurveyMode (not the raw stored string) — the admin panel must
+      // show the ACTUALLY applicable status (e.g. an invalid/stale leftover
+      // value correctly reads as "hidden", never as whatever garbage string
+      // happens to be stored).
+      surveyMode: resolveSurveyMode(settings.get(currentSurveyModeKey())),
+      // Which key this environment's toggle below actually reads/writes —
+      // production and preview/integration each have their own (see
+      // lib/surveyMode.ts) — so the UI can say so explicitly instead of the
+      // admin having to guess which one they're changing.
+      surveyModeKey: currentSurveyModeKey(),
       allowReset: settings.get('survey_admin_allow_reset') === 'true',
       // UI-only signal so the button can be disabled/explained proactively —
       // the POST /reset_all handler enforces this itself server-side
@@ -91,7 +101,11 @@ export async function POST(req: Request) {
     if (!['hidden', 'help_only', 'prominent'].includes(mode ?? '')) {
       return NextResponse.json({ error: 'Unbekannter Modus.' }, { status: 400 })
     }
-    await admin.from('app_settings').upsert({ key: SURVEY_MODE_SETTING_KEY, value: mode, updated_at: new Date().toISOString() })
+    // currentSurveyModeKey() — this writes EXCLUSIVELY to the key belonging
+    // to the environment this admin request is actually running in; it can
+    // never touch the other environment's key, so a preview test can never
+    // flip production's gate (or vice versa) through this route.
+    await admin.from('app_settings').upsert({ key: currentSurveyModeKey(), value: mode, updated_at: new Date().toISOString() })
     return NextResponse.json({ ok: true })
   }
 
