@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { logAdminAction } from '@/lib/auditLog'
 import { SURVEY_VERSION, SURVEY_MODE_SETTING_KEY } from '@/lib/survey'
-import { computeOverview, computePerQuestionStats, computeCrossTabs, type SurveyRow, type ProfileLite } from '@/lib/surveyAggregate'
+import { computeOverview, computePerQuestionStats, computeCrossTabs, isActuallySubmitted, type SurveyRow, type ProfileLite } from '@/lib/surveyAggregate'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -37,7 +37,10 @@ export async function GET() {
   const profileMap = new Map<string, ProfileLite>((allProfilesRaw ?? []).map((p) => [p.id as string, p as ProfileLite]))
   const settings = new Map((settingsRaw ?? []).map((s) => [s.key, s.value]))
 
-  const submittedRows = rows.filter((r) => r.submitted_at)
+  // isActuallySubmitted (not raw r.submitted_at) — never count an
+  // incomplete-but-stamped row as a completed participation, see
+  // lib/surveyAggregate.ts#isActuallySubmitted.
+  const submittedRows = rows.filter(isActuallySubmitted)
 
   const overview = computeOverview(rows, activeUserIds)
   const perQuestion = computePerQuestionStats(submittedRows, profileMap)
@@ -49,7 +52,7 @@ export async function GET() {
       return {
         userId: r.user_id,
         username: p?.display_name || p?.username || 'Unbekannt',
-        status: r.submitted_at ? 'abgegeben' as const : 'angefangen' as const,
+        status: isActuallySubmitted(r) ? 'abgegeben' as const : 'angefangen' as const,
         startedAt: r.started_at,
         submittedAt: r.submitted_at,
         updatedAt: r.updated_at,

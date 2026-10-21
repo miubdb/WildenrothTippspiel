@@ -156,7 +156,11 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
             Version {SURVEY_VERSION} dieses Abschnitts. Das alte <code>survey_mode</code> (V1,
             winter_2026_v1) bleibt davon unberührt und wird hier nicht mehr angezeigt/gesteuert; V1
             hat bisher keine abgegebenen Antworten. Solange hier nichts geändert wird, bleibt V2 auf
-            „Versteckt&rdquo; — keine Freischaltung ohne ausdrückliche Freigabe.
+            „Versteckt&rdquo; — keine Freischaltung ohne ausdrückliche Freigabe.{' '}
+            <strong>main (Production) und integration (Preview) lesen denselben Wert aus derselben
+            Datenbank</strong> — serverseitig (nicht nur hier in der Anzeige) gilt auf Production
+            deshalb unabhängig von diesem Schalter immer „Versteckt&rdquo;, damit ein Test auf der
+            integration-Preview V2 nie versehentlich auf Production freischaltet.
           </Notice>
           <div className="flex gap-2">
             {(['hidden', 'help_only', 'prominent'] as const).map((m) => (

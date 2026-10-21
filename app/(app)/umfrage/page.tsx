@@ -19,6 +19,7 @@ export default function UmfragePage() {
   const [started, setStarted] = useState(false)
   const [sectionIdx, setSectionIdx] = useState(0)
   const [saveState, setSaveState] = useState<SaveState>('idle')
+  const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null)
   const [justSubmitted, setJustSubmitted] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const answersRef = useRef<Answers>({})
@@ -60,18 +61,27 @@ export default function UmfragePage() {
         const data = await res.json()
         if (!res.ok) {
           setSaveState('error')
+          setSaveErrorMsg(typeof data.error === 'string' ? data.error : 'Die Antworten konnten gerade nicht gespeichert werden.')
           return { ok: false, error: data.error as string }
         }
         setSaveState('saved')
-        return { ok: true }
+        // The server decides the ACTUAL resulting submitted-status (never
+        // just echoes the requested action) — e.g. a `save` that edits an
+        // already-submitted response into an incomplete state comes back
+        // with submittedAt: null, and the UI must reflect that immediately,
+        // not keep showing "bereits abgegeben" for a response that no
+        // longer qualifies. See lib/surveyValidation.ts#nextSubmittedAt.
+        setSubmittedAt(data.submittedAt ?? null)
+        return { ok: true, submitted: !!data.submitted }
       } catch {
         setSaveState('error')
+        setSaveErrorMsg('Netzwerkfehler.')
         return { ok: false, error: 'Netzwerkfehler.' }
       }
     }
     const result = saveChain.current.then(run)
     saveChain.current = result
-    return result as Promise<{ ok: boolean; error?: string }>
+    return result as Promise<{ ok: boolean; error?: string; submitted?: boolean }>
   }, [])
 
   // Debounced autosave on every answer change once the user has started —
@@ -148,8 +158,10 @@ export default function UmfragePage() {
     if (!isSurveyComplete(answers)) return
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     const result = await save('submit')
-    if (result.ok) {
-      setSubmittedAt(new Date().toISOString())
+    // submittedAt is already set by save() itself from the server's
+    // response — a successful `submit` always comes back with it set
+    // (the server re-validates completeness before stamping it).
+    if (result.ok && result.submitted) {
       setJustSubmitted(true)
     }
     // On failure: stay on the last section with answers intact (state
@@ -253,7 +265,7 @@ export default function UmfragePage() {
       {saveState === 'error' && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 space-y-2">
           <p className="text-sm text-red-700 dark:text-red-300">
-            Die Antworten konnten gerade nicht gespeichert werden. Bitte versuche es noch einmal.
+            {saveErrorMsg ?? 'Die Antworten konnten gerade nicht gespeichert werden.'} Bitte versuche es noch einmal.
           </p>
           <button
             onClick={() => { isLast ? handleSubmit() : goNext() }}

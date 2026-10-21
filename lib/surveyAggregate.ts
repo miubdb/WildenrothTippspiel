@@ -5,7 +5,7 @@
 // in. Kept in its own file so the per-question / cross-tab math is easy to
 // unit-reason-about and to reuse between the aggregate endpoint and (if ever
 // needed) the CSV export.
-import { ALL_QUESTIONS, QUESTION_BY_ID, isQuestionVisible, type Answers, type QuestionDef } from './survey'
+import { ALL_QUESTIONS, QUESTION_BY_ID, isQuestionVisible, isSurveyComplete, type Answers, type QuestionDef } from './survey'
 
 export interface SurveyRow {
   user_id: string
@@ -13,6 +13,21 @@ export interface SurveyRow {
   started_at: string
   submitted_at: string | null
   updated_at: string
+}
+
+/**
+ * The actual "abgegeben" status for a row — defense in depth beyond trusting
+ * `submitted_at` alone. app/api/survey/route.ts#nextSubmittedAt already
+ * guarantees `submitted_at` is only ever set for answers isSurveyComplete
+ * agrees with, but the admin evaluation re-checks it directly here too, so
+ * an incomplete response can never be counted as a completed participation
+ * even if `submitted_at` were ever wrong for some other reason (a manual DB
+ * edit, a future bug elsewhere). Every "submitted" read in this module and
+ * in app/api/admin/survey/route.ts must go through this, not `r.submitted_at`
+ * truthiness directly.
+ */
+export function isActuallySubmitted(row: SurveyRow): boolean {
+  return !!row.submitted_at && isSurveyComplete(row.answers)
 }
 
 export interface ProfileLite {
@@ -477,7 +492,7 @@ export interface SurveyOverview {
 export function computeOverview(allRows: SurveyRow[], activeUserIds: Set<string>): SurveyOverview {
   const activeRows = allRows.filter((r) => activeUserIds.has(r.user_id))
   const started = activeRows.length
-  const submittedRows = activeRows.filter((r) => r.submitted_at)
+  const submittedRows = activeRows.filter(isActuallySubmitted)
   const submitted = submittedRows.length
   const activeUsers = activeUserIds.size
   const q1nums = submittedRows.map((r) => r.answers.q1).filter((n): n is number => typeof n === 'number')

@@ -148,3 +148,26 @@ export function isCompleteForSubmission(answers: Answers): boolean {
  *  callers that already import from this module don't need a second import
  *  from lib/survey.ts just for this one helper. */
 export { isRequired }
+
+/**
+ * Pure decision for what `submitted_at` must become after a `save` or
+ * `submit`, given the row's PREVIOUS `submitted_at` and the NEW (already
+ * sanitized/stripped) answers. Extracted as its own pure function so it can
+ * be unit-tested directly, independently of app/api/survey/route.ts's DB
+ * calls — the bug this guards against (a `save` silently keeping an
+ * already-submitted response "complete" even after an edit makes it
+ * incomplete, e.g. changing Q4 to a value that makes Q5 required and then
+ * not yet answering Q5) only ever manifests in this one decision.
+ *
+ * - `submit`: always (re-)stamps `now` — resubmission must always be
+ *   possible, and always counts as a fresh, current completion.
+ * - `save`: keeps the previous `submitted_at` ONLY if it was already set AND
+ *   the answers are STILL complete; otherwise (never submitted, or an edit
+ *   just made it incomplete) the result is `null` — a save can never cause,
+ *   nor silently preserve, a "submitted" status the current answers don't
+ *   actually satisfy.
+ */
+export function nextSubmittedAt(action: 'save' | 'submit', previousSubmittedAt: string | null, answers: Answers, now: string): string | null {
+  if (action === 'submit') return now
+  return previousSubmittedAt != null && isCompleteForSubmission(answers) ? previousSubmittedAt : null
+}

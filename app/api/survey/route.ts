@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { SURVEY_VERSION, SURVEY_MODE_SETTING_KEY } from '@/lib/survey'
-import { validateIncomingAnswers, isCompleteForSubmission } from '@/lib/surveyValidation'
+import { SURVEY_VERSION } from '@/lib/survey'
+import { validateIncomingAnswers, isCompleteForSubmission, nextSubmittedAt } from '@/lib/surveyValidation'
+import { SURVEY_MODE_SETTING_KEY, effectiveSurveyMode } from '@/lib/surveyMode'
 
 // Own-survey endpoint: reads/writes the caller's own survey_responses row for
 // SURVEY_VERSION only. RLS (survey_responses_select_own/insert_own/update_own)
@@ -33,7 +34,7 @@ export async function GET() {
   ])
 
   return NextResponse.json({
-    surveyMode: modeSetting?.value ?? 'hidden',
+    surveyMode: effectiveSurveyMode(modeSetting?.value),
     response: response ?? null,
   })
 }
@@ -42,6 +43,18 @@ export async function POST(req: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 })
+
+  // Freigabe-Gate serverseitig durchsetzen — unabhängig von der UI (die nur
+  // GET's surveyMode respektiert). Kein Admin-Ausnahmefall: ein solcher wurde
+  // nicht ausdrücklich angefordert und wäre nicht ohne Weiteres sicher zu
+  // begründen, also gilt dieselbe Regel für jeden angemeldeten Nutzer,
+  // Admins eingeschlossen. effectiveSurveyMode erzwingt zusätzlich 'hidden'
+  // auf main/Production, unabhängig vom in der (mit integration geteilten)
+  // Datenbank gespeicherten Wert.
+  const { data: modeSetting } = await supabase.from('app_settings').select('value').eq('key', SURVEY_MODE_SETTING_KEY).maybeSingle()
+  if (effectiveSurveyMode(modeSetting?.value) === 'hidden') {
+    return NextResponse.json({ error: 'Die Umfrage ist aktuell nicht verfügbar.' }, { status: 403 })
+  }
 
   const body = await req.json().catch(() => null)
   if (!body || typeof body !== 'object') {
@@ -79,9 +92,9 @@ export async function POST(req: Request) {
 
   const now = new Date().toISOString()
 
-  // Fetch existing row first so we keep the original started_at and never
-  // clear submitted_at on a plain "save" of an already-submitted response
-  // (editing after submission stays possible, per spec).
+  // Fetch existing row first so we keep the original started_at and decide
+  // submitted_at (nextSubmittedAt below) from its PREVIOUS value — never
+  // just echo the client's intended action.
   const { data: existing } = await supabase
     .from('survey_responses')
     .select('started_at, submitted_at')
@@ -89,13 +102,24 @@ export async function POST(req: Request) {
     .eq('survey_version', SURVEY_VERSION)
     .maybeSingle()
 
+  // A `save` must NEVER leave (or silently keep) a response marked as
+  // "submitted" when its CURRENT answers no longer satisfy every visible
+  // required question — e.g. editing Q4 into a value that makes Q5
+  // required, without yet answering Q5, must drop a previously-submitted
+  // response back to "not submitted" rather than keeping the old
+  // submitted_at. `submit` always (re-)stamps `now` (isCompleteForSubmission
+  // was already re-checked above, so this is only reached when complete).
+  // See lib/surveyValidation.ts#nextSubmittedAt for the single, unit-tested
+  // decision both this route and scripts/survey-schema-check.ts rely on.
+  const submittedAt = nextSubmittedAt(action, existing?.submitted_at ?? null, answers, now)
+
   const { error } = await supabase
     .from('survey_responses')
     .upsert({
       user_id: user.id,
       survey_version: SURVEY_VERSION,
       started_at: existing?.started_at ?? now,
-      submitted_at: action === 'submit' ? now : (existing?.submitted_at ?? null),
+      submitted_at: submittedAt,
       updated_at: now,
       answers,
     }, { onConflict: 'user_id,survey_version' })
@@ -105,5 +129,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Speichern fehlgeschlagen.' }, { status: 500 })
   }
 
-  return NextResponse.json({ ok: true, submitted: action === 'submit' })
+  // `submitted`/`submittedAt` reflect the ACTUAL resulting row, not just the
+  // requested action — the client needs this to correctly fall back its own
+  // "already submitted" UI state when a save just un-submitted the response.
+  return NextResponse.json({ ok: true, submitted: submittedAt != null, submittedAt })
 }

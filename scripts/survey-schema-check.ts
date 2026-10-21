@@ -11,7 +11,11 @@ import {
   SURVEY_SECTIONS, ALL_QUESTIONS, QUESTION_BY_ID, isRequired, isQuestionVisible,
   isSectionComplete, isSurveyComplete, type Answers,
 } from '@/lib/survey'
-import { toggleMultiOption, isValidMultiSelection, validateIncomingAnswers, stripHiddenAnswers } from '@/lib/surveyValidation'
+import {
+  toggleMultiOption, isValidMultiSelection, validateIncomingAnswers, stripHiddenAnswers, nextSubmittedAt,
+} from '@/lib/surveyValidation'
+import { isActuallySubmitted, type SurveyRow } from '@/lib/surveyAggregate'
+import { effectiveSurveyMode } from '@/lib/surveyMode'
 
 let failures = 0
 let checks = 0
@@ -214,6 +218,78 @@ export function run(): number {
     for (const s of SURVEY_SECTIONS) {
       check(`Bereich "${s.title}": leere Antworten sind nicht vollständig (falls Pflichtfragen sichtbar)`,
         s.questions.some((qq) => isRequired(qq, empty) && isQuestionVisible(qq, empty)) ? !isSectionComplete(s, empty) : true)
+    }
+  }
+
+  console.log('\n9. submitted_at darf eine unvollständig gewordene Abgabe nie als abgegeben weiterführen')
+  {
+    const now = '2026-11-10T12:00:00.000Z'
+    const earlier = '2026-11-01T09:00:00.000Z'
+
+    // Vollständige Antworten (Minimalpfad, der ohne Q13/Zahlungsdetails auskommt).
+    const complete: Answers = {
+      q1: 8, q2: 4, q_comprehensibility: ['Für mich ist alles ausreichend nachvollziehbar'],
+      q3: 'Montagvormittag (wie bisher)', q9: 'Nie', q10: '250 Wildis (wie bisher)', q11: '2 (wie bisher)',
+      q12: '0 – Risky-Wetten vollständig abschaffen', q_payout_normal: '10.000 Wildis (wie bisher)',
+      q15: '10 Wildis (wie bisher)', q16: '50 Wildis (wie bisher)',
+      q17: 'Die bisherige Regel beibehalten – keine Wetten gegen die eigene Mannschaft',
+      q19: 'Nein, mir ist nichts Ungewöhnliches aufgefallen',
+      q25: ['Auf keinen – ich möchte alle behalten'],
+      q27: 'Alle Kreisliga-Spiele (wie bisher)', q28: 'Wildenroth II + 1 Topspiel (wie bisher)',
+      q20: 'Ich nutze sie und finde sie hilfreich', q22: 'WhatsApp und App-Push',
+      q4: 'Das Wettspiel soll kostenlos bleiben. Mit Startgeld würde ich nicht mehr teilnehmen.',
+      q29: ['Ich bin mit meiner aktuellen Wettaktivität zufrieden und möchte nicht häufiger wetten'],
+      q30: 'Ja, auf jeden Fall', q_features: ['Keine dieser Funktionen interessiert mich'],
+    }
+    check('Testvorlage "complete" ist tatsächlich vollständig', isSurveyComplete(complete), 'Testdaten-Fehler, nicht Produktionscode')
+
+    check('submit: stempelt immer `now`, unabhängig vom vorherigen Wert', nextSubmittedAt('submit', null, complete, now) === now)
+    check('submit: überschreibt auch einen vorherigen Zeitstempel mit `now`', nextSubmittedAt('submit', earlier, complete, now) === now)
+
+    check('save: nie zuvor abgegeben + jetzt vollständig → bleibt null (ein save allein "submitted" nie implizit setzen)',
+      nextSubmittedAt('save', null, complete, now) === null)
+    check('save: bereits abgegeben + weiterhin vollständig → behält den ALTEN Zeitstempel (kein stilles Bump)',
+      nextSubmittedAt('save', earlier, complete, now) === earlier)
+
+    // Der eigentliche gemeldete Bug: Q4 auf einen Wert geändert, der Q5 Pflicht macht, Q5 aber
+    // noch nicht beantwortet — ein vorher abgegebener Stand darf dadurch NICHT "abgegeben" bleiben.
+    const incompleteAfterEdit: Answers = { ...complete, q4: 'Ich würde ein Startgeld mit Preisen bevorzugen.' }
+    check('Testvorlage wird durch den Q4-Wechsel tatsächlich unvollständig (Q5/Q7/Q8 jetzt Pflicht, fehlen)',
+      !isSurveyComplete(incompleteAfterEdit), 'Testdaten-Fehler, nicht Produktionscode')
+    check('save: bereits abgegeben, aber nach Bearbeitung unvollständig → wird auf null zurückgesetzt (der gemeldete Bug)',
+      nextSubmittedAt('save', earlier, incompleteAfterEdit, now) === null)
+
+    // isActuallySubmitted: zweite, unabhängige Absicherung in der Admin-Auswertung.
+    const rowOk: SurveyRow = { user_id: 'u1', answers: complete, started_at: earlier, submitted_at: earlier, updated_at: now }
+    const rowStaleFlag: SurveyRow = { user_id: 'u2', answers: incompleteAfterEdit, started_at: earlier, submitted_at: earlier, updated_at: now }
+    const rowNotSubmitted: SurveyRow = { user_id: 'u3', answers: complete, started_at: earlier, submitted_at: null, updated_at: now }
+    check('isActuallySubmitted: vollständige Antworten + Zeitstempel → true', isActuallySubmitted(rowOk))
+    check('isActuallySubmitted: Zeitstempel gesetzt, aber Antworten unvollständig → false (Verteidigungslinie 2)', !isActuallySubmitted(rowStaleFlag))
+    check('isActuallySubmitted: kein Zeitstempel → false', !isActuallySubmitted(rowNotSubmitted))
+  }
+
+  console.log('\n10. Freigabe-Gate (survey_mode_v2) — serverseitige Durchsetzung')
+  {
+    const originalVercelEnv = process.env.VERCEL_ENV
+    try {
+      delete process.env.VERCEL_ENV
+      check('kein Eintrag (undefined) → hidden (Default, keine versehentliche Freischaltung)', effectiveSurveyMode(undefined) === 'hidden')
+      check('null → hidden', effectiveSurveyMode(null) === 'hidden')
+      check('"hidden" → hidden', effectiveSurveyMode('hidden') === 'hidden')
+      check('"help_only" → help_only (außerhalb von Production)', effectiveSurveyMode('help_only') === 'help_only')
+      check('"prominent" → prominent (außerhalb von Production)', effectiveSurveyMode('prominent') === 'prominent')
+      check('unbekannter/kaputter Wert → hidden (fail closed)', effectiveSurveyMode('irgendwas') === 'hidden')
+
+      process.env.VERCEL_ENV = 'production'
+      check('Production zwingt "help_only" auf hidden (main/integration teilen sich die DB)', effectiveSurveyMode('help_only') === 'hidden')
+      check('Production zwingt "prominent" auf hidden', effectiveSurveyMode('prominent') === 'hidden')
+      check('Production bleibt bei explizitem "hidden" ebenfalls hidden', effectiveSurveyMode('hidden') === 'hidden')
+
+      process.env.VERCEL_ENV = 'preview'
+      check('Vercel-Preview (nicht "production") ist NICHT betroffen — help_only bleibt help_only', effectiveSurveyMode('help_only') === 'help_only')
+    } finally {
+      if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV
+      else process.env.VERCEL_ENV = originalVercelEnv
     }
   }
 
