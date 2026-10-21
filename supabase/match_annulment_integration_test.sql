@@ -20,10 +20,11 @@
 -- verändert, aber durch den ROLLBACK vollständig zurückgesetzt — am Ende bleibt NICHTS
 -- verändert). Match-ID 433 wird an keiner Stelle referenziert.
 --
--- Ausführung (erst nach Freigabe durch den Nutzer, idealerweise zuerst gegen eine
--- Nicht-Produktionsumgebung): dieses Skript komplett im Supabase-SQL-Editor einfügen
--- und ausführen. Der SQL-Editor führt es als eine Sitzung aus — BEGIN/ROLLBACK wirken
--- dort exakt wie in psql.
+-- Ausführung (erst nach Freigabe durch den Nutzer, ZUERST gegen die separate Sandbox
+-- `aspbgawbqwfntvlqtcvl`, siehe supabase/SANDBOX_MIGRATION_RUNBOOK.md für den vollständigen
+-- Ablauf inkl. Vorher/Nachher-Schnappschuss): dieses Skript komplett im Supabase-SQL-Editor
+-- einfügen und ausführen (oder `psql -f` — führt es ebenfalls als eine Sitzung aus; BEGIN/
+-- ROLLBACK wirken dort identisch).
 --
 -- Abdeckung — bewusst NICHT jedes der 12 Spezifikations-Szenarien erneut (die sind
 -- bereits durch die reine TS-Logik abgedeckt, siehe scripts/match-annulment-check.ts),

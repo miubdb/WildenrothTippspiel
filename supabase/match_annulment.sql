@@ -1,21 +1,23 @@
 -- Wildenroth-Tippspiel – Nichtantritt / Annullierung mit Quote 1,00
 --
 -- STATUS: vorbereitet, aber in dieser Umgebung NICHT ausgeführt — diese Sitzung hatte nur
--- LESENDEN Supabase-Zugriff (mcp__Supabase_Wildenroth_Read_Only), keinen schreibenden, auf
--- weder Sandbox noch Produktion. Dieselbe Situation wie supabase/admin3_audit_log.sql — siehe
--- dort für das etablierte Vorgehen bei vorbereiteten, noch nicht angewendeten Migrationen.
+-- LESENDEN Supabase-Zugriff (mcp__Supabase_Wildenroth_Read_Only), und zwar ausschließlich auf
+-- das Produktionsprojekt (mpyqtymkdhxuannqhtvp) — keinerlei Zugriff auf die separate Sandbox
+-- `aspbgawbqwfntvlqtcvl` ("Wildenroth Redesign Sandbox", strukturell entsprechende Tabellen).
+-- Dieselbe Situation wie supabase/admin3_audit_log.sql — siehe dort für das etablierte
+-- Vorgehen bei vorbereiteten, noch nicht angewendeten Migrationen.
 --
--- Anwendung (zwingend in dieser Reihenfolge, beide Umgebungen teilen sich dieselbe Datenbank —
--- siehe CLAUDE.md "Branch- und Deployment-Strategie"):
---   1. Dieses Skript einmal im Supabase-SQL-Editor gegen die EINE gemeinsame Datenbank ausführen
---      (es gibt keine getrennte Sandbox für dieses Projekt — Preview/`integration` und
---      Production/`main` lesen/schreiben dieselben Tabellen). Das Skript selbst verändert KEINE
---      bestehenden Zeilen — es erweitert nur Constraints und fügt neue, NULLABLE Spalten/eine
---      neue Funktion hinzu. Bestehende Anwendungslogik ist davon unberührt, bis die neue RPC
---      `neutralize_match` tatsächlich aufgerufen wird.
---   2. Erst danach die App-Seite (dieser PR) auf `integration` deployen und dort gegen eine
---      ERFUNDENE/unwichtige Test-Kombination verifizieren (siehe Abschlussbericht, Abschnitt
---      "Tests" — NICHT gegen Match-ID 433, das bleibt bis zur ausdrücklichen Freigabe unberührt).
+-- Anwendung (zwingend in dieser Reihenfolge):
+--   1. ZUERST gegen die Sandbox `aspbgawbqwfntvlqtcvl` verifizieren — siehe
+--      supabase/SANDBOX_MIGRATION_RUNBOOK.md für den vollständigen, sicheren Testablauf
+--      (Schema-Abgleich, Vorher/Nachher-Schnappschuss, Migration, Logiktest, echte
+--      Nebenläufigkeitsprobe). Dieses Skript selbst verändert KEINE bestehenden Zeilen — es
+--      erweitert nur Constraints und fügt neue, NULLABLE Spalten/eine neue Funktion hinzu.
+--   2. Erst danach gegen die EINE gemeinsame Produktions-/Preview-Datenbank anwenden (Preview/
+--      `integration` und Production/`main` lesen/schreiben dieselben Tabellen — siehe
+--      CLAUDE.md "Branch- und Deployment-Strategie") und dort gegen eine ERFUNDENE/unwichtige
+--      Test-Kombination verifizieren — NICHT gegen Match-ID 433, das bleibt bis zur
+--      ausdrücklichen Freigabe unberührt.
 --   3. Match-ID 433 (TSV Oberalting-Seefeld – SC Schöngeising, Nichtantritt) erst nach
 --      ausdrücklicher Freigabe durch den Nutzer über die neue Admin-Aktion annullieren.
 --
