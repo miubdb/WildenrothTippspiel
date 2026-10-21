@@ -1,12 +1,22 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { SURVEY_VERSION, SURVEY_SECTIONS, isSectionComplete, isSurveyComplete, type Answers } from '@/lib/survey'
+import { SURVEY_VERSION, SURVEY_MODE_SETTING_KEY } from '@/lib/survey'
+import { validateIncomingAnswers, isCompleteForSubmission } from '@/lib/surveyValidation'
 
 // Own-survey endpoint: reads/writes the caller's own survey_responses row for
 // SURVEY_VERSION only. RLS (survey_responses_select_own/insert_own/update_own)
 // already scopes every query to auth.uid() = user_id — this route additionally
 // never accepts a userId from the client, so there's no way to target another
 // user's row even if RLS were bypassed by a bug here.
+//
+// V2 reads its own, SEPARATE `survey_mode_v2` app_settings key (defaults to
+// 'hidden' when absent, i.e. right now) rather than the legacy `survey_mode`
+// key V1 used — V1's key is left exactly as the product already set it
+// (currently 'help_only' in the shared database, which both `main` and
+// `integration` read from) and must not be reinterpreted as "V2 is live" the
+// moment V2's code ships to a branch. See the Winter-2026-V2 Abschlussbericht
+// for why this separate gate exists and why it must stay 'hidden' until an
+// explicit, later release decision.
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -19,7 +29,7 @@ export async function GET() {
       .eq('user_id', user.id)
       .eq('survey_version', SURVEY_VERSION)
       .maybeSingle(),
-    supabase.from('app_settings').select('value').eq('key', 'survey_mode').maybeSingle(),
+    supabase.from('app_settings').select('value').eq('key', SURVEY_MODE_SETTING_KEY).maybeSingle(),
   ])
 
   return NextResponse.json({
@@ -37,21 +47,32 @@ export async function POST(req: Request) {
   if (!body || typeof body !== 'object') {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
-  const { action, answers } = body as { action?: string; answers?: Answers }
+  const { action, answers: rawAnswers } = body as { action?: string; answers?: unknown }
   if (action !== 'save' && action !== 'submit') {
     return NextResponse.json({ error: 'Unbekannte Aktion.' }, { status: 400 })
   }
-  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
-    return NextResponse.json({ error: 'Antworten fehlen.' }, { status: 400 })
+
+  // Full adversarial validation — never trust the client beyond "looks like
+  // an object". Rejects unknown question ids, wrong value types/shapes,
+  // out-of-range scale values, unknown/duplicate/too-many/exclusive-
+  // violating multi-select options, etc. (see lib/surveyValidation.ts for
+  // the exact rules). On success also strips any answer for a question that
+  // is not currently visible given the final answer set, so a stale
+  // follow-up answer left over from a since-changed trigger (q4, q12, q25,
+  // q29, q_motivation, …) can never be persisted — a `save` is allowed to be
+  // incomplete, but never allowed to be internally inconsistent.
+  const validated = validateIncomingAnswers(rawAnswers)
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.error }, { status: 400 })
   }
+  const answers = validated.answers
 
   if (action === 'submit') {
     // Server-side re-validation — the wizard already blocks "Weiter" on an
     // incomplete section client-side, but submission must not trust that.
-    // Only VISIBLE required questions count (jump logic respected), matching
-    // lib/survey.ts's isSectionComplete used by the UI.
-    const incomplete = SURVEY_SECTIONS.find((s) => !isSectionComplete(s, answers))
-    if (incomplete || !isSurveyComplete(answers)) {
+    // Only VISIBLE, currently-required questions count (jump logic
+    // respected), evaluated against the SANITIZED answers above.
+    if (!isCompleteForSubmission(answers)) {
       return NextResponse.json({ error: 'Noch nicht alle Pflichtfragen beantwortet.' }, { status: 400 })
     }
   }

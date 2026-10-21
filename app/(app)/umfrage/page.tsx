@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  SURVEY_SECTIONS, visibleQuestionsForSection, isSectionComplete, isSurveyComplete,
+  SURVEY_SECTIONS, visibleQuestionsForSection, isSectionComplete, isSurveyComplete, isRequired,
   type Answers, type QuestionDef,
 } from '@/lib/survey'
+import { toggleMultiOption, stripHiddenAnswers } from '@/lib/surveyValidation'
 
 type LoadState = 'loading' | 'ready' | 'error'
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -22,6 +23,15 @@ export default function UmfragePage() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const answersRef = useRef<Answers>({})
   useEffect(() => { answersRef.current = answers }, [answers])
+  // Serializes save() calls so two requests (e.g. the 900ms debounce firing
+  // right as a "Weiter"/"Absenden" click sends its own save) are never truly
+  // concurrent — each call waits for the previous one to finish before it
+  // even reads answersRef, so the request that reaches the server last also
+  // started last and therefore carries the more current (or equally current)
+  // answers. This is what actually prevents an in-flight older save from
+  // landing after a newer one, not just goNext()'s "cancel the pending timer"
+  // trick, which only covers one specific overlap case.
+  const saveChain = useRef<Promise<unknown>>(Promise.resolve())
 
   useEffect(() => {
     fetch('/api/survey')
@@ -38,25 +48,30 @@ export default function UmfragePage() {
       .catch(() => setLoadState('error'))
   }, [])
 
-  const save = useCallback(async (action: 'save' | 'submit', nextAnswers?: Answers) => {
-    setSaveState('saving')
-    try {
-      const res = await fetch('/api/survey', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, answers: nextAnswers ?? answersRef.current }),
-      })
-      const data = await res.json()
-      if (!res.ok) {
+  const save = useCallback((action: 'save' | 'submit', nextAnswers?: Answers) => {
+    const run = async () => {
+      setSaveState('saving')
+      try {
+        const res = await fetch('/api/survey', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, answers: nextAnswers ?? answersRef.current }),
+        })
+        const data = await res.json()
+        if (!res.ok) {
+          setSaveState('error')
+          return { ok: false, error: data.error as string }
+        }
+        setSaveState('saved')
+        return { ok: true }
+      } catch {
         setSaveState('error')
-        return { ok: false, error: data.error as string }
+        return { ok: false, error: 'Netzwerkfehler.' }
       }
-      setSaveState('saved')
-      return { ok: true }
-    } catch {
-      setSaveState('error')
-      return { ok: false, error: 'Netzwerkfehler.' }
     }
+    const result = saveChain.current.then(run)
+    saveChain.current = result
+    return result as Promise<{ ok: boolean; error?: string }>
   }, [])
 
   // Debounced autosave on every answer change once the user has started —
@@ -71,7 +86,13 @@ export default function UmfragePage() {
   }, [answers, started])
 
   function setAnswer(id: string, value: Answers[string]) {
-    setAnswers((a) => ({ ...a, [id]: value }))
+    // stripHiddenAnswers runs on every change (not just at save time) — a
+    // trigger answer changing (q4, q12, q25, q29, q_motivation, q9, q19,
+    // q20, q23, …) must immediately drop any now-hidden follow-up answer
+    // from the ACTIVE in-memory state too, not just from what eventually
+    // gets persisted, so the UI never shows (or silently keeps) a stale
+    // value for a question that no longer applies.
+    setAnswers((a) => stripHiddenAnswers({ ...a, [id]: value }))
   }
 
   function handleStart() {
@@ -98,7 +119,8 @@ export default function UmfragePage() {
     // click — without this, a save() from THIS click and the pending
     // 900ms-later debounce timer can both fire (e.g. answering the last
     // question of a section, then clicking "Weiter" within 900ms), sending
-    // two overlapping POSTs for the same row.
+    // two overlapping POSTs for the same row. (saveChain above additionally
+    // guarantees that even if both still fired, they'd never race.)
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     const result = await save('save')
     // Bug found during testing (section 7 → 8): this used to advance the
@@ -182,10 +204,16 @@ export default function UmfragePage() {
           <div className="text-2xl font-black mt-0.5">Umfrage</div>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-5 py-4 text-sm text-gray-600 dark:text-gray-300 space-y-2">
+          <p>Hilf mit, das Wildenroth-Wettspiel zu verbessern! ⚽</p>
           <p>
-            Deine Antworten werden ausschließlich zur Weiterentwicklung des Tippspiels verwendet und
-            sind für andere Teilnehmer nicht sichtbar. Freitextangaben sind freiwillig. Die Umfrage
-            dauert ungefähr 4–6 Minuten.
+            Wir möchten wissen, was dir am Wettspiel gefällt, was wir verbessern können und welche
+            neuen Funktionen dich interessieren. Die Umfrage dauert ungefähr 10–15 Minuten. Einige
+            Fragen sind freiwillig, und je nach Antwort werden nicht alle Fragen angezeigt. Deine
+            Rückmeldungen helfen uns bei der Planung der Rückrunde und der kommenden Saison 2027/28.
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700 pt-2">
+            Hinweis: Deine Antworten sind für die Administratoren deiner Teilnahme zuordenbar; die
+            Umfrage ist nicht anonym.
           </p>
         </div>
         <button
@@ -208,7 +236,7 @@ export default function UmfragePage() {
     <div className="px-4 py-4 space-y-4 pb-8">
       <div>
         <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1.5">
-          <span>Abschnitt {sectionIdx + 1} von {SURVEY_SECTIONS.length} · {section.title}</span>
+          <span>Bereich {sectionIdx + 1} von {SURVEY_SECTIONS.length} · {section.title}</span>
           <SaveIndicator state={saveState} />
         </div>
         <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
@@ -238,7 +266,7 @@ export default function UmfragePage() {
 
       <div className="space-y-4">
         {visibleQuestions.map((q) => (
-          <QuestionCard key={q.id} q={q} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} />
+          <QuestionCard key={q.id} q={q} answers={answers} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} />
         ))}
       </div>
 
@@ -292,18 +320,36 @@ function SaveIndicator({ state }: { state: SaveState }) {
   return null
 }
 
-function QuestionCard({ q, value, onChange }: { q: QuestionDef; value: Answers[string]; onChange: (v: Answers[string]) => void }) {
+function QuestionCard({ q, answers, value, onChange }: { q: QuestionDef; answers: Answers; value: Answers[string]; onChange: (v: Answers[string]) => void }) {
+  const required = isRequired(q, answers)
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-4 py-4">
-      <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
-        {q.text}
-        {q.required && q.type !== 'freetext' && <span className="text-red-600 ml-1">*</span>}
+    <>
+      {q.dividerBefore && (
+        <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 pt-2 -mb-1">{q.dividerBefore}</h3>
+      )}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-4 py-4">
+        {q.infoText && (
+          <div className="bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700 rounded-xl px-3 py-2 mb-3 text-xs text-gray-500 dark:text-gray-400">
+            {q.infoText}
+          </div>
+        )}
+        <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1 flex items-start gap-1.5">
+          <span>{q.text}</span>
+          {required
+            ? <span className="text-red-600 flex-shrink-0">*</span>
+            : <span className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 rounded-full px-1.5 py-0.5 mt-0.5">Freiwillig</span>}
+        </div>
+        {q.helpText && q.type !== 'freetext' && (
+          <p className="text-[12px] text-gray-400 dark:text-gray-500 mb-2.5">{q.helpText}</p>
+        )}
+        <div className={q.helpText && q.type !== 'freetext' ? '' : 'mt-3'}>
+          {q.type === 'scale' && <ScaleInput q={q} value={value as number | undefined} onChange={onChange} />}
+          {q.type === 'single' && <SingleChoiceInput q={q} value={value as string | undefined} onChange={onChange} />}
+          {q.type === 'multi' && <MultiChoiceInput q={q} value={value as string[] | undefined} onChange={onChange} />}
+          {q.type === 'freetext' && <FreetextInput q={q} value={value as string | undefined} onChange={onChange} />}
+        </div>
       </div>
-      {q.type === 'scale' && <ScaleInput q={q} value={value as number | undefined} onChange={onChange} />}
-      {q.type === 'single' && <SingleChoiceInput q={q} value={value as string | undefined} onChange={onChange} />}
-      {q.type === 'multi' && <MultiChoiceInput q={q} value={value as string[] | undefined} onChange={onChange} />}
-      {q.type === 'freetext' && <FreetextInput q={q} value={value as string | undefined} onChange={onChange} />}
-    </div>
+    </>
   )
 }
 
@@ -356,57 +402,78 @@ function SingleChoiceInput({ q, value, onChange }: { q: QuestionDef; value: stri
   )
 }
 
+function OptionButton({ opt, checked, disabled, onClick, help }: { opt: string; checked: boolean; disabled: boolean; onClick: () => void; help?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`w-full flex items-start gap-2.5 text-left px-3 py-2.5 rounded-xl text-sm border transition-colors disabled:opacity-40 ${
+        checked
+          ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-800 dark:text-red-300 font-semibold'
+          : 'bg-gray-50 dark:bg-gray-700/40 border-transparent text-gray-700 dark:text-gray-300 hover:border-gray-200 dark:hover:border-gray-600'
+      }`}
+    >
+      <span className={`w-4 h-4 mt-0.5 rounded flex-shrink-0 border-2 flex items-center justify-center ${checked ? 'bg-red-700 border-red-700' : 'border-gray-300 dark:border-gray-500'}`}>
+        {checked && <span className="text-white text-[10px]">✓</span>}
+      </span>
+      <span>
+        <span className="block">{opt}</span>
+        {help && <span className="block text-[11px] font-normal text-gray-400 dark:text-gray-500 mt-0.5">{help}</span>}
+      </span>
+    </button>
+  )
+}
+
 function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: string[] | undefined; onChange: (v: string[]) => void }) {
   const selected = value ?? []
+  const exclusive = new Set(q.exclusiveOptions ?? [])
+  const concreteSelectedCount = selected.filter((o) => !exclusive.has(o)).length
+
   function toggle(opt: string) {
-    if (selected.includes(opt)) {
-      onChange(selected.filter((o) => o !== opt))
-      return
-    }
-    // Exclusive option (e.g. "würde sich nichts ändern"): selecting it clears
-    // every other selection; selecting anything else while it's active
-    // drops it first — the two states can never coexist.
-    if (q.exclusiveOption && opt === q.exclusiveOption) {
-      onChange([opt])
-      return
-    }
-    if (q.maxSelect && selected.length >= q.maxSelect) return
-    const withoutExclusive = q.exclusiveOption ? selected.filter((o) => o !== q.exclusiveOption) : selected
-    onChange([...withoutExclusive, opt])
+    onChange(toggleMultiOption(q, selected, opt))
   }
+
+  // disabled only ever applies to a NOT-yet-selected, NON-exclusive option
+  // once maxSelect concrete picks are already made — an exclusive option
+  // (e.g. "Keine dieser Funktionen") must always stay clickable, and
+  // deselecting an already-picked option is always allowed.
+  function isDisabled(opt: string): boolean {
+    if (selected.includes(opt) || exclusive.has(opt)) return false
+    return q.maxSelect != null && concreteSelectedCount >= q.maxSelect
+  }
+
+  const renderOption = (opt: string) => (
+    <OptionButton key={opt} opt={opt} checked={selected.includes(opt)} disabled={isDisabled(opt)} onClick={() => toggle(opt)} help={q.optionHelp?.[opt]} />
+  )
+
+  const groupedOptions = new Set(q.optionGroups?.flatMap((g) => g.options) ?? [])
+  const ungrouped = (q.options ?? []).filter((o) => !groupedOptions.has(o))
+
   return (
     <div>
       {q.maxSelect && (
         <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-1.5">Max. {q.maxSelect} Auswahlmöglichkeiten</p>
       )}
-      <div className="space-y-1.5">
-        {(q.options ?? []).map((opt) => {
-          const checked = selected.includes(opt)
-          const disabled = !checked && !!q.maxSelect && selected.length >= q.maxSelect
-          return (
-            <button
-              key={opt}
-              onClick={() => toggle(opt)}
-              disabled={disabled}
-              className={`w-full flex items-center gap-2.5 text-left px-3 py-2.5 rounded-xl text-sm border transition-colors disabled:opacity-40 ${
-                checked
-                  ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-800 dark:text-red-300 font-semibold'
-                  : 'bg-gray-50 dark:bg-gray-700/40 border-transparent text-gray-700 dark:text-gray-300 hover:border-gray-200 dark:hover:border-gray-600'
-              }`}
-            >
-              <span className={`w-4 h-4 rounded flex-shrink-0 border-2 flex items-center justify-center ${checked ? 'bg-red-700 border-red-700' : 'border-gray-300 dark:border-gray-500'}`}>
-                {checked && <span className="text-white text-[10px]">✓</span>}
-              </span>
-              {opt}
-            </button>
-          )
-        })}
-      </div>
+      {q.optionGroups && q.optionGroups.length > 0 ? (
+        <div className="space-y-3">
+          {q.optionGroups.map((g) => (
+            <div key={g.label}>
+              <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1.5">{g.label}</div>
+              <div className="space-y-1.5">{g.options.map(renderOption)}</div>
+            </div>
+          ))}
+          {ungrouped.length > 0 && (
+            <div className="space-y-1.5 pt-1 border-t border-gray-100 dark:border-gray-700">{ungrouped.map(renderOption)}</div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-1.5">{(q.options ?? []).map(renderOption)}</div>
+      )}
     </div>
   )
 }
 
-function FreetextInput({ value, onChange }: { q: QuestionDef; value: string | undefined; onChange: (v: string) => void }) {
+function FreetextInput({ q, value, onChange }: { q: QuestionDef; value: string | undefined; onChange: (v: string) => void }) {
   return (
     <div>
       <textarea
@@ -416,7 +483,7 @@ function FreetextInput({ value, onChange }: { q: QuestionDef; value: string | un
         rows={3}
         className="w-full text-sm rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/40 px-3 py-2.5 text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"
       />
-      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Freiwillig</p>
+      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">{q.helpText ?? 'Freiwillig'}</p>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { SURVEY_SECTIONS, SURVEY_VERSION, visibleQuestionsForAnswers, type Answers } from '@/lib/survey'
 import type {
   SurveyOverview, QuestionStat, SurveyCrossTabs, SingleChoiceStat, ScaleStat, MultiStat, FreetextStat,
@@ -149,8 +149,15 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
 
   return (
     <div className="space-y-4">
-      <Section id="uf-sichtbarkeit" title="Sichtbarkeit & Konfiguration" subtitle="Umfrage-Rollout steuern" defaultOpen>
+      <Section id="uf-sichtbarkeit" title="Sichtbarkeit & Konfiguration" subtitle="Umfrage-Rollout steuern (V2)" defaultOpen>
         <div className="space-y-3">
+          <Notice tone="info">
+            Dieser Schalter steuert ausschließlich <code>app_settings.survey_mode_v2</code> — die
+            Version {SURVEY_VERSION} dieses Abschnitts. Das alte <code>survey_mode</code> (V1,
+            winter_2026_v1) bleibt davon unberührt und wird hier nicht mehr angezeigt/gesteuert; V1
+            hat bisher keine abgegebenen Antworten. Solange hier nichts geändert wird, bleibt V2 auf
+            „Versteckt&rdquo; — keine Freischaltung ohne ausdrückliche Freigabe.
+          </Notice>
           <div className="flex gap-2">
             {(['hidden', 'help_only', 'prominent'] as const).map((m) => (
               <Btn key={m} variant={settings.surveyMode === m ? 'primary' : 'secondary'} size="sm" className="flex-1" disabled={busy} onClick={() => setMode(m)}>
@@ -392,295 +399,214 @@ function FreetextBlock({ stat }: { stat: FreetextStat }) {
   )
 }
 
+function DetailSection({ title, defaultOpen, children }: { title: string; defaultOpen?: boolean; children: ReactNode }) {
+  return (
+    <details className="group border border-gray-100 rounded-xl overflow-hidden" open={defaultOpen}>
+      <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
+        <span className="font-semibold text-sm text-gray-800">{title}</span>
+        <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+      </summary>
+      <div className="p-4 space-y-3 text-xs">{children}</div>
+    </details>
+  )
+}
+
+function OptionBars({ options, pctKey }: { options: { option: string; count: number; pct?: number; pctOfRespondents?: number }[]; pctKey: 'pct' | 'pctOfRespondents' }) {
+  return (
+    <>
+      {options.map((o) => (
+        <div key={o.option} className="flex items-center gap-2 mb-1">
+          <span className="w-40 flex-shrink-0 text-gray-600 truncate" title={o.option}>{o.option}</span>
+          <Bar pct={o[pctKey] ?? 0} />
+          <span className="w-20 flex-shrink-0 text-right text-gray-500">{o.count} ({fmtPct(o[pctKey] ?? 0)})</span>
+        </div>
+      ))}
+    </>
+  )
+}
+
 function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
-  const { wettoeffnung, startgeld, preise, teilnahme, mechanik, auszahlungsdeckel, kommunikation, statsMarkets, bKlasse } = crossTabs
+  const { allgemein, risky, fairness, wettmaerkte, kommunikation, startgeldPreise, zukunft } = crossTabs
   return (
     <div>
       <h4 className="mb-2 text-[14px] font-bold text-gray-900">Kombinierte Auswertungen</h4>
       <div className="space-y-3">
-        <details className="group border border-gray-100 rounded-xl overflow-hidden" open>
-          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
-            <span className="font-semibold text-sm text-gray-800">Wettöffnung (Q3)</span>
-            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </summary>
-          <div className="p-4 text-xs">
-            <div className="grid grid-cols-3 gap-2">
-              <div className="bg-gray-50 rounded-lg px-2 py-2 text-center">
-                <div className="text-lg font-bold text-gray-700">{fmtPct(wettoeffnung.frueherPct)}</div>
-                <div className="text-[9px] text-gray-400">wollen früher öffnen</div>
-              </div>
-              <div className="bg-gray-50 rounded-lg px-2 py-2 text-center">
-                <div className="text-lg font-bold text-gray-700">{fmtPct(wettoeffnung.passtPct)}</div>
-                <div className="text-[9px] text-gray-400">passt genau</div>
-              </div>
-              <div className="bg-gray-50 rounded-lg px-2 py-2 text-center">
-                <div className="text-lg font-bold text-gray-700">{fmtPct(wettoeffnung.spaeterPct)}</div>
-                <div className="text-[9px] text-gray-400">wollen später öffnen</div>
-              </div>
-            </div>
-            <div className="text-[10px] text-gray-400 mt-1.5">n={wettoeffnung.total} — die vollständige Optionsverteilung steht unten bei den Einzelfragen (Abschnitt 1).</div>
+        <DetailSection title="Allgemeiner Eindruck & Bedienung" defaultOpen>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Schwer nachvollziehbar (Mehrfachauswahl, max. 2)</div>
+            <div className="text-[10px] text-gray-400 mb-1">n={allgemein.comprehensibility.respondents} Antwortende von {allgemein.comprehensibility.visibleCount} — Prozent je Option bezogen auf Antwortende.</div>
+            <OptionBars options={allgemein.comprehensibility.options} pctKey="pctOfRespondents" />
           </div>
-        </details>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Was macht am meisten Spaß (freiwillig, max. 2)</div>
+            <div className="text-[10px] text-gray-400 mb-1">n={allgemein.motivation.respondents} Antwortende von {allgemein.motivation.visibleCount} sichtbar (freiwillig, kann niedriger sein).</div>
+            <OptionBars options={allgemein.motivation.options} pctKey="pctOfRespondents" />
+          </div>
+        </DetailSection>
 
-        <details className="group border border-gray-100 rounded-xl overflow-hidden" open>
-          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
-            <span className="font-semibold text-sm text-gray-800">Startgeld</span>
-            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </summary>
-          <div className="p-4 space-y-3 text-xs">
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Bereitschaft (Q4)</div>
-              {startgeld.shareQ4.map((o) => (
-                <div key={o.option} className="flex items-center gap-2 mb-1">
-                  <span className="w-36 flex-shrink-0 text-gray-600">{o.option}</span>
-                  <Bar pct={o.pct} />
-                  <span className="w-16 text-right text-gray-500">{o.count} ({fmtPct(o.pct)})</span>
-                </div>
-              ))}
+        <DetailSection title="Risky-Wetten (Q12/Q13/Auszahlung)" defaultOpen>
+          <div className="grid grid-cols-3 gap-1.5">
+            <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
+              <div className="text-sm font-bold text-gray-700">{fmtPct(risky.q12Groups.abolishPct)}</div>
+              <div className="text-[9px] text-gray-400">abschaffen (Q13/Auszahlung ausgeblendet)</div>
             </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Wunsch-Höhe (Q5, nur Ja/Kommt auf die Höhe an)</div>
-              {startgeld.q5Distribution.map((o) => (
-                <div key={o.option} className="flex items-center gap-2 mb-1">
-                  <span className="w-36 flex-shrink-0 text-gray-600">{o.option}</span>
-                  <Bar pct={o.pct} />
-                  <span className="w-16 text-right text-gray-500">{o.count} ({fmtPct(o.pct)})</span>
-                </div>
-              ))}
+            <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
+              <div className="text-sm font-bold text-gray-700">{fmtPct(risky.q12Groups.positivePct)}</div>
+              <div className="text-[9px] text-gray-400">konkrete Anzahl (Q13/Auszahlung Pflicht)</div>
             </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Kumulativ würden mitmachen bis maximal…</div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {startgeld.cumulativeAtThreshold.map((t) => (
-                  <div key={t.threshold} className="bg-gray-50 rounded-lg px-1.5 py-1.5 text-center">
-                    <div className="text-sm font-bold text-gray-700">{t.count}</div>
-                    <div className="text-[9px] text-gray-400">bis {t.threshold} €</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Ø Wiederteilnahme (Q30) nach Q4</div>
-              {startgeld.avgQ30ByQ4.map((g) => (
-                <div key={g.group} className="flex justify-between text-gray-600 mb-0.5">
-                  <span>{g.group}</span><span>{fmtNum(g.avg, 1)} ({g.count})</span>
-                </div>
-              ))}
-            </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Ø Zufriedenheit (Q1) nach Q4</div>
-              {startgeld.avgQ1ByQ4.map((g) => (
-                <div key={g.group} className="flex justify-between text-gray-600 mb-0.5">
-                  <span>{g.group}</span><span>{fmtNum(g.avg, 1)} ({g.count})</span>
-                </div>
-              ))}
+            <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
+              <div className="text-sm font-bold text-gray-700">{fmtPct(risky.q12Groups.neutralPct)}</div>
+              <div className="text-[9px] text-gray-400">egal/unklar (Q13/Auszahlung freiwillig)</div>
             </div>
           </div>
-        </details>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Verteilung Q12 (n={risky.q12.total})</div>
+            <OptionBars options={risky.q12.options} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Mindest-Gesamtquote Q13 (n={risky.q13.total} sichtbar{risky.q13.shownButUnanswered > 0 ? `, ${risky.q13.shownButUnanswered} freiwillig unbeantwortet` : ''})</div>
+            <OptionBars options={risky.q13.options} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Max. Auszahlung normal (n={risky.payoutNormal.total})</div>
+            <OptionBars options={risky.payoutNormal.options} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Max. Auszahlung Risky (n={risky.payoutRisky.total} sichtbar{risky.payoutRisky.shownButUnanswered > 0 ? `, ${risky.payoutRisky.shownButUnanswered} freiwillig unbeantwortet` : ''})</div>
+            <OptionBars options={risky.payoutRisky.options} pctKey="pct" />
+          </div>
+        </DetailSection>
 
-        <details className="group border border-gray-100 rounded-xl overflow-hidden">
-          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
-            <span className="font-semibold text-sm text-gray-800">Preise</span>
-            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </summary>
-          <div className="p-4 space-y-3 text-xs">
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Beliebteste Preisart (Q7)</div>
-              {preise.q7.map((o) => (
-                <div key={o.option} className="flex items-center gap-2 mb-1">
-                  <span className="w-36 flex-shrink-0 text-gray-600">{o.option}</span>
-                  <Bar pct={o.pctOfRespondents} />
-                  <span className="w-16 text-right text-gray-500">{o.count}×</span>
-                </div>
-              ))}
+        <DetailSection title="Fairness & Abrechnung (Q17/Q19)">
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Wettbeschränkungen eigenes Team (Q17)</div>
+            <OptionBars options={fairness.q17.options} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Unstimmigkeiten bei Abrechnung/Guthaben (Q19)</div>
+            <OptionBars options={fairness.q19.options} pctKey="pct" />
+          </div>
+        </DetailSection>
+
+        <DetailSection title="Wettmärkte & Spielauswahl (Q25/Q27/Q28)">
+          <div className="grid grid-cols-3 gap-1.5">
+            <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
+              <div className="text-sm font-bold text-gray-700">{fmtPct(wettmaerkte.wouldDropAtLeastOnePct)}</div>
+              <div className="text-[9px] text-gray-400">könnten auf ≥1 Markt verzichten</div>
             </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Gewünschte Verteilung (Q8)</div>
-              {preise.q8.map((o) => (
-                <div key={o.option} className="flex items-center gap-2 mb-1">
-                  <span className="w-36 flex-shrink-0 text-gray-600">{o.option}</span>
-                  <Bar pct={o.pct} />
-                  <span className="w-16 text-right text-gray-500">{o.count} ({fmtPct(o.pct)})</span>
-                </div>
-              ))}
+            <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
+              <div className="text-sm font-bold text-gray-700">{fmtPct(wettmaerkte.keepAllPct)}</div>
+              <div className="text-[9px] text-gray-400">möchten alle behalten</div>
             </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Startgeld (Q4) × Preisart (Q7) — Top-Kombinationen</div>
-              <div className="space-y-0.5">
-                {preise.q4xQ7.slice(0, 8).map((c, i) => (
-                  <div key={i} className="flex justify-between text-gray-600">
-                    <span>{c.q4Option} → {c.q7Option}</span><span>{c.count}×</span>
-                  </div>
-                ))}
-              </div>
+            <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
+              <div className="text-sm font-bold text-gray-700">{fmtPct(wettmaerkte.cantJudgePct)}</div>
+              <div className="text-[9px] text-gray-400">kann ich nicht beurteilen</div>
             </div>
           </div>
-        </details>
-
-        <details className="group border border-gray-100 rounded-xl overflow-hidden">
-          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
-            <span className="font-semibold text-sm text-gray-800">Teilnahme / Bindung</span>
-            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </summary>
-          <div className="p-4 space-y-3 text-xs">
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Häufigste Gründe fürs Nicht-Wetten (Q29)</div>
-              {teilnahme.reasonsRanked.map((o) => (
-                <div key={o.option} className="flex items-center gap-2 mb-1">
-                  <span className="w-40 flex-shrink-0 text-gray-600 truncate" title={o.option}>{o.option}</span>
-                  <Bar pct={o.pctOfRespondents} />
-                  <span className="w-16 text-right text-gray-500">{o.count}×</span>
-                </div>
-              ))}
-            </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Ø Wiederteilnahme (Q30) je Grund</div>
-              {teilnahme.avgQ30ByReason.filter((g) => g.count > 0).map((g) => (
-                <div key={g.reason} className="flex justify-between text-gray-600 mb-0.5">
-                  <span className="truncate mr-2" title={g.reason}>{g.reason}</span><span className="flex-shrink-0">{fmtNum(g.avg, 1)} ({g.count})</span>
-                </div>
-              ))}
-            </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Verzichtbare Märkte (Q25, n={wettmaerkte.q25.respondents})</div>
+            <OptionBars options={wettmaerkte.q25.options} pctKey="pctOfRespondents" />
           </div>
-        </details>
-
-        <details className="group border border-gray-100 rounded-xl overflow-hidden">
-          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
-            <span className="font-semibold text-sm text-gray-800">Spielmechanik (Übersicht)</span>
-            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </summary>
-          <div className="p-4 overflow-x-auto">
-            <table className="w-full text-xs min-w-[480px]">
-              <thead>
-                <tr className="text-left text-gray-400 border-b border-gray-100">
-                  <th className="py-1.5 pr-2 font-semibold">Frage</th>
-                  <th className="py-1.5 pr-2 font-semibold">Häufigste Antwort</th>
-                  <th className="py-1.5 pr-2 font-semibold">Antworten</th>
-                  <th className="py-1.5 pr-2 font-semibold">Änderungswunsch</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mechanik.map((m) => (
-                  <tr key={m.questionId} className="border-b border-gray-50">
-                    <td className="py-1.5 pr-2 text-gray-700 max-w-[220px] truncate" title={m.text}>{m.text}</td>
-                    <td className="py-1.5 pr-2 text-gray-500">{m.topOption ?? '—'}</td>
-                    <td className="py-1.5 pr-2 text-gray-500">{m.total}</td>
-                    <td className="py-1.5 pr-2">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${m.wantsChange ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
-                        {fmtPct(m.wantsChangePct)}{m.wantsChange ? ' ⚠️' : ''}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Kreisliga-Spielumfang (Q27)</div>
+            <OptionBars options={wettmaerkte.q27.options} pctKey="pct" />
           </div>
-        </details>
-
-        <details className="group border border-gray-100 rounded-xl overflow-hidden">
-          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
-            <span className="font-semibold text-sm text-gray-800">Auszahlungsdeckel</span>
-            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </summary>
-          <div className="p-4 space-y-3 text-xs">
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Bekanntheit (Q14)</div>
-              <SingleBlock stat={auszahlungsdeckel.bekanntheit} />
-            </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Bewertung — alle (Q14_follow)</div>
-              <SingleBlock stat={auszahlungsdeckel.bewertung} />
-            </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Bewertung — kannte den Deckel vorher (Ja)</div>
-              {auszahlungsdeckel.bewertungByBekanntheit.knew.map((o) => (
-                <div key={o.option} className="flex items-center gap-2 mb-1">
-                  <span className="w-36 flex-shrink-0 text-gray-600">{o.option}</span>
-                  <Bar pct={o.pct} />
-                  <span className="w-16 text-right text-gray-500">{o.count} ({fmtPct(o.pct)})</span>
-                </div>
-              ))}
-            </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Bewertung — kannte den Deckel vorher nicht (Nein)</div>
-              {auszahlungsdeckel.bewertungByBekanntheit.didNotKnow.map((o) => (
-                <div key={o.option} className="flex items-center gap-2 mb-1">
-                  <span className="w-36 flex-shrink-0 text-gray-600">{o.option}</span>
-                  <Bar pct={o.pct} />
-                  <span className="w-16 text-right text-gray-500">{o.count} ({fmtPct(o.pct)})</span>
-                </div>
-              ))}
-            </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">B-Klasse-Spielumfang (Q28)</div>
+            <OptionBars options={wettmaerkte.q28.options} pctKey="pct" />
           </div>
-        </details>
+        </DetailSection>
 
-        <details className="group border border-gray-100 rounded-xl overflow-hidden">
-          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
-            <span className="font-semibold text-sm text-gray-800">B-Klasse (Q28)</span>
-            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </summary>
-          <div className="p-4 text-xs">
-            <div className="grid grid-cols-4 gap-1.5 mb-2">
-              <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
-                <div className="text-sm font-bold text-gray-700">{fmtPct(bKlasse.wenigerPct)}</div>
-                <div className="text-[9px] text-gray-400">weniger als aktuell</div>
-              </div>
-              <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
-                <div className="text-sm font-bold text-gray-700">{fmtPct(bKlasse.aktuellPct)}</div>
-                <div className="text-[9px] text-gray-400">aktuelles Modell</div>
-              </div>
-              <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
-                <div className="text-sm font-bold text-gray-700">{fmtPct(bKlasse.mehrPct)}</div>
-                <div className="text-[9px] text-gray-400">mehr als aktuell</div>
-              </div>
-              <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
-                <div className="text-sm font-bold text-gray-700">{fmtPct(bKlasse.komplettPct)}</div>
-                <div className="text-[9px] text-gray-400">komplette B-Klasse</div>
-              </div>
-            </div>
-            <div className="text-[10px] text-gray-400 mb-2">n={bKlasse.total} — restliche Antworten (&quot;interessiert mich kaum&quot; / &quot;egal&quot;) sind hier nicht mitgezählt, volle Verteilung unten:</div>
-            <SingleBlock stat={bKlasse.raw} />
+        <DetailSection title="Kommunikation & Statistiken (Q20/Q21/Q22/Q23)">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800">
+            {fmtPct(kommunikation.pushProblemPct)} haben ein Problem mit Push-Benachrichtigungen (zu viele, unzuverlässig, kaum hilfreich oder Einrichtung fehlgeschlagen).
           </div>
-        </details>
-
-        <details className="group border border-gray-100 rounded-xl overflow-hidden">
-          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
-            <span className="font-semibold text-sm text-gray-800">Kommunikation</span>
-            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </summary>
-          <div className="p-4 space-y-3 text-xs">
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800">
-              {fmtPct(kommunikation.pushProblemPct)} hatten Probleme mit Push-Benachrichtigungen.
-            </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-blue-800">
-              {fmtPct(kommunikation.recapRarelyOrNeverPct)} lesen die Spieltags-Recaps selten oder gar nicht.
-            </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Push-Nutzung (Q20)</div>
             <SingleBlock stat={kommunikation.q20} />
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Wusste, dass Recaps auch in der App sind</div>
-              <SingleBlock stat={kommunikation.recapKnown} />
-            </div>
-            <div>
-              <div className="font-semibold text-gray-600 mb-1">Tatsächlicher Nutzungskanal</div>
-              <SingleBlock stat={kommunikation.recapChannel} />
-            </div>
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Kanal (Q21, freiwillig, n={kommunikation.recapChannel.total})</div>
+            <OptionBars options={kommunikation.recapChannel.options} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Gewünschter Benachrichtigungskanal (Q22)</div>
             <SingleBlock stat={kommunikation.q22} />
           </div>
-        </details>
-
-        <details className="group border border-gray-100 rounded-xl overflow-hidden">
-          <summary className="cursor-pointer select-none list-none px-4 py-3 bg-gray-50 flex items-center justify-between">
-            <span className="font-semibold text-sm text-gray-800">Statistiken &amp; Wettmärkte</span>
-            <svg className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </summary>
-          <div className="p-4 space-y-3 text-xs">
-            <SingleBlock stat={statsMarkets.q23} />
-            <FreetextBlock stat={statsMarkets.q23_text} />
-            <MultiBlock stat={statsMarkets.q24} />
-            <MultiBlock stat={statsMarkets.q25} />
-            <FreetextBlock stat={statsMarkets.q26} />
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Persönliche Wettstatistiken (Q23, freiwillig, n={kommunikation.q23.total})</div>
+            <OptionBars options={kommunikation.q23.options} pctKey="pct" />
           </div>
-        </details>
+          <FreetextBlock stat={kommunikation.q23_text} />
+        </DetailSection>
+
+        <DetailSection title="Startgeld & Preise (Q4/Q5/Q7/Q8)" defaultOpen>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Einstellung zum Startgeld (Q4) — 5 Segmente</div>
+            <OptionBars options={startgeldPreise.q4.options} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Max. Betrag (Q5, nur sichtbar bei Q4 = 2/3/4; n={startgeldPreise.q5.total})</div>
+            <OptionBars options={startgeldPreise.q5.options} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Kumulative Zahlungsbereitschaft — würden mindestens diesen Betrag zahlen</div>
+            <div className="text-[10px] text-gray-400 mb-1">Basis: {startgeldPreise.q5RespondentsCount} beantwortete Q5 (ein Maximum von 20&nbsp;€ zählt auch bei 5/10/15&nbsp;€ mit; &quot;kann ich noch nicht beurteilen&quot; zählt bei keinem Schwellenwert).</div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {startgeldPreise.cumulativeWillingness.map((t) => (
+                <div key={t.threshold} className="bg-gray-50 rounded-lg px-1.5 py-1.5 text-center">
+                  <div className="text-sm font-bold text-gray-700">{t.count}</div>
+                  <div className="text-[9px] text-gray-400">ab {t.threshold} € ({fmtPct(t.pctOfQ5Respondents)})</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Gewünschte Preisarten (Q7, max. 2 + „Keine Präferenz&rdquo;, n={startgeldPreise.q7.respondents})</div>
+            <OptionBars options={startgeldPreise.q7.options} pctKey="pctOfRespondents" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Gewünschte Preisverteilung (Q8)</div>
+            <OptionBars options={startgeldPreise.q8.options} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Ø Zufriedenheit (Q1) nach Q4</div>
+            {startgeldPreise.avgQ1ByQ4.map((g) => (
+              <div key={g.group} className="flex justify-between text-gray-600 mb-0.5">
+                <span className="truncate mr-2" title={g.group}>{g.group}</span><span className="flex-shrink-0">{fmtNum(g.avg, 1)} ({g.count})</span>
+              </div>
+            ))}
+          </div>
+        </DetailSection>
+
+        <DetailSection title="Zukunft & Verbesserungen (Q29/Q30/Features)" defaultOpen>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Gründe für weniger Wetten (Q29, max. 3, n={zukunft.q29.respondents})</div>
+            <div className="text-[10px] text-gray-400 mb-1">{fmtPct(zukunft.satisfiedPct)} davon sind mit ihrer Wettaktivität bereits zufrieden (exklusive Option).</div>
+            <OptionBars options={zukunft.q29.options} pctKey="pctOfRespondents" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Teilnahme 2027/28 (Q30)</div>
+            <OptionBars options={zukunft.q30.options} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Q30-Verteilung je Grund (Q29)</div>
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              {zukunft.q30ByReason.filter((g) => g.count > 0).map((g) => (
+                <div key={g.reason} className="bg-gray-50 rounded-lg px-2 py-1.5">
+                  <div className="text-gray-700 truncate mb-0.5" title={g.reason}>{g.reason} (n={g.count})</div>
+                  <div className="text-gray-500">
+                    {g.distribution.filter((o) => o.count > 0).map((o) => `${o.option}: ${o.count}`).join(' · ') || '—'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Feature-Wünsche (max. 3, n={zukunft.features.respondents}) — {fmtPct(zukunft.featuresNonePct)} „Keine dieser Funktionen&rdquo;</div>
+            <OptionBars options={zukunft.features.options} pctKey="pctOfRespondents" />
+          </div>
+        </DetailSection>
       </div>
     </div>
   )

@@ -17,6 +17,7 @@ import { ODDS_MATCH_COLUMNS, ODDS_MATCH_JOINS, SEASON_START, priorContextFromRow
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerDisplayOffer, type GoalscorerMatchContext } from '@/lib/goalscorer'
 import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, goalscorerOfferState, loadPreviousPublishedOfferState } from '@/lib/goalscorerContext'
+import { SURVEY_MODE_SETTING_KEY } from '@/lib/survey'
 import Link from 'next/link'
 import { CUP_MARKET_LABEL, plainSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
@@ -95,7 +96,7 @@ export default async function TippsPage({
   // account for that by hand. A Spieltag without an explicit entry falls back
   // to the dynamic computation unchanged.
   const explicitBettingOpens = parseBettingOpenOverrides(appSettings)
-  const surveyMode = appSettings.get('survey_mode') ?? 'hidden'
+  const surveyMode = appSettings.get(SURVEY_MODE_SETTING_KEY) ?? 'hidden'
 
   const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
     ...m,
@@ -1469,10 +1470,11 @@ export default async function TippsPage({
         </div>
       )}
 
-      {/* Prominent survey banner — only rendered once app_settings.survey_mode
-          is switched to 'prominent' (currently 'help_only', see CLAUDE.md /
-          the survey feature spec). Built now so flipping the config flag
-          alone is enough later. */}
+      {/* Prominent survey banner — only rendered once app_settings.survey_mode_v2
+          (V2's own gate, see lib/survey.ts#SURVEY_MODE_SETTING_KEY) is explicitly
+          switched to 'prominent'. Defaults to 'hidden' until that later, separate
+          release decision — built now so flipping the config flag alone is
+          enough then. */}
       {surveyMode === 'prominent' && (
         <Link
           href="/umfrage"

@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { HelpAccordion } from '@/components/HelpAccordion'
 import { createClient } from '@/lib/supabase/server'
-import { SURVEY_VERSION } from '@/lib/survey'
+import { SURVEY_VERSION, SURVEY_MODE_SETTING_KEY } from '@/lib/survey'
 
 export const revalidate = 86400
 
@@ -16,7 +16,7 @@ export default async function AnleitungPage() {
   let surveyStatus: 'not_started' | 'started' | 'submitted' = 'not_started'
   if (user) {
     const [{ data: modeSetting }, { data: response }] = await Promise.all([
-      supabase.from('app_settings').select('value').eq('key', 'survey_mode').maybeSingle(),
+      supabase.from('app_settings').select('value').eq('key', SURVEY_MODE_SETTING_KEY).maybeSingle(),
       supabase.from('survey_responses').select('submitted_at').eq('user_id', user.id).eq('survey_version', SURVEY_VERSION).maybeSingle(),
     ])
     surveyMode = modeSetting?.value ?? 'hidden'
