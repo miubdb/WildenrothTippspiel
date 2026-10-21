@@ -103,7 +103,7 @@ export async function POST(req: Request) {
 
   if (action === 'set_mode') {
     const mode = (body as { mode?: string }).mode
-    if (!['hidden', 'help_only', 'prominent'].includes(mode ?? '')) {
+    if (!['hidden', 'direct_only', 'help_only', 'prominent'].includes(mode ?? '')) {
       return NextResponse.json({ error: 'Unbekannter Modus.' }, { status: 400 })
     }
     // currentSurveyModeKey() — this writes EXCLUSIVELY to the key belonging
