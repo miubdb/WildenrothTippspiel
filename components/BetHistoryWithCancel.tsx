@@ -108,11 +108,14 @@ export function toWetteData(item: HistoryItem, players?: Record<number, string>,
   const { legs, cb } = item
   const dbSt = cb?.status ?? 'pending'
   const status: WetteStatus =
-    (dbSt === 'won' || dbSt === 'lost') ? dbSt as WetteStatus
+    (dbSt === 'won' || dbSt === 'lost' || dbSt === 'neutralized') ? dbSt as WetteStatus
     : legs.some(l => l.status === 'lost') ? 'lost'
-    : legs.every(l => l.status === 'won') ? 'won'
+    : legs.every(l => l.status === 'won' || l.status === 'neutralized') ? 'won'
     : 'pending'
-  const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * (l.odds_value ?? 1), 1)
+  // Fallback only matters if cb itself is somehow missing — a neutralized leg
+  // contributes 1.00 (its effective odds), never its original odds_value, to
+  // this product (see lib/matchAnnulment.ts).
+  const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * (l.status === 'neutralized' ? 1 : (l.odds_value ?? 1)), 1)
 
   return {
     id: `combo-${item.comboId}`,
@@ -160,6 +163,12 @@ export function canCancelItem(item: HistoryItem): boolean {
     return new Date(m.match_date) > now
   }
   for (const leg of item.legs) {
+    // Only a still-PENDING leg's own kickoff matters here — a leg already
+    // 'neutralized' (its match was finally annulled, Nichtantritt — see
+    // lib/matchAnnulment.ts) is already decided/moot and must never block
+    // cancelling the combo's remaining, genuinely still-open legs, even
+    // though its own match's date is necessarily in the past by now.
+    if (leg.status !== 'pending') continue
     const m = leg.match
     if (!m) continue
     if (m.status !== 'postponed' && new Date(m.match_date) <= now) return false

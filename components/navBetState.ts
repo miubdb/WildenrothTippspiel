@@ -29,7 +29,7 @@ export function activeTippMatchday(seasonMatches: MatchLite[]): { matchday: numb
   const effOf = (m: Match) => (m.matchday === 999 ? null : effectiveMatchdayOf(m, index))
   let matchday: number | null = null
   for (const md of order) {
-    if (matches.some((m) => effOf(m) === md && m.status !== 'finished' && m.status !== 'postponed')) { matchday = md; break }
+    if (matches.some((m) => effOf(m) === md && m.status !== 'finished' && m.status !== 'postponed' && m.status !== 'annulled')) { matchday = md; break }
   }
   if (matchday == null) matchday = order[order.length - 1] ?? null
   if (matchday == null) return { matchday: null, matchIds: [] }

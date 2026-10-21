@@ -1107,7 +1107,7 @@ export default async function TippsPage({
   // Matchday 999 is the reserved test matchday — excluded here too, matching
   // settle/route.ts and lib/awards.ts, so test-bet results/usernames never
   // surface as a "real" recap preview during a pre-season test run.
-  const nonPostponedMatches = matchdayMatches.filter(m => m.status !== 'postponed')
+  const nonPostponedMatches = matchdayMatches.filter(m => m.status !== 'postponed' && m.status !== 'annulled')
   const isMatchdayComplete = currentMatchday !== 999 && nonPostponedMatches.length > 0 &&
     nonPostponedMatches.every(m => m.status === 'finished')
 

@@ -4,13 +4,18 @@ import { useState } from 'react'
 import { ReactionBar } from '@/components/ReactionBar'
 import { CommentSection, type CommentData } from '@/components/CommentSection'
 import { wildiLabel } from '@/components/WildiIcon'
-import { oddsColorClass, CUP_MARKET_LABEL } from '@/lib/betDisplay'
+import { oddsColorClass, CUP_MARKET_LABEL, ANNULLED_MATCH_SUFFIX, ANNULLED_EXPLANATION_TEXT } from '@/lib/betDisplay'
 import { cappedPayout } from '@/lib/payout'
 import { TeamLogo } from '@/components/TeamLogo'
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-export type WetteStatus = 'pending' | 'won' | 'lost'
+/** 'neutralized' = this whole slip (a standalone single, or a combo made
+ *  ENTIRELY of neutralized legs) was tied to a now-annulled match/Special —
+ *  stake fully refunded, counts as neither won nor lost (lib/matchAnnulment.ts).
+ *  A combo with only SOME legs neutralized keeps its normal 'pending'/'won'/
+ *  'lost' status here — only the individual WetteLeg below gets flagged. */
+export type WetteStatus = 'pending' | 'won' | 'lost' | 'neutralized'
 
 export type WetteLeg = {
   id: number
@@ -82,6 +87,8 @@ function StatusPill({ status }: { status: WetteStatus }) {
     return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 whitespace-nowrap">Gewonnen 🎉</span>
   if (status === 'lost')
     return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 whitespace-nowrap">Verloren</span>
+  if (status === 'neutralized')
+    return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300 whitespace-nowrap">Erstattet</span>
   return <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 whitespace-nowrap">Offen</span>
 }
 
@@ -124,6 +131,7 @@ export function WetteCard({
   const accentCls =
     wette.status === 'won' ? 'border-l-green-500' :
     wette.status === 'lost' ? 'border-l-red-400' :
+    wette.status === 'neutralized' ? 'border-l-slate-300' :
     'border-l-amber-400'
 
   const leg0 = wette.legs[0]
@@ -172,6 +180,11 @@ export function WetteCard({
                   {'→'}<span className="text-red-400 line-through">{fmt(possiblePayout)} {wildiLabel(possiblePayout)}</span>
                 </span>
               )}
+              {wette.status === 'neutralized' && (
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                  {'→'}<span className="font-semibold text-slate-500 dark:text-slate-300">{fmt(wette.stake)} {wildiLabel(wette.stake)} erstattet</span>
+                </span>
+              )}
             </div>
           </div>
 
@@ -211,24 +224,41 @@ export function WetteCard({
         <div className="border-t border-gray-100 dark:border-gray-700">
           <div className="px-3 py-2 space-y-2">
             {wette.legs.map(leg => {
-              const dotCls = leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : 'bg-amber-400'
+              const isNeutralized = leg.status === 'neutralized'
+              const dotCls = leg.status === 'won' ? 'bg-green-500' : leg.status === 'lost' ? 'bg-red-400' : isNeutralized ? 'bg-slate-300' : 'bg-amber-400'
               const oddsCls = oddsColorClass(leg.status)
               return (
                 <div key={leg.id} className="flex items-start gap-2">
                   <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1.5 ${dotCls}`} />
                   <div className="flex-1 min-w-0">
-                    <MatchLine leg={leg} className="text-[11px] text-gray-500 dark:text-gray-400 leading-snug" />
+                    <MatchLine
+                      leg={leg}
+                      className={`text-[11px] leading-snug ${isNeutralized ? 'text-slate-400 dark:text-slate-500' : 'text-gray-500 dark:text-gray-400'}`}
+                    />
+                    {isNeutralized && (
+                      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">· {ANNULLED_MATCH_SUFFIX}</span>
+                    )}
                     <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                       <span className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 px-1 py-px rounded">
                         {CUP_MARKET_LABEL[leg.market] ?? MARKET_LABEL[leg.market] ?? leg.market}
                       </span>
-                      <span className="text-xs font-semibold text-gray-900 dark:text-gray-100">{leg.selection}</span>
+                      <span className={`text-xs font-semibold ${isNeutralized ? 'text-slate-400 dark:text-slate-500' : 'text-gray-900 dark:text-gray-100'}`}>{leg.selection}</span>
                       {leg.score && <span className="text-[10px] text-gray-400 dark:text-gray-500">· {leg.score}</span>}
                     </div>
+                    {isNeutralized && (
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 leading-snug">{ANNULLED_EXPLANATION_TEXT}</p>
+                    )}
                   </div>
-                  <span className={`text-xs font-bold flex-shrink-0 ${oddsCls}`}>
-                    @{fmtOdds(leg.odds)}
-                  </span>
+                  {isNeutralized ? (
+                    <span className="text-xs font-bold flex-shrink-0 flex items-center gap-1">
+                      <span className="text-slate-400 line-through dark:text-slate-500">@{fmtOdds(leg.odds)}</span>
+                      <span className="text-slate-500 dark:text-slate-300">@1,00</span>
+                    </span>
+                  ) : (
+                    <span className={`text-xs font-bold flex-shrink-0 ${oddsCls}`}>
+                      @{fmtOdds(leg.odds)}
+                    </span>
+                  )}
                 </div>
               )
             })}

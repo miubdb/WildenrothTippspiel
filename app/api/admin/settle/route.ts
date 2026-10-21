@@ -84,6 +84,18 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Ein final annulliertes Spiel (Nichtantritt o.ä., siehe app/api/admin/matches/[id]/annul/
+  // route.ts) wird NIEMALS normal abgerechnet — kein Forfeit-Ergebnis (z.B. 2:0) darf je als
+  // echtes Ergebnis für die Settlement-Logik gelten (lib/settleBet.ts hätte dafür ohnehin keinen
+  // eigenen Fall und würde jede noch offene Wette blind nach Score graden). Final, nicht umkehrbar
+  // über diese Route.
+  if (existingMatch?.status === 'annulled') {
+    return NextResponse.json(
+      { error: 'Dieses Spiel wurde annulliert (Nichtantritt/Annullierung) und kann nicht mehr normal abgerechnet werden.' },
+      { status: 409 }
+    )
+  }
+
   // Cup match: "Wer kommt weiter?" needs the shootout winner recorded on a
   // 90-minute draw — refuse to settle rather than silently grading every
   // cup_advance bet 'lost' (see settleBet's fail-safe above).

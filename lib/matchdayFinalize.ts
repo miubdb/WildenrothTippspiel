@@ -65,7 +65,11 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
   const matchdayMatches = seasonMatchesForMd.filter((m) => recapMatchdayOf(m, mdIndex) === matchday)
   const displayMatchdayMatches = seasonMatchesForMd.filter((m) => effectiveMatchdayOf(m, mdIndex) === matchday)
 
-  const nonPostponedInMatchday = matchdayMatches.filter((m) => m.status !== 'postponed')
+  // A finally annulled match (Nichtantritt, status='annulled' — see
+  // lib/matchAnnulment.ts) never reaches 'finished' and never will — treated
+  // the same as 'postponed' here: excluded from "must be finished", so it can
+  // never block this Spieltag's recap/awards/pocket-money/penalty forever.
+  const nonPostponedInMatchday = matchdayMatches.filter((m) => m.status !== 'postponed' && m.status !== 'annulled')
   const allFinished = nonPostponedInMatchday.length > 0 && nonPostponedInMatchday.every((m) => m.status === 'finished')
   if (!allFinished) return
 

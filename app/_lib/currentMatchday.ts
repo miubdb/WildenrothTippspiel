@@ -48,7 +48,7 @@ export function defaultCurrentMatchday(
 
   const completedMatchdays = allMatchdays.filter((md) => {
     const mdM = seasonMatches.filter((m) => effOf(m) === md)
-    const nonPostponed = mdM.filter((m) => m.status !== 'postponed')
+    const nonPostponed = mdM.filter((m) => m.status !== 'postponed' && m.status !== 'annulled')
     return nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
   })
   const lastCompletedMd = completedMatchdays.length > 0
@@ -64,7 +64,7 @@ export function defaultCurrentMatchday(
       .filter((md): md is number => md != null && md !== 999)
   )]
     .filter((md) => {
-      const nonPostponed = seasonMatches.filter((m) => effOf(m) === md && m.status !== 'postponed')
+      const nonPostponed = seasonMatches.filter((m) => effOf(m) === md && m.status !== 'postponed' && m.status !== 'annulled')
       if (nonPostponed.length === 0) return false
       const hasStarted = nonPostponed.some((m) => m.status === 'finished' || new Date(m.match_date).getTime() <= nowMs)
       const allDone = nonPostponed.every((m) => m.status === 'finished')

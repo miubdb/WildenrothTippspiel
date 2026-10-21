@@ -141,7 +141,10 @@ export function ErgebnisseTabView({
   }
   const mdLabel = (md: number) => (md === 999 ? 'Test' : `Spieltag ${md}`)
   const doneInScope = view.settled.length
-  const totalInScope = view.scoped.filter((m) => m.status !== 'postponed').length
+  // 'annulled' (Nichtantritt — lib/matchAnnulment.ts) never reaches 'finished'
+  // either, same as 'postponed' — excluded here so a finally annulled match
+  // can't permanently depress this Spieltag's completion fraction.
+  const totalInScope = view.scoped.filter((m) => m.status !== 'postponed' && m.status !== 'annulled').length
 
   const renderSettleCard = (m: MatchRow, mode: SettleMode) => (
     <MatchSettleCard

@@ -95,13 +95,17 @@ export const MIN_SAMPLE_TEAM_PERFORMANCE = 5
  *  überhaupt erscheint (bestehendes Verhalten aus profil/page.tsx). */
 export const MIN_SETTLED_FOR_STATS_CARD = 3
 
+// 'neutralized' (see lib/matchAnnulment.ts) is excluded from every query below
+// the same way 'void' already is — a selection tied to an annulled match
+// counts as neither won nor lost, so it must never enter hitRate/streaks/avg
+// odds/best-win here, exactly like a user-cancelled bet already doesn't.
 type BetRow = {
   id: number
   market_type: string
   selection: string
   stake: number | null
   odds_value: number
-  status: 'pending' | 'won' | 'lost' | 'void'
+  status: 'pending' | 'won' | 'lost' | 'void' | 'neutralized'
   payout: number | null
   combo_id: number | null
   is_risky: boolean
@@ -113,7 +117,7 @@ type ComboRow = {
   id: number
   stake: number
   total_odds: number
-  status: 'pending' | 'won' | 'lost' | 'void'
+  status: 'pending' | 'won' | 'lost' | 'void' | 'neutralized'
   payout: number | null
   created_at: string
 }
@@ -458,6 +462,7 @@ export async function computeUserBetStats(
     .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season')
     .eq('user_id', userId)
     .neq('status', 'void')
+    .neq('status', 'neutralized')
 
   const allBets = (betsRaw ?? []) as (BetRow & { season: string | null })[]
   // TEST (matchday 999) läuft nie in echte Statistiken ein — siehe TEST_SEASON-Kommentar oben.
@@ -496,6 +501,7 @@ export async function computeAllUsersBetStats(
       .from('bets')
       .select('id, user_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season')
       .neq('status', 'void')
+      .neq('status', 'neutralized')
       .order('id')
       .range(from, to)
     ),
@@ -503,6 +509,7 @@ export async function computeAllUsersBetStats(
       .from('combo_bets')
       .select('id, user_id, stake, total_odds, status, payout, created_at, season')
       .neq('status', 'void')
+      .neq('status', 'neutralized')
       .order('id')
       .range(from, to)
     ),
@@ -586,6 +593,7 @@ export async function getUserSlipDetails(
     .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season')
     .eq('user_id', userId)
     .neq('status', 'void')
+    .neq('status', 'neutralized')
   const allBets = (betsRaw ?? []) as (BetRow & { season: string | null })[]
   const bets = allBets.filter(b => b.season === season)
   const singleBets = bets.filter(b => b.combo_id == null)

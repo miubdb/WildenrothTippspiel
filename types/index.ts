@@ -1,10 +1,20 @@
 export type MarketType = '1x2' | 'double_chance' | 'over_under' | 'over_under_3_5' | 'over_under_5_5' | 'over_under_7_5' | 'btts' | 'exact_score' | 'handicap' | 'goalscorer' | 'goalscorer_2plus' | 'cup_advance' | 'cup_first_goal' | 'cup_decision' | 'cup_halftime_lead_advance' | 'cup_comeback_advance' | 'cup_shootout_advance' | 'cup_early_goal' | 'cup_ht_more_goals' | 'cup_both_halves_btts' | 'matchday_special'
 
-export type MatchStatus = 'scheduled' | 'live' | 'finished' | 'cancelled' | 'postponed'
+/** 'annulled' = final Nichtantritt/Annullierung (lib/matchAnnulment.ts,
+ *  supabase/match_annulment.sql#neutralize_match) — the match never settles
+ *  normally again, home_score/away_score stay null (no forfeit score is ever
+ *  stored as a real result). Distinct from the pre-existing, never actually
+ *  used 'cancelled' value (see lib/matchAnnulment.ts's header comment for why
+ *  a new value was introduced instead of reusing it). */
+export type MatchStatus = 'scheduled' | 'live' | 'finished' | 'cancelled' | 'postponed' | 'annulled'
 
-export type BetStatus = 'pending' | 'won' | 'lost' | 'void'
+/** 'neutralized' = this selection was tied to an annulled match/Special — counts as
+ *  neither won nor lost, effective odds 1.00, stake refunded (singles) or the
+ *  combo's total_odds recomputed from its remaining legs (combos) — see
+ *  lib/matchAnnulment.ts. */
+export type BetStatus = 'pending' | 'won' | 'lost' | 'void' | 'neutralized'
 
-export type ComboBetStatus = 'pending' | 'won' | 'lost' | 'void'
+export type ComboBetStatus = 'pending' | 'won' | 'lost' | 'void' | 'neutralized'
 
 export interface Team {
   id: number

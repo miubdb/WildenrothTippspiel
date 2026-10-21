@@ -162,7 +162,8 @@ export default function AdminPage() {
         m.matchday !== 999 &&
         effectiveMatchdayOf(m as unknown as Match, mdIndex) === md &&
         m.status !== 'finished' &&
-        m.status !== 'postponed'
+        m.status !== 'postponed' &&
+        m.status !== 'annulled'
       )
       if (hasUnsettled) return md
     }

@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     // Find all legs to determine if any match has actually started
     const { data: allLegs } = await admin
       .from('bets')
-      .select('match_id')
+      .select('match_id, status')
       .eq('combo_id', comboId)
 
     if (!allLegs || allLegs.length === 0) {
@@ -86,12 +86,21 @@ export async function POST(request: NextRequest) {
     const allMatchIds = allLegs.map((l) => l.match_id)
     const { data: comboMatches } = await admin
       .from('matches')
-      .select('match_date, status')
+      .select('id, match_date, status')
       .in('id', allMatchIds)
 
-    // Block if any match has actually started (not just postponed — postponed means no kickoff yet)
+    // Only the matches of STILL-PENDING legs matter for "has it already
+    // started" — cancelling the combo only ever touches those (the UPDATE
+    // below is itself gated on status='pending'). A leg already 'neutralized'
+    // (its match was finally annulled, Nichtantritt — see lib/matchAnnulment.ts)
+    // sits on a match whose own match_date is necessarily in the past by now,
+    // but that leg is already decided/moot and must never block cancelling
+    // the combo's remaining, genuinely still-open legs.
+    const pendingLegMatchIds = new Set(allLegs.filter((l) => l.status === 'pending').map((l) => l.match_id))
+    // Block if any STILL-PENDING leg's match has actually started (not just
+    // postponed — postponed means no kickoff yet).
     const startedMatch = (comboMatches ?? []).find(
-      (m) => m.status !== 'postponed' && new Date(m.match_date) <= new Date()
+      (m) => pendingLegMatchIds.has(m.id) && m.status !== 'postponed' && new Date(m.match_date) <= new Date()
     )
     if (startedMatch) {
       return NextResponse.json(

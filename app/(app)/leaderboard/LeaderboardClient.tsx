@@ -153,13 +153,16 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
       seen.add(b.combo_id)
       const comboLegs = bets.filter(x => x.combo_id === b.combo_id)
       const cb = combos[b.combo_id]
-      const totalOdds = cb?.total_odds ?? comboLegs.reduce((acc, l) => acc * l.odds_value, 1)
+      // A neutralized leg (lib/matchAnnulment.ts) contributes 1.00, never its
+      // original odds_value, to this fallback product — only relevant if cb
+      // itself is somehow missing.
+      const totalOdds = cb?.total_odds ?? comboLegs.reduce((acc, l) => acc * (l.status === 'neutralized' ? 1 : l.odds_value), 1)
       const dbStatus = (cb?.status ?? 'pending') as WetteStatus
       // Override stale 'pending' DB status when legs already prove the outcome
       const effectiveStatus: WetteStatus =
-        (dbStatus === 'won' || dbStatus === 'lost') ? dbStatus
+        (dbStatus === 'won' || dbStatus === 'lost' || dbStatus === 'neutralized') ? dbStatus
         : comboLegs.some(l => l.status === 'lost') ? 'lost'
-        : comboLegs.every(l => l.status === 'won') ? 'won'
+        : comboLegs.every(l => l.status === 'won' || l.status === 'neutralized') ? 'won'
         : 'pending'
       wetten.push({
         id: `combo-${b.combo_id}`,

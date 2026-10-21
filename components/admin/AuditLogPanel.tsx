@@ -39,6 +39,7 @@ const ACTION_LABEL: Record<AuditAction, string> = {
   survey_mode_change: 'Umfrage-Sichtbarkeit',
   survey_response_delete: 'Umfrageantwort gelöscht',
   checklist_confirmation: 'Spieltag-Cockpit bestätigt',
+  match_annulment: 'Spiel annulliert (Nichtantritt)',
 }
 
 function fmt(v: unknown): string {

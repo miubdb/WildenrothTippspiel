@@ -170,7 +170,11 @@ export default async function LeaderboardPage({
     // when the matches actually shown under it are done, not when an outlier
     // match that lives under a different Spieltag has been played.
     const mdM = seasonMatches.filter((m) => effectiveMatchdayOf(m) === md)
-    const nonPostponed = mdM.filter((m) => m.status !== 'postponed')
+    // 'annulled' (Nichtantritt — see lib/matchAnnulment.ts) excluded the same
+    // way 'postponed' already is: it never reaches 'finished', so without
+    // this a single annulled match would make its whole Spieltag look
+    // perpetually incomplete here.
+    const nonPostponed = mdM.filter((m) => m.status !== 'postponed' && m.status !== 'annulled')
     return nonPostponed.length > 0 && nonPostponed.every((m) => m.status === 'finished')
   })
   const lastCompletedMd = completedMatchdays.length > 0
@@ -191,7 +195,7 @@ export default async function LeaderboardPage({
   )]
     .filter((md) => {
       const nonPostponed = seasonMatches
-        .filter((m) => effectiveMatchdayOf(m) === md && m.status !== 'postponed')
+        .filter((m) => effectiveMatchdayOf(m) === md && m.status !== 'postponed' && m.status !== 'annulled')
       if (nonPostponed.length === 0) return false
       const hasStarted = nonPostponed.some(
         (m) => m.status === 'finished' || new Date(m.match_date).getTime() <= nowMs
@@ -225,7 +229,7 @@ export default async function LeaderboardPage({
     ? seasonMatches.filter(m => recapMatchdayOf(m) === currentMatchday)
     : []
   const recapGroupMatchIds = new Set(recapGroupMatches.map(m => m.id))
-  const nonPostponedRecapMatches = recapGroupMatches.filter(m => m.status !== 'postponed')
+  const nonPostponedRecapMatches = recapGroupMatches.filter(m => m.status !== 'postponed' && m.status !== 'annulled')
   const matchdayHasPendingBets = allBets.some(b => b.status === 'pending' && b.match_id != null && recapGroupMatchIds.has(b.match_id))
   const isMatchdayComplete = nonPostponedRecapMatches.length > 0 && nonPostponedRecapMatches.every(m => m.status === 'finished') && !matchdayHasPendingBets
   // Default to Spieltag tab once the matchday kicks off, back to Rangliste once fully settled
@@ -475,7 +479,7 @@ export default async function LeaderboardPage({
   }
   const fullyCompletedMds = [...recapMdMatches.entries()]
     .filter(([, ms]) => {
-      const nonPostponed = ms.filter(m => m.status !== 'postponed')
+      const nonPostponed = ms.filter(m => m.status !== 'postponed' && m.status !== 'annulled')
       return nonPostponed.length > 0 && nonPostponed.every(m => m.status === 'finished')
     })
     .map(([md]) => md)

@@ -4,17 +4,32 @@
 // can import them without crossing a client-component boundary for a plain
 // function — that boundary is for components, not utility functions.
 
-export type BetOutcomeStatus = 'pending' | 'won' | 'lost'
+export type BetOutcomeStatus = 'pending' | 'won' | 'lost' | 'neutralized'
 
 /** Shared odds-value color convention, used everywhere an odds value is
  *  rendered: dark/neutral while still open, green once won, red once lost.
  *  Odds used to default to red everywhere regardless of outcome, which read
- *  as "already lost" even for a bet that hadn't been decided yet. */
+ *  as "already lost" even for a bet that hadn't been decided yet.
+ *  'neutralized' (a selection tied to an annulled match/Special, see
+ *  lib/matchAnnulment.ts) gets its own muted blue-gray — neither a win nor a
+ *  loss, so it must never read as either. */
 export function oddsColorClass(status: BetOutcomeStatus | string | null | undefined): string {
   if (status === 'won') return 'text-green-600 dark:text-green-400'
   if (status === 'lost') return 'text-red-500 dark:text-red-400'
+  if (status === 'neutralized') return 'text-slate-400 dark:text-slate-500'
   return 'text-gray-900 dark:text-gray-100'
 }
+
+/**
+ * Nichtantritt/Annullierung (lib/matchAnnulment.ts) — the single shared
+ * player-facing copy for a selection tied to an annulled match, used
+ * wherever a bet/combo leg is rendered (components/WetteCard.tsx today).
+ * The exact wording is fixed by product decision — never paraphrase it per
+ * call site.
+ */
+export const ANNULLED_MATCH_SUFFIX = 'Annulliert'
+export const ANNULLED_EXPLANATION_TEXT =
+  'Spiel wegen Nichtantritt annulliert. Diese Auswahl wurde mit Quote 1,00 neutralisiert. Alle übrigen Tipps behalten ihre Gültigkeit.'
 
 /**
  * Sort key for one leg of a combo bet, for DISPLAY ordering only — never used

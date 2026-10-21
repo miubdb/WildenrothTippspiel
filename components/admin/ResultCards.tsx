@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Btn, Field, Notice, Panel, Pill, inputCls, selectCls } from '@/components/admin/ui'
 import type { MatchRow, ScorerDraft } from '@/components/admin/types'
+import { MatchAnnulmentPanel } from '@/components/admin/MatchAnnulmentPanel'
 
 /**
  * Visuelle Übernahme aus dem alten, verworfenen Admin-Redesign (components/admin/ResultCards.tsx
@@ -628,6 +629,15 @@ export function PostponedMatchCard({
         <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={2} value={newMatchday} onChange={(e) => setNewMatchday(e.target.value.replace(/\D/g, '').slice(0, 2))} className={`${inputCls} max-w-[120px]`} />
       </Field>
       <Btn variant="primary" block loading={loading} disabled={!newDate || !newTime} onClick={reschedule}>Nachholtermin speichern</Btn>
+
+      {/* Nichtantritt/Annullierung — für ein verschobenes Spiel, das nie einen
+          echten Nachholtermin/ein echtes Ergebnis bekommen wird (siehe
+          lib/matchAnnulment.ts). Getrennt vom "Nachholtermin speichern"-Pfad
+          oben — beide schließen sich gegenseitig aus (ein Spiel bekommt
+          entweder einen neuen Termin ODER wird final annulliert). */}
+      <div className="border-t border-gray-100 pt-3">
+        <MatchAnnulmentPanel matchId={match.id} onDone={onRescheduled} onMessage={onMessage} />
+      </div>
     </Panel>
   )
 }
