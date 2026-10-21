@@ -21,7 +21,7 @@
 export const SURVEY_MODE_KEY_PRODUCTION = 'survey_mode_v2'
 export const SURVEY_MODE_KEY_PREVIEW = 'survey_mode_v2_preview'
 
-export type SurveyVisibilityMode = 'hidden' | 'help_only' | 'prominent'
+export type SurveyVisibilityMode = 'hidden' | 'direct_only' | 'help_only' | 'prominent'
 
 /**
  * The app_settings key that governs V2's visibility in the CURRENT runtime
@@ -35,12 +35,23 @@ export function currentSurveyModeKey(): string {
 
 /**
  * Normalizes a raw app_settings value (already looked up via
- * currentSurveyModeKey()) to one of the 3 known modes — missing, null, or
+ * currentSurveyModeKey()) to one of the 4 known modes — missing, null, or
  * any unrecognized value fails closed to 'hidden', never open.
  */
 export function resolveSurveyMode(rawValue: string | null | undefined): SurveyVisibilityMode {
-  if (rawValue === 'help_only' || rawValue === 'prominent') return rawValue
+  if (rawValue === 'direct_only' || rawValue === 'help_only' || rawValue === 'prominent') return rawValue
   return 'hidden'
+}
+
+/** 'direct_only' allows an authenticated respondent to open /umfrage and submit,
+ * without advertising it in the help menu or on the start page. */
+export function surveyModeAllowsAccess(mode: SurveyVisibilityMode): boolean {
+  return mode !== 'hidden'
+}
+
+/** Only these two modes expose an entry point under Hilfe. */
+export function surveyModeShowsHelpLink(mode: SurveyVisibilityMode): boolean {
+  return mode === 'help_only' || mode === 'prominent'
 }
 
 // Same reasoning, one layer down: `main` and `integration` sharing one
