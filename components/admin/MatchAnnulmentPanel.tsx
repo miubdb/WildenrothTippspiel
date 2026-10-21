@@ -85,7 +85,7 @@ export function MatchAnnulmentPanel({ matchId, onDone, onMessage }: {
       onMessage(
         data.alreadyAnnulled
           ? 'Spiel war bereits annulliert — keine Änderungen vorgenommen.'
-          : `Spiel annulliert: ${data.affectedSingles} Einzelwette(n), ${data.affectedComboLegs} Kombi-Legs betroffen, ${fmt(data.refundTotal)} Wildis erstattet/ausgezahlt${data.specialsVoided > 0 ? `, ${data.specialsVoided} Spieltag-Special(s) storniert` : ''}${data.anomalies > 0 ? ` — ⚠️ ${data.anomalies} Anomalie(n), bitte Audit-Log prüfen` : ''}.`
+          : `Spiel annulliert: ${data.affectedSingles} Einzelwette(n), ${data.affectedComboLegs} Kombi-Legs betroffen, ${fmt(data.refundTotal)} Wildis erstattet (reine Refunds — etwaige Payouts aus Kombis, die nur durch die Annullierung gewinnen, sind hier NICHT mitgezählt)${data.specialsVoided > 0 ? `, ${data.specialsVoided} Spieltag-Special(s) storniert` : ''}${data.anomalies > 0 ? ` — ⚠️ ${data.anomalies} Anomalie(n), bitte Audit-Log prüfen` : ''}.`
       )
       setExpanded(false)
       setPreview(null)
@@ -218,7 +218,10 @@ export function MatchAnnulmentPanel({ matchId, onDone, onMessage }: {
             </div>
           )}
 
-          <Notice tone="open">Gesamt-Erstattung/-Auszahlung: <b>{fmt(preview.totalRefund ?? 0)} Wildis</b></Notice>
+          {/* Nur echte Erstattungen (volle Einzelwetten + vollständig neutralisierte Kombis) —
+              NICHT der Payout einer Kombi, die nur durch die Annullierung gewinnt (das zeigt
+              die Tabellenzeile oben selbst unter "Neuer mögl. Payout"). */}
+          <Notice tone="open">Gesamt-Erstattung: <b>{fmt(preview.totalRefund ?? 0)} Wildis</b></Notice>
 
           {!confirmArmed ? (
             <Btn variant="danger" block onClick={() => setConfirmArmed(true)}>

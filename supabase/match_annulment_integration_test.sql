@@ -42,6 +42,18 @@
 --   7. Die Race-Guard-Bedingung aus app/api/admin/settle/route.ts (UPDATE ... WHERE
 --      status NOT IN ('finished','annulled')) betrifft nach der Annullierung tatsächlich
 --      null Zeilen.
+--   8. refundTotal im RPC-Ergebnis entspricht genau der Summe aller tatsächlich
+--      ausgezahlten Einzelwetten-Refunds (inkl. eines neutralisierten Special-Bets) —
+--      NICHT dem Payout einer durch die Annullierung gewonnenen Kombi (das ist eine
+--      Auszahlung, kein Refund; siehe die eigene Payout-Prüfung unter Punkt 5 oben).
+--
+-- EINSCHRÄNKUNG (bewusst, siehe Abschlussbericht): Punkt 7 oben beweist nur, dass die
+-- WHERE-Bedingung nach einer bereits abgeschlossenen Annullierung korrekt 0 Zeilen trifft —
+-- das ist eine SEQUENZIELLE Prüfung innerhalb EINER Transaktion/Sitzung, keine echte
+-- Nebenläufigkeitsprüfung mit zwei tatsächlich gleichzeitig laufenden Datenbank-Sitzungen
+-- (das kann ein einzelner `DO`-Block grundsätzlich nicht abbilden). Die echte Race-Probe
+-- mit zwei parallelen psql-Sitzungen liegt separat in
+-- supabase/match_annulment_race_test.sh — ebenfalls nicht in dieser Sitzung ausgeführt.
 
 begin;
 
@@ -173,10 +185,12 @@ begin
   select status into v_status from bets where id = v_bet_single;
   assert v_status = 'neutralized', 'Einzelwette muss neutralized sein, ist: ' || v_status;
   select balance into v_balance_a_after from profiles where id = v_user_a;
-  -- (Kombi v_combo_wins_via_annulment gehört User B, nicht A — A bekommt hier nur den
-  -- Einzelwetten-Refund von 25.00.)
-  assert v_balance_a_after = v_balance_a_before + 25.00,
-    format('User A Guthaben erwartet %s, ist %s', v_balance_a_before + 25.00, v_balance_a_after);
+  -- User A hat ZWEI eigenständig refundierte Einzelwetten: die normale Einzelwette (25.00)
+  -- UND das genuin betroffene Special-Bet v_bet_special_included (5.00, siehe unten) — macht
+  -- zusammen +30.00. (Die Kombi v_combo_wins_via_annulment gehört User B, nicht A, und ist
+  -- ohnehin ein PAYOUT, kein Refund — separat weiter unten geprüft.)
+  assert v_balance_a_after = v_balance_a_before + 30.00,
+    format('User A Guthaben erwartet %s (25.00 Einzelwette + 5.00 Special-Bet), ist %s', v_balance_a_before + 30.00, v_balance_a_after);
 
   -- Bereits verlorene Kombi: bleibt 'lost', ihr annulliertes Leg wird trotzdem neutralisiert.
   select status into v_status from combo_bets where id = v_combo_lost;
@@ -195,6 +209,14 @@ begin
   assert v_status = 'neutralized', 'Genuin enthaltenes Special-Bet muss neutralisiert werden, ist: ' || v_status;
   select status into v_status from matchday_specials where id = v_special_included;
   assert v_status = 'void', 'Genuin enthaltenes Special muss voided werden, ist: ' || v_status;
+  assert (v_result->>'specialsVoided')::int = 1,
+    format('specialsVoided erwartet 1 (nur v_special_included, nicht v_special_anchor_only), ist %s', v_result->>'specialsVoided');
+
+  -- refundTotal im RPC-Ergebnis muss GENAU die beiden Einzelwetten-Refunds von User A
+  -- summieren (25.00 + 5.00 = 30.00) — NICHT den 20.00-Payout von User B's Kombi, der ein
+  -- Payout und kein Refund ist (siehe die Payout-Prüfung direkt im Anschluss).
+  assert (v_result->>'refundTotal')::numeric = 30.00,
+    format('refundTotal erwartet 30.00, ist %s', v_result->>'refundTotal');
 
   -- Kombi, die NUR durch die Annullierung gewinnt — korrekter Payout, Risky-Deckel beachtet.
   select status, total_odds, payout into v_status, v_total_odds, v_payout from combo_bets where id = v_combo_wins_via_annulment;
