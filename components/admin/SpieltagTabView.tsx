@@ -59,6 +59,7 @@ export function SpieltagTabView({
   const [appliedInitialMatchday, setAppliedInitialMatchday] = useState(false)
   useEffect(() => {
     if (appliedInitialMatchday || initialMatchday == null) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync the deep-link matchday in once, same guarded-once pattern as AdminBetsTab.tsx's selectedMdInitialized
     setChoice(initialMatchday)
     setAppliedInitialMatchday(true)
   }, [initialMatchday, appliedInitialMatchday])

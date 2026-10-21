@@ -12,7 +12,7 @@ const HOUSE_MARGIN = 0.12
 // paired book summed to < 1.0, i.e. backing both sides was risk-free profit.
 // At 1.01 the break-even point moves to p > 0.990; swept over the realistic xG
 // band this leaves zero positive-EV selections and zero sub-1.0 books.
-const MIN_ODDS = 1.01
+export const MIN_ODDS = 1.01
 const MAX_ODDS = 100.0 // high cap so exact scores spread naturally
 
 // "Über 9,5 Tore" is a novelty line, offered only where ten goals is a genuine

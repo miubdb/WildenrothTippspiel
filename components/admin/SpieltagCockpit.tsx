@@ -24,8 +24,8 @@ interface ChecklistResponse {
    *  Prüfungen auf denselben Daten wie `checks` oben; bewusst separat gehalten
    *  und in der eigenen "Spieltags-Check"-Box unten gerendert. */
   spieltagsCheck: {
-    duplicates: Check; kickoffTimes: Check; scheduleAssignment: Check; staleTopspiel: Check
-    wildenrothRecognition: Check; wildenrothHandicap: Check
+    duplicates: Check; kickoffTimes: Check; scheduleAssignment: Check; matchdayMismatch: Check
+    invalidOdds: Check; staleTopspiel: Check; wildenrothRecognition: Check; wildenrothHandicap: Check
   }
   openAt: string | null
   manual: { bonusTipsNotPlanned?: boolean; specialsNotPlanned?: boolean }
@@ -152,6 +152,7 @@ export function SpieltagCockpit({ matchday, topspiel, dayMatchCount, onMessage }
   const spieltagsCheckItems = Object.entries(data.spieltagsCheck) as [string, Check][]
   const scLabels: Record<string, string> = {
     duplicates: 'Doppelte Spiele', kickoffTimes: 'Datum & Anstoßzeit', scheduleAssignment: 'Spieltag-Zuordnung',
+    matchdayMismatch: 'matchday vs. tippspiel_matchday', invalidOdds: 'Gültige Quoten',
     staleTopspiel: 'B-Klasse-Topspiel (andere Spieltage)', wildenrothRecognition: 'Wildenroth-Mannschaft erkannt',
     wildenrothHandicap: 'Wildenroth-Handicap-Angebot',
   }

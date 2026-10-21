@@ -62,6 +62,20 @@ function comboIdentity(s: BetSlipItem): string {
   return isSpecialMarket(s.marketType) ? `special-${s.specialId}` : `match-${s.matchId}`
 }
 
+/** Whether `selections` could EVER form one valid combo: no match/Special
+ *  repeated (a same-game combo is never allowed — see the server-side check
+ *  in app/api/bets/place/route.ts) and at most one Spieltag-Special
+ *  (correlation risk — SPIELTAG-SPECIALS requirement 3). Shared by the
+ *  auto single/combo classification below AND `isComboValid` so the two can
+ *  never drift apart — classifying a set of picks as "combo" that this
+ *  function would call incapable is exactly the bug this guards against. */
+function canFormCombo(selections: BetSlipItem[]): boolean {
+  const identities = selections.map(comboIdentity)
+  const noDuplicateMatch = new Set(identities).size === identities.length
+  const specialCount = selections.filter((s) => isSpecialMarket(s.marketType)).length
+  return identities.length >= 2 && noDuplicateMatch && specialCount <= 1
+}
+
 const BetSlipContext = createContext<BetSlipContextValue | null>(null)
 
 export function BetSlipProvider({ children }: { children: React.ReactNode }) {
@@ -69,19 +83,26 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<BetSlipMode>('single')
   const [stakes, setStakes] = useState<StakeMap>({})
   const [comboStake, setComboStake] = useState<number>(10)
-  // Distinct-identity count, not raw selection count — two selections for the
-  // SAME match (or same Special) can never form a valid combo leg pair (see
-  // comboIdentity/isComboValid below), so they must stay classified as
-  // independent single bets no matter how many of them pile up. Only once a
-  // SECOND distinct match/Special shows up is a combo actually possible.
-  const prevDistinctRef = useRef(0)
+  // Whether the current slip is capable of forming ONE combo (canFormCombo
+  // above), not just whether it has 2+ selections — two compatible picks on
+  // the SAME match (e.g. 1X2 + Torschütze) plus a pick on a second match is
+  // 3 selections across 2 matches, but match A appears twice, so no combo
+  // can ever be formed from it; auto-promoting to 'combo' there would
+  // immediately show "Ungültige Kombination" for picks that were only ever
+  // meant to be independent single bets. Same for 2+ Specials. The slip
+  // stays/falls back to 'single' (every pick its own bet) whenever this is
+  // false, and only promotes to 'combo' once the WHOLE set could actually
+  // combine — exactly mirroring isComboValid's own criteria below, so the
+  // automatic classification can never land somewhere the validity check
+  // would then reject.
+  const prevComboCapableRef = useRef(false)
 
   useEffect(() => {
-    const distinct = new Set(selections.map(comboIdentity)).size
-    const prev = prevDistinctRef.current
-    if (distinct >= 2 && prev < 2) setMode('combo')
-    else if (distinct <= 1 && prev > 1) setMode('single')
-    prevDistinctRef.current = distinct
+    const capable = canFormCombo(selections)
+    const prev = prevComboCapableRef.current
+    if (capable && !prev) setMode('combo')
+    else if (!capable && prev) setMode('single')
+    prevComboCapableRef.current = capable
   }, [selections])
 
   const addSelection = useCallback((item: BetSlipItem) => {
@@ -152,13 +173,12 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
     setStakes((prev) => ({ ...prev, [bsKey(matchId, marketType, selection ?? '', specialId)]: stake }))
   }, [])
 
-  // Combo is invalid if any two selections are from the same match/Special
-  // (same-game-combo is never allowed), or if more than one Spieltag-Special
-  // is in the combo (correlation risk — SPIELTAG-SPECIALS requirement 3).
-  const specialCount = selections.filter((s) => isSpecialMarket(s.marketType)).length
-  const isComboValid = mode !== 'combo' ||
-    (!selections.some((a, i) => selections.slice(i + 1).some(b => comboIdentity(a) === comboIdentity(b)))
-      && specialCount <= 1)
+  // Only reachable via the manual Einzel/Kombi-toggle now (see
+  // canFormCombo/the promotion effect above) — the automatic classification
+  // never lands in 'combo' when this would be false, so this stays purely as
+  // the "you switched to Kombiwette by hand, but these picks can't combine"
+  // guard it always was.
+  const isComboValid = mode !== 'combo' || canFormCombo(selections)
 
   const totalComboOdds = selections.reduce((acc, s) => acc * s.oddsValue, 1)
 
