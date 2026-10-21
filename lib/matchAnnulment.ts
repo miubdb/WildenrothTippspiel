@@ -152,19 +152,37 @@ export function planCombo(input: ComboPlanInput): ComboPlanAction {
   }
 }
 
+/**
+ * A `matchday_special` bet's `match_id` is only its `representative_match_id`
+ * — a technical FK anchor (see lib/matchdaySpecials.ts), picked as the
+ * Spieltag's earliest kickoff. It is NEVER a real selection on that specific
+ * match. Matching such a bet via match_id — as a plain `WHERE match_id = X`
+ * would — wrongly neutralizes a Special merely anchored on the annulled
+ * match, even when that Special's own `included_match_ids` doesn't contain
+ * it at all (i.e. the Special has nothing to do with the real-world event
+ * that got annulled). A Special may ONLY ever be reached through its own
+ * `special_id`, gated on genuine `included_match_ids` membership — see
+ * supabase/match_annulment.sql's `neutralize_match`, Step 2, which looks the
+ * Special up by `included_match_ids @> [p_match_id]`, never by matchId.
+ */
+export function isRealMatchLeg(bet: { marketType: string }): boolean {
+  return bet.marketType !== 'matchday_special'
+}
+
 /** True for any bet row this annulment must neutralize: a still-open
- *  ('pending') selection whose match_id is the annulled match, OR whose
- *  special_id is a Spieltag-Special being voided because it includes that
- *  match (see supabase/match_annulment.sql's `neutralize_match` — Specials
- *  branch). Already-won/lost/void/neutralized rows are never touched again —
- *  this is what makes the whole operation idempotent: a second run finds
- *  nothing matching and changes nothing. */
+ *  ('pending') selection whose match_id is the annulled match (and which is
+ *  a REAL selection on it, see isRealMatchLeg — never a Special merely
+ *  anchored there), OR whose special_id is a Spieltag-Special being voided
+ *  because it genuinely includes that match (see supabase/match_annulment.sql's
+ *  `neutralize_match` — Specials branch). Already-won/lost/void/neutralized
+ *  rows are never touched again — this is what makes the whole operation
+ *  idempotent: a second run finds nothing matching and changes nothing. */
 export function legMatchesTarget(
-  bet: { status: BetStatus; matchId: number | null; specialId: number | null },
+  bet: { status: BetStatus; matchId: number | null; specialId: number | null; marketType: string },
   target: { matchId?: number; specialId?: number },
 ): boolean {
   if (bet.status !== 'pending') return false
-  if (target.matchId != null && bet.matchId === target.matchId) return true
+  if (target.matchId != null && bet.matchId === target.matchId && isRealMatchLeg(bet)) return true
   if (target.specialId != null && bet.specialId === target.specialId) return true
   return false
 }

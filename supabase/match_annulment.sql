@@ -108,6 +108,7 @@ declare
   v_lost_count int;
   v_pending_count int;
   v_neutral_count int;
+  v_is_risky boolean;
   v_remaining_product numeric;
   v_new_odds numeric;
   v_payout numeric;
@@ -132,9 +133,16 @@ begin
   end if;
 
   -- Schritt 1: jede noch offene Auswahl direkt auf diesem Spiel neutralisieren.
+  -- market_type <> 'matchday_special' is essential here: a Special bet's
+  -- own match_id is only its representative_match_id (technical FK anchor,
+  -- see lib/matchdaySpecials.ts) — a plain match_id match would wrongly
+  -- neutralize a Special merely ANCHORED on this match even when its own
+  -- included_match_ids doesn't contain it at all. A Special is only ever
+  -- reached below, via special_id, after confirming genuine
+  -- included_match_ids membership.
   for v_leg in
     update bets set status = 'neutralized', neutralized_at = v_now, neutralized_reason = 'match_annulled'
-    where match_id = p_match_id and status = 'pending'
+    where match_id = p_match_id and status = 'pending' and market_type <> 'matchday_special'
     returning id, user_id, combo_id, stake, odds_value
   loop
     if v_leg.combo_id is null then
@@ -188,7 +196,9 @@ begin
   if v_combo_ids is not null then
     foreach v_combo_id in array v_combo_ids
     loop
-      select id, user_id, stake, total_odds, status, is_risky
+      -- combo_bets has no is_risky column of its own (every leg carries the
+      -- same value, see lib/risky.ts) — never select it from here.
+      select id, user_id, stake, total_odds, status
         into v_combo from combo_bets where id = v_combo_id for update;
       if not found or v_combo.status <> 'pending' then
         continue;
@@ -198,8 +208,9 @@ begin
         count(*),
         count(*) filter (where status = 'lost'),
         count(*) filter (where status = 'pending'),
-        count(*) filter (where status = 'neutralized')
-      into v_leg_total, v_lost_count, v_pending_count, v_neutral_count
+        count(*) filter (where status = 'neutralized'),
+        bool_or(is_risky)
+      into v_leg_total, v_lost_count, v_pending_count, v_neutral_count, v_is_risky
       from bets where combo_id = v_combo_id;
 
       if v_lost_count > 0 then
@@ -236,7 +247,7 @@ begin
           neutralized_at = v_now
         where id = v_combo_id;
       else
-        v_cap := case when v_combo.is_risky then 15000 else 10000 end;
+        v_cap := case when coalesce(v_is_risky, false) then 15000 else 10000 end;
         v_payout := round(least(v_combo.stake * v_new_odds, v_cap), 2);
         update combo_bets set
           status = 'won',
@@ -254,8 +265,13 @@ begin
   -- abgerechnet (kein 2:0-Forfeit-Ergebnis wird je gespeichert, home_score/
   -- away_score bleiben NULL, siehe app/api/admin/settle/route.ts's neue
   -- 'annulled'-Sperre).
+  -- Defensive WHERE guard on top of the FOR UPDATE row lock taken above
+  -- (which already serializes against a concurrent settle/route.ts UPDATE
+  -- on the same row, see that route's own matching WHERE guard) — belt and
+  -- suspenders: this UPDATE can never resurrect/overwrite a match some other
+  -- path already finished or annulled in the meantime.
   update matches set status = 'annulled', annulled_at = v_now, annulment_reason = p_reason
-  where id = p_match_id;
+  where id = p_match_id and status not in ('annulled', 'finished');
 
   return jsonb_build_object(
     'alreadyAnnulled', false,

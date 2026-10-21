@@ -16,7 +16,8 @@
  *
  * Usage: node --experimental-strip-types scripts/run-match-annulment-check.mjs
  */
-import { classifyCombo, planCombo, planSingleBet, legMatchesTarget, type ComboLegAfterNeutralization, type ComboPlanInput } from '@/lib/matchAnnulment'
+import { classifyCombo, planCombo, planSingleBet, legMatchesTarget, isRealMatchLeg, type ComboLegAfterNeutralization, type ComboPlanInput } from '@/lib/matchAnnulment'
+import { evaluateSlips, type RiskySlip } from '@/lib/risky'
 
 let failures = 0
 let checks = 0
@@ -127,8 +128,8 @@ export function run(): number {
     // legMatchesTarget liefert beim zweiten Durchlauf false, weil das Leg
     // dann nicht mehr 'pending', sondern bereits 'neutralized' ist — das ist
     // der gesamte Idempotenz-Mechanismus (siehe RPC: UPDATE ... WHERE status='pending').
-    const firstRun = legMatchesTarget({ status: 'pending', matchId: 433, specialId: null }, { matchId: 433 })
-    const secondRun = legMatchesTarget({ status: 'neutralized', matchId: 433, specialId: null }, { matchId: 433 })
+    const firstRun = legMatchesTarget({ status: 'pending', matchId: 433, specialId: null, marketType: '1x2' }, { matchId: 433 })
+    const secondRun = legMatchesTarget({ status: 'neutralized', matchId: 433, specialId: null, marketType: '1x2' }, { matchId: 433 })
     check('1. Lauf: Leg wird erfasst', firstRun === true)
     check('2. Lauf: Leg wird NICHT erneut erfasst (schon neutralisiert)', secondRun === false)
   }
@@ -136,12 +137,31 @@ export function run(): number {
   console.log('\n11. Spieltag-Special, das dieses Spiel enthält — Leg-Ebene, keine anderen Kombi-Legs')
   {
     // special_id statt match_id als Trigger — derselbe Mechanismus.
-    const matches = legMatchesTarget({ status: 'pending', matchId: 999, specialId: 55 }, { specialId: 55 })
+    const matches = legMatchesTarget({ status: 'pending', matchId: 999, specialId: 55, marketType: 'matchday_special' }, { specialId: 55 })
     check('special_id-Leg wird erfasst, obwohl match_id technischer Anker ist', matches === true)
     // Eine andere Auswahl derselben Kombi (ein echtes Match, kein Special)
     // bleibt unberührt, weil sie weder matchId noch specialId trifft.
-    const other = legMatchesTarget({ status: 'pending', matchId: 307, specialId: null }, { specialId: 55 })
+    const other = legMatchesTarget({ status: 'pending', matchId: 307, specialId: null, marketType: '1x2' }, { specialId: 55 })
     check('andere Legs derselben Kombi bleiben unberührt', other === false)
+  }
+
+  console.log('\n11b. Special, dessen representative_match_id zufällig das annullierte Spiel ist,')
+  console.log('     OHNE es in included_match_ids zu führen — darf NICHT über match_id getroffen werden')
+  {
+    // Genau der vom Review gemeldete Fehler: ein matchday_special-Bet, dessen
+    // technischer Anker (match_id) = die annullierte Spiel-ID ist, aber dessen
+    // Special das Spiel gar nicht wirklich enthält. legMatchesTarget darf das
+    // NUR über specialId erfassen (und nur, wenn der Aufrufer dieses
+    // special_id überhaupt als "wirklich betroffen" übergibt — was
+    // supabase/match_annulment.sql/die Admin-Vorschau nur nach Prüfung von
+    // included_match_ids tun), niemals über die bloße match_id-Übereinstimmung.
+    const specialAnchoredHere = legMatchesTarget(
+      { status: 'pending', matchId: 433, specialId: 77, marketType: 'matchday_special' },
+      { matchId: 433 }, // NUR matchId als Ziel — kein specialId, weil das Special 433 nicht wirklich enthält
+    )
+    check("Special-Bet mit match_id=433 (nur technischer Anker) wird NICHT über matchId erfasst", specialAnchoredHere === false)
+    check('isRealMatchLeg verneint für matchday_special', isRealMatchLeg({ marketType: 'matchday_special' }) === false)
+    check('isRealMatchLeg bejaht für eine normale Marktauswahl', isRealMatchLeg({ marketType: '1x2' }) === true)
   }
 
   console.log('\n12. Bilanz/Statistik/Limits/Inaktivitätsstrafe — Status-Werte sind korrekt disjunkt')
@@ -196,6 +216,38 @@ export function run(): number {
       const action = planCombo({ comboId: id, userId: 'u', stake: 1, originalTotalOdds: 1, status: 'void', isRisky: false, legs: [leg(1.83, 'void')] })
       check(`#${id}: leg_only_no_combo_change (void bleibt void, keine erneute Auszahlung/Erstattung)`, action.kind === 'leg_only_no_combo_change')
     }
+  }
+
+  console.log('\n13. Risky-Pinning bei späteren Neuberechnungen (lib/risky.ts#recomputeRiskyForUserMatchday)')
+  {
+    // Simuliert exakt das, was recomputeRiskyForUserMatchday NACH diesem Fix tut: eine von
+    // einer Annullierung berührte Kombi geht mit ihrer ORIGINAL-Quote (original_total_odds),
+    // nicht ihrer aktuellen (neu berechneten, ggf. unter die Risky-Schwelle gefallenen) Quote
+    // in die Bewertung ein — und wird danach nie zurückgeschrieben, egal was die Bewertung sagt.
+    // Ausgangslage: 3 Scheine, Schein C war bei Platzierung (Original-Quote 25,00 > 20) der
+    // Risky-Schein. Eine Annullierung hat Scheins C's Gesamtquote seither auf 12,00 gesenkt —
+    // würde man JETZT naiv mit der aktuellen Quote neu bewerten, hätte keiner der 3 Scheine
+    // eine Quote > 20, die Kombination aus 3 "normalen" Scheinen wäre regelwidrig und C würde
+    // fälschlich seinen Risky-Status verlieren.
+    const slipsWithOriginalOdds: RiskySlip[] = [
+      { id: 'bet-A', odds: 5 },
+      { id: 'bet-B', odds: 8 },
+      { id: 'combo-C', odds: 25 }, // original_total_odds — nicht die aktuelle, neu berechnete Quote (12)
+    ]
+    const { riskyId, valid, classification } = evaluateSlips(slipsWithOriginalOdds)
+    check('Mit Original-Quote bleibt Schein C der Risky-Schein', riskyId === 'combo-C')
+    check('Budget bleibt gültig (2 normale + 1 Risky)', valid === true)
+    check('Scheine A und B bleiben normal (nicht risky)', classification.get('bet-A') === false && classification.get('bet-B') === false)
+
+    // Gegenprobe: würde man (falsch) die AKTUELLE Quote von C verwenden, zeigt sich genau der
+    // Fehler, den das Pinning verhindert — keiner der 3 Scheine wäre noch risky.
+    const slipsWithCurrentOddsWronglyUsed: RiskySlip[] = [
+      { id: 'bet-A', odds: 5 },
+      { id: 'bet-B', odds: 8 },
+      { id: 'combo-C', odds: 12 },
+    ]
+    const wrong = evaluateSlips(slipsWithCurrentOddsWronglyUsed)
+    check('Gegenprobe: mit der (falschen) aktuellen Quote wäre niemand mehr risky — genau das verhindert das Pinning', wrong.riskyId === null)
   }
 
   console.log(`\n${checks} Prüfungen, ${failures} Fehler`)

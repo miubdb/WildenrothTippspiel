@@ -167,8 +167,17 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Update match
-  const { error: matchError } = await supabase
+  // Update match — gated on status NOT IN ('finished','annulled') so this single
+  // UPDATE statement is itself the race guard against a CONCURRENT
+  // app/api/admin/matches/[id]/annul/route.ts call for the same match: Postgres
+  // row-locking means only one of the two can actually win the row, and the
+  // loser's WHERE clause is re-evaluated against the winner's already-committed
+  // result, so it updates zero rows rather than silently overwriting a just-
+  // annulled match with a real score (or vice versa — neutralize_match's own
+  // FOR UPDATE lock + early status check closes that direction). The earlier
+  // `existingMatch?.status` reads above are only a fast, non-authoritative
+  // pre-check for a nicer error message; THIS is the actual guard.
+  const { data: updatedMatchRows, error: matchError } = await supabase
     .from('matches')
     .update({
       home_score: homeScore,
@@ -184,9 +193,17 @@ export async function POST(request: NextRequest) {
       } : {}),
     })
     .eq('id', matchId)
+    .not('status', 'in', '("finished","annulled")')
+    .select('id')
 
   if (matchError) {
     return NextResponse.json({ error: 'Fehler beim Aktualisieren des Spiels.' }, { status: 500 })
+  }
+  if (!updatedMatchRows || updatedMatchRows.length === 0) {
+    return NextResponse.json(
+      { error: 'Dieses Spiel wurde zwischenzeitlich bereits abgerechnet oder annulliert — bitte Seite neu laden.' },
+      { status: 409 }
+    )
   }
 
   // Fetch all pending single bets for this match (skip goalscorer markets — those settle

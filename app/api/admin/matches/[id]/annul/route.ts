@@ -4,7 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { logAdminAction } from '@/lib/auditLog'
 import { cappedPayout } from '@/lib/payout'
-import { classifyCombo, type ComboLegAfterNeutralization, type BetStatus } from '@/lib/matchAnnulment'
+import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
+import { classifyCombo, isRealMatchLeg, type ComboLegAfterNeutralization, type BetStatus } from '@/lib/matchAnnulment'
 
 /**
  * "Spiel annullieren (Quote 1,00)" — Nichtantritt/Annullierung. GET liefert die Vorschau
@@ -15,6 +16,10 @@ import { classifyCombo, type ComboLegAfterNeutralization, type BetStatus } from 
  * direkte Anwendung von lib/matchAnnulment.ts#classifyCombo auf denselben Kombi-Zustand. Die
  * RPC liest/schreibt dieselben Zeilen innerhalb EINER Transaktion und ist damit die einzige
  * Stelle, die tatsächlich entscheidet; diese Route simuliert nur denselben Schritt lesend.
+ *
+ * WICHTIG: combo_bets hat KEINE eigene is_risky-Spalte (jedes Leg trägt denselben Wert, siehe
+ * lib/risky.ts) — jeder Zugriff hier geht über bets.is_risky, nie über combo_bets.is_risky
+ * (das existiert nicht und würde die Query mit einem DB-Fehler scheitern lassen).
  */
 
 async function requireAdmin() {
@@ -26,8 +31,8 @@ async function requireAdmin() {
   return { error: null, actorId: user.id, actorName: profile.display_name || profile.username || user.id } as const
 }
 
-type Leg = { id: number; match_id: number; special_id: number | null; odds_value: number; status: BetStatus; combo_id: number | null }
-type ComboRow = { id: number; user_id: string; stake: number; total_odds: number; status: BetStatus; is_risky: boolean }
+type Leg = { id: number; match_id: number; special_id: number | null; combo_id: number | null; user_id: string; stake: number | null; odds_value: number; status: BetStatus; market_type: string; is_risky: boolean }
+type ComboRow = { id: number; user_id: string; stake: number; total_odds: number; status: BetStatus }
 
 interface ComboPreviewEntry {
   comboId: number
@@ -60,55 +65,107 @@ async function loadUserNames(admin: ReturnType<typeof createAdminClient>, userId
   return new Map((data ?? []).map((p) => [p.id as string, (p.display_name || p.username || p.id) as string]))
 }
 
-/** Marks every leg this annulment would neutralize (pending + tied to the match, or pending +
- *  tied to a Special being voided) and returns a NEW array — never mutates the input. */
+/** Marks every leg this annulment would neutralize (pending + a REAL selection tied to the
+ *  match, see isRealMatchLeg — never a Special merely anchored there; or pending + tied to a
+ *  Special being voided) and returns a NEW array — never mutates the input. */
 function withSimulatedNeutralization(legs: Leg[], matchId: number, votingSpecialIds: Set<number>): ComboLegAfterNeutralization[] {
   return legs.map((l) => {
-    const neutralized = l.status === 'pending' && (l.match_id === matchId || (l.special_id != null && votingSpecialIds.has(l.special_id)))
+    const neutralized = l.status === 'pending' && (
+      (l.match_id === matchId && isRealMatchLeg({ marketType: l.market_type })) ||
+      (l.special_id != null && votingSpecialIds.has(l.special_id))
+    )
     return { oddsValue: l.odds_value, status: neutralized ? 'neutralized' : l.status }
   })
 }
 
-async function buildPreview(matchId: number) {
+type PreviewResult =
+  | { notFound: true }
+  | { notFound: false; error: string }
+  | {
+      notFound: false
+      matchLabel: string
+      matchStatus: string
+      alreadyAnnulled: true
+    }
+  | {
+      notFound: false
+      matchLabel: string
+      matchStatus: string
+      alreadyAnnulled: false
+      blocked: 'MATCH_ALREADY_FINISHED'
+    }
+  | {
+      notFound: false
+      matchLabel: string
+      matchStatus: string
+      alreadyAnnulled: false
+      singles: SinglePreviewEntry[]
+      combos: ComboPreviewEntry[]
+      specials: { id: number; matchday: number; title: string }[]
+      counts: { affectedSingles: number; affectedCombosTotal: number; openCombos: number; lostCombos: number; cancelledCombosUntouched: number; anomalies: number }
+      totalRefund: number
+      anomalyNotes: string[]
+    }
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
+async function buildPreview(matchId: number): Promise<PreviewResult> {
   const admin = createAdminClient()
 
-  const { data: match } = await admin
+  const { data: match, error: matchErr } = await admin
     .from('matches')
     .select('id, status, match_date, annulled_at, annulment_reason, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
     .eq('id', matchId)
     .single()
-  if (!match) return { notFound: true as const }
+  // PGRST116 = "no rows" from .single() — a real "not found", not a DB error.
+  if (matchErr && matchErr.code !== 'PGRST116') {
+    return { notFound: false, error: `Spiel konnte nicht geladen werden: ${matchErr.message}` }
+  }
+  if (!match) return { notFound: true }
 
   const homeTeam = Array.isArray(match.home_team) ? match.home_team[0] : match.home_team
   const awayTeam = Array.isArray(match.away_team) ? match.away_team[0] : match.away_team
   const matchLabel = `${homeTeam?.name ?? '?'} – ${awayTeam?.name ?? '?'}`
 
   if (match.status === 'annulled') {
-    return { notFound: false as const, matchLabel, matchStatus: match.status, alreadyAnnulled: true as const }
+    return { notFound: false, matchLabel, matchStatus: match.status, alreadyAnnulled: true }
   }
   if (match.status === 'finished') {
-    return { notFound: false as const, matchLabel, matchStatus: match.status, blocked: 'MATCH_ALREADY_FINISHED' as const }
+    return { notFound: false, matchLabel, matchStatus: match.status, alreadyAnnulled: false, blocked: 'MATCH_ALREADY_FINISHED' }
   }
 
-  // Active Specials that genuinely include this match (not merely anchored on it technically).
-  const { data: specialsRaw } = await admin
+  // Active Specials that genuinely include this match (not merely anchored on it technically
+  // via representative_match_id — see lib/matchAnnulment.ts#isRealMatchLeg's doc comment).
+  const { data: specialsRaw, error: specialsErr } = await admin
     .from('matchday_specials')
     .select('id, matchday, title, included_match_ids')
     .eq('status', 'active')
     .contains('included_match_ids', [matchId])
+  if (specialsErr) {
+    return { notFound: false, error: `Spieltag-Specials konnten nicht geladen werden: ${specialsErr.message}` }
+  }
   const specials = specialsRaw ?? []
   const votingSpecialIds = new Set(specials.map((s) => s.id as number))
 
-  // Every PENDING single/combo-leg directly tied to this match, plus every
-  // pending single/combo-leg of a Special being voided (special_id set).
-  const orFilter = votingSpecialIds.size > 0
-    ? `match_id.eq.${matchId},special_id.in.(${[...votingSpecialIds].join(',')})`
-    : `match_id.eq.${matchId}`
-  const { data: directLegsRaw } = await admin
-    .from('bets')
-    .select('id, match_id, special_id, combo_id, user_id, stake, odds_value, status')
-    .or(orFilter)
-  const directLegs = directLegsRaw ?? []
+  // Two SEPARATE queries, never one `.or('match_id.eq...,special_id.in...')` — a single OR
+  // filter on match_id would also catch every matchday_special bet whose TECHNICAL anchor
+  // happens to be this match, even when its own Special doesn't genuinely include it at all.
+  const legSelect = 'id, match_id, special_id, combo_id, user_id, stake, odds_value, status, market_type, is_risky'
+  const [{ data: realMatchLegsRaw, error: realLegsErr }, specialLegsResult] = await Promise.all([
+    admin.from('bets').select(legSelect).eq('match_id', matchId).neq('market_type', 'matchday_special'),
+    votingSpecialIds.size > 0
+      ? admin.from('bets').select(legSelect).in('special_id', [...votingSpecialIds])
+      : Promise.resolve({ data: [] as Leg[], error: null }),
+  ])
+  if (realLegsErr) {
+    return { notFound: false, error: `Wetten auf dieses Spiel konnten nicht geladen werden: ${realLegsErr.message}` }
+  }
+  if (specialLegsResult.error) {
+    return { notFound: false, error: `Wetten auf betroffene Spieltag-Specials konnten nicht geladen werden: ${specialLegsResult.error.message}` }
+  }
+  const directLegs = [...(realMatchLegsRaw ?? []), ...(specialLegsResult.data ?? [])] as Leg[]
 
   const singles: SinglePreviewEntry[] = directLegs
     .filter((b) => b.combo_id == null && b.status === 'pending')
@@ -122,10 +179,16 @@ async function buildPreview(matchId: number) {
   let comboEntries: ComboPreviewEntry[] = []
   const anomalyNotes: string[] = []
   if (comboIds.length > 0) {
-    const [{ data: comboRowsRaw }, { data: allLegsRaw }] = await Promise.all([
-      admin.from('combo_bets').select('id, user_id, stake, total_odds, status, is_risky').in('id', comboIds),
-      admin.from('bets').select('id, match_id, special_id, combo_id, odds_value, status').in('combo_id', comboIds),
+    const [{ data: comboRowsRaw, error: comboRowsErr }, { data: allLegsRaw, error: allLegsErr }] = await Promise.all([
+      admin.from('combo_bets').select('id, user_id, stake, total_odds, status').in('id', comboIds),
+      admin.from('bets').select('id, match_id, special_id, combo_id, odds_value, status, market_type, is_risky').in('combo_id', comboIds),
     ])
+    if (comboRowsErr) {
+      return { notFound: false, error: `Betroffene Kombiwetten konnten nicht geladen werden: ${comboRowsErr.message}` }
+    }
+    if (allLegsErr) {
+      return { notFound: false, error: `Legs der betroffenen Kombiwetten konnten nicht geladen werden: ${allLegsErr.message}` }
+    }
     const comboRows = (comboRowsRaw ?? []) as ComboRow[]
     const allLegs = (allLegsRaw ?? []) as Leg[]
     const legsByCombo = new Map<number, Leg[]>()
@@ -137,10 +200,13 @@ async function buildPreview(matchId: number) {
 
     comboEntries = comboRows.map((c) => {
       const legs = legsByCombo.get(c.id) ?? []
-      const oldPossiblePayout = round2(cappedPayout(c.stake, c.total_odds, c.is_risky))
+      // combo_bets has no is_risky column of its own — any one leg reflects
+      // the combo's classification (see lib/risky.ts).
+      const isRisky = legs.some((l) => l.is_risky)
+      const oldPossiblePayout = round2(cappedPayout(c.stake, c.total_odds, isRisky))
       if (c.status !== 'pending') {
         return {
-          comboId: c.id, userId: c.user_id, userName: '', stake: c.stake, isRisky: c.is_risky,
+          comboId: c.id, userId: c.user_id, userName: '', stake: c.stake, isRisky,
           statusBefore: c.status, oldTotalOdds: c.total_odds, oldPossiblePayout,
           action: 'untouched', newTotalOdds: null, newPossiblePayout: null, refund: null,
         }
@@ -150,36 +216,39 @@ async function buildPreview(matchId: number) {
       if (resolution.kind === 'precondition_violated_already_lost') {
         anomalyNotes.push(`Kombi #${c.id}: Status 'pending', enthält aber bereits ein verlorenes Leg — bitte manuell prüfen.`)
         return {
-          comboId: c.id, userId: c.user_id, userName: '', stake: c.stake, isRisky: c.is_risky,
+          comboId: c.id, userId: c.user_id, userName: '', stake: c.stake, isRisky,
           statusBefore: c.status, oldTotalOdds: c.total_odds, oldPossiblePayout,
           action: 'anomaly', newTotalOdds: null, newPossiblePayout: null, refund: null,
         }
       }
       if (resolution.kind === 'fully_neutralized') {
         return {
-          comboId: c.id, userId: c.user_id, userName: '', stake: c.stake, isRisky: c.is_risky,
+          comboId: c.id, userId: c.user_id, userName: '', stake: c.stake, isRisky,
           statusBefore: c.status, oldTotalOdds: c.total_odds, oldPossiblePayout,
           action: 'fully_neutralized', newTotalOdds: 1, newPossiblePayout: c.stake, refund: c.stake,
         }
       }
       if (resolution.kind === 'now_won') {
-        const payout = round2(cappedPayout(c.stake, resolution.newTotalOdds, c.is_risky))
+        const payout = round2(cappedPayout(c.stake, resolution.newTotalOdds, isRisky))
         return {
-          comboId: c.id, userId: c.user_id, userName: '', stake: c.stake, isRisky: c.is_risky,
+          comboId: c.id, userId: c.user_id, userName: '', stake: c.stake, isRisky,
           statusBefore: c.status, oldTotalOdds: c.total_odds, oldPossiblePayout,
           action: 'now_won', newTotalOdds: resolution.newTotalOdds, newPossiblePayout: payout, refund: null,
         }
       }
       // still_pending
-      const newPossiblePayout = round2(cappedPayout(c.stake, resolution.newTotalOdds, c.is_risky))
+      const newPossiblePayout = round2(cappedPayout(c.stake, resolution.newTotalOdds, isRisky))
       return {
-        comboId: c.id, userId: c.user_id, userName: '', stake: c.stake, isRisky: c.is_risky,
+        comboId: c.id, userId: c.user_id, userName: '', stake: c.stake, isRisky,
         statusBefore: c.status, oldTotalOdds: c.total_odds, oldPossiblePayout,
         action: 'still_pending', newTotalOdds: resolution.newTotalOdds, newPossiblePayout, refund: null,
       }
     })
   }
 
+  // Name lookup is cosmetic only (display label) — a failure here must never
+  // sink the whole preview (which carries real money figures); fall back to
+  // the raw user id, same as every other caller of loadUserNames-style helpers.
   const names = await loadUserNames(admin, [...singles.map((s) => s.userId), ...comboEntries.map((c) => c.userId)])
   for (const s of singles) s.userName = names.get(s.userId) ?? s.userId
   for (const c of comboEntries) c.userName = names.get(c.userId) ?? c.userId
@@ -192,8 +261,8 @@ async function buildPreview(matchId: number) {
   )
 
   return {
-    notFound: false as const,
-    matchLabel, matchStatus: match.status, alreadyAnnulled: false as const,
+    notFound: false,
+    matchLabel, matchStatus: match.status, alreadyAnnulled: false,
     singles, combos: comboEntries,
     specials: specials.map((s) => ({ id: s.id, matchday: s.matchday, title: s.title })),
     counts: {
@@ -209,10 +278,6 @@ async function buildPreview(matchId: number) {
   }
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
-}
-
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { error } = await requireAdmin()
   if (error) return error
@@ -223,6 +288,12 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   const preview = await buildPreview(matchId)
   if (preview.notFound) return NextResponse.json({ error: 'Spiel nicht gefunden.' }, { status: 404 })
+  // A DB read failure must surface as an explicit error — NEVER as a 200
+  // with an empty/zeroed preview that would look like "nothing is affected".
+  if ('error' in preview) {
+    console.error('annul preview build failed:', preview.error)
+    return NextResponse.json({ error: preview.error }, { status: 500 })
+  }
   return NextResponse.json(preview)
 }
 
@@ -271,6 +342,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     actorId, actorName, action: 'match_annulment', objectType: 'matches', objectId: matchId,
     newValue: { reason, ...result },
   })
+
+  // Annulling a match is "this match's story is over" (see lib/matchdayFinalize.ts's
+  // 'annulled' treatment, same as 'postponed') — it can be the LAST thing standing
+  // between a Spieltag and its recap/awards/pocket-money/inactivity-penalty, exactly
+  // like a normal settlement (app/api/admin/settle/route.ts) or a goalscorer settlement
+  // can be. Never lets a push/awards failure appear as if the annulment itself (balances
+  // already final above) had failed.
+  try {
+    await finalizeMatchdayIfDone(admin, matchId)
+  } catch (e) { console.error('finalizeMatchdayIfDone after match annulment failed:', e) }
 
   try {
     revalidatePath('/tipps')

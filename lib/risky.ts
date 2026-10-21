@@ -81,11 +81,11 @@ export async function recomputeRiskyForUserMatchday(
   const singleLegs = legs.filter((b) => b.combo_id == null && !b.is_bonus)
   const comboIds = [...new Set(legs.filter((b) => b.combo_id != null).map((b) => b.combo_id as number))]
 
-  let combos: { id: number; total_odds: number }[] = []
+  let combos: { id: number; total_odds: number; original_total_odds: number | null }[] = []
   if (comboIds.length > 0) {
     const { data } = await admin
       .from('combo_bets')
-      .select('id, total_odds')
+      .select('id, total_odds, original_total_odds')
       .in('id', comboIds)
       .eq('status', 'pending')
     combos = data ?? []
@@ -101,9 +101,15 @@ export async function recomputeRiskyForUserMatchday(
     }
   }
 
+  // A combo touched by a match/Special annulment (original_total_odds set,
+  // see lib/matchAnnulment.ts) is fed its ORIGINAL odds here, not its current
+  // (post-annulment, possibly much lower) total_odds, so the overall
+  // "which slip is highest / was a 3rd slip justified" picture stays exactly
+  // what it was at placement time. Its own is_risky is then never written
+  // back below, no matter what the classification says for it.
   const slips: RiskySlip[] = [
     ...singleLegs.map((b) => ({ id: `bet-${b.id}`, odds: Number(b.odds_value) })),
-    ...combos.map((c) => ({ id: `combo-${c.id}`, odds: Number(c.total_odds) })),
+    ...combos.map((c) => ({ id: `combo-${c.id}`, odds: Number(c.original_total_odds ?? c.total_odds) })),
   ]
   const { classification } = evaluateSlips(slips)
 
@@ -115,6 +121,7 @@ export async function recomputeRiskyForUserMatchday(
     }
   }
   for (const c of combos) {
+    if (c.original_total_odds != null) continue // pinned by an annulment — is_risky frozen, never reclassified
     const next = classification.get(`combo-${c.id}`) ?? false
     if (next !== comboCurrentRisky.get(c.id)) {
       updates.push(admin.from('bets').update({ is_risky: next }).eq('combo_id', c.id))
