@@ -115,6 +115,86 @@ export async function GET(request: NextRequest) {
       : { status: 'handlungsbedarf', detail: `${wildenrothMatchIds.length - coveredMatches.size} von ${wildenrothMatchIds.length} Wildenroth-Spiel(en) ohne Torschützen-Markt.` }
   }
 
+  // ── Spieltags-Check: zusätzliche, rein lesende Qualitätsprüfungen auf
+  // denselben, oben bereits geladenen Daten (dayMatches/mdIndex/seasonMatches/
+  // wtIds) — keine neue Infrastruktur, nur zusätzliche Auswertungen. Ändert
+  // nie etwas automatisch, reine Diagnose für den Admin.
+
+  // Doppelte Spiele: gleiche Paarung (Heim/Gast/Wettbewerb) mehrfach an diesem Spieltag.
+  const pairCounts = new Map<string, number>()
+  for (const m of dayMatches) {
+    const key = `${m.home_team_id}-${m.away_team_id}-${m.match_category ?? 'kreisliga'}`
+    pairCounts.set(key, (pairCounts.get(key) ?? 0) + 1)
+  }
+  const duplicatePairs = [...pairCounts.values()].filter((c) => c > 1).length
+  const duplicatesCheck: Check = duplicatePairs > 0
+    ? { status: 'handlungsbedarf', detail: `${duplicatePairs} Paarung(en) mehrfach an diesem Spieltag hinterlegt.` }
+    : { status: 'erledigt', detail: 'Keine doppelten Spiele gefunden.' }
+
+  // Datum/Anstoßzeit: ungültiges Datum, oder exakt Mitternacht (Europe/Berlin) — ein
+  // häufiges Zeichen einer beim Import noch fehlenden echten Anstoßzeit.
+  const missingKickoff = dayMatches.filter((m) => {
+    const d = new Date(m.match_date)
+    if (isNaN(d.getTime())) return true
+    const parts = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(d)
+    const hh = parts.find((p) => p.type === 'hour')?.value
+    const mm = parts.find((p) => p.type === 'minute')?.value
+    return hh === '00' && mm === '00'
+  })
+  const kickoffCheck: Check = missingKickoff.length > 0
+    ? { status: 'handlungsbedarf', detail: `${missingKickoff.length} Spiel(e) ohne erkennbare Anstoßzeit (00:00 Uhr oder ungültiges Datum).` }
+    : { status: 'erledigt', detail: 'Alle Spiele haben Datum und Anstoßzeit.' }
+
+  // Ungewöhnliche Spieltag-Zuordnung: Anstoß weit vom zeitlichen Schwerpunkt dieses
+  // Spieltags entfernt — derselbe Fehlerfall, der vorher das B-Klasse-Topspiel über ein
+  // reines ±7-Tage-Fenster falsch befüllt hat (siehe SpieltagTabView.tsx); hier nur als
+  // Hinweis, nicht als Filter.
+  const anchor = mdIndex.matchdayAnchorDate.get(matchday)
+  const OUTLIER_WINDOW_MS = 10 * 24 * 60 * 60 * 1000
+  const outliers = anchor != null ? dayMatches.filter((m) => Math.abs(new Date(m.match_date).getTime() - anchor) > OUTLIER_WINDOW_MS) : []
+  const scheduleAssignmentCheck: Check = outliers.length > 0
+    ? { status: 'handlungsbedarf', detail: `${outliers.length} Spiel(e) mit Anstoß weit entfernt vom Schwerpunkt dieses Spieltags — Zuordnung prüfen.` }
+    : { status: 'erledigt', detail: 'Alle Spiele liegen zeitlich plausibel in diesem Spieltag.' }
+
+  // Veraltete B-Klasse-Topspiel-Markierung an einem ANDEREN Spieltag (vergessen zu
+  // entfernen, bevor ein neues Topspiel markiert wurde) — ob für DIESEN Spieltag
+  // überhaupt eines gewählt ist, prüft bereits SpieltagCockpit.tsx (topspiel-Prop).
+  const staleTopspiel = seasonMatches.filter((m) =>
+    m.match_category === 'b-klasse' && m.is_topspiel && m.status === 'scheduled' && effectiveMatchdayOf(m, mdIndex) !== matchday
+  )
+  const topspielCheck: Check = staleTopspiel.length > 0
+    ? { status: 'handlungsbedarf', detail: `${staleTopspiel.length} B-Klasse-Topspiel-Markierung(en) gehören zu einem anderen Spieltag.` }
+    : { status: 'erledigt', detail: 'Keine veralteten Topspiel-Markierungen an anderen Spieltagen.' }
+
+  // Wildenroth: Mannschaft korrekt erkannt (Team-ID vs. Vereinsname) + Handicap-
+  // Angebot auf bereits eingefrorenen Quoten vorhanden.
+  let wildenrothRecognitionCheck: Check = { status: 'nicht_erforderlich', detail: 'Kein Wildenroth-Spiel an diesem Spieltag.' }
+  let wildenrothHandicapCheck: Check = { status: 'nicht_erforderlich', detail: 'Kein Wildenroth-Spiel an diesem Spieltag.' }
+  if (wildenrothMatchIds.length > 0) {
+    const teamIds = [...new Set(dayMatches.flatMap((m) => [m.home_team_id, m.away_team_id]))]
+    const { data: teamRows } = await admin.from('teams').select('id, name').in('id', teamIds)
+    const nameById = new Map((teamRows ?? []).map((t) => [t.id, t.name]))
+    const mismatches = dayMatches.filter((m) => {
+      const homeIsWt = wtIds.has(m.home_team_id)
+      const awayIsWt = wtIds.has(m.away_team_id)
+      const homeNameSaysWt = (nameById.get(m.home_team_id) ?? '').toLowerCase().includes('wildenroth')
+      const awayNameSaysWt = (nameById.get(m.away_team_id) ?? '').toLowerCase().includes('wildenroth')
+      return homeIsWt !== homeNameSaysWt || awayIsWt !== awayNameSaysWt
+    })
+    wildenrothRecognitionCheck = mismatches.length > 0
+      ? { status: 'handlungsbedarf', detail: `${mismatches.length} Spiel(e), bei denen Team-ID und Vereinsname bei „Wildenroth" nicht übereinstimmen.` }
+      : { status: 'erledigt', detail: `${wildenrothMatchIds.length} Wildenroth-Spiel(e) korrekt erkannt.` }
+
+    const { data: hdpRows } = await admin.from('odds').select('match_id, frozen_at, hdp_home_minus_1_5, hdp_away_plus_1_5').in('match_id', wildenrothMatchIds)
+    const frozenRows = (hdpRows ?? []).filter((r) => r.frozen_at)
+    const missingHandicap = frozenRows.filter((r) => r.hdp_home_minus_1_5 == null && r.hdp_away_plus_1_5 == null)
+    wildenrothHandicapCheck = frozenRows.length === 0
+      ? { status: 'nicht_geprueft', detail: 'Noch keine eingefrorenen Quoten — Handicap-Angebot kann erst dann geprüft werden.' }
+      : missingHandicap.length > 0
+        ? { status: 'handlungsbedarf', detail: `${missingHandicap.length} eingefrorene Wildenroth-Quote(n) ohne Handicap-Angebot.` }
+        : { status: 'erledigt', detail: 'Handicap-Angebot vorhanden.' }
+  }
+
   // ── Bonus-Tipps / Specials (technisch + manuelles "bewusst nicht vorgesehen") ──
   const manualKey = `matchday_checklist_md_${matchday}`
   const { data: manualRow } = await admin.from('app_settings').select('value').eq('key', manualKey).maybeSingle()
@@ -170,9 +250,21 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     matchday,
     checks: {
-      schedule, topspiel: null, odds: oddsCheck, anomalies: anomalyCheck, goalscorerMarket: goalscorerCheck,
+      schedule, odds: oddsCheck, anomalies: anomalyCheck, goalscorerMarket: goalscorerCheck,
       availability: availabilityCheck, bonusTips: bonusCheck, specials: specialsCheck,
       bettingWindow, bettingTimeConfirmed: bettingTimeCheck, settlement: settlementCheck,
+    },
+    // Spieltags-Check (siehe Abschlussbericht) — zusätzliche, rein lesende Prüfungen,
+    // separat von `checks` gehalten, damit die bestehende Cockpit-Darstellung (oben)
+    // unverändert bleibt und dieser Block klar als eigener, neuer Abschnitt gerendert
+    // werden kann.
+    spieltagsCheck: {
+      duplicates: duplicatesCheck,
+      kickoffTimes: kickoffCheck,
+      scheduleAssignment: scheduleAssignmentCheck,
+      staleTopspiel: topspielCheck,
+      wildenrothRecognition: wildenrothRecognitionCheck,
+      wildenrothHandicap: wildenrothHandicapCheck,
     },
     openAt,
     availabilitySnapshot,

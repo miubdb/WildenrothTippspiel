@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react'
 import type { BetSlipItem, MarketType } from '@/types'
 import { cappedPayout, previewComboIsRisky, previewSingleIsRisky } from '@/lib/payout'
+import { selectionsContradict } from '@/lib/betContradictions'
 
 type BetSlipMode = 'single' | 'combo'
 
@@ -68,39 +69,62 @@ export function BetSlipProvider({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<BetSlipMode>('single')
   const [stakes, setStakes] = useState<StakeMap>({})
   const [comboStake, setComboStake] = useState<number>(10)
-  const prevCountRef = useRef(0)
+  // Distinct-identity count, not raw selection count — two selections for the
+  // SAME match (or same Special) can never form a valid combo leg pair (see
+  // comboIdentity/isComboValid below), so they must stay classified as
+  // independent single bets no matter how many of them pile up. Only once a
+  // SECOND distinct match/Special shows up is a combo actually possible.
+  const prevDistinctRef = useRef(0)
 
   useEffect(() => {
-    const prev = prevCountRef.current
-    const curr = selections.length
-    if (curr >= 2 && prev < 2) setMode('combo')
-    else if (curr <= 1 && prev > 1) setMode('single')
-    prevCountRef.current = curr
-  }, [selections.length])
+    const distinct = new Set(selections.map(comboIdentity)).size
+    const prev = prevDistinctRef.current
+    if (distinct >= 2 && prev < 2) setMode('combo')
+    else if (distinct <= 1 && prev > 1) setMode('single')
+    prevDistinctRef.current = distinct
+  }, [selections])
 
   const addSelection = useCallback((item: BetSlipItem) => {
     setSelections((prev) => {
       const newKey = bsKey(item.matchId, item.marketType, item.selection, item.specialId)
-      // Toggle off on an exact repeat pick.
-      const wasSelected = prev.some((s) => bsKey(s.matchId, s.marketType, s.selection, s.specialId) === newKey)
-      if (wasSelected) {
-        return prev.filter((s) => bsKey(s.matchId, s.marketType, s.selection, s.specialId) !== newKey)
+      // Toggle off on an exact repeat pick — same slot AND same selection
+      // value. bsKey alone is not enough: it intentionally omits the
+      // selection for regular markets (see bsKey's doc comment above), so
+      // comparing it alone would also match "a different pick in the same
+      // market", wrongly treating that as "the exact same pick again" and
+      // just removing it instead of replacing it below.
+      const exactRepeat = prev.find((s) => bsKey(s.matchId, s.marketType, s.selection, s.specialId) === newKey && s.selection === item.selection)
+      if (exactRepeat) {
+        return prev.filter((s) => s !== exactRepeat)
       }
-      // Combo mode: a same-game combo is never valid (see isComboValid below),
-      // so a new pick for a match/Special already represented in the combo
-      // replaces it outright — two legs from the same match (or the same
-      // Special) would just be rejected.
-      // Single mode: different markets on the same match (or, for Torschütze,
-      // different players; or different Specials) are independent slips and
-      // coexist; only a different selection within the SAME market/slot
-      // replaces the previous choice there (changing your mind, e.g.
-      // Heimsieg → Unentschieden).
-      const withoutConflicting = mode === 'combo'
-        ? prev.filter((s) => comboIdentity(s) !== comboIdentity(item))
-        : prev.filter((s) => bsKey(s.matchId, s.marketType, s.selection, s.specialId) !== newKey)
+      // A new pick always replaces: (a) anything already in the exact same
+      // slot (same bsKey — a different choice in the same market/Special),
+      // and (b) on the SAME match, anything it logically contradicts across
+      // markets (lib/betContradictions.ts) — e.g. picking "1X" after "1"
+      // replaces it instead of stacking alongside it, which would otherwise
+      // only surface as an "Ungültige Kombination" once a second match makes
+      // this a real combo. This holds regardless of the current `mode`: two
+      // same-match legs can never be combined into one valid combo bet, so
+      // the replace decision cannot depend on how many OTHER matches are
+      // already in the slip. Goalscorer/Special picks are exempt from the
+      // contradiction check — their `selection` is a player/Special id, not a
+      // market outcome, so two different ones are independent, not opposing.
+      // Genuinely independent, non-contradicting markets on the same match
+      // (e.g. 1X2 + Torschütze, or 1X2 + a Handicap pair outside the
+      // impossible combinations) still coexist as separate single bets — see
+      // the mode-promotion effect above for why that no longer gets
+      // misclassified as an invalid combo.
+      const withoutConflicting = prev.filter((s) => {
+        const sameSlot = bsKey(s.matchId, s.marketType, s.selection, s.specialId) === newKey
+        const contradicts = s.matchId === item.matchId &&
+          !isSpecialMarket(s.marketType) && !isSpecialMarket(item.marketType) &&
+          !isGoalscorerMarket(s.marketType) && !isGoalscorerMarket(item.marketType) &&
+          selectionsContradict(s, item)
+        return !sameSlot && !contradicts
+      })
       return [...withoutConflicting, item]
     })
-  }, [mode])
+  }, [])
 
   const removeSelection = useCallback((matchId: number, marketType: MarketType, selection?: string, specialId?: number) => {
     setSelections((prev) =>

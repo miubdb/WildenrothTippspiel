@@ -20,6 +20,13 @@ interface ChecklistResponse {
     availability: Check; bonusTips: Check; specials: Check
     bettingWindow: Check; bettingTimeConfirmed: Check; settlement: Check
   }
+  /** Spieltags-Check (siehe Abschlussbericht) — zusätzliche, rein lesende
+   *  Prüfungen auf denselben Daten wie `checks` oben; bewusst separat gehalten
+   *  und in der eigenen "Spieltags-Check"-Box unten gerendert. */
+  spieltagsCheck: {
+    duplicates: Check; kickoffTimes: Check; scheduleAssignment: Check; staleTopspiel: Check
+    wildenrothRecognition: Check; wildenrothHandicap: Check
+  }
   openAt: string | null
   manual: { bonusTipsNotPlanned?: boolean; specialsNotPlanned?: boolean }
 }
@@ -138,7 +145,26 @@ export function SpieltagCockpit({ matchday, topspiel, dayMatchCount, onMessage }
   const openCount = [checks.schedule, topspielCheck, checks.odds, checks.anomalies, checks.goalscorerMarket, checks.availability, checks.bonusTips, checks.specials, checks.settlement]
     .filter((c) => c.status === 'handlungsbedarf').length
 
+  // Spieltags-Check: reine Anzeige, verändert nichts — dieselben Check-Objekte wie
+  // überall sonst hier, nur unter eigenem Titel zusammengefasst (siehe Abschlussbericht).
+  // 3-stufiger Gesamtstatus statt nur "offen"-Zähler: ❌ sobald irgendein Punkt echten
+  // Handlungsbedarf hat, sonst ⚠️ bei ungeprüften/unklaren Punkten, sonst ✅.
+  const spieltagsCheckItems = Object.entries(data.spieltagsCheck) as [string, Check][]
+  const scLabels: Record<string, string> = {
+    duplicates: 'Doppelte Spiele', kickoffTimes: 'Datum & Anstoßzeit', scheduleAssignment: 'Spieltag-Zuordnung',
+    staleTopspiel: 'B-Klasse-Topspiel (andere Spieltage)', wildenrothRecognition: 'Wildenroth-Mannschaft erkannt',
+    wildenrothHandicap: 'Wildenroth-Handicap-Angebot',
+  }
+  const scHasError = spieltagsCheckItems.some(([, c]) => c.status === 'handlungsbedarf')
+  const scHasHint = spieltagsCheckItems.some(([, c]) => c.status === 'nicht_geprueft')
+  const scOverall = scHasError
+    ? { label: '❌ Fehler gefunden', tone: 'critical' as Tone }
+    : scHasHint
+      ? { label: '⚠️ Hinweise', tone: 'open' as Tone }
+      : { label: '✅ Bereit', tone: 'success' as Tone }
+
   return (
+    <>
     <Section id="sp-cockpit" title="Spieltag-Cockpit" subtitle="Ist dieser Spieltag vollständig vorbereitet?" defaultOpen
       badge={openCount > 0 ? <Pill tone="critical">{openCount} offen</Pill> : <Pill tone="success">bereit</Pill>}>
       <div className="divide-y divide-gray-100">
@@ -204,5 +230,15 @@ export function SpieltagCockpit({ matchday, topspiel, dayMatchCount, onMessage }
         </div>
       </div>
     </Section>
+
+    <Section id="sp-check" title="Spieltags-Check" subtitle="Nur Anzeige — ändert nichts automatisch" defaultOpen={scHasError}
+      badge={<Pill tone={scOverall.tone}>{scOverall.label}</Pill>}>
+      <div className="divide-y divide-gray-100">
+        {spieltagsCheckItems.map(([key, check]) => (
+          <CheckRow key={key} label={scLabels[key] ?? key} check={check} />
+        ))}
+      </div>
+    </Section>
+    </>
   )
 }

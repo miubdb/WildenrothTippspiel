@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AdminBetsTab } from '@/components/admin/AdminBetsTab'
 import { BonusTipsAdmin } from '@/components/admin/BonusTipsAdmin'
 import { GoalscorersTab } from '@/components/admin/GoalscorersTab'
@@ -41,7 +41,7 @@ const fmtDay = (iso: string) => new Date(iso).toLocaleDateString('de-DE', { week
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
 
 export function SpieltagTabView({
-  matches, mdIndex, currentMatchday, pendingByMatch, matchdayForFilter, onToggleTopspiel, onMessage,
+  matches, mdIndex, currentMatchday, pendingByMatch, matchdayForFilter, onToggleTopspiel, onMessage, initialMatchday,
 }: {
   matches: MatchRow[]
   mdIndex: EffectiveMatchdayIndex
@@ -50,8 +50,18 @@ export function SpieltagTabView({
   matchdayForFilter: (m: MatchRow) => number | null
   onToggleTopspiel: (matchId: number, value: boolean) => void
   onMessage: (m: string | null) => void
+  /** Vorgabe aus dem "🎫 Neue Wette"-Push-Deep-Link (?matchday=N, siehe
+   *  app/admin/page.tsx) — einmalig als Auswahl übernommen, danach gewinnt
+   *  immer eine manuelle Auswahl im Picker. null/undefined: keine Vorgabe. */
+  initialMatchday?: number | null
 }) {
   const [choice, setChoice] = useState<number | null>(null)
+  const [appliedInitialMatchday, setAppliedInitialMatchday] = useState(false)
+  useEffect(() => {
+    if (appliedInitialMatchday || initialMatchday == null) return
+    setChoice(initialMatchday)
+    setAppliedInitialMatchday(true)
+  }, [initialMatchday, appliedInitialMatchday])
   const matchday = choice ?? currentMatchday
 
   const options = useMemo(
@@ -66,21 +76,26 @@ export function SpieltagTabView({
     [matches, matchday, matchdayForFilter],
   )
 
-  // Kandidaten für das B-Klasse-Topspiel: wie bisher ±7 Tage um den Anpfiff-Schwerpunkt DIESES
-  // Spieltags (nicht mehr zwingend des aktuellen) — exakt dieselbe Fensterregel, nur jetzt an
-  // den eigenen Spieltag-Umschalter dieser Ansicht gekoppelt statt immer an currentMatchday.
+  // Kandidaten für das B-Klasse-Topspiel: dasselbe Spieltag-Kriterium wie oben für
+  // `dayMatches` (matchdayForFilter — tippspiel_matchday als Source of Truth, siehe
+  // dessen Doku in app/admin/page.tsx), NICHT mehr ein ±7-Tage-Datumsfenster um den
+  // Anpfiff-Schwerpunkt. Das Datumsfenster konnte ein Spiel eines ANDEREN, nahen
+  // Spieltags mit anbieten (z.B. ein Nachholspiel oder einfach die nächste Woche),
+  // obwohl das Datenmodell über tippspiel_matchday längst eindeutig weiß, zu welchem
+  // Spieltag es gehört — genau das darf laut Aufgabenstellung nicht mehr passieren.
   const topspiel = useMemo(() => {
     const now = new Date()
-    const anchor = matchday != null ? mdIndex.matchdayAnchorDate.get(matchday) : null
-    const windowMs = 7 * 24 * 60 * 60 * 1000
     const candidates = matches
       .filter((m) => m.match_category === 'b-klasse' && m.status === 'scheduled' && new Date(m.match_date) >= now)
-      .filter((m) => anchor == null || Math.abs(new Date(m.match_date).getTime() - anchor) <= windowMs)
+      .filter((m) => matchday != null && matchdayForFilter(m) === matchday)
       .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
-    const current = matches.find((m) => m.match_category === 'b-klasse' && m.is_topspiel && m.status === 'scheduled')
+    // Auch das bereits gewählte Topspiel muss zu DIESEM Spieltag gehören — sonst
+    // könnte beim Wechsel des Spieltag-Umschalters ein noch als Topspiel markiertes
+    // Spiel eines ANDEREN Spieltags hier fälschlich als "gewählt" auftauchen.
+    const current = matches.find((m) => m.match_category === 'b-klasse' && m.is_topspiel && m.status === 'scheduled' && matchday != null && matchdayForFilter(m) === matchday)
     const list = current && !candidates.some((m) => m.id === current.id) ? [current, ...candidates] : candidates
     return { list, current }
-  }, [matches, matchday, mdIndex])
+  }, [matches, matchday, matchdayForFilter])
 
   const totalPending = dayMatches.reduce((a, m) => a + (pendingByMatch[m.id] ?? 0), 0)
 

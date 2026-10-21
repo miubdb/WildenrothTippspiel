@@ -35,20 +35,26 @@ import type { EffectiveMatchdayIndex } from '@/lib/season'
  * nicht mehr permanent sichtbar. Reine Default-/Gruppierungsänderung, keine neue Abfrage.
  */
 
-type Comp = 'all' | 'kreisliga' | 'wildenroth_ii' | 'b-klasse'
+type Comp = 'all' | 'kreisliga' | 'b-klasse'
 type StatusFilter = 'handlungsbedarf' | 'bevorstehend' | 'abgerechnet' | 'alle'
 
+// Kein eigener "Wildenroth II"-Eintrag mehr — Wildenroth II spielt in der
+// B-Klasse, daher deckt der B-Klasse-Filter diese Spiele mit ab (siehe
+// matchesComp unten). Die separate match_category='wildenroth_ii' bleibt für
+// Anzeige/Quotenmodell unverändert bestehen (CATEGORY_LABEL, lib/odds.ts,
+// …) — nur dieser redundante, zusätzliche UI-Filter entfällt.
 const COMP_ITEMS: Array<{ value: Comp; label: string }> = [
   { value: 'all', label: 'Alle Ligen' }, { value: 'kreisliga', label: 'Kreisliga' },
-  { value: 'wildenroth_ii', label: 'Wildenroth II' }, { value: 'b-klasse', label: 'B-Klasse' },
+  { value: 'b-klasse', label: 'B-Klasse' },
 ]
 
 function matchesComp(m: MatchRow, comp: Comp) {
   if (comp === 'all') return true
   if (comp === 'kreisliga') return !m.match_category || m.match_category === 'kreisliga'
-  if (comp === 'wildenroth_ii') return m.match_category === 'wildenroth_ii'
-  // „B-Klasse“ umfasst normale B-Klasse-Spiele und das markierte Topspiel — wie bisher matchesCompFilter in page.tsx
-  return m.match_category === 'b-klasse' || m.match_category === 'bklasse_topspiel'
+  // „B-Klasse“ umfasst normale B-Klasse-Spiele, das markierte Topspiel UND
+  // Wildenroth II (das in der B-Klasse spielt, siehe Kommentar oben) — wie
+  // bisher matchesCompFilter in page.tsx, nur jetzt auch wildenroth_ii dabei.
+  return m.match_category === 'b-klasse' || m.match_category === 'bklasse_topspiel' || m.match_category === 'wildenroth_ii'
 }
 
 const hasScore = (m: MatchRow) => m.home_score != null && m.away_score != null
@@ -57,7 +63,7 @@ const isOpenStatus = (m: MatchRow) => m.status === 'scheduled' || m.status === '
 export function ErgebnisseTabView({
   matches, loading, mdIndex, currentMatchday, pendingByMatch, matchdayForFilter, playerSuggestions,
   scores, onScoreChange, cupInputs, onCupInputChange, onSettle, onPostpone, settleLoading,
-  onCategoryChange, scorers, onScorersChange, onMessage, onRescheduled,
+  scorers, onScorersChange, onMessage, onRescheduled,
 }: {
   matches: MatchRow[]
   loading: boolean
@@ -73,7 +79,6 @@ export function ErgebnisseTabView({
   onSettle: (matchId: number) => void
   onPostpone: (matchId: number) => void
   settleLoading: number | null
-  onCategoryChange: (matchId: number, category: string) => void
   scorers: Record<number, ScorerDraft[]>
   onScorersChange: (matchId: number, draft: ScorerDraft[]) => void
   onMessage: (m: string | null) => void
@@ -145,7 +150,6 @@ export function ErgebnisseTabView({
       cupInput={cupInputs[m.id] ?? EMPTY_CUP} onCupInputChange={(field, val) => onCupInputChange(m.id, field, val)}
       onSettle={() => onSettle(m.id)} onPostpone={() => onPostpone(m.id)}
       loading={settleLoading === m.id} pendingBets={pendingByMatch[m.id]}
-      onCategoryChange={onCategoryChange}
       scorerDraft={scorers[m.id]} onScorersChange={(draft) => onScorersChange(m.id, draft)}
       effectiveMatchday={matchdayForFilter(m)}
       cupSettlementPreview={<CupSettlementPreview match={m} score={scoreOf(m)} cupInput={cupInputs[m.id] ?? EMPTY_CUP} />}
