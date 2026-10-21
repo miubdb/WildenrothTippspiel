@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { SURVEY_VERSION, ALL_QUESTIONS, visibleQuestionsForAnswers } from '@/lib/survey'
+import { ALL_QUESTIONS, visibleQuestionsForAnswers } from '@/lib/survey'
 import type { Answers } from '@/lib/survey'
+import { currentSurveyVersion } from '@/lib/surveyMode'
 
 // Formula-injection guard: a cell starting with =, +, -, or @ is executed as
 // a formula by Excel/LibreOffice/Google Sheets when the file is opened — a
@@ -39,9 +40,12 @@ export async function GET() {
   const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
   if (!profile?.is_admin) return NextResponse.json({ error: 'Keine Berechtigung.' }, { status: 403 })
 
+  // currentSurveyVersion() — exports exclusively THIS environment's own
+  // rows, never the other environment's (both share the same table).
+  const version = currentSurveyVersion()
   const admin = createAdminClient()
   const [{ data: rows }, { data: profiles }] = await Promise.all([
-    admin.from('survey_responses').select('user_id, answers, started_at, submitted_at, updated_at').eq('survey_version', SURVEY_VERSION),
+    admin.from('survey_responses').select('user_id, answers, started_at, submitted_at, updated_at').eq('survey_version', version),
     admin.from('profiles').select('id, username, display_name'),
   ])
 
@@ -61,7 +65,7 @@ export async function GET() {
     const cells = [
       p?.display_name || p?.username || 'Unbekannt',
       r.user_id as string,
-      SURVEY_VERSION,
+      version,
       r.started_at as string,
       (r.submitted_at as string | null) ?? '',
       r.updated_at as string,
@@ -75,7 +79,7 @@ export async function GET() {
   return new NextResponse(csv, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="umfrage_${SURVEY_VERSION}.csv"`,
+      'Content-Disposition': `attachment; filename="umfrage_${version}.csv"`,
     },
   })
 }

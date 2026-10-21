@@ -2,9 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { logAdminAction } from '@/lib/auditLog'
-import { SURVEY_VERSION } from '@/lib/survey'
 import { computeOverview, computePerQuestionStats, computeCrossTabs, isActuallySubmitted, type SurveyRow, type ProfileLite } from '@/lib/surveyAggregate'
-import { currentSurveyModeKey, resolveSurveyMode } from '@/lib/surveyMode'
+import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion } from '@/lib/surveyMode'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -16,10 +15,12 @@ async function requireAdmin() {
 }
 
 // Aggregate evaluation for the admin "Umfrage" tab: fetches all rows for
-// SURVEY_VERSION plus the active-user pool via the service-role client (RLS
-// on survey_responses only lets a session client see its own row — aggregate
-// reads MUST go through here, never a permissive policy), then aggregates in
-// TS at request time so numbers are always fresh after a delete/reset.
+// THIS ENVIRONMENT's own survey_version (currentSurveyVersion() — never the
+// other environment's rows, even though both share the same table) plus the
+// active-user pool via the service-role client (RLS on survey_responses
+// only lets a session client see its own row — aggregate reads MUST go
+// through here, never a permissive policy), then aggregates in TS at
+// request time so numbers are always fresh after a delete/reset.
 export async function GET() {
   const { error } = await requireAdmin()
   if (error) return error
@@ -27,7 +28,7 @@ export async function GET() {
   const admin = createAdminClient()
 
   const [{ data: rowsRaw }, { data: activeProfiles }, { data: allProfilesRaw }, { data: settingsRaw }] = await Promise.all([
-    admin.from('survey_responses').select('user_id, answers, started_at, submitted_at, updated_at').eq('survey_version', SURVEY_VERSION),
+    admin.from('survey_responses').select('user_id, answers, started_at, submitted_at, updated_at').eq('survey_version', currentSurveyVersion()),
     admin.from('profiles').select('id').eq('eligible_for_current_season', true).is('deleted_at', null),
     admin.from('profiles').select('id, username, display_name'),
     admin.from('app_settings').select('key, value').in('key', [currentSurveyModeKey(), 'survey_admin_allow_reset']),
@@ -74,6 +75,10 @@ export async function GET() {
       // lib/surveyMode.ts) — so the UI can say so explicitly instead of the
       // admin having to guess which one they're changing.
       surveyModeKey: currentSurveyModeKey(),
+      // Tatsächlich verwendete Umfrageversion dieser Umgebung — siehe
+      // lib/surveyMode.ts#currentSurveyVersion. Production und Preview/
+      // integration haben hier NIE denselben Wert.
+      surveyVersion: currentSurveyVersion(),
       allowReset: settings.get('survey_admin_allow_reset') === 'true',
       // UI-only signal so the button can be disabled/explained proactively —
       // the POST /reset_all handler enforces this itself server-side
@@ -118,7 +123,7 @@ export async function POST(req: Request) {
   if (action === 'delete_response') {
     const userId = (body as { userId?: string }).userId
     if (!userId) return NextResponse.json({ error: 'userId fehlt.' }, { status: 400 })
-    const { error: delError } = await admin.from('survey_responses').delete().eq('user_id', userId).eq('survey_version', SURVEY_VERSION)
+    const { error: delError } = await admin.from('survey_responses').delete().eq('user_id', userId).eq('survey_version', currentSurveyVersion())
     await logAdminAction({ actorId, actorName, action: 'survey_response_delete', objectType: 'survey_responses', objectId: userId, success: !delError, errorMessage: delError?.message })
     if (delError) return NextResponse.json({ error: delError.message }, { status: 500 })
     return NextResponse.json({ ok: true })
@@ -135,6 +140,10 @@ export async function POST(req: Request) {
     //    "Branch- und Deployment-Strategie": main → Production, integration
     //    → Preview). Undefined VERCEL_ENV (e.g. local dev) is treated as
     //    non-production, matching how this repo is normally run.
+    // On top of both gates, the DELETE itself is scoped to
+    // currentSurveyVersion() — even if this code ran on production despite
+    // gate (2) somehow failing open, it could still only ever touch THIS
+    // environment's own rows, never the other environment's.
     if (process.env.VERCEL_ENV === 'production') {
       return NextResponse.json(
         { error: 'Bulk-Reset ist in der Produktionsumgebung deaktiviert.' },
@@ -145,8 +154,9 @@ export async function POST(req: Request) {
     if (allowSetting?.value !== 'true') {
       return NextResponse.json({ error: 'Bulk-Reset ist deaktiviert (survey_admin_allow_reset = false).' }, { status: 403 })
     }
-    const { error: resetError } = await admin.from('survey_responses').delete().eq('survey_version', SURVEY_VERSION)
-    await logAdminAction({ actorId, actorName, action: 'survey_reset', objectType: 'survey_responses', objectId: SURVEY_VERSION, success: !resetError, errorMessage: resetError?.message })
+    const version = currentSurveyVersion()
+    const { error: resetError } = await admin.from('survey_responses').delete().eq('survey_version', version)
+    await logAdminAction({ actorId, actorName, action: 'survey_reset', objectType: 'survey_responses', objectId: version, success: !resetError, errorMessage: resetError?.message })
     if (resetError) return NextResponse.json({ error: resetError.message }, { status: 500 })
     return NextResponse.json({ ok: true })
   }

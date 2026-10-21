@@ -42,3 +42,31 @@ export function resolveSurveyMode(rawValue: string | null | undefined): SurveyVi
   if (rawValue === 'help_only' || rawValue === 'prominent') return rawValue
   return 'hidden'
 }
+
+// Same reasoning, one layer down: `main` and `integration` sharing one
+// Supabase database means a single `survey_version` would let a Preview
+// test write into (and a Preview reset delete) the exact same rows
+// Production reads — the visibility gate above stops a PREVIEW USER from
+// ever reaching the wizard, but says nothing about two DIFFERENT
+// environments' ADMINS/requests writing to the same `survey_responses` rows.
+// Two entirely separate version strings close that off by construction:
+//   - SURVEY_VERSION_PRODUCTION ('winter_2026_v2')          — main only
+//   - SURVEY_VERSION_PREVIEW    ('winter_2026_v2_preview')  — everything else
+// Neither has any row yet (confirmed against the live database before this
+// change) — nothing to migrate, overwrite, or lose. V1 ('winter_2026_v1',
+// lib/survey.ts#SURVEY_VERSION_V1) is a third, completely separate version
+// string and is never touched by anything here.
+export const SURVEY_VERSION_PRODUCTION = 'winter_2026_v2'
+export const SURVEY_VERSION_PREVIEW = 'winter_2026_v2_preview'
+
+/**
+ * The `survey_responses.survey_version` value this environment reads and
+ * writes. Every query touching `survey_responses` for V2 — the
+ * participant API, the admin aggregate/participant list/CSV export,
+ * single-response delete, bulk reset, and the Hilfe-page status — must
+ * resolve the version through this one function, never a hardcoded string,
+ * or two environments could end up reading/writing each other's rows.
+ */
+export function currentSurveyVersion(): string {
+  return process.env.VERCEL_ENV === 'production' ? SURVEY_VERSION_PRODUCTION : SURVEY_VERSION_PREVIEW
+}

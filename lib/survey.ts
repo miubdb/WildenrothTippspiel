@@ -13,29 +13,26 @@
 // question set without a schema migration. The (user_id, survey_version)
 // key lets versions coexist without touching older rows.
 //
-// V2 ("winter_2026_v2") replaces V1 ("winter_2026_v1") entirely — see the
-// Winter-2026-V2-Auftrag Abschlussbericht for the full decision record. V1's
-// rows are NEVER deleted by anything in this file or its consumers; they are
-// simply no longer queried once SURVEY_VERSION points at v2 (every query in
-// this codebase filters by `survey_version = SURVEY_VERSION`, so old rows
-// stay in the table, just out of scope for new reads/writes).
-
-export const SURVEY_VERSION = 'winter_2026_v2'
+// V2 replaces V1 ("winter_2026_v1") entirely — see the Winter-2026-V2-Auftrag
+// Abschlussbericht for the full decision record. V1's rows are NEVER deleted
+// by anything in this file or its consumers; they are simply no longer
+// queried once any V2 code path resolves its own survey_version.
+//
+// V2 itself is NOT one fixed version string — `main` (production) and
+// `integration` (preview) share the exact same Supabase database, so a
+// single shared `survey_version` would let a preview test read/write (and a
+// preview bulk-reset delete) the same rows production serves. Each
+// environment therefore has its OWN version string
+// (lib/surveyMode.ts#currentSurveyVersion — server-only, reads
+// process.env.VERCEL_ENV, which must never be referenced from THIS file
+// since it's imported by the 'use client' umfrage/page.tsx). Nothing here
+// needs to know which one applies — only the server-side readers
+// (app/api/survey/route.ts and the other admin/export/Hilfe call sites) do.
 
 /** The version this schema replaces — kept only as a documented pointer for
  *  anyone who needs to query historical V1 rows directly; nothing in this
  *  module reads or writes it. */
 export const SURVEY_VERSION_V1 = 'winter_2026_v1'
-
-// app_settings key(s) gating V2's visibility — deliberately separate from
-// V1's `survey_mode` (which the product already set to 'help_only' in the
-// shared database both `main` and `integration` read from), AND split
-// per-environment (production vs. preview) rather than one shared key — see
-// lib/surveyMode.ts for the full reasoning and the actual key names/
-// resolution logic. That module is server-only (reads process.env.VERCEL_ENV,
-// which must never be referenced from this file — it's imported by the
-// 'use client' umfrage/page.tsx); nothing here needs to know which key
-// applies, only app/api/survey/route.ts and the other server-side readers do.
 
 export type Answers = Record<string, number | string | string[] | undefined>
 

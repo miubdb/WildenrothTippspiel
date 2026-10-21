@@ -1,8 +1,7 @@
 import Link from 'next/link'
 import { HelpAccordion } from '@/components/HelpAccordion'
 import { createClient } from '@/lib/supabase/server'
-import { SURVEY_VERSION } from '@/lib/survey'
-import { currentSurveyModeKey, resolveSurveyMode } from '@/lib/surveyMode'
+import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion } from '@/lib/surveyMode'
 
 export const revalidate = 86400
 
@@ -18,7 +17,7 @@ export default async function AnleitungPage() {
   if (user) {
     const [{ data: modeSetting }, { data: response }] = await Promise.all([
       supabase.from('app_settings').select('value').eq('key', currentSurveyModeKey()).maybeSingle(),
-      supabase.from('survey_responses').select('submitted_at').eq('user_id', user.id).eq('survey_version', SURVEY_VERSION).maybeSingle(),
+      supabase.from('survey_responses').select('submitted_at').eq('user_id', user.id).eq('survey_version', currentSurveyVersion()).maybeSingle(),
     ])
     surveyMode = resolveSurveyMode(modeSetting?.value)
     if (response) surveyStatus = response.submitted_at ? 'submitted' : 'started'

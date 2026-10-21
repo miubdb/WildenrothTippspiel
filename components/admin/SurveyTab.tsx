@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { SURVEY_SECTIONS, SURVEY_VERSION, visibleQuestionsForAnswers, type Answers } from '@/lib/survey'
+import { SURVEY_SECTIONS, visibleQuestionsForAnswers, type Answers } from '@/lib/survey'
 import type {
   SurveyOverview, QuestionStat, SurveyCrossTabs, SingleChoiceStat, ScaleStat, MultiStat, FreetextStat,
 } from '@/lib/surveyAggregate'
@@ -18,7 +18,7 @@ interface Participant {
 }
 
 interface SurveyData {
-  settings: { surveyMode: string; surveyModeKey: string; allowReset: boolean; isProduction: boolean }
+  settings: { surveyMode: string; surveyModeKey: string; surveyVersion: string; allowReset: boolean; isProduction: boolean }
   overview: SurveyOverview
   perQuestion: QuestionStat[]
   crossTabs: SurveyCrossTabs
@@ -129,7 +129,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
     // eines Tastendrucks, wie beim Saison-Reset (app/admin/page.tsx#resetSeasonBalances).
     if (!(await confirmDialog({
       title: 'Wirklich alle Antworten löschen?',
-      message: `Wirklich alle Antworten der Umfrage ${SURVEY_VERSION} löschen?`,
+      message: `Wirklich alle Antworten der Umfrage ${data?.settings.surveyVersion ?? ''} löschen?`,
       confirmLabel: 'Alle löschen', tone: 'danger', requireText: 'LÖSCHEN',
     }))) return
     await resetAll()
@@ -152,17 +152,18 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
       <Section id="uf-sichtbarkeit" title="Sichtbarkeit & Konfiguration" subtitle="Umfrage-Rollout steuern (V2)" defaultOpen>
         <div className="space-y-3">
           <Notice tone="info">
-            Dieser Schalter steuert ausschließlich <code>app_settings.{settings.surveyModeKey}</code> —
-            die Version {SURVEY_VERSION} dieses Abschnitts, <strong>nur für die Umgebung, in der dieses
-            Admin-Panel gerade läuft</strong> ({settings.isProduction ? 'Production (main)' : 'Preview/integration'}).
+            Dieser Schalter steuert ausschließlich <code>app_settings.{settings.surveyModeKey}</code>,
+            <strong> nur für die Umgebung, in der dieses Admin-Panel gerade läuft</strong> ({settings.isProduction ? 'Production (main)' : 'Preview/integration'}).
             Production und Preview/integration haben JEWEILS ihren eigenen, komplett getrennten
             Schlüssel (<code>survey_mode_v2</code> bzw. <code>survey_mode_v2_preview</code>) in derselben
             Datenbank — eine Freigabe hier wirkt sich nie auf die jeweils andere Umgebung aus, weder
-            sichtbar noch tatsächlich freigeschaltet. Das alte <code>survey_mode</code> (V1,
-            winter_2026_v1) bleibt davon unberührt und wird hier nicht mehr angezeigt/gesteuert; V1
-            hat bisher keine abgegebenen Antworten. Solange hier nichts geändert wird, bleibt V2 in
-            beiden Umgebungen auf „Versteckt&rdquo; — keine Freischaltung ohne ausdrückliche Freigabe
-            für genau diese Umgebung.
+            sichtbar noch tatsächlich freigeschaltet. Ebenso speichert diese Umgebung ihre Antworten
+            unter einer eigenen Umfrageversion: aktuell <strong><code>{settings.surveyVersion}</code></strong>{' '}
+            — auch Export, Einzel-Löschung und Komplettreset betreffen ausschließlich diese Version, nie
+            die der anderen Umgebung. Das alte <code>survey_mode</code>/<code>winter_2026_v1</code> (V1)
+            bleibt davon unberührt und wird hier nicht mehr angezeigt/gesteuert; V1 hat bisher keine
+            abgegebenen Antworten. Solange hier nichts geändert wird, bleibt V2 in beiden Umgebungen auf
+            „Versteckt&rdquo; — keine Freischaltung ohne ausdrückliche Freigabe für genau diese Umgebung.
           </Notice>
           <div className="flex gap-2">
             {(['hidden', 'help_only', 'prominent'] as const).map((m) => (
@@ -270,7 +271,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
       <Section id="uf-danger" title="Testphase — Alle Antworten löschen" subtitle="Unwiderruflich, nur für die Testphase" tone="critical">
         <div className="space-y-3">
           <p className="text-[14px] leading-6 text-red-900">
-            Löscht alle Umfrageantworten der Version {SURVEY_VERSION} unwiderruflich. Nur für die Testphase gedacht —
+            Löscht alle Umfrageantworten der Version {settings.surveyVersion} unwiderruflich (ausschließlich diese Umgebung, nie die der jeweils anderen). Nur für die Testphase gedacht —
             über „Bulk-Reset erlaubt&rdquo; oben deaktivierbar, bevor die Winterpause beginnt.
           </p>
           {settings.isProduction && (

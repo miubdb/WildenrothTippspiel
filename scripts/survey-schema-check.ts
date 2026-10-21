@@ -15,7 +15,10 @@ import {
   toggleMultiOption, isValidMultiSelection, validateIncomingAnswers, stripHiddenAnswers, nextSubmittedAt,
 } from '@/lib/surveyValidation'
 import { isActuallySubmitted, type SurveyRow } from '@/lib/surveyAggregate'
-import { currentSurveyModeKey, resolveSurveyMode, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW } from '@/lib/surveyMode'
+import {
+  currentSurveyModeKey, resolveSurveyMode, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW,
+  currentSurveyVersion, SURVEY_VERSION_PRODUCTION, SURVEY_VERSION_PREVIEW,
+} from '@/lib/surveyMode'
 
 let failures = 0
 let checks = 0
@@ -336,6 +339,60 @@ export function run(): number {
         check('Beide gesetzt, unterschiedlich: Preview liest NUR seinen eigenen Wert (prominent, nicht help_only)',
           resolveSurveyMode(lookup(currentSurveyModeKey())) === 'prominent')
       }
+    } finally {
+      if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV
+      else process.env.VERCEL_ENV = originalVercelEnv
+    }
+  }
+
+  console.log('\n11. survey_version-Trennung: Preview und Production dürfen sich niemals gegenseitig berühren')
+  {
+    const originalVercelEnv = process.env.VERCEL_ENV
+    try {
+      check('Production- und Preview-Version sind zwei unterschiedliche Strings', (SURVEY_VERSION_PRODUCTION as string) !== (SURVEY_VERSION_PREVIEW as string))
+
+      process.env.VERCEL_ENV = 'production'
+      check('VERCEL_ENV=production → Production-Version', currentSurveyVersion() === SURVEY_VERSION_PRODUCTION)
+      process.env.VERCEL_ENV = 'preview'
+      check('VERCEL_ENV=preview → Preview-Version', currentSurveyVersion() === SURVEY_VERSION_PREVIEW)
+      process.env.VERCEL_ENV = undefined
+      check('kein VERCEL_ENV (z.B. lokal) → Preview-Version', currentSurveyVersion() === SURVEY_VERSION_PREVIEW)
+
+      // Simulierte survey_responses-Tabelle: je eine Zeile pro Version. Steht
+      // hier für GET (Teilnehmer-API + Admin-Auswertung/Teilnehmerliste),
+      // CSV-Export, Einzel-Löschung und Komplettreset — alle filtern exakt
+      // über `.eq('survey_version', currentSurveyVersion())` (siehe
+      // app/api/survey/route.ts, app/api/admin/survey/route.ts,
+      // app/api/admin/survey/export/route.ts). Der Test beweist direkt, dass
+      // dieselbe Funktion für jede Umgebung nur die eigenen Zeilen trifft und
+      // ein Komplettreset in der einen Umgebung die andere nicht verändert.
+      type FakeRow = { survey_version: string; marker: string }
+      const fakeDb: FakeRow[] = [
+        { survey_version: SURVEY_VERSION_PRODUCTION, marker: 'ECHTE-PRODUKTIONSANTWORT' },
+        { survey_version: SURVEY_VERSION_PREVIEW, marker: 'PREVIEW-TESTANTWORT' },
+      ]
+      const selectForCurrentEnv = () => fakeDb.filter((r) => r.survey_version === currentSurveyVersion())
+      const deleteForCurrentEnv = () => {
+        const version = currentSurveyVersion()
+        const before = fakeDb.length
+        for (let i = fakeDb.length - 1; i >= 0; i--) if (fakeDb[i].survey_version === version) fakeDb.splice(i, 1)
+        return before - fakeDb.length
+      }
+
+      process.env.VERCEL_ENV = 'preview'
+      const previewSelected = selectForCurrentEnv()
+      check('Preview-GET/Export sieht NUR die Preview-Antwort', previewSelected.length === 1 && previewSelected[0].marker === 'PREVIEW-TESTANTWORT')
+      check('Preview-GET/Export sieht NIE die Produktionsantwort', !previewSelected.some((r) => r.marker === 'ECHTE-PRODUKTIONSANTWORT'))
+
+      const previewDeletedCount = deleteForCurrentEnv() // simuliert den Preview-Komplettreset
+      check('Preview-Komplettreset löscht genau 1 Zeile (nur seine eigene)', previewDeletedCount === 1)
+      check('Produktionsantwort überlebt den Preview-Komplettreset unverändert', fakeDb.some((r) => r.marker === 'ECHTE-PRODUKTIONSANTWORT'))
+      check('Preview-Antwort ist nach dem Preview-Komplettreset tatsächlich weg', !fakeDb.some((r) => r.marker === 'PREVIEW-TESTANTWORT'))
+
+      process.env.VERCEL_ENV = 'production'
+      const productionSelected = selectForCurrentEnv()
+      check('Production-GET/Export sieht nach wie vor NUR die (unveränderte) Produktionsantwort',
+        productionSelected.length === 1 && productionSelected[0].marker === 'ECHTE-PRODUKTIONSANTWORT')
     } finally {
       if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV
       else process.env.VERCEL_ENV = originalVercelEnv

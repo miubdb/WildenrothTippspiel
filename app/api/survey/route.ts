@@ -1,14 +1,16 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { SURVEY_VERSION } from '@/lib/survey'
 import { validateIncomingAnswers, isCompleteForSubmission, nextSubmittedAt } from '@/lib/surveyValidation'
-import { currentSurveyModeKey, resolveSurveyMode } from '@/lib/surveyMode'
+import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion } from '@/lib/surveyMode'
 
 // Own-survey endpoint: reads/writes the caller's own survey_responses row for
-// SURVEY_VERSION only. RLS (survey_responses_select_own/insert_own/update_own)
-// already scopes every query to auth.uid() = user_id — this route additionally
-// never accepts a userId from the client, so there's no way to target another
-// user's row even if RLS were bypassed by a bug here.
+// THIS ENVIRONMENT's own survey_version (lib/surveyMode.ts#currentSurveyVersion
+// — production and preview/integration each write entirely separate rows,
+// never each other's, even though both share the same database/table). RLS
+// (survey_responses_select_own/insert_own/update_own) already scopes every
+// query to auth.uid() = user_id — this route additionally never accepts a
+// userId from the client, so there's no way to target another user's row
+// even if RLS were bypassed by a bug here.
 //
 // V2 reads its own, SEPARATE, per-environment app_settings key (see
 // lib/surveyMode.ts#currentSurveyModeKey — production and preview/integration
@@ -27,7 +29,7 @@ export async function GET() {
       .from('survey_responses')
       .select('answers, started_at, submitted_at, updated_at')
       .eq('user_id', user.id)
-      .eq('survey_version', SURVEY_VERSION)
+      .eq('survey_version', currentSurveyVersion())
       .maybeSingle(),
     supabase.from('app_settings').select('value').eq('key', currentSurveyModeKey()).maybeSingle(),
   ])
@@ -98,7 +100,7 @@ export async function POST(req: Request) {
     .from('survey_responses')
     .select('started_at, submitted_at')
     .eq('user_id', user.id)
-    .eq('survey_version', SURVEY_VERSION)
+    .eq('survey_version', currentSurveyVersion())
     .maybeSingle()
 
   // A `save` must NEVER leave (or silently keep) a response marked as
@@ -116,7 +118,7 @@ export async function POST(req: Request) {
     .from('survey_responses')
     .upsert({
       user_id: user.id,
-      survey_version: SURVEY_VERSION,
+      survey_version: currentSurveyVersion(),
       started_at: existing?.started_at ?? now,
       submitted_at: submittedAt,
       updated_at: now,
