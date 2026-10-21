@@ -25,7 +25,7 @@ interface SurveyData {
   participants: Participant[]
 }
 
-const MODE_LABEL: Record<string, string> = { hidden: 'Versteckt', help_only: 'Nur unter Hilfe', prominent: 'Prominent (Startseite)' }
+const MODE_LABEL: Record<string, string> = { hidden: 'Versteckt', direct_only: 'Nur Direktlink', help_only: 'Nur unter Hilfe', prominent: 'Prominent (Startseite)' }
 
 function fmtDate(iso: string | null) {
   if (!iso) return '—'
@@ -165,8 +165,8 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
             abgegebenen Antworten. Solange hier nichts geändert wird, bleibt V2 in beiden Umgebungen auf
             „Versteckt&rdquo; — keine Freischaltung ohne ausdrückliche Freigabe für genau diese Umgebung.
           </Notice>
-          <div className="flex gap-2">
-            {(['hidden', 'help_only', 'prominent'] as const).map((m) => (
+          <div className="flex flex-wrap gap-2">
+            {(['hidden', 'direct_only', 'help_only', 'prominent'] as const).map((m) => (
               <Btn key={m} variant={settings.surveyMode === m ? 'primary' : 'secondary'} size="sm" className="flex-1" disabled={busy} onClick={() => setMode(m)}>
                 {MODE_LABEL[m]}
               </Btn>
@@ -174,7 +174,8 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
           </div>
           <p className="text-[13px] leading-5 text-gray-600">
             Aktuell ({settings.isProduction ? 'Production' : 'Preview/integration'}): <strong>{MODE_LABEL[settings.surveyMode] ?? settings.surveyMode}</strong> ·
-            {' '}„Nur unter Hilfe&rdquo; = nur über Hilfe → Feedback &amp; Umfrage erreichbar, kein Hinweis auf der Startseite.
+            {' '}„Nur Direktlink&rdquo; = /umfrage ist für angemeldete Nutzer erreichbar, aber weder in der Hilfe noch auf der Startseite verlinkt.
+            „Nur unter Hilfe&rdquo; = über Hilfe → Feedback &amp; Umfrage erreichbar, kein Hinweis auf der Startseite.
             „Prominent&rdquo; zeigt zusätzlich einen Banner auf der Startseite.
           </p>
           <div className="flex flex-col gap-3 rounded-xl bg-gray-50 p-3 sm:flex-row sm:items-center sm:justify-between">
