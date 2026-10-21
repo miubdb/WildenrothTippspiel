@@ -16,7 +16,7 @@ import {
 } from '@/lib/surveyValidation'
 import { isActuallySubmitted, type SurveyRow } from '@/lib/surveyAggregate'
 import {
-  currentSurveyModeKey, resolveSurveyMode, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW,
+  currentSurveyModeKey, resolveSurveyMode, surveyModeAllowsAccess, surveyModeShowsHelpLink, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW,
   currentSurveyVersion, SURVEY_VERSION_PRODUCTION, SURVEY_VERSION_PREVIEW,
 } from '@/lib/surveyMode'
 
@@ -286,6 +286,13 @@ export function run(): number {
       check('kein Eintrag (undefined) → hidden', resolveSurveyMode(undefined) === 'hidden')
       check('null → hidden', resolveSurveyMode(null) === 'hidden')
       check('"hidden" → hidden', resolveSurveyMode('hidden') === 'hidden')
+      check('"direct_only" → direct_only', resolveSurveyMode('direct_only') === 'direct_only')
+      check('direct_only: Zugriff möglich', surveyModeAllowsAccess('direct_only'))
+      check('direct_only: kein Hilfe-Link', !surveyModeShowsHelpLink('direct_only'))
+      check('hidden: kein Zugriff', !surveyModeAllowsAccess('hidden'))
+      check('hidden: kein Hilfe-Link', !surveyModeShowsHelpLink('hidden'))
+      check('help_only: Hilfe-Link', surveyModeShowsHelpLink('help_only'))
+      check('prominent: Hilfe-Link', surveyModeShowsHelpLink('prominent'))
       check('"help_only" → help_only', resolveSurveyMode('help_only') === 'help_only')
       check('"prominent" → prominent', resolveSurveyMode('prominent') === 'prominent')
       check('unbekannter/kaputter Wert → hidden (fail closed)', resolveSurveyMode('irgendwas') === 'hidden')
@@ -309,6 +316,15 @@ export function run(): number {
         process.env.VERCEL_ENV = undefined
         check('Preview freigegeben/Production versteckt: auf Preview gilt help_only',
           resolveSurveyMode(lookup(currentSurveyModeKey())) === 'help_only')
+      }
+      // Szenario: Production nur direkt erreichbar, Preview versteckt.
+      {
+        const lookup = lookupFor({ [SURVEY_MODE_KEY_PRODUCTION]: 'direct_only' })
+        process.env.VERCEL_ENV = 'production'
+        const mode = resolveSurveyMode(lookup(currentSurveyModeKey()))
+        check('Production direct_only: direkten Zugriff erlauben, ohne Menü-Link', surveyModeAllowsAccess(mode) && !surveyModeShowsHelpLink(mode))
+        process.env.VERCEL_ENV = 'preview'
+        check('Production direct_only: Preview bleibt hidden', resolveSurveyMode(lookup(currentSurveyModeKey())) === 'hidden')
       }
       // Szenario: Production freigegeben, Preview versteckt.
       {
