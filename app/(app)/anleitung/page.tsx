@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { HelpAccordion } from '@/components/HelpAccordion'
 import { createClient } from '@/lib/supabase/server'
-import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion } from '@/lib/surveyMode'
+import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion, surveyModeShowsHelpLink } from '@/lib/surveyMode'
 
 export const revalidate = 86400
 
@@ -12,7 +12,7 @@ export default async function AnleitungPage() {
   // `revalidate` is set for the mostly-static content above it.
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  let surveyMode = 'hidden'
+  let surveyMode: import('@/lib/surveyMode').SurveyVisibilityMode = 'hidden'
   let surveyStatus: 'not_started' | 'started' | 'submitted' = 'not_started'
   if (user) {
     const [{ data: modeSetting }, { data: response }] = await Promise.all([
@@ -273,7 +273,7 @@ export default async function AnleitungPage() {
 
       {/* Feedback & Umfrage — deliberately placed at the very bottom (help_only
           rollout mode), so it's only findable, not pushed on anyone yet. */}
-      {surveyMode !== 'hidden' && (
+      {surveyModeShowsHelpLink(surveyMode) && (
         <HelpAccordion title="Feedback & Umfrage" emoji="📝">
           {surveyStatus === 'submitted' ? (
             <>
