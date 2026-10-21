@@ -386,7 +386,7 @@ export type SettleMode = 'missing' | 'unsettled' | 'upcoming'
 /** Ergebnis-Eintragekarte: Vereinsnamen voll lesbar, große Ergebnisfelder, Abrechnen als eine klare Hauptaktion. */
 export function MatchSettleCard({
   match, score, onChange, cupInput, onCupInputChange, onSettle, onPostpone, loading, mode, pendingBets,
-  onCategoryChange, scorerDraft, onScorersChange, effectiveMatchday, now, cupSettlementPreview,
+  scorerDraft, onScorersChange, effectiveMatchday, now, cupSettlementPreview,
 }: {
   match: MatchRow
   score: { home: string; away: string }
@@ -398,7 +398,6 @@ export function MatchSettleCard({
   loading: boolean
   mode: SettleMode
   pendingBets?: number
-  onCategoryChange?: (matchId: number, category: string) => void
   scorerDraft?: ScorerDraft[]
   onScorersChange?: (draft: ScorerDraft[]) => void
   /** Tippspiel-Spieltag, unter dem das Spiel geführt wird (bei Wildenroth II/B-Klasse ≠ eigene BFV-Nummer). */
@@ -505,22 +504,6 @@ export function MatchSettleCard({
         {onPostpone && <Btn variant="secondary" disabled={loading} onClick={onPostpone} className="sm:w-auto">Verschoben</Btn>}
       </div>
       {!ready && <p className="-mt-2 text-[12px] text-gray-600">Beide Torzahlen eintragen, dann abrechnen.</p>}
-
-      {onCategoryChange && (
-        <details className="group rounded-xl border border-gray-200">
-          <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between px-3 text-[14px] font-semibold text-gray-700 [&::-webkit-details-marker]:hidden">
-            Weitere Optionen
-            <svg className="h-4 w-4 text-gray-500 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4} aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-          </summary>
-          <div className="border-t border-gray-200 p-3">
-            <Field label="Wettbewerb dieses Spiels">
-              <select value={match.match_category ?? 'kreisliga'} onChange={(e) => onCategoryChange(match.id, e.target.value)} className={selectCls}>
-                {Object.entries(CATEGORY_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-            </Field>
-          </div>
-        </details>
-      )}
     </Panel>
   )
 }

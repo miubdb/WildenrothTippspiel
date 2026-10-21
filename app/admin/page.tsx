@@ -54,26 +54,37 @@ const TAB_DESC: Record<Tab, string> = {
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('ergebnisse')
+  // Deep-link Spieltag für die "🎫 Neue Wette"-Push (siehe unten) — landet als
+  // initiale Auswahl in SpieltagTabView, statt dass der Admin erst selbst den
+  // betreffenden Spieltag suchen muss. null = keine Vorgabe (normales Öffnen).
+  const [pushDeepLinkMatchday, setPushDeepLinkMatchday] = useState<number | null>(null)
   const confirm = useConfirm()
 
   // Deep-link support for the "🎫 Neue Wette" push notification — it opens
-  // /admin?tab=spieltag so tapping it lands directly on the bets view instead
-  // of the default "Ergebnisse" tab. Read via plain URLSearchParams in an
-  // effect (not useSearchParams()) since this page has no Suspense boundary
-  // and useSearchParams() would require one.
+  // /admin?tab=spieltag(&matchday=N) so tapping it lands directly on the bets
+  // view (optionally already on the right Spieltag) instead of the default
+  // "Ergebnisse" tab. Read via plain URLSearchParams in an effect (not
+  // useSearchParams()) since this page has no Suspense boundary and
+  // useSearchParams() would require one. proxy.ts now forwards the full
+  // ?tab=…&matchday=… query string through a login redirect too (it used to
+  // keep only the pathname, silently dropping this deep link whenever the
+  // admin's session had expired before tapping the notification).
   //
   // Admin 3.0, Punkt 13: ein älterer Deep-Link/Bookmark kann noch ?tab=verwaltung oder
   // ?tab=umfrage tragen (die 5-Tab-Struktur vor Admin 3.0) — diese zwei Namen bildet LEGACY_TAB
   // auf den neuen Tab "mehr" ab, statt den Link stillschweigend auf die Standardansicht
   // zurückfallen zu lassen.
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get('tab')
+    const params = new URLSearchParams(window.location.search)
+    const requested = params.get('tab')
     const LEGACY_TAB: Record<string, Tab> = { verwaltung: 'mehr', umfrage: 'mehr' }
     if (requested && requested in LEGACY_TAB) {
       setTab(LEGACY_TAB[requested])
     } else if (requested && (TAB_VALUES as string[]).includes(requested)) {
       setTab(requested as Tab)
     }
+    const requestedMatchday = parseInt(params.get('matchday') ?? '', 10)
+    if (Number.isFinite(requestedMatchday)) setPushDeepLinkMatchday(requestedMatchday)
   }, [])
   const [matches, setMatches] = useState<MatchRow[]>([])
   const [scores, setScores] = useState<Record<number, { home: string; away: string }>>({})
@@ -429,15 +440,6 @@ export default function AdminPage() {
     fetchMatches()
   }
 
-  async function handleCategoryChange(matchId: number, category: string) {
-    const supabaseClient = createClient()
-    await supabaseClient
-      .from('matches')
-      .update({ match_category: category || null })
-      .eq('id', matchId)
-    setMatches(prev => prev.map(m => m.id === matchId ? { ...m, match_category: category || null } : m))
-  }
-
   // Marks/unmarks a B-Klasse match as the admin-selected weekly Topspiel — the one
   // extra B-Klasse match that becomes bettable on the Tippspiel-Spieltag its date
   // falls into. Admin is responsible for only flagging one match per week.
@@ -622,7 +624,6 @@ export default function AdminPage() {
             onSettle={settleMatch}
             onPostpone={postponeMatch}
             settleLoading={settleLoading}
-            onCategoryChange={handleCategoryChange}
             scorers={scorers}
             onScorersChange={handleScorersChange}
             onMessage={setMessage}
@@ -640,6 +641,7 @@ export default function AdminPage() {
             matchdayForFilter={matchdayForFilter}
             onToggleTopspiel={toggleTopspiel}
             onMessage={setMessage}
+            initialMatchday={pushDeepLinkMatchday}
           />
         )}
 
@@ -1962,9 +1964,9 @@ function TestMatchdayPanel() {
 
 // ---------- Kader & Transfers ----------
 // Pragmatic CRUD over league_players (RLS already restricts writes to admins,
-// so this uses the regular session client directly, same pattern as
-// handleCategoryChange above). Feeds the roster-factor odds adjustment via
-// lib/odds.ts's getRosterFactor — see CLAUDE.md.
+// so this uses the regular session client directly, no separate audit-logged
+// API route). Feeds the roster-factor odds adjustment via lib/odds.ts's
+// getRosterFactor — see CLAUDE.md.
 
 type LeaguePlayerRow = {
   id: number
@@ -1993,8 +1995,7 @@ const KADER_STATUS_LABELS: Record<string, string> = {
 
 /** `onMessage` ersetzt die frühere eigene `error`-Mini-Leiste — läuft jetzt über dieselbe
  *  globale Banner-Stelle wie überall sonst im Admin-Bereich. Supabase-Zugriff, Query, RLS-
- *  Erwartungen und alle Handler-Signaturen sind unverändert (reiner Session-Client, wie
- *  handleCategoryChange — siehe CLAUDE.md). */
+ *  Erwartungen und alle Handler-Signaturen sind unverändert (reiner Session-Client). */
 function KaderSection({ onMessage }: { onMessage: (m: string | null) => void }) {
   const confirm = useConfirm()
   const supabase = createClient()

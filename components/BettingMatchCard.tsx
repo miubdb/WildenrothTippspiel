@@ -4,6 +4,7 @@ import { useState } from 'react'
 import type { Match, MarketType } from '@/types'
 import type { OddsData } from '@/types'
 import { useBetSlip, bsKey } from '@/context/BetSlipContext'
+import { selectionsContradict } from '@/lib/betContradictions'
 import { getForm, getTeamRecord } from '@/lib/odds'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
 import { homeHandicapFavored, wildenrothHandicapForceHomeSide } from '@/lib/oddsMarkets'
@@ -63,7 +64,7 @@ interface BettingMatchCardProps {
 type Tab = '1x2' | 'goals' | 'exact' | 'handicap' | 'goalscorer'
 
 export function BettingMatchCard({ match, odds, allMatches, historyMatches, positions, isWildenrothPlayer, wildenrothTeamId, isWildenrothIiPlayer, wildenrothIiTeamId, goalscorers, goalscorerLockedUntil, originalMatchday, exactScores: exactScoresProp, effectiveMatchday }: BettingMatchCardProps) {
-  const { selections, addSelection, mode } = useBetSlip()
+  const { selections, addSelection } = useBetSlip()
   const [activeTab, setActiveTab] = useState<Tab>('1x2')
   const [showDetail, setShowDetail] = useState(false)
   const [wildenrothBlockMsg, setWildenrothBlockMsg] = useState(false)
@@ -143,16 +144,21 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
     }
     // Detect if this pick will replace something already in the slip — mirrors
     // BetSlipContext's addSelection eviction rule exactly (see there for why):
-    // combo mode evicts any existing pick for this match (same-game combos are
-    // never valid); single mode only evicts a pick in the SAME market/slot on
-    // this match (a different market, or a different Torschütze, coexists).
+    // a different choice in the SAME slot (market/Special) always replaces,
+    // and so does anything it logically contradicts across markets on this
+    // SAME match (lib/betContradictions.ts), regardless of mode. Goalscorer/
+    // Special picks are exempt from the contradiction check (their
+    // `selection` is a player/Special id, not a market outcome).
     const newKey = bsKey(match.id, marketType as MarketType, selection)
-    // Spieltag-Specials share this match only as a technical FK anchor (see
-    // BetSlipContext's comboIdentity) — a Special sitting in the combo is
-    // never evicted by a normal pick here, so it must not count as "replaced".
-    const willReplace = mode === 'combo'
-      ? selections.some(s => s.matchId === match.id && s.marketType !== 'matchday_special' && bsKey(s.matchId, s.marketType, s.selection) !== newKey)
-      : selections.some(s => bsKey(s.matchId, s.marketType, s.selection) === newKey && s.selection !== selection)
+    const isSpecial = marketType === 'matchday_special'
+    const isGoalscorer = marketType === 'goalscorer' || marketType === 'goalscorer_2plus'
+    const willReplace = selections.some((s) => {
+      const sameSlotDifferentPick = bsKey(s.matchId, s.marketType, s.selection) === newKey && s.selection !== selection
+      const contradicts = !isSpecial && !isGoalscorer && s.marketType !== 'matchday_special' &&
+        s.marketType !== 'goalscorer' && s.marketType !== 'goalscorer_2plus' &&
+        s.matchId === match.id && selectionsContradict(s, { marketType, selection })
+      return sameSlotDifferentPick || contradicts
+    })
     addSelection({ matchId: match.id, matchLabel, marketType: marketType as never, marketLabel, selection, selectionLabel, oddsValue, homeTeam: homeName, awayTeam: awayName })
     if (willReplace) {
       setReplacedMsg(true)

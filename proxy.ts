@@ -12,7 +12,13 @@ export async function proxy(request: NextRequest) {
 
   if (isProtected && !user) {
     const loginUrl = new URL('/login', request.url)
-    loginUrl.searchParams.set('redirectTo', pathname)
+    // Keep the query string too (not just pathname) — a deep link like the
+    // "🎫 Neue Wette" admin push notification's /admin?tab=spieltag, or any
+    // other ?-param-carrying link, must survive a login hop and land back
+    // exactly where it meant to, not just on the bare route with its default
+    // tab/state. login/page.tsx#safeRedirect already accepts and forwards
+    // this whole value as-is.
+    loginUrl.searchParams.set('redirectTo', pathname + request.nextUrl.search)
     return NextResponse.redirect(loginUrl)
   }
 

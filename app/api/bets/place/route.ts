@@ -933,9 +933,15 @@ export async function POST(request: NextRequest) {
           ? `${MARKET_LABELS[selections[0].marketType] ?? selections[0].marketType} (${selections[0].selection}) @${selections[0].oddsValue.toFixed(2)} für ${selections[0].stake.toFixed(2)} Wildis`
           : `${selections.length} Einzelwetten für insgesamt ${totalCost.toFixed(2)} Wildis`
 
+      // Deep-link straight to the matching Spieltag in the bets view when the
+      // whole submission sits under exactly one effective Spieltag (the
+      // common case) — SpieltagTabView/app/admin/page.tsx read ?matchday=.
+      // Ambiguous (none, or a combo spanning more than one) falls back to
+      // just opening the tab, as before.
+      const pushMatchdaySuffix = matchdayIds.length === 1 ? `&matchday=${matchdayIds[0]}` : ''
       await Promise.allSettled(
         adminIds.map((a) =>
-          sendPushToUser(a.id, '🎫 Neue Wette', `${placerName}: ${betSummary}`, '/admin?tab=spieltag', 'new_bet')
+          sendPushToUser(a.id, '🎫 Neue Wette', `${placerName}: ${betSummary}`, `/admin?tab=spieltag${pushMatchdaySuffix}`, 'new_bet')
         )
       )
     }
