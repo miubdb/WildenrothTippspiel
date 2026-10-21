@@ -11,6 +11,22 @@ virtual currency ("Wildis") on real Kreisliga/B-Klasse football matches (1X2, do
 over/under, BTTS, handicap, exact score, goalscorer markets). Odds are model-generated (Poisson),
 not sportsbook-sourced. UI is German; code/comments are English.
 
+## Verbindliches Regelwerk für Spielausfälle (Nichtantritt / Annullierung)
+
+**Vor jeder Änderung an Match-Status, Wettabrechnung, Stornierung, Quoten, Risky-Limits
+oder Spieltags-Specials zwingend `docs/spielannullierung-regelwerk.md` lesen.**
+
+Betreiberentscheidung ab Saison 2026/27, dauerhaft und unabhängig vom betroffenen Spieler:
+Ein **endgültig annulliertes** Spiel wird auf **allen direkt betroffenen Wettauswahlen mit
+Quote 1,00 neutralisiert**; Einzelwette = voller Einsatz zurück; Kombi/Risky bleibt mit den
+übrigen Legs aktiv (neue Gesamtquote = Produkt der nicht neutralisierten Originalquoten).
+Bereits verlorene Scheine bleiben verloren, zuvor vom Nutzer stornierte bleiben unberührt;
+gewonnene andere Legs behalten ihren Status. Kein fiktives BFV-2:0 als normales Wettergebnis.
+Nur eine bestätigte endgültige Annullierung auswerten, nicht eine reine Verschiebung.
+Annullierung nur durch abgesicherte, idempotente Admin-Aktion nach Vorschau.
+Die vollständigen Sonderfälle, Prüfpflichten und der Referenzfall Match #433 stehen im
+verbindlichen Regelwerk. **Keine stillschweigenden abweichenden Einzelfallentscheidungen.**
+
 ## Commands
 
 ```bash
