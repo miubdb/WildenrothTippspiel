@@ -130,6 +130,20 @@ Bis dahin darf `bets_select_own` **keine** fremden Kombi-Legs und
 `combo_bets_select_own` **keine** fremde Kombi-Zusammenfassung
 freigeben. Für annulierte Einzelwetten bleibt eine gezielte Freigabe zulässig.
 
+**Zweite zwingende Schranke: App-Server.** RLS gestattet Admins und dem
+Eigentümer zu Recht auch nicht-öffentliche Wetten. Für die Seite
+`Alle Tipps` ist dieser DB-Lesezugriff **keine Social-Freigabe**. Vor dem
+Versenden von `socialBets`/`socialCombos`/`socialProfiles` muss der
+Server deshalb aus **allen** Kombi-Legs (auch aus anderen Spieltagen) und
+den jeweiligen Match-Stati unabhängig vom Betrachter prüfen, ob die
+Kombi tatsächlich begonnen hat. Nicht gestartete Kombis werden **für alle**
+aus `Alle Tipps` gefiltert – selbst für Admins und Besitzer. Für eigene
+Scheine bleibt `Meine Wetten` zuständig. Ein fehlgeschlagener oder
+unvollständiger Startcheck darf keine Kombi veröffentlichen (fail closed).
+Ein noch nicht entschiedener Spieltags-Special-Tipp darf nicht durch sein
+technisches `representative_match_id` als angeblich gestartet gelten.
+Tests hierzu: `scripts/match-annulment-check.ts` Abschnitt 16.
+
 Historie: `supabase/annulled_bets_social_visibility.sql` war zunächst
 weiter gefasst; die verbindliche Korrektur ist in
 `supabase/annulled_combo_social_privacy.sql` festgehalten.
