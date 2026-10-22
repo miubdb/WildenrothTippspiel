@@ -18,6 +18,7 @@
  */
 import { classifyCombo, planCombo, planSingleBet, legMatchesTarget, isRealMatchLeg, suggestedOfficialScore, officialStandingsResult, resultForStandings, type ComboLegAfterNeutralization, type ComboPlanInput } from '@/lib/matchAnnulment'
 import { evaluateSlips, type RiskySlip } from '@/lib/risky'
+import { isComboSociallyStarted, isSingleSociallyVisible } from '@/lib/socialBetVisibility'
 import { isMatchConcluded, matchResultDisplay } from '@/lib/matchResultDisplay'
 
 let failures = 0
@@ -332,6 +333,40 @@ export function run(): number {
       matchResultDisplay({ ...base, annulment_type: 'away_no_show', annulment_official_home_score: 2, annulment_official_away_score: 0, annulment_official_confirmed_at: '2026-10-22T11:00:00Z' })?.label === '2:0 (Wertung)')
     check('Normales Endergebnis bleibt unverändert', matchResultDisplay({ ...base, status: 'finished', home_score: 3, away_score: 1, annulment_type: null })?.label === '3:1')
     check('Verschobenes Spiel ist nicht abgeschlossen', !isMatchConcluded({ status: 'postponed' }))
+  }
+
+
+  console.log('\n16. Alle Tipps: Admin- und Besitzerzugriff nie Social-Freigabe')
+  {
+    const now = new Date('2026-10-22T05:48:00Z')
+    const mAnnul = { id: 433, status: 'annulled', match_date: '2026-10-22T17:00:00Z' }
+    const mFuture = { id: 422, status: 'scheduled', match_date: '2026-10-23T17:00:00Z' }
+    const mFinished = { id: 307, status: 'finished', match_date: '2026-10-21T17:30:00Z' }
+    const pending = { match_id: 422, status: 'pending', market_type: '1x2' }
+    const neutral = { match_id: 433, status: 'neutralized', market_type: '1x2' }
+    const won = { match_id: 307, status: 'won', market_type: '1x2' }
+    check('#594 Jani / #608 Lobi: NICHT öffentlich vor echtem Kickoff',
+      !isComboSociallyStarted([neutral, pending], [mAnnul, mFuture], now))
+    check('Auch NACH ehemaligem Anpfiff des annullierten Spiels NICHT sichtbar',
+      !isComboSociallyStarted([neutral, pending], [mAnnul, mFuture], new Date('2026-10-22T19:30:00Z')))
+    check('#598 Korbi / #607 Dischl: nach entschiedenem anderem Leg sichtbar',
+      isComboSociallyStarted([won, neutral, pending], [mFinished, mAnnul, mFuture], now))
+    check('Fremde künftige Auswahl ohne Anpfiff weiterhin privat',
+      !isComboSociallyStarted([pending], [mFuture], now))
+    check('Beim tatsächlichen Anpfiff eines gültigen Matches wird Kombi sichtbar',
+      isComboSociallyStarted([neutral, pending], [mAnnul, mFuture], new Date('2026-10-23T17:01:00Z')))
+    check('Fehlende Termin-Metadaten: Fail closed',
+      !isComboSociallyStarted([neutral, pending], [mAnnul], now))
+    check('Pending Special mit rein technischem Anker darf Kombi NICHT entsperren',
+      !isComboSociallyStarted([neutral, pending, { match_id: 307, status: 'pending', market_type: 'matchday_special' }], [mAnnul, mFuture, mFinished], now))
+    check('Neutrales Einzel auf annulled sofort öffentlich',
+      isSingleSociallyVisible({ match_id: 433, status: 'neutralized', combo_id: null }, mAnnul, now))
+    check('Ehemaliger annulled-Kombi-Leg zählt NICHT als öffentliches Einzel',
+      !isSingleSociallyVisible({ match_id: 433, status: 'neutralized', combo_id: 594 }, mAnnul, now))
+    check('Künftiges Single bleibt bis zu Anpfiff privat',
+      !isSingleSociallyVisible({ match_id: 422, status: 'pending', combo_id: null }, mFuture, now))
+    check('Storniertes Single bleibt verborgen',
+      !isSingleSociallyVisible({ match_id: 433, status: 'void', combo_id: null }, mAnnul, now))
   }
 
   console.log(`\n${checks} Prüfungen, ${failures} Fehler`)
