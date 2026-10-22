@@ -23,6 +23,7 @@ jobs:
       - name: Fetch dedicated security branch
         uses: actions/checkout@v4
         with:
+          ref: security/patch-2026-10-22
           persist-credentials: true
 
       - name: Set up Node 24 LTS
@@ -43,6 +44,9 @@ jobs:
 
       - name: Validate clean reproducible installation
         run: npm ci --no-audit --no-fund
+
+      - name: List remaining outdated packages for later staged updates
+        run: npm outdated --json || true
 
       - name: Audit production dependencies (HIGH/CRITICAL block)
         run: npm audit --omit=dev --audit-level=high
