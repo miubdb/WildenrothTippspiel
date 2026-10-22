@@ -122,14 +122,14 @@ export function run(): number {
     const clicked = [
       leg(401, 433, '2026-10-22T17:00:00Z', 'Oberalting–Schöngeising (annulliert)'),
       leg(402, 422, '2026-10-23T17:00:00Z', 'Landsberg–Altenstadt'),
-      leg(403, 326, '2026-10-24T12:00:00Z', 'Adelshofen–Wildenroth II'),
+      leg(403, 999, '2026-10-24T12:00:00Z', 'weiteres Samstagsspiel'),
       leg(404, 307, '2026-10-21T17:30:00Z', 'Wildenroth–Igling (Nachholspiel)'),
     ]
     const sorted = sortComboLegsChronologically(clicked, keyOf)
     check('Nachholspiel vom Mittwoch steht vor annulliertem Donnerstagsspiel und späteren Spielen',
-      sorted.map(l => l.matchId).join(',') === '307,433,422,326')
+      sorted.map(l => l.matchId).join(',') === '307,433,422,999')
     check('keine Daten-/Tipp-Reihenfolge verändert',
-      clicked.map(l => l.matchId).join(',') === '433,422,326,307')
+      clicked.map(l => l.matchId).join(',') === '433,422,999,307')
   }
 
   console.log(`\n${failures === 0 ? 'Alle' : failures + ' von ' + checks} Prüfungen ${failures === 0 ? `bestanden (${checks})` : 'FEHLGESCHLAGEN'}`)
