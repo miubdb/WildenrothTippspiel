@@ -92,25 +92,51 @@ der Spielplan **2:0 (Wertung)** beziehungsweise das amtliche Ergebnis mit dem Zu
 `(Wertung)`. Keine dieser Anzeigen ändert die Wettneutralisierung, die echten
 `home_score`/`away_score`, Torschützen oder das Quotenmodell.
 
-### Sichtbarkeit in „Alle Tipps“
+### Sichtbarkeit in „Alle Tipps“ — Schutz noch stornierbarer Kombis
 
-Ab **endgültiger Annullierung** eines Spiels werden die dazugehörigen
-neutralisierten Wettauswahlen ohne Warten auf die frühere Anstoßzeit angezeigt,
-auch für andere angemeldete Spieler. Die Originalquote bleibt revisionssicher
-gespeichert; angezeigt wird **Originalquote gestrichen → @1,00** mit
-Annullierungshinweis. Eine Kombi zeigt ihre weiterhin gültige neue Gesamtquote
-und ihren Gesamtstatus. Werden durch die bisherigen Sichtbarkeitsregeln nur
-einzelne Legs freigegeben, heißt der Zähler ausdrücklich **„sichtbare Tipps“**.
-Andere, noch nicht freigegebene Kombi-Auswahlen dürfen **nicht** durch die
-Annullierung eines Legs sichtbar werden.
+**Grundregel:** Eine Annullierung ist **kein Anpfiff**. Ein noch nicht
+begonnener Wettschein darf bei anderen Nutzern nicht erscheinen, solange
+die Kombi weiterhin stornierbar ist. Sie bleibt dem Besitzer unter
+„Meine Wetten“ natürlich sichtbar. Insbesondere dürfen weder
+Spielerauswahl/Name, Tipps, Gesamtquote, Einsatz noch Risiko-Status
+vorzeitig für andere Nutzer sichtbar sein.
 
-Dazu wird die bestehende RLS-Ausnahmeregel für bereits gestartete Kombis
-**nicht** erweitert: Vor der normalen Freigabe ist ausschließlich ein Leg
-mit `status='neutralized'`, `neutralized_reason='match_annulled'` und
-zugehörigem `matches.status='annulled'` für angemeldete Nutzer lesbar,
-zusätzlich dessen Kombi-Zusammenfassung, **nicht** die übrigen Legs.
-Die RLS-Migration liegt in `supabase/annulled_bets_social_visibility.sql`.
-Stornierte (`void`) Tipps bleiben ausgeblendet. Keine Guthaben-/Wettbuchung.
+- **Noch nicht gestartete Kombis** (kein tatsächlich begonnenes, gültiges
+  Leg): für andere Spieler **vollständig verborgen**, auch wenn ein enthaltenes
+  Spiel bereits `annulled` ist und auch nach dessen ehemaliger Anstoßzeit.
+  Beispiel Match 433: #594 (Jani) und #608 (Lobi).
+- **Bereits gestartete Kombis:** sichtbar nach der normalen Wettfreigabe,
+  unabhängig von der Annullierung; neutralisierte Auswahl mit
+  **durchgestrichener Originalquote → @1,00**, neutralem Hinweis,
+  neue Kombi-Gesamtquote und weiterhin gültigem Wettscheinstatus.
+  Beispiel Match 433: #598 (Korbi) und #607 (Michi Dischl).
+- **Neutralisierte Einzelwetten:** unmittelbar sichtbar, da sie bereits
+  endgültig abgerechnet/erstattet sind (kein offener, stornierbarer Wettschein).
+- **Stornierte** (`void`) Wettscheine bleiben in „Alle Tipps“ ausgeblendet.
+- Die Übersicht darf die **Zahl noch gesperrter Scheine** ohne Namen,
+  Tipps, Einsatz, Quote oder sonstige Rückschlüsse anzeigen („🔒 …“).
+  Sofern aus anderen Gründen nur einige Legs öffentlich sind, bleibt die
+  angezeigte Anzahl ausdrücklich die Anzahl **sichtbarer** Legs.
+- **Kein Guthaben- oder Wett-Update** durch die Freigabe: ausschließlich
+  Lesezugriffs- und Darstellungsregeln.
+
+**Technische Pflichtregel (RLS):** `private.combo_has_started` darf weder
+`annulled` noch `postponed` als tatsächlichen Spielbeginn werten,
+**auch nicht nach deren ehemaligem Kickoff**. Gestartet ist eine Kombi erst,
+wenn mindestens ein nicht neutralisiertes/nicht storniertes Leg schon
+entschieden ist (`won`/`lost`), sein Match `live`/`finished` ist
+oder ein nicht annulliertes/nicht verschobenes Spiel seinen Anpfiff erreicht.
+Bis dahin darf `bets_select_own` **keine** fremden Kombi-Legs und
+`combo_bets_select_own` **keine** fremde Kombi-Zusammenfassung
+freigeben. Für annulierte Einzelwetten bleibt eine gezielte Freigabe zulässig.
+
+Historie: `supabase/annulled_bets_social_visibility.sql` war zunächst
+weiter gefasst; die verbindliche Korrektur ist in
+`supabase/annulled_combo_social_privacy.sql` festgehalten.
+**Tests:** ein Nichtbesitzer darf weder unmittelbar nach der Annullierung
+noch nach dem ehemaligen Kickoff Namen, Kombi oder Legs ohne echten
+Spielbeginn sehen; nach echtem Kickoff wird die Kombi sichtbar;
+der Besitzer sieht seinen Schein durchgehend.
 
 ## Stornierbarkeit
 
