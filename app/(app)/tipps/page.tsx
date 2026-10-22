@@ -25,6 +25,7 @@ import { cappedPayout } from '@/lib/payout'
 import { MatchdaySpecialsSection, type MatchdaySpecialForDisplay } from '@/components/MatchdaySpecialsSection'
 import { defaultCurrentMatchday } from '@/app/_lib/currentMatchday'
 import { isComboSociallyStarted, isSingleSociallyVisible } from '@/lib/socialBetVisibility'
+import { occupiesBettingSlot } from '@/lib/slipLifecycle'
 
 export const revalidate = 60
 
@@ -989,7 +990,7 @@ export default async function TippsPage({
           .from('combo_bets')
           .select('id, stake, status, total_odds, payout')
           .in('id', comboIds)
-        userCombos = (comboBetRows ?? []).map(cb => ({
+        userCombos = (comboBetRows ?? []).filter(cb => occupiesBettingSlot(cb.status)).map(cb => ({
           id: cb.id,
           stake: cb.stake,
           status: cb.status,
@@ -1008,12 +1009,16 @@ export default async function TippsPage({
       // free that slot back up, so the header must keep showing it as used
       // instead of dropping back to 0 and implying another normal/risky bet
       // is still available. `ownBetsResult` already excludes 'void' (cancelled)
-      // bets via its `.neq('status', 'void')` fetch, so userSingles/userCombos
-      // here are already exactly "pending + won + lost" — no extra filter needed.
+      // bets via its `.neq('status', 'void')` fetch, but neutralized
+      // selections are still present; we must filter BOTH parent combo status
+      // and individual non-bonus single status to match actual occupied slots.
       // The Pokal-Bonus slip (bets.is_bonus, see /api/bets/place) never
       // occupies a normal/risky slot either — same exclusion as the actual
       // limit enforcement (which filters `!b.is_bonus` before counting).
-      const nonBonusSingles = userSingles.filter(b => !b.is_bonus)
+      // A refunded neutralized single is not a slot; the same applies to
+      // a whole combo whose parent is void/neutralized, even if its leg
+      // remains marked neutralized for history/audit.
+      const nonBonusSingles = userSingles.filter(b => !b.is_bonus && occupiesBettingSlot(b.status))
       const riskySingles = nonBonusSingles.filter(b => b.is_risky).length
       const riskyCombos = userCombos.filter(c => c.legs[0]?.is_risky).length
       riskyBetCount = riskySingles + riskyCombos
