@@ -24,6 +24,7 @@ interface SinglePreview { betId: number; userId: string; userName: string; stake
 interface ComboPreview {
   comboId: number; userId: string; userName: string; stake: number; isRisky: boolean
   statusBefore: 'pending' | 'won' | 'lost' | 'void' | 'neutralized'
+  hasStarted?: boolean
   oldTotalOdds: number; oldPossiblePayout: number
   action: 'untouched' | 'fully_neutralized' | 'now_won' | 'still_pending' | 'anomaly'
   newTotalOdds: number | null; newPossiblePayout: number | null; refund: number | null
@@ -54,6 +55,32 @@ const ACTION_LABEL: Record<ComboPreview['action'], string> = {
   now_won: 'Gewinnt NUR durch die Annullierung',
   still_pending: 'Bleibt offen — neue Gesamtquote',
   anomaly: '⚠️ Anomalie — bitte manuell prüfen',
+}
+
+/** Admin-Vorschau bewusst nach Auswirkung statt nach Wettschein-ID gruppieren. */
+type ComboPreviewGroup =
+  | 'anomaly' | 'started' | 'not_started' | 'now_won' | 'refunded'
+  | 'lost' | 'cancelled' | 'already_won'
+
+const COMBO_GROUPS: { key: ComboPreviewGroup; title: string; hint: string }[] = [
+  { key: 'anomaly', title: '⚠️ Manuell prüfen', hint: 'Unstimmigkeiten — Annullierung noch nicht bestätigen' },
+  { key: 'started', title: 'Offene Kombis · bereits begonnen', hint: 'Mindestens ein Teilspiel hat begonnen oder wurde bereits entschieden · nicht mehr stornierbar' },
+  { key: 'not_started', title: 'Offene Kombis · noch nicht begonnen', hint: 'Alle wirksamen Teilspiele stehen noch aus · aktuell stornierbar' },
+  { key: 'now_won', title: 'Wird durch Annullierung gewonnen', hint: 'Alle übrigen Tipps waren bereits gewonnen · Auszahlung zum neuen Faktor' },
+  { key: 'refunded', title: 'Vollständig neutralisiert', hint: 'Kein gültiger Tipp verbleibt · kompletter Einsatz zurück' },
+  { key: 'lost', title: 'Bereits verloren', hint: 'Bleiben verloren · keine Rückerstattung' },
+  { key: 'cancelled', title: 'Bereits storniert', hint: 'Bleiben unverändert · keine erneute Rückerstattung' },
+  { key: 'already_won', title: 'Bereits gewonnen / abgeschlossen', hint: 'Bereits abgerechnete Scheine bleiben unverändert' },
+]
+
+function comboPreviewGroup(c: ComboPreview): ComboPreviewGroup {
+  if (c.action === 'anomaly') return 'anomaly'
+  if (c.statusBefore === 'lost') return 'lost'
+  if (c.statusBefore === 'void' || c.statusBefore === 'neutralized') return 'cancelled'
+  if (c.statusBefore === 'won') return 'already_won'
+  if (c.action === 'now_won') return 'now_won'
+  if (c.action === 'fully_neutralized') return 'refunded'
+  return c.hasStarted ? 'started' : 'not_started'
 }
 
 /**
@@ -313,20 +340,38 @@ export function MatchAnnulmentPanel({ matchId, onDone, onMessage, autoLoad = fal
                         <th className="py-1 pr-2">Aktion</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {preview.combos.map((c) => (
-                        <tr key={c.comboId} className="border-t border-gray-100">
-                          <td className="py-1 pr-2 font-mono">#{c.comboId}</td>
-                          <td className="py-1 pr-2">{c.userName}{c.isRisky ? ' 🎲' : ''}</td>
-                          <td className="py-1 pr-2">{fmt(c.stake)}</td>
-                          <td className="py-1 pr-2">@{fmtOdds(c.oldTotalOdds)}</td>
-                          <td className="py-1 pr-2">{c.newTotalOdds != null ? `@${fmtOdds(c.newTotalOdds)}` : '—'}</td>
-                          <td className="py-1 pr-2">{fmt(c.oldPossiblePayout)}</td>
-                          <td className="py-1 pr-2 font-semibold">{c.newPossiblePayout != null ? fmt(c.newPossiblePayout) : '—'}</td>
-                          <td className="py-1 pr-2">{ACTION_LABEL[c.action]}</td>
-                        </tr>
-                      ))}
-                    </tbody>
+                    {COMBO_GROUPS.map((group) => {
+                      const combos = (preview.combos ?? [])
+                        .filter((c) => comboPreviewGroup(c) === group.key)
+                        .sort((a, b) => a.userName.localeCompare(b.userName, 'de') || a.comboId - b.comboId)
+                      if (!combos.length) return null
+                      return (
+                        <tbody key={group.key}>
+                          <tr className="border-t-2 border-gray-200 bg-gray-100">
+                            <th colSpan={8} scope="rowgroup" className="py-2 px-2 text-left">
+                              <div className="font-semibold text-gray-800">{group.title} ({combos.length})</div>
+                              <div className="font-normal text-gray-500">{group.hint}</div>
+                            </th>
+                          </tr>
+                          {combos.map((c) => (
+                            <tr key={c.comboId} className="border-t border-gray-100">
+                              <td className="py-1 pr-2 font-mono">#{c.comboId}</td>
+                              <td className="py-1 pr-2">{c.userName}{c.isRisky ? ' 🎲' : ''}</td>
+                              <td className="py-1 pr-2">{fmt(c.stake)}</td>
+                              <td className="py-1 pr-2">@{fmtOdds(c.oldTotalOdds)}</td>
+                              <td className="py-1 pr-2">{c.newTotalOdds != null ? `@${fmtOdds(c.newTotalOdds)}` : '—'}</td>
+                              <td className="py-1 pr-2">{fmt(c.oldPossiblePayout)}</td>
+                              <td className="py-1 pr-2 font-semibold">{c.newPossiblePayout != null ? fmt(c.newPossiblePayout) : '—'}</td>
+                              <td className="py-1 pr-2">
+                                {c.statusBefore === 'lost' ? 'Bleibt verloren' :
+                                 c.statusBefore === 'void' ? 'Bleibt storniert' :
+                                 ACTION_LABEL[c.action]}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      )
+                    })}
                   </table>
                 </div>
               )}
