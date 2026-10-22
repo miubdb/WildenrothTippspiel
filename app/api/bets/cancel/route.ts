@@ -96,6 +96,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Spieltermine konnten nicht vollständig geladen werden.' }, { status: 500 })
     }
 
+    if (!allLegs.some(l => l.status === 'pending')) {
+      return NextResponse.json({ error: 'Diese Kombi hat keine offenen Tipps mehr und kann nicht erneut storniert werden.' }, { status: 409 })
+    }
+
     if (hasStartedCombo(allLegs, comboMatches)) {
       return NextResponse.json(
         { error: 'Eines der Spiele hat bereits begonnen — Stornierung nicht mehr möglich.' },
@@ -103,6 +107,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // A neutralized leg remains for the audit trail after annulment,
+    // but when the ENTIRE combo is subsequently cancelled it must become
+    // void too. neutralized_at/reason remain recorded. Otherwise it leaks
+    // back into queries that filter only bets.status != 'void'.
     // Soft-cancel: mark status='void' instead of deleting, so the row
     // survives for later "what would have happened" recap analysis — void
     // bets are never shown to users, never count toward slot limits, and
@@ -119,7 +127,7 @@ export async function POST(request: NextRequest) {
       .from('bets')
       .update({ status: 'void', void_reason: 'user_cancelled' })
       .eq('combo_id', comboId)
-      .eq('status', 'pending')
+      .in('status', ['pending', 'neutralized'])
       .select('id')
 
     if (legsCancelError) {
@@ -130,7 +138,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Wette wurde bereits storniert oder abgerechnet.' }, { status: 409 })
     }
 
-    const { error: comboCancelError } = await admin.from('combo_bets').update({ status: 'void', void_reason: 'user_cancelled' }).eq('id', comboId)
+    const { error: comboCancelError } = await admin.from('combo_bets').update({ status: 'void', void_reason: 'user_cancelled' }).eq('id', comboId).eq('user_id', user.id).eq('status', 'pending')
     if (comboCancelError) {
       // Legs are already cancelled (and the user is about to be refunded) —
       // log it, but don't fail the request over the parent row's own status.
