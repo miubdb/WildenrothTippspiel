@@ -18,6 +18,7 @@
  */
 import { classifyCombo, planCombo, planSingleBet, legMatchesTarget, isRealMatchLeg, suggestedOfficialScore, officialStandingsResult, resultForStandings, type ComboLegAfterNeutralization, type ComboPlanInput } from '@/lib/matchAnnulment'
 import { evaluateSlips, type RiskySlip } from '@/lib/risky'
+import { isMatchConcluded, matchResultDisplay } from '@/lib/matchResultDisplay'
 
 let failures = 0
 let checks = 0
@@ -310,6 +311,27 @@ export function run(): number {
     // trotzdem korrekt funktioniert (kein versehentlicher Zugriff/Crash).
     check('resultForStandings funktioniert auch ohne jedes bet-/guthaben-bezogene Feld im Objekt',
       resultForStandings({ status: 'finished', home_score: 1, away_score: 0 }) !== null)
+  }
+
+
+  console.log('\n15. Tipp-Übersicht: Nichtantritt als abgeschlossen, ohne fiktive Tore')
+  {
+    const base = {
+      status: 'annulled' as const,
+      home_score: null, away_score: null,
+      annulment_official_home_score: null, annulment_official_away_score: null,
+      annulment_official_confirmed_at: null,
+    }
+    check('Annullierung gilt in Tipp-Übersicht als abgeschlossen', isMatchConcluded(base))
+    check('Nichtantritt Gast: N.AN. GAST', matchResultDisplay({ ...base, annulment_type: 'away_no_show' })?.label === 'N.AN. GAST')
+    check('Nichtantritt Heim: N.AN. HEIM', matchResultDisplay({ ...base, annulment_type: 'home_no_show' })?.label === 'N.AN. HEIM')
+    check('Andere Absage: ANNULLIERT', matchResultDisplay({ ...base, annulment_type: 'other' })?.label === 'ANNULLIERT')
+    check('Keine vorgezogene 2:0-Anzeige bei nicht bestätigtem Ergebnis',
+      matchResultDisplay({ ...base, annulment_type: 'away_no_show', annulment_official_home_score: 2, annulment_official_away_score: 0 })?.label === 'N.AN. GAST')
+    check('Bestätigte Wertung wird separat angezeigt',
+      matchResultDisplay({ ...base, annulment_type: 'away_no_show', annulment_official_home_score: 2, annulment_official_away_score: 0, annulment_official_confirmed_at: '2026-10-22T11:00:00Z' })?.label === '2:0 (Wertung)')
+    check('Normales Endergebnis bleibt unverändert', matchResultDisplay({ ...base, status: 'finished', home_score: 3, away_score: 1, annulment_type: null })?.label === '3:1')
+    check('Verschobenes Spiel ist nicht abgeschlossen', !isMatchConcluded({ status: 'postponed' }))
   }
 
   console.log(`\n${checks} Prüfungen, ${failures} Fehler`)
