@@ -152,6 +152,40 @@ noch nach dem ehemaligen Kickoff Namen, Kombi oder Legs ohne echten
 Spielbeginn sehen; nach echtem Kickoff wird die Kombi sichtbar;
 der Besitzer sieht seinen Schein durchgehend.
 
+### Gesamten Kombischein nach einer Annullierung stornieren — Pflichtfall
+
+Eine zuvor teilneutralisierte Kombi kann weiterhin storniert werden, wenn kein
+anderes gültiges Leg begonnen hat. Beim Stornieren gilt **die Elternzeile
+`combo_bets.status = 'void'` als autoritativer Status des gesamten Scheins**.
+Ein neutralisiertes Leg darf nie allein als "gewonnene Kombiwette"
+zurückkehren. Die `neutralized_at`-/`neutralized_reason`-Spalten bleiben als
+historischer Annullierungsbeleg erhalten, auch wenn ein Leg bei der
+anschließenden Stornierung auf `void` wechselt.
+
+Zwingend:
+- Bei neuer Stornierung **alle** noch `pending` oder `neutralized` Legs
+  des gesamten Scheins auf `void` setzen; Hauptschein ebenso.
+- Ältere Bestandsfälle mit bereits annulliertem, aber noch als
+  `neutralized` geführtem Leg sind zulässige Audit-Historie. **Keine
+  rückwirkende Guthaben- oder Quotenkorrektur** allein wegen ihrer Existenz.
+- **Alle Anzeige- und Zählerpfade** (Meine Wetten, Tippseite Normal/Risky,
+  Alle Tipps, Rangliste/Details) müssen **vor Aggregation und Rendering**
+  anhand des Elternstatus `void` ausschließen. Unbekannte Elternzeile wird
+  nicht ersatzweise als gewonnen/aktiv gewertet (fail closed).
+- Einzelne Legs sind bei einer Kombination nie die Quelle des finalen
+  Status; insbesondere ist "alle übrigen Legs sind neutralized" **kein
+  Beweis** für einen Gewinn.
+- Die tatsächlich gezahlte Stornoerstattung erfolgt weiterhin **einmalig**;
+  der ursprüngliche Einsatz darf weder als Minus in der Bilanz auftauchen
+  noch die Normal-/Risky-Limits besetzen.
+- Referenzfall ST13, Kombination #594: nach Teil-Annullierung von Match 433
+  storniert, ein Alt-Leg blieb neutralisiert. #594 zählt in keiner Anzeige
+  oder Bilanz; stattdessen sind #591, #592 und #611 aktiv. Soll:
+  **3 Scheine, 737,13 WLD eingesetzt, 0,00 WLD realisierte Bilanz,
+  2/2 Normal, 1/1 Risky**; mögliche Auszahlung 15.930 WLD.
+- Regression: `scripts/run-slip-lifecycle-check.mjs` und anschließend
+  Production-Read-only-Abgleich. Keine realen Wetten für Tests platzieren.
+
 ## Stornierbarkeit
 
 Die **bestehenden** Stornierungsregeln der App gelten weiterhin; es gibt **kein automatisches Recht**, eine bereits begonnene Kombi aufgrund des Nichtantritts als Ganzes zu stornieren. Technisch zulässige Stornierungen vor Beginn sind weiterhin möglich; die neutralisierte Auswahl wird dabei nicht als noch ausstehendes Spiel behandelt. Die Storno-Bedingungen müssen mit dem jeweils tatsächlich implementierten Code übereinstimmen.
