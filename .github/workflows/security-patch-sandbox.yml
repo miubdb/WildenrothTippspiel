@@ -39,10 +39,11 @@ jobs:
             @supabase/supabase-js@2.118.0 @supabase/ssr@0.12.7
           npm install --save-dev --save-exact --no-audit --no-fund \
             eslint-config-next@16.4.2
-          # npm audit identified source-map-js as a still vulnerable TRANSITIVE
-          # dependency even after Next/React/Supabase were upgraded. Apply
-          # non-breaking fixes, NEVER --force; lock file remains reviewable.
-          npm audit fix --no-fund
+          # Fix runtime dependency vulnerabilities only. The full audit also
+          # reports an unpatched *dev-only* braces -> eslint-config-next
+          # dependency and suggests a BREAKING eslint-config-next downgrade:
+          # NEVER run npm audit fix --force for this.
+          npm audit fix --omit=dev --no-fund
           echo "Dependency changes:"
           git diff --stat -- package.json package-lock.json
 
@@ -54,6 +55,12 @@ jobs:
 
       - name: Audit production dependencies (HIGH/CRITICAL block)
         run: npm audit --omit=dev --audit-level=high
+
+      - name: Report dev-tool vulnerability separately (no forced downgrades)
+        run: |
+          if ! npm audit --audit-level=high; then
+            echo '::warning::Remaining development dependency advisory (braces through ESLint). Do not use npm audit fix --force. Review separately before final security sign-off.'
+          fi
 
       # Full build, lint, TypeScript and betting regression suite run on
       # the separate PR CI after the patched lockfile is committed.
