@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, SEASON_START } from '@/lib/season'
 import { recomputeRiskyForUserMatchday } from '@/lib/risky'
+import { hasStartedCombo } from '@/lib/betStart'
 import type { Match } from '@/types'
 const TEST_MATCHDAY = 999
 
@@ -73,36 +74,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nur offene Wetten können storniert werden.' }, { status: 400 })
     }
 
-    // Find all legs to determine if any match has actually started
-    const { data: allLegs } = await admin
+    // Einheitliche Anpfiff-Definition wie in der Admin-Annullierungsvorschau.
+    // Auch ein bereits gewonnenes/verlorenes Leg heißt: Kombi hat begonnen.
+    // Nur neutralisierte/void Legs blockieren die Stornierung nicht.
+    const { data: allLegs, error: allLegsError } = await admin
       .from('bets')
       .select('match_id, status')
       .eq('combo_id', comboId)
 
-    if (!allLegs || allLegs.length === 0) {
-      return NextResponse.json({ error: 'Keine Wett-Legs gefunden.' }, { status: 400 })
+    if (allLegsError || !allLegs || allLegs.length === 0) {
+      return NextResponse.json({ error: 'Wett-Legs konnten nicht geladen werden.' }, { status: 500 })
     }
 
-    const allMatchIds = allLegs.map((l) => l.match_id)
-    const { data: comboMatches } = await admin
+    const allMatchIds = [...new Set(allLegs.map((l) => l.match_id))]
+    const { data: comboMatches, error: matchLoadError } = await admin
       .from('matches')
       .select('id, match_date, status')
       .in('id', allMatchIds)
 
-    // Only the matches of STILL-PENDING legs matter for "has it already
-    // started" — cancelling the combo only ever touches those (the UPDATE
-    // below is itself gated on status='pending'). A leg already 'neutralized'
-    // (its match was finally annulled, Nichtantritt — see lib/matchAnnulment.ts)
-    // sits on a match whose own match_date is necessarily in the past by now,
-    // but that leg is already decided/moot and must never block cancelling
-    // the combo's remaining, genuinely still-open legs.
-    const pendingLegMatchIds = new Set(allLegs.filter((l) => l.status === 'pending').map((l) => l.match_id))
-    // Block if any STILL-PENDING leg's match has actually started (not just
-    // postponed — postponed means no kickoff yet).
-    const startedMatch = (comboMatches ?? []).find(
-      (m) => pendingLegMatchIds.has(m.id) && m.status !== 'postponed' && new Date(m.match_date) <= new Date()
-    )
-    if (startedMatch) {
+    if (matchLoadError || !comboMatches || comboMatches.length !== allMatchIds.length) {
+      return NextResponse.json({ error: 'Spieltermine konnten nicht vollständig geladen werden.' }, { status: 500 })
+    }
+
+    if (hasStartedCombo(allLegs, comboMatches)) {
       return NextResponse.json(
         { error: 'Eines der Spiele hat bereits begonnen — Stornierung nicht mehr möglich.' },
         { status: 400 }
