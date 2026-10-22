@@ -8,6 +8,7 @@ import { WetteCard, fmt, type WetteData, type WetteLeg } from '@/components/Wett
 import { cappedPayout } from '@/lib/payout'
 import type { SpecialDisplayInfo } from '@/lib/betDisplay'
 import { slipGroupKey, slipGroupLabel, slipGroupRank, type SlipMatchday } from '@/components/meine-wetten/slipMatchday'
+import { isVisibleComboStatus } from '@/lib/slipLifecycle'
 import { Badge, Card, ChipBar, EmptyState, ErrorState, SectionTitle, cx } from '@/components/ui'
 
 type Slip = { item: HistoryItem; wette: WetteData; md: SlipMatchday; cancellable: boolean }
@@ -67,7 +68,11 @@ export function MeineWettenClient({ items, slipMatchdays, legMatchdays, matchday
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({})
 
   // Stabil zwischen Renders: nur neu, wenn der Server neue Daten liefert (z. B. nach router.refresh()).
-  const slips = useMemo<Slip[]>(() => items.map((item) => {
+  // Defensive second filter, independent of the server: a void combo may
+  // retain a neutralized leg for audit and must never reappear as won.
+  const slips = useMemo<Slip[]>(() => items.filter(item =>
+    item.kind === 'single' ? item.bet.status !== 'void' : isVisibleComboStatus(item.cb?.status)
+  ).map((item) => {
     const wette = toWetteData(item, playerNameMap, specialsById)
     return { item, wette, cancellable: canCancelItem(item), md: slipMatchdays[wette.id] ?? UNKNOWN_MD }
   }), [items, playerNameMap, specialsById, slipMatchdays])
