@@ -9,6 +9,7 @@ import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import { getCurrentUser } from '@/app/_lib/currentUser'
 import { defaultCurrentMatchday } from '@/app/_lib/currentMatchday'
 import type { Match } from '@/types'
+import { visibleComboIds } from '@/lib/slipLifecycle'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,7 +62,7 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
     })(),
   }))
   // laufende Saison (+ Testspieltag), wie im Profil
-  const bets = allBets.filter((b) => !b.season || b.season === STATS_CURRENT_SEASON || b.season === 'TEST')
+  let bets = allBets.filter((b) => !b.season || b.season === STATS_CURRENT_SEASON || b.season === 'TEST')
 
   const comboIds = [...new Set(bets.filter((b) => b.combo_id).map((b) => b.combo_id as string))]
   const comboMap = new Map<string, { id: string; stake: number; total_odds: number; status: string; payout: number | null }>()
@@ -70,7 +71,14 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
     comboIds.length > 0 ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds) : Promise.resolve({ data: [] as { id: string; stake: number; total_odds: number; status: string; payout: number | null }[] }),
     specialIds.length > 0 ? supabase.from('matchday_specials').select('id, matchday, template_key, options, settlement_result').in('id', specialIds) : Promise.resolve({ data: [] as { id: number; matchday: number; template_key: string; options: unknown; settlement_result: unknown }[] }),
   ])
-  for (const cb of cbRes.data ?? []) comboMap.set(cb.id, cb)
+  // A cancelled combo's still-neutralized leg remains in bets for the
+  // audit trail. It must NEVER recreate a fake won slip or count in totals.
+  // Missing parent rows are also excluded (fail closed).
+  const visibleIds = visibleComboIds(cbRes.data ?? [])
+  bets = bets.filter(b => b.combo_id == null || visibleIds.has(String(b.combo_id)))
+  for (const cb of cbRes.data ?? []) {
+    if (visibleIds.has(String(cb.id))) comboMap.set(String(cb.id), cb)
+  }
   for (const sp of specialsRes.data ?? []) {
     specialsById[sp.id] = {
       matchday: sp.matchday, template_key: sp.template_key,
