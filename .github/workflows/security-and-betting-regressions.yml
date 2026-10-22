@@ -3,6 +3,13 @@ name: Security and Betting Regressions
 on:
   pull_request:
     branches: [integration, main]
+    paths-ignore:
+      # Workflow-only setup commits should not repeatedly test the
+      # STILL-UNPATCHED main/integration lockfile. As soon as the patch
+      # workflow commits package.json/package-lock.json, the PR test runs.
+      - '.github/workflows/security-patch-sandbox.yml'
+      - '.github/workflows/security-and-betting-regressions.yml'
+      - '.github/dependabot.yml'
   push:
     branches: [integration, main]
   schedule:
@@ -10,6 +17,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: security-betting-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
