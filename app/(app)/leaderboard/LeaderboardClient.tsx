@@ -9,6 +9,7 @@ import { WetteCard, type WetteData, type WetteStatus, type WetteSocial } from '@
 import type { CommentData } from '@/components/CommentSection'
 import { MatchdayRecap, type RecapData } from '@/components/MatchdayRecap'
 import { type SpecialDisplayInfo, plainSelectionLabel, specialMarketLabel, specialSelectionLabel, sortComboLegsChronologically } from '@/lib/betDisplay'
+import { isVisibleComboStatus } from '@/lib/slipLifecycle'
 
 const STARTING_BALANCE = 1000
 
@@ -121,6 +122,8 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
   const seen = new Set<number>()
 
   for (const b of bets) {
+    // The cancelled combo parent must win over any remaining neutralized leg.
+    if (b.combo_id && !isVisibleComboStatus(combos[b.combo_id]?.status)) continue
     if (!b.combo_id) {
       const m = b.match
       const score = m?.home_score != null ? `${m.home_score}:${m.away_score}` : null
@@ -157,13 +160,9 @@ function UserBets({ bets, combos, noDataLabel, reactions, comments, currentUserI
       // original odds_value, to this fallback product — only relevant if cb
       // itself is somehow missing.
       const totalOdds = cb?.total_odds ?? comboLegs.reduce((acc, l) => acc * (l.status === 'neutralized' ? 1 : l.odds_value), 1)
-      const dbStatus = (cb?.status ?? 'pending') as WetteStatus
-      // Override stale 'pending' DB status when legs already prove the outcome
-      const effectiveStatus: WetteStatus =
-        (dbStatus === 'won' || dbStatus === 'lost' || dbStatus === 'neutralized') ? dbStatus
-        : comboLegs.some(l => l.status === 'lost') ? 'lost'
-        : comboLegs.every(l => l.status === 'won' || l.status === 'neutralized') ? 'won'
-        : 'pending'
+      // Entire combo status comes exclusively from the parent row.
+      // Inferring a win from all visible neutralized legs creates ghost wins.
+      const effectiveStatus: WetteStatus = cb!.status as WetteStatus
       wetten.push({
         id: `combo-${b.combo_id}`,
         type: 'combo',
