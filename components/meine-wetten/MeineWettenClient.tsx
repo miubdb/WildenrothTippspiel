@@ -152,7 +152,8 @@ export function MeineWettenClient({ items, slipMatchdays, legMatchdays, matchday
   }), matchdayOrder), [history, filter, matchdayOrder])
 
   const wonCount = history.filter((s) => s.wette.status === 'won').length
-  const lostCount = history.length - wonCount
+  const lostCount = history.filter((s) => s.wette.status === 'lost').length
+  const neutralizedCount = history.filter((s) => s.wette.status === 'neutralized').length
 
   // Jeder Schein wird von sich aus vollständig dargestellt (defaultOpen) — sobald er überhaupt
   // sichtbar ist (im aktuellen Spieltag, oder innerhalb einer vom Nutzer geöffneten
@@ -208,6 +209,7 @@ export function MeineWettenClient({ items, slipMatchdays, legMatchdays, matchday
             <div className="mt-2 flex justify-between text-[13px]">
               <span><b className="text-green-700 dark:text-green-400">{wonCount}</b> <span className="text-gray-600 dark:text-gray-400">gewonnen</span></span>
               <span><b className="text-red-700 dark:text-red-400">{lostCount}</b> <span className="text-gray-600 dark:text-gray-400">verloren</span></span>
+              {neutralizedCount > 0 && <span><b className="text-slate-700 dark:text-slate-300">{neutralizedCount}</b> <span className="text-gray-600 dark:text-gray-400">erstattet</span></span>}
             </div>
           </Card>
           {groups.length === 0 ? (
@@ -255,10 +257,12 @@ function CurrentMatchday({ md, list, otherOpen, renderSlip }: { md: number; list
   const pending = list.filter((s) => s.wette.status === 'pending')
   const won = list.filter((s) => s.wette.status === 'won')
   const lost = list.filter((s) => s.wette.status === 'lost')
-  const staked = list.reduce((a, s) => a + s.wette.stake, 0)
+  const neutralized = list.filter((s) => s.wette.status === 'neutralized')
+  // Fully refunded/neutralized bets are not active capital invested.
+  const staked = [...pending, ...won, ...lost].reduce((a, s) => a + s.wette.stake, 0)
   const settledNet = [...won, ...lost].reduce((a, s) => a + net(s.wette), 0)
   const stillPossible = pending.reduce((a, s) => a + cappedPayout(s.wette.stake, s.wette.totalOdds, !!s.wette.isRisky), 0)
-  const parts: [string, Slip[]][] = [['Noch im Rennen', pending], ['Gewonnen 🎉', won], ['Verloren', lost]]
+  const parts: [string, Slip[]][] = [['Noch im Rennen', pending], ['Gewonnen 🎉', won], ['Verloren', lost], ['Annulliert · Einsatz erstattet', neutralized]]
 
   if (list.length === 0 && otherOpen.length === 0) {
     return (
