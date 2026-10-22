@@ -1,0 +1,44 @@
+name: Security and Betting Regressions
+
+on:
+  pull_request:
+    branches: [integration, main]
+  push:
+    branches: [integration, main]
+  schedule:
+    - cron: '18 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Dependencies, security, build, betting integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Reproducible install
+        run: npm ci --no-fund --no-audit
+      - name: Block HIGH/CRITICAL runtime vulnerabilities
+        run: npm audit --omit=dev --audit-level=high
+      - name: TypeScript check
+        run: npx tsc --noEmit
+      - name: ESLint check
+        run: npm run lint
+      - name: Verify annulment, cancellations and Risky accounting
+        run: |
+          node --experimental-strip-types scripts/run-match-annulment-check.mjs
+          node --experimental-strip-types scripts/run-slip-lifecycle-check.mjs
+          node --experimental-strip-types scripts/run-meine-wetten-check.mjs
+          node --experimental-strip-types scripts/run-combo-leg-order-check.mjs
+      - name: Verify production build without real secrets
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-placeholder-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-only-placeholder-key
+        run: npm run build
