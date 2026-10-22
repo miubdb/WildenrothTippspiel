@@ -25,7 +25,7 @@ import { cappedPayout } from '@/lib/payout'
 import { MatchdaySpecialsSection, type MatchdaySpecialForDisplay } from '@/components/MatchdaySpecialsSection'
 import { defaultCurrentMatchday } from '@/app/_lib/currentMatchday'
 import { isComboSociallyStarted, isSingleSociallyVisible } from '@/lib/socialBetVisibility'
-import { occupiesBettingSlot } from '@/lib/slipLifecycle'
+import { isVisibleComboStatus, occupiesBettingSlot } from '@/lib/slipLifecycle'
 
 export const revalidate = 60
 
@@ -1056,9 +1056,19 @@ export default async function TippsPage({
     // got credited 0 bets and silently vanished from "Alle Tipps" entirely
     // (return null on count === 0), even though it had real, visible bets and
     // was fully bettable — this is what made SV Fuchstal – FC Issing disappear.
+    // Audit-retained neutralized legs of user-cancelled combos must not
+    // inflate public bet counts, even if their child status isn't void.
+    const countedComboIds = [...new Set((countRows ?? [])
+      .filter(b => b.combo_id != null).map(b => Number(b.combo_id)))]
+    const { data: countedComboParents } = countedComboIds.length > 0
+      ? await adminSupa.from('combo_bets').select('id, status').in('id', countedComboIds)
+      : { data: [] as { id: number; status: string }[] }
+    const countedLiveComboIds = new Set((countedComboParents ?? [])
+      .filter(c => isVisibleComboStatus(c.status)).map(c => Number(c.id)))
     const seenCountSlips = new Set<string>()
     const seenSpecialSlips = new Set<string>()
     for (const b of countRows ?? []) {
+      if (b.combo_id != null && !countedLiveComboIds.has(Number(b.combo_id))) continue
       if (b.market_type === 'matchday_special') {
         // A Special bet's match_id is only its representative_match_id
         // (technical FK anchor) — never fold it into betCountByMatch (that
@@ -1152,20 +1162,24 @@ export default async function TippsPage({
         ? startedComboIds.has(Number(b.combo_id))
         : isSingleSociallyVisible(b, matchesById.get(b.match_id), socialNow))
       // Profile/Kombi-Gesamtdaten ausschließlich für freigegebene Scheine laden.
-      const uids = [...new Set(socialBets.map(b => b.user_id))]
       const visibleComboIds = [...new Set(socialBets
-        .filter(b => b.combo_id != null)
-        .map(b => Number(b.combo_id)))]
-      const [pResult, cbResult] = await Promise.all([
-        uids.length
-          ? supabase.from('profiles').select('id, display_name, username, avatar_url').in('id', uids)
-          : Promise.resolve({ data: [] }),
-        visibleComboIds.length
-          ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', visibleComboIds)
-          : Promise.resolve({ data: [] }),
-      ])
-      socialProfiles = pResult.data ?? []
-      for (const cb of cbResult.data ?? []) socialCombos[String(cb.id)] = cb
+        .filter(b => b.combo_id != null).map(b => Number(b.combo_id)))]
+      const { data: cbRows } = visibleComboIds.length > 0
+        ? await supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', visibleComboIds)
+        : { data: [] as SocialCombo[] }
+      const allowedComboIds = new Set((cbRows ?? [])
+        .filter(cb => isVisibleComboStatus(cb.status)).map(cb => Number(cb.id)))
+      // Filter the response itself, not only the client view: never leak
+      // a void parent's neutralized selection or its profile metadata.
+      socialBets = socialBets.filter(b => b.combo_id == null || allowedComboIds.has(Number(b.combo_id)))
+      const uids = [...new Set(socialBets.map(b => b.user_id))]
+      const { data: profileRows } = uids.length
+        ? await supabase.from('profiles').select('id, display_name, username, avatar_url').in('id', uids)
+        : { data: [] as SocialProfile[] }
+      socialProfiles = profileRows ?? []
+      for (const cb of cbRows ?? []) {
+        if (allowedComboIds.has(Number(cb.id))) socialCombos[String(cb.id)] = cb
+      }
     }
   }
 
