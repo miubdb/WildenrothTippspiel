@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { logAdminAction } from '@/lib/auditLog'
 import { cappedPayout } from '@/lib/payout'
 import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
+import { hasStartedCombo } from '@/lib/betStart'
 import { classifyCombo, isRealMatchLeg, type ComboLegAfterNeutralization, type BetStatus, type AnnulmentType } from '@/lib/matchAnnulment'
 
 const VALID_ANNULMENT_TYPES: readonly AnnulmentType[] = ['away_no_show', 'home_no_show', 'other']
@@ -42,6 +43,8 @@ interface ComboPreviewEntry {
   userName: string
   stake: number
   isRisky: boolean
+  /** True, wenn mindestens ein wirksames Leg bereits angepfiffen/entschieden ist. */
+  hasStarted?: boolean
   statusBefore: BetStatus
   oldTotalOdds: number
   oldPossiblePayout: number
@@ -210,6 +213,17 @@ async function buildPreview(matchId: number): Promise<PreviewResult> {
       legsByCombo.set(l.combo_id as number, arr)
     }
 
+    // Für die Vorschau und die Stornierung dieselbe Definition verwenden.
+    // Ein bereits gewonnenes Leg zählt als "begonnen", selbst wenn alle
+    // verbleibenden, noch offenen Spiele erst morgen stattfinden.
+    const relatedMatchIds = [...new Set(allLegs.map((l) => l.match_id))]
+    const { data: relatedMatches, error: relatedMatchesError } = relatedMatchIds.length > 0
+      ? await admin.from('matches').select('id, match_date, status').in('id', relatedMatchIds)
+      : { data: [], error: null }
+    if (relatedMatchesError || !relatedMatches || relatedMatches.length !== relatedMatchIds.length) {
+      return { notFound: false, error: 'Spieltermine für die Stornierbarkeits-Vorschau konnten nicht vollständig geladen werden.' }
+    }
+
     comboEntries = comboRows.map((c) => {
       const legs = legsByCombo.get(c.id) ?? []
       // combo_bets has no is_risky column of its own — any one leg reflects
@@ -256,6 +270,9 @@ async function buildPreview(matchId: number): Promise<PreviewResult> {
         action: 'still_pending', newTotalOdds: resolution.newTotalOdds, newPossiblePayout, refund: null,
       }
     })
+    for (const entry of comboEntries) {
+      entry.hasStarted = hasStartedCombo(legsByCombo.get(entry.comboId) ?? [], relatedMatches)
+    }
   }
 
   // Name lookup is cosmetic only (display label) — a failure here must never
