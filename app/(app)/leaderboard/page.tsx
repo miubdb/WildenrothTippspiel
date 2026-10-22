@@ -285,7 +285,7 @@ export default async function LeaderboardPage({
   if (matchdayMatchIds.size > 0) {
     const { data: mdBetRows } = await adminSupa
       .from('bets')
-      .select('user_id, combo_id')
+      .select('user_id, combo_id, status')
       .in('match_id', [...matchdayMatchIds])
       .neq('status', 'void')
     // The parent combo status is authoritative; a previously annulled,
@@ -300,7 +300,9 @@ export default async function LeaderboardPage({
     const seenUserCombo = new Set<string>()
     for (const b of mdBetRows ?? []) {
       if (!b.combo_id) {
-        betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
+        if (occupiesBettingSlot(b.status)) {
+          betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
+        }
         continue
       }
       if (!liveMdCombos.has(Number(b.combo_id))) continue
