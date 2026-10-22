@@ -25,7 +25,8 @@ USING (
     AND private.combo_has_started(combo_id::bigint)
   )
   OR (
-    status = 'neutralized'
+    (SELECT auth.uid()) IS NOT NULL
+    AND status = 'neutralized'
     AND neutralized_reason = 'match_annulled'
     AND EXISTS (
       SELECT 1 FROM public.matches m
