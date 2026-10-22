@@ -234,7 +234,9 @@ export function BetHistoryWithCancel({ items, matchdayDeadlinesPassed, playerNam
           <button onClick={() => setCancelError(null)}>✕</button>
         </div>
       )}
-      {items.map((item) => {
+      {items.filter(item =>
+        item.kind === 'single' ? item.bet.status !== 'void' : isVisibleComboStatus(item.cb?.status)
+      ).map((item) => {
         const wette = toWetteData(item, playerNameMap, specialsById)
         const cancellable = !cancellingId && canCancelItem(item)
         const ref = getHighlightRef(item)
