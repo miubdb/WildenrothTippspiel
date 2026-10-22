@@ -1164,6 +1164,17 @@ export default async function TippsPage({
     }
   }
 
+  // Ausschließlich die bereits für "Alle Tipps" freigegebenen Legs:
+  // echte Anstoßzeiten der Spiele auch bei BFV-Nachholspielen/anderen
+  // offiziellen Spieltagen; keine zusätzlichen Wettdaten an den Client.
+  const matchKickoffLookup = new Map(allMatches.map(m => [m.id, m.match_date]))
+  const socialMatchKickoffs: Record<number, string> = {}
+  for (const b of socialBets) {
+    if (b.market_type === 'matchday_special') continue
+    const kickoff = matchKickoffLookup.get(b.match_id)
+    if (kickoff) socialMatchKickoffs[b.match_id] = kickoff
+  }
+
   // Spieltags-Recap: complete when all non-postponed matches are finished (≥1 must be finished).
   // Matchday 999 is the reserved test matchday — excluded here too, matching
   // settle/route.ts and lib/awards.ts, so test-bet results/usernames never
@@ -1754,6 +1765,7 @@ export default async function TippsPage({
           socialBets={socialBets}
           socialCombos={socialCombos}
           socialProfiles={socialProfiles}
+          socialMatchKickoffs={socialMatchKickoffs}
           playerNameMap={playerNameMap}
           userId={user.id}
           specialsById={specialsById}
