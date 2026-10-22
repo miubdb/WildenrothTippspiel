@@ -9,6 +9,7 @@ import { getForm, getTeamRecord } from '@/lib/odds'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
 import { homeHandicapFavored, wildenrothHandicapForceHomeSide } from '@/lib/oddsMarkets'
 import { TeamLogo } from '@/components/TeamLogo'
+import { isMatchConcluded, matchResultDisplay } from '@/lib/matchResultDisplay'
 
 function isBKlasseTopspiel(match: Match): boolean {
   return match.match_category === 'bklasse_topspiel' || (match.match_category === 'b-klasse' && !!match.is_topspiel)
@@ -71,12 +72,10 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   const [wildenrothBlockTeam, setWildenrothBlockTeam] = useState<1 | 2>(1)
   const [replacedMsg, setReplacedMsg] = useState(false)
   // Abgeschlossene Spiele starten eingeklappt (kompakte Ergebniszeile) — spart
-  // Scrollstrecke auf vergangenen/laufenden Spieltagen. Tippt man sie an, zeigt
-  // sich exakt dieselbe, unveränderte Karte wie bisher; Quoten/Wettmärkte und
-  // deren Sperrlogik sind davon nicht berührt (ein beendetes Spiel bietet
-  // ohnehin keine Märkte mehr an). Nur für `finished` — live/laufende Spiele
-  // bleiben immer vollständig sichtbar.
-  const [compact, setCompact] = useState(match.status === 'finished')
+  // Scrollstrecke auf vergangenen/laufenden Spieltagen. Endgültig annullierte
+  // Spiele gelten für die Anzeige ebenfalls als abgeschlossen, auch wenn die
+  // separate amtliche Tabellenwertung noch aussteht.
+  const [compact, setCompact] = useState(isMatchConcluded(match))
 
   const homeName = match.home_team?.name ?? 'Heim'
   const awayName = match.away_team?.name ?? 'Gast'
@@ -95,7 +94,9 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
   // Treat as locked if kickoff has passed, regardless of DB status (handles manual-status lag)
   const isScheduled = match.status === 'scheduled' && !kickoffPassed
   const isLive = match.status === 'live' || (match.status === 'scheduled' && kickoffPassed)
-  const isFinished = match.status === 'finished'
+  const isFinished = isMatchConcluded(match)
+  const resultDisplay = matchResultDisplay(match)
+  const isAnnulled = match.status === 'annulled'
 
   const matchInvolvesWildenroth = wildenrothTeamId != null &&
     (match.home_team_id === wildenrothTeamId || match.away_team_id === wildenrothTeamId)
@@ -215,8 +216,8 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
       >
         <TeamLogo name={homeName} size="sm" />
         <span className="flex-1 min-w-0 truncate text-left text-xs font-semibold text-gray-700 dark:text-gray-300">{homeName}</span>
-        <span className="flex-shrink-0 bg-gray-800 text-white text-sm font-black px-2.5 py-1 rounded-lg tabular-nums">
-          {match.home_score} : {match.away_score}
+        <span className="flex-shrink-0 bg-gray-800 text-white text-[10px] sm:text-sm font-black px-2.5 py-1 rounded-lg tabular-nums whitespace-nowrap">
+          {resultDisplay?.label ?? '—'}
         </span>
         <span className="flex-1 min-w-0 truncate text-right text-xs font-semibold text-gray-700 dark:text-gray-300">{awayName}</span>
         <TeamLogo name={awayName} size="sm" />
@@ -290,9 +291,9 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
             <FormBadges form={homeForm} />
           </div>
 
-          {match.status === 'finished' ? (
-            <div className="bg-gray-800 text-white text-base font-black px-3 py-1 rounded-lg tabular-nums flex-shrink-0">
-              {match.home_score} : {match.away_score}
+          {isFinished ? (
+            <div className="bg-gray-800 text-white text-xs sm:text-base font-black px-2 sm:px-3 py-1 rounded-lg tabular-nums flex-shrink-0 text-center">
+              {resultDisplay?.label ?? '—'}
             </div>
           ) : (
             <div className="text-gray-300 dark:text-gray-600 font-light text-sm flex-shrink-0 px-1">vs</div>
@@ -757,7 +758,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         }`}>
           {isLive && <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse flex-shrink-0" />}
           <span className={`text-xs font-medium ${isLive ? 'text-orange-600 dark:text-orange-400' : 'text-gray-400 dark:text-gray-500'}`}>
-            {isLive ? 'Spiel läuft – keine Tipps mehr möglich' : 'Spiel beendet – Tippschluss abgelaufen'}
+            {isLive ? 'Spiel läuft – keine Tipps mehr möglich' : isAnnulled ? resultDisplay?.detail : 'Spiel beendet – Tippschluss abgelaufen'}
           </span>
         </div>
       )}
