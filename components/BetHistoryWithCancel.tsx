@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { WetteCard, type WetteData, type WetteStatus } from '@/components/WetteCard'
 import { plainSelectionLabel, type SpecialDisplayInfo, specialMarketLabel, sortComboLegsChronologically } from '@/lib/betDisplay'
+import { isVisibleComboStatus } from '@/lib/slipLifecycle'
 
 export type HistoryBet = {
   id: string
@@ -107,11 +108,11 @@ export function toWetteData(item: HistoryItem, players?: Record<number, string>,
 
   const { legs, cb } = item
   const dbSt = cb?.status ?? 'pending'
-  const status: WetteStatus =
-    (dbSt === 'won' || dbSt === 'lost' || dbSt === 'neutralized') ? dbSt as WetteStatus
-    : legs.some(l => l.status === 'lost') ? 'lost'
-    : legs.every(l => l.status === 'won' || l.status === 'neutralized') ? 'won'
-    : 'pending'
+  // Authoritative parent status only. Never deduce "won" merely because
+  // the ONE remaining leg of a cancelled combo is neutralized.
+  // Both callers filter invalid/void parents before this conversion.
+  const status: WetteStatus = isVisibleComboStatus(dbSt)
+    ? dbSt as WetteStatus : 'pending'
   // Fallback only matters if cb itself is somehow missing — a neutralized leg
   // contributes 1.00 (its effective odds), never its original odds_value, to
   // this product (see lib/matchAnnulment.ts).
