@@ -92,6 +92,26 @@ der Spielplan **2:0 (Wertung)** beziehungsweise das amtliche Ergebnis mit dem Zu
 `(Wertung)`. Keine dieser Anzeigen ändert die Wettneutralisierung, die echten
 `home_score`/`away_score`, Torschützen oder das Quotenmodell.
 
+### Sichtbarkeit in „Alle Tipps“
+
+Ab **endgültiger Annullierung** eines Spiels werden die dazugehörigen
+neutralisierten Wettauswahlen ohne Warten auf die frühere Anstoßzeit angezeigt,
+auch für andere angemeldete Spieler. Die Originalquote bleibt revisionssicher
+gespeichert; angezeigt wird **Originalquote gestrichen → @1,00** mit
+Annullierungshinweis. Eine Kombi zeigt ihre weiterhin gültige neue Gesamtquote
+und ihren Gesamtstatus. Werden durch die bisherigen Sichtbarkeitsregeln nur
+einzelne Legs freigegeben, heißt der Zähler ausdrücklich **„sichtbare Tipps“**.
+Andere, noch nicht freigegebene Kombi-Auswahlen dürfen **nicht** durch die
+Annullierung eines Legs sichtbar werden.
+
+Dazu wird die bestehende RLS-Ausnahmeregel für bereits gestartete Kombis
+**nicht** erweitert: Vor der normalen Freigabe ist ausschließlich ein Leg
+mit `status='neutralized'`, `neutralized_reason='match_annulled'` und
+zugehörigem `matches.status='annulled'` für angemeldete Nutzer lesbar,
+zusätzlich dessen Kombi-Zusammenfassung, **nicht** die übrigen Legs.
+Die RLS-Migration liegt in `supabase/annulled_bets_social_visibility.sql`.
+Stornierte (`void`) Tipps bleiben ausgeblendet. Keine Guthaben-/Wettbuchung.
+
 ## Stornierbarkeit
 
 Die **bestehenden** Stornierungsregeln der App gelten weiterhin; es gibt **kein automatisches Recht**, eine bereits begonnene Kombi aufgrund des Nichtantritts als Ganzes zu stornieren. Technisch zulässige Stornierungen vor Beginn sind weiterhin möglich; die neutralisierte Auswahl wird dabei nicht als noch ausstehendes Spiel behandelt. Die Storno-Bedingungen müssen mit dem jeweils tatsächlich implementierten Code übereinstimmen.
