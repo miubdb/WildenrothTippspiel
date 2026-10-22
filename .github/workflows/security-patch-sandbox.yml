@@ -1,0 +1,90 @@
+name: Security Patch Sandbox (no Production)
+on:
+  push:
+    branches:
+      - security/patch-2026-10-22
+    paths:
+      - .github/workflows/security-patch-sandbox.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: security-patch-2026-10-22
+  cancel-in-progress: true
+
+jobs:
+  patch-and-verify:
+    name: Patch dependencies, security audit & regression checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Fetch dedicated security branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Node 24 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install stable patched runtime and framework packages
+        run: |
+          npm install --save-exact --no-audit --no-fund \
+            next@16.4.2 react@19.3.1 react-dom@19.3.1 \
+            @supabase/supabase-js@2.118.0 @supabase/ssr@0.12.7
+          npm install --save-dev --save-exact --no-audit --no-fund \
+            eslint-config-next@16.4.2
+          echo "Dependency changes:"
+          git diff --stat -- package.json package-lock.json
+
+      - name: Validate clean reproducible installation
+        run: npm ci --no-audit --no-fund
+
+      - name: Audit production dependencies (HIGH/CRITICAL block)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Match annulment regression
+        run: node --experimental-strip-types scripts/run-match-annulment-check.mjs
+
+      - name: Slip lifecycle regression
+        run: node --experimental-strip-types scripts/run-slip-lifecycle-check.mjs
+
+      - name: Meine Wetten, history and badge regressions
+        run: node --experimental-strip-types scripts/run-meine-wetten-check.mjs
+
+      - name: Combo ordering regression
+        run: node --experimental-strip-types scripts/run-combo-leg-order-check.mjs
+
+      - name: Next.js production build (without production secrets)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-only-placeholder-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-only-placeholder-key
+        run: npm run build
+
+      - name: Commit dependency and lockfile update to security branch ONLY
+        if: success()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json
+          if ! git diff --cached --quiet; then
+            git commit -m 'security: patch Next.js React and Supabase (validated)'
+            git push origin HEAD:security/patch-2026-10-22
+          fi
+
+      - name: Print upgrade scope
+        if: always()
+        run: |
+          echo 'Security branch only. NEVER auto-merge or auto-deploy to Production.'
+          echo 'Full remaining package updates require separate review / npm outdated.'
