@@ -21,7 +21,7 @@ export type AuditAction =
   | 'balance_adjust' | 'user_eligibility_change' | 'user_role_change' | 'user_delete' | 'user_restore'
   | 'odds_override_set' | 'odds_override_reset' | 'betting_window_change' | 'topspiel_toggle'
   | 'settlement' | 'season_start_toggle' | 'season_reset' | 'survey_reset' | 'survey_mode_change'
-  | 'survey_response_delete' | 'checklist_confirmation' | 'match_annulment'
+  | 'survey_response_delete' | 'checklist_confirmation' | 'match_annulment' | 'match_official_score_confirmed'
 
 export interface AuditLogEntry {
   actorId: string

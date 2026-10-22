@@ -5,7 +5,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { logAdminAction } from '@/lib/auditLog'
 import { cappedPayout } from '@/lib/payout'
 import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
-import { classifyCombo, isRealMatchLeg, type ComboLegAfterNeutralization, type BetStatus } from '@/lib/matchAnnulment'
+import { classifyCombo, isRealMatchLeg, type ComboLegAfterNeutralization, type BetStatus, type AnnulmentType } from '@/lib/matchAnnulment'
+
+const VALID_ANNULMENT_TYPES: readonly AnnulmentType[] = ['away_no_show', 'home_no_show', 'other']
 
 /**
  * "Spiel annullieren (Quote 1,00)" — Nichtantritt/Annullierung. GET liefert die Vorschau
@@ -86,6 +88,10 @@ type PreviewResult =
       matchLabel: string
       matchStatus: string
       alreadyAnnulled: true
+      annulmentType: AnnulmentType | null
+      officialHomeScore: number | null
+      officialAwayScore: number | null
+      officialConfirmedAt: string | null
     }
   | {
       notFound: false
@@ -116,7 +122,7 @@ async function buildPreview(matchId: number): Promise<PreviewResult> {
 
   const { data: match, error: matchErr } = await admin
     .from('matches')
-    .select('id, status, match_date, annulled_at, annulment_reason, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
+    .select('id, status, match_date, annulled_at, annulment_reason, annulment_type, annulment_official_home_score, annulment_official_away_score, annulment_official_confirmed_at, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
     .eq('id', matchId)
     .single()
   // PGRST116 = "no rows" from .single() — a real "not found", not a DB error.
@@ -130,7 +136,13 @@ async function buildPreview(matchId: number): Promise<PreviewResult> {
   const matchLabel = `${homeTeam?.name ?? '?'} – ${awayTeam?.name ?? '?'}`
 
   if (match.status === 'annulled') {
-    return { notFound: false, matchLabel, matchStatus: match.status, alreadyAnnulled: true }
+    return {
+      notFound: false, matchLabel, matchStatus: match.status, alreadyAnnulled: true,
+      annulmentType: (match.annulment_type as AnnulmentType | null) ?? null,
+      officialHomeScore: match.annulment_official_home_score ?? null,
+      officialAwayScore: match.annulment_official_away_score ?? null,
+      officialConfirmedAt: match.annulment_official_confirmed_at ?? null,
+    }
   }
   if (match.status === 'finished') {
     return { notFound: false, matchLabel, matchStatus: match.status, alreadyAnnulled: false, blocked: 'MATCH_ALREADY_FINISHED' }
@@ -305,7 +317,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const matchId = parseInt(id, 10)
   if (!Number.isFinite(matchId)) return NextResponse.json({ error: 'Ungültige Spiel-ID.' }, { status: 400 })
 
-  let body: { reason?: string }
+  let body: { reason?: string; annulmentType?: string }
   try { body = await request.json() } catch {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
@@ -313,10 +325,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!reason) {
     return NextResponse.json({ error: 'Bitte einen Grund für die Annullierung angeben (z.B. "Nichtantritt der Gastmannschaft").' }, { status: 400 })
   }
+  // Strukturierte Auswahl ist PFLICHT und wird nie vorausgewählt (siehe
+  // components/admin/MatchAnnulmentPanel.tsx) — der Admin muss sie bewusst treffen.
+  const annulmentType = body.annulmentType as AnnulmentType | undefined
+  if (!annulmentType || !VALID_ANNULMENT_TYPES.includes(annulmentType)) {
+    return NextResponse.json(
+      { error: 'Bitte angeben: Nichtantritt Gastmannschaft, Nichtantritt Heimmannschaft oder Anderer Grund.' },
+      { status: 400 }
+    )
+  }
 
   const admin = createAdminClient()
   const { data: result, error: rpcError } = await admin.rpc('neutralize_match', {
-    p_match_id: matchId, p_actor_id: actorId, p_reason: reason,
+    p_match_id: matchId, p_actor_id: actorId, p_reason: reason, p_annulment_type: annulmentType,
   })
 
   if (rpcError) {
@@ -333,14 +354,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     console.error('neutralize_match error:', rpcError)
     await logAdminAction({
       actorId, actorName, action: 'match_annulment', objectType: 'matches', objectId: matchId,
-      newValue: { reason }, success: false, errorMessage: rpcError.message,
+      newValue: { reason, annulmentType }, success: false, errorMessage: rpcError.message,
     })
     return NextResponse.json({ error: 'Fehler bei der Annullierung.' }, { status: 500 })
   }
 
   await logAdminAction({
     actorId, actorName, action: 'match_annulment', objectType: 'matches', objectId: matchId,
-    newValue: { reason, ...result },
+    newValue: { reason, annulmentType, ...result },
   })
 
   // Annulling a match is "this match's story is over" (see lib/matchdayFinalize.ts's

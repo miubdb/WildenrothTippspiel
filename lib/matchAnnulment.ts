@@ -169,6 +169,87 @@ export function isRealMatchLeg(bet: { marketType: string }): boolean {
   return bet.marketType !== 'matchday_special'
 }
 
+/**
+ * Strukturierte Admin-Auswahl beim Annullieren (nie vorausgewählt — siehe
+ * components/admin/MatchAnnulmentPanel.tsx) — gespeichert in `matches.annulment_type`
+ * (supabase/match_annulment_official_score.sql). Rein dokumentarisch/Grundlage für die
+ * SEPARAT zu bestätigende offizielle Tabellenwertung unten — hat KEINEN Einfluss auf die
+ * Wettneutralisierung selbst, die unverändert jede betroffene Auswahl neutralisiert,
+ * unabhängig vom Grund.
+ */
+export type AnnulmentType = 'away_no_show' | 'home_no_show' | 'other'
+
+export const ANNULMENT_TYPE_LABELS: Record<AnnulmentType, string> = {
+  away_no_show: 'Nichtantritt Gastmannschaft',
+  home_no_show: 'Nichtantritt Heimmannschaft',
+  other: 'Anderer Grund',
+}
+
+/**
+ * § 29 BFV-Spielordnung 2026: grundsätzlich 0:2 für die nicht angetretene Mannschaft,
+ * 2:0 für den Gegner. Ein reiner UI-VORSCHLAG — wird NIE automatisch gespeichert; der
+ * Admin muss die tatsächlich amtlich bestätigte Wertung separat eintragen (siehe
+ * confirm_match_annulment_official_score), erst nachdem der BFV wirklich entschieden hat.
+ * null für 'other', wo keine automatische Ergebniswertung vorgeschlagen wird.
+ */
+export function suggestedOfficialScore(type: AnnulmentType): { home: number; away: number } | null {
+  if (type === 'away_no_show') return { home: 2, away: 0 }
+  if (type === 'home_no_show') return { home: 0, away: 2 }
+  return null
+}
+
+/**
+ * Die offizielle, vom BFV bestätigte Wertung eines annullierten Spiels — ausschließlich für
+ * die Fußballtabelle/Teamstatistiken gedacht (lib/matchAnnulment.ts#resultForStandings unten).
+ * Gibt null zurück, solange keine Wertung bestätigt ist (Spiel nicht annulliert, oder
+ * annulliert aber `annulment_official_confirmed_at` noch null — die BFV-Entscheidung steht
+ * dann bewusst noch aus, siehe docs/spielannullierung-regelwerk.md).
+ *
+ * STRIKTE TRENNUNG (siehe Modulkommentar oben, selbe Begründung): diese Funktion liest
+ * ausschließlich die drei neuen `annulment_official_*`-Spalten, nie `home_score`/`away_score`.
+ * Das Quotenmodell (lib/odds.ts#getMatchXG/getForm/getTeamRecord), settleBet(), die
+ * Torschützen-Logik und settleActiveMatchdaySpecials rufen diese Funktion nicht auf und lesen
+ * diese Spalten nirgends — ein annulliertes Spiel bleibt für sie strukturell unsichtbar
+ * (sie verlangen alle `status === 'finished'`, das ein annulliertes Spiel nie wieder erreicht).
+ */
+export function officialStandingsResult(m: {
+  status: string
+  annulment_official_home_score?: number | null
+  annulment_official_away_score?: number | null
+  annulment_official_confirmed_at?: string | null
+}): { home_score: number; away_score: number } | null {
+  if (m.status !== 'annulled') return null
+  if (m.annulment_official_confirmed_at == null) return null
+  if (m.annulment_official_home_score == null || m.annulment_official_away_score == null) return null
+  return { home_score: m.annulment_official_home_score, away_score: m.annulment_official_away_score }
+}
+
+/**
+ * Das Ergebnis, das für die Fußballtabelle/Teamstatistiken zählt: ein echtes 'finished'-
+ * Ergebnis, ODER (ausschließlich dafür) die bestätigte offizielle Wertung eines annullierten
+ * Spiels (officialStandingsResult oben). null, wenn keines von beiden zutrifft (noch offen,
+ * verschoben, oder annulliert ohne bestätigte Wertung) — Aufrufer behandeln das exakt wie
+ * bisher "noch kein Ergebnis", kein neuer Sonderfall nötig.
+ *
+ * Einzige vorgesehene Stelle für "zählt dieses annullierte Spiel als gewertetes
+ * Tabellenspiel?" — app/(app)/tabelle/page.tsx, app/(app)/team/[teamId]/page.tsx,
+ * app/(app)/team/wildenroth/page.tsx und app/(app)/team/wildenroth-ii/page.tsx rufen
+ * ausschließlich diese Funktion auf, keine eigene zweite Logik.
+ */
+export function resultForStandings(m: {
+  status: string
+  home_score?: number | null
+  away_score?: number | null
+  annulment_official_home_score?: number | null
+  annulment_official_away_score?: number | null
+  annulment_official_confirmed_at?: string | null
+}): { home_score: number; away_score: number } | null {
+  if (m.status === 'finished' && m.home_score != null && m.away_score != null) {
+    return { home_score: m.home_score, away_score: m.away_score }
+  }
+  return officialStandingsResult(m)
+}
+
 /** True for any bet row this annulment must neutralize: a still-open
  *  ('pending') selection whose match_id is the annulled match (and which is
  *  a REAL selection on it, see isRealMatchLeg — never a Special merely

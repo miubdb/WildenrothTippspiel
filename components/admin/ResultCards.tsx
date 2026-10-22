@@ -642,6 +642,31 @@ export function PostponedMatchCard({
   )
 }
 
+/**
+ * Bereits annulliertes Spiel (status='annulled') — eigene, dauerhaft erreichbare Karte, damit
+ * der Admin die offizielle BFV-Wertung auch TAGE später noch nachtragen/korrigieren kann (siehe
+ * MatchAnnulmentPanel#OfficialScoreForm). Ohne diese Karte würde das annullierte Spiel nach dem
+ * ersten Annullieren aus der Admin-Oberfläche verschwinden (fällt sonst weder unter "Verschoben"
+ * noch "Abgerechnet") — genau der Zustand, in dem "später nachtragen, ohne Wettscheine erneut zu
+ * bearbeiten" sonst technisch nicht mehr erreichbar wäre.
+ */
+export function AnnulledMatchCard({ match, onChanged, onMessage }: {
+  match: MatchRow
+  onChanged: () => void
+  onMessage: (msg: string | null) => void
+}) {
+  return (
+    <Panel as="article" tone="neutral" className="space-y-3 p-4">
+      <div className="space-y-1.5">
+        <Pill tone="neutral">Annulliert · Nichtantritt</Pill>
+        <div className="text-[13px] text-gray-600">BFV-Spieltag {match.matchday} · {fmtDay(match.match_date)} {fmtTime(match.match_date)} Uhr</div>
+      </div>
+      <div className="break-words text-[17px] font-bold leading-snug text-gray-900">{match.home_team?.name ?? '?'} – {match.away_team?.name ?? '?'}</div>
+      <MatchAnnulmentPanel matchId={match.id} onDone={onChanged} onMessage={onMessage} autoLoad />
+    </Panel>
+  )
+}
+
 /** Abgerechnetes Spiel: klar als erledigt gekennzeichnet; Aufstellung bei Bedarf. */
 export function SettledMatchRow({ match, playerSuggestions, effectiveMatchday }: { match: MatchRow; playerSuggestions?: string[]; effectiveMatchday?: number | null }) {
   const [showLineups, setShowLineups] = useState(false)

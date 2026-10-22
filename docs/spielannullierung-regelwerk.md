@@ -25,6 +25,58 @@ Die Entscheidung zur **endgültigen** Annullierung trifft ein Admin. Ein vom BFV
 11. **Transparenz:** Im Wettschein `Annulliert`, Originalquote (durchgestrichen), effektive Quote `1,00`, neue Kombiquote und angepasste theoretische Auszahlung zeigen. Neutralisierte Tipps zählen nicht als richtig/falsch und lösen keine Gewinn-Auszeichnung aus.
 12. **Sicherheit / Nachweis:** Nur Admin-Aktion nach kontrollierter Vorschau. Buchungen transaktionssicher und **idempotent**; gleichzeitige Ergebnisabrechnung verhindern; vollständiger Audit-Eintrag. Nachher betroffene Wettscheine, Kontostände und Spieltagsabschluss prüfen.
 
+## Offizielle BFV-Wertung vs. Wettneutralisierung (ab 22.10.2026 ergänzt)
+
+Diese Ergänzung fügt der Regel aus dem ersten Abschnitt zwei fachlich getrennte Dinge hinzu, ohne
+sie zu ändern: eine **strukturierte** Admin-Auswahl beim Annullieren, und eine davon **komplett
+unabhängige** offizielle Tabellenwertung.
+
+**1. Strukturierte Auswahl beim Annullieren.** Statt nur Freitext muss der Admin bewusst eine von
+drei Optionen wählen (keine Vorauswahl): **Nichtantritt Gastmannschaft**, **Nichtantritt
+Heimmannschaft**, oder **Anderer Grund**. Gespeichert in `matches.annulment_type`. Diese Auswahl
+hat **keinen** Einfluss auf die Wettneutralisierung selbst — die läuft unverändert nach den Regeln
+oben, unabhängig vom Grund.
+
+**2. Offizielle Tabellenwertung — ein separater, später nachtragbarer Schritt.** Ein endgültig
+annulliertes Spiel mit **bestätigter** offizieller BFV-Wertung zählt für die Fußballtabelle und
+tabellenbezogene Teamstatistiken wie ein ganz normal ausgetragenes Spiel: ein zusätzlich
+gewertetes Spiel für beide Mannschaften, drei Punkte für die siegreiche Mannschaft, Sieg/
+Niederlage, Tore/Gegentore/Tordifferenz entsprechend. § 29 BFV-Spielordnung 2026 schlägt bei
+Nichtantritt grundsätzlich 0:2 für die nicht angetretene Mannschaft, 2:0 für den Gegner vor — das
+ist aber nur ein **Vorschlag** in der Admin-Oberfläche, nie eine automatische Speicherung.
+
+- Die Ergebnisfelder (`matches.annulment_official_home_score`/`annulment_official_away_score`/
+  `annulment_official_confirmed_at`) bleiben so lange NULL, wie die BFV-Entscheidung aussteht.
+- Ein Admin trägt die Wertung erst ein, wenn sie **tatsächlich amtlich bestätigt** ist — jederzeit
+  später, unabhängig davon, wann annulliert wurde (Admin-Oberfläche: Karte "Annullierte Spiele").
+- Das Eintragen/Korrigieren/Zurücknehmen der offiziellen Wertung berührt **ausschließlich** diese
+  drei Spalten auf `matches` — es gibt dafür keinen Code-Pfad, der je bets/combo_bets/profiles
+  anfasst. Wettscheine werden dadurch nie erneut bearbeitet, nie doppelt ausgezahlt/erstattet.
+
+**Strikte Trennung — technisch erzwungen, nicht nur vereinbart:**
+`matches.status` bleibt für ein annulliertes Spiel für immer `'annulled'`, niemals `'finished'`.
+`home_score`/`away_score` bleiben NULL (kein Forfeit-Ergebnis wird je als reales Ergebnis
+gespeichert). Das Quotenmodell (`lib/odds.ts#getMatchXG`/`getForm`/`getTeamRecord`), `settleBet()`,
+die Torschützen-Logik (`lib/goalscorer.ts`) und `settleActiveMatchdaySpecials` lesen ausschließlich
+`home_score`/`away_score` UND verlangen zusätzlich `status === 'finished'` — ein annulliertes Spiel
+bleibt für all diese Pfade strukturell unsichtbar, unabhängig davon, ob/welche offizielle Wertung
+eingetragen ist. Einzige vorgesehene Lesestelle für die offizielle Wertung ist
+`lib/matchAnnulment.ts#resultForStandings`, aufgerufen ausschließlich von den vier
+Tabellen-/Teamseiten (`app/(app)/tabelle/page.tsx`, `app/(app)/team/[teamId]/page.tsx`,
+`app/(app)/team/wildenroth/page.tsx`, `app/(app)/team/wildenroth-ii/page.tsx`).
+
+Bewusst **nicht** geändert: die "Form"-Anzeige (W/D/L-Quadrate, `lib/odds.ts#getForm`) bleibt
+überall unverändert und zeigt weiterhin nur echte ausgetragene Spiele — sie wird vom selben Code
+auch innerhalb des Quotenmodells verwendet (Formmultiplikator der xG-Berechnung) und darf die
+administrative Wertung deshalb nie sehen. Punkte/Tordifferenz/Platzierung berücksichtigen die
+offizielle Wertung, die Form-Serie bewusst nicht — zwei getrennte Anzeigen, eine gemeinsame, aber
+nicht vermischte Datengrundlage.
+
+**Referenzfall-Fortsetzung (Match 433):** Nichtantritt Gast → Vorschlag 2:0 für TSV
+Oberalting-Seefeld — wird erst in der Tabelle gewertet, sobald ein Admin dies nach tatsächlich
+bestätigter BFV-Entscheidung separat bestätigt. Bis dahin bleibt das Spiel in der Tabelle
+unberücksichtigt, genau wie jedes andere noch nicht entschiedene Spiel.
+
 ## Stornierbarkeit
 
 Die **bestehenden** Stornierungsregeln der App gelten weiterhin; es gibt **kein automatisches Recht**, eine bereits begonnene Kombi aufgrund des Nichtantritts als Ganzes zu stornieren. Technisch zulässige Stornierungen vor Beginn sind weiterhin möglich; die neutralisierte Auswahl wird dabei nicht als noch ausstehendes Spiel behandelt. Die Storno-Bedingungen müssen mit dem jeweils tatsächlich implementierten Code übereinstimmen.

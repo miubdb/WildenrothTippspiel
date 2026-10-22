@@ -4,6 +4,7 @@ import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
 import { TeamLogo } from '@/components/TeamLogo'
 import { LEAGUE_STATS_SEASON_START } from '@/lib/leagueStats'
+import { resultForStandings } from '@/lib/matchAnnulment'
 
 export const revalidate = 60
 
@@ -22,8 +23,9 @@ function computeStandings(matches: Match[]): Standing[] {
   const stats = new Map<number, Standing>()
   for (const [id, name] of teamMap) stats.set(id, { teamId: id, teamName: name, played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0 })
   for (const m of matches) {
-    if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
-    const hs = m.home_score; const as_ = m.away_score
+    const result = resultForStandings(m)
+    if (!result) continue
+    const hs = result.home_score; const as_ = result.away_score
     const home = stats.get(m.home_team_id)!; const away = stats.get(m.away_team_id)!
     home.played++; away.played++
     home.gf += hs; home.ga += as_; home.gd = home.gf - home.ga
@@ -46,6 +48,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
   const { data: rawMatches } = await supabase
     .from('matches')
     .select(`id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category,
+             annulment_official_home_score, annulment_official_away_score, annulment_official_confirmed_at,
              home_team:teams!matches_home_team_id_fkey(id, name, short_name),
              away_team:teams!matches_away_team_id_fkey(id, name, short_name)`)
     .gte('match_date', LEAGUE_STATS_SEASON_START)
@@ -68,9 +71,10 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ tea
   const position = own ? standings.findIndex((s) => s.teamId === id) + 1 : null
   const form = getForm(matches, id, 5)
   const cleanSheets = matches.filter((m) => {
-    if (m.status !== 'finished' || m.home_score == null || m.away_score == null) return false
-    if (m.home_team_id === id) return m.away_score === 0
-    if (m.away_team_id === id) return m.home_score === 0
+    const result = resultForStandings(m)
+    if (!result) return false
+    if (m.home_team_id === id) return result.away_score === 0
+    if (m.away_team_id === id) return result.home_score === 0
     return false
   }).length
 

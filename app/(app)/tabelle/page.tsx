@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import type { Match } from '@/types'
 import { getForm } from '@/lib/odds'
+import { resultForStandings } from '@/lib/matchAnnulment'
 import { TeamLogo } from '@/components/TeamLogo'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import { SEASON_START } from '@/lib/season'
@@ -36,8 +37,9 @@ function computeStandings(matches: Match[]): Standing[] {
   }
 
   for (const m of matches) {
-    if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
-    const hs = m.home_score; const as_ = m.away_score
+    const result = resultForStandings(m)
+    if (!result) continue
+    const hs = result.home_score; const as_ = result.away_score
     const home = stats.get(m.home_team_id)!; const away = stats.get(m.away_team_id)!
     home.played++; away.played++
     home.gf += hs; home.ga += as_; home.gd = home.gf - home.ga
@@ -219,6 +221,7 @@ export default async function TabellePage({
       .from('matches')
       .select(
         `id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, competition_type,
+         annulment_official_home_score, annulment_official_away_score, annulment_official_confirmed_at,
          home_team:teams!matches_home_team_id_fkey(id, name, short_name),
          away_team:teams!matches_away_team_id_fkey(id, name, short_name)`
       )
@@ -284,7 +287,7 @@ export default async function TabellePage({
   // "26/27 has started producing real numbers" and "nothing played yet" — not
   // the calendar date, so a slow start to the season doesn't flip anything
   // prematurely and a finished match flips it immediately.
-  const finishedMatches = activeMatches.filter((m) => m.status === 'finished')
+  const finishedMatches = activeMatches.filter((m) => resultForStandings(m) != null)
   const hasCurrentSeasonData = finishedMatches.length > 0
 
   const playedMatchdays = Math.max(...finishedMatches.map((m) => m.matchday), 0)

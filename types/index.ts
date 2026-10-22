@@ -47,6 +47,14 @@ export interface Match {
    *  market when the 90-minute score is a draw — which side won the penalty
    *  shootout. Null for every league match and for a cup match decided in
    *  regular time. */
+  /** Strukturierte Admin-Auswahl beim Annullieren — siehe lib/matchAnnulment.ts#AnnulmentType. */
+  annulment_type?: 'away_no_show' | 'home_no_show' | 'other' | null
+  /** Offizielle, separat bestätigte BFV-Wertung für die Fußballtabelle — niemals für
+   *  Wettabrechnung/Quotenmodell/Torschützen/Specials gelesen. Siehe
+   *  lib/matchAnnulment.ts#resultForStandings. */
+  annulment_official_home_score?: number | null
+  annulment_official_away_score?: number | null
+  annulment_official_confirmed_at?: string | null
   cup_shootout_winner?: 'home' | 'away' | null
   /** Manual admin settlement input for a cup match's "Wer erzielt das erste
    *  Tor?" market — match_goalscorers has no minute column, so which side

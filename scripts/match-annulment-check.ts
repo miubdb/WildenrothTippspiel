@@ -16,7 +16,7 @@
  *
  * Usage: node --experimental-strip-types scripts/run-match-annulment-check.mjs
  */
-import { classifyCombo, planCombo, planSingleBet, legMatchesTarget, isRealMatchLeg, type ComboLegAfterNeutralization, type ComboPlanInput } from '@/lib/matchAnnulment'
+import { classifyCombo, planCombo, planSingleBet, legMatchesTarget, isRealMatchLeg, suggestedOfficialScore, officialStandingsResult, resultForStandings, type ComboLegAfterNeutralization, type ComboPlanInput } from '@/lib/matchAnnulment'
 import { evaluateSlips, type RiskySlip } from '@/lib/risky'
 
 let failures = 0
@@ -248,6 +248,68 @@ export function run(): number {
     ]
     const wrong = evaluateSlips(slipsWithCurrentOddsWronglyUsed)
     check('Gegenprobe: mit der (falschen) aktuellen Quote wäre niemand mehr risky — genau das verhindert das Pinning', wrong.riskyId === null)
+  }
+
+  console.log('\n14. Offizielle BFV-Wertung — strikte Trennung von der Tabelle (resultForStandings)')
+  {
+    // Szenario 1: Nichtantritt Gast, bestätigt → 2:0 zählt in der Tabelle.
+    check('suggestedOfficialScore(away_no_show) = 2:0', JSON.stringify(suggestedOfficialScore('away_no_show')) === JSON.stringify({ home: 2, away: 0 }))
+    const awayNoShowConfirmed = {
+      status: 'annulled', home_score: null, away_score: null,
+      annulment_official_home_score: 2, annulment_official_away_score: 0,
+      annulment_official_confirmed_at: '2026-10-23T10:00:00Z',
+    }
+    check('Szenario 1: Nichtantritt Gast, bestätigt → 2:0 zählt in der Tabelle',
+      JSON.stringify(resultForStandings(awayNoShowConfirmed)) === JSON.stringify({ home_score: 2, away_score: 0 }))
+
+    // Szenario 2: Nichtantritt Heim, bestätigt → 0:2 zählt in der Tabelle.
+    check('suggestedOfficialScore(home_no_show) = 0:2', JSON.stringify(suggestedOfficialScore('home_no_show')) === JSON.stringify({ home: 0, away: 2 }))
+    const homeNoShowConfirmed = {
+      status: 'annulled', home_score: null, away_score: null,
+      annulment_official_home_score: 0, annulment_official_away_score: 2,
+      annulment_official_confirmed_at: '2026-10-23T10:00:00Z',
+    }
+    check('Szenario 2: Nichtantritt Heim, bestätigt → 0:2 zählt in der Tabelle',
+      JSON.stringify(resultForStandings(homeNoShowConfirmed)) === JSON.stringify({ home_score: 0, away_score: 2 }))
+
+    // Szenario 3: noch keine BFV-Entscheidung (confirmed_at null) → KEINE vorweggenommene Wertung,
+    // selbst wenn (z.B. durch einen Admin-Entwurf) schon Zahlen in den Score-Spalten stehen.
+    const pendingDecision = {
+      status: 'annulled', home_score: null, away_score: null,
+      annulment_official_home_score: 2, annulment_official_away_score: 0,
+      annulment_official_confirmed_at: null,
+    }
+    check('Szenario 3: BFV-Entscheidung steht aus → keine Tabellenwertung, trotz vorhandener Zahlen',
+      resultForStandings(pendingDecision) === null)
+    check('officialStandingsResult verneint ebenso ohne confirmed_at', officialStandingsResult(pendingDecision) === null)
+
+    // Szenario 4: "Anderer Grund" ohne jede Wertung → keine erfundenen Fußballergebnisse.
+    check("suggestedOfficialScore('other') = null", suggestedOfficialScore('other' as never) === null)
+    const otherReasonNoScore = {
+      status: 'annulled', home_score: null, away_score: null,
+      annulment_official_home_score: null, annulment_official_away_score: null,
+      annulment_official_confirmed_at: null,
+    }
+    check('Szenario 4: Anderer Grund ohne Wertung → kein Tabellenergebnis', resultForStandings(otherReasonNoScore) === null)
+
+    // Ein ganz normales 'finished' Spiel bleibt unverändert als Tabellenergebnis erkannt —
+    // resultForStandings darf das bestehende Verhalten für reale Ergebnisse nicht verändern.
+    const normalFinished = { status: 'finished', home_score: 3, away_score: 1 }
+    check("echtes 'finished'-Ergebnis bleibt unverändert erkannt",
+      JSON.stringify(resultForStandings(normalFinished)) === JSON.stringify({ home_score: 3, away_score: 1 }))
+
+    // Ein annulliertes Spiel, dessen status NICHT 'annulled' wäre (kann strukturell nicht
+    // vorkommen, aber defensiv geprüft) — officialStandingsResult verlangt exakt 'annulled'.
+    check("officialStandingsResult verlangt status==='annulled', nicht z.B. 'postponed'",
+      officialStandingsResult({ status: 'postponed', annulment_official_home_score: 2, annulment_official_away_score: 0, annulment_official_confirmed_at: '2026-10-23T10:00:00Z' }) === null)
+
+    // Szenario 6/7 (strukturell): resultForStandings liest NUR die vier übergebenen Felder —
+    // es gibt keinen Parameter/Rückgabewert, der je is_risky, Guthaben, Torschützen oder den
+    // Wettschein-Status berühren könnte. Das ist durch die Funktionssignatur selbst erzwungen,
+    // nicht nur getestet — hier wird nur dokumentiert, dass ein Objekt OHNE jedes dieser Felder
+    // trotzdem korrekt funktioniert (kein versehentlicher Zugriff/Crash).
+    check('resultForStandings funktioniert auch ohne jedes bet-/guthaben-bezogene Feld im Objekt',
+      resultForStandings({ status: 'finished', home_score: 1, away_score: 0 }) !== null)
   }
 
   console.log(`\n${checks} Prüfungen, ${failures} Fehler`)

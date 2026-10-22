@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AreaTitle, Btn, Chips, EmptyNote, Notice, Panel } from '@/components/admin/ui'
 import { MatchdayPicker } from '@/components/admin/MatchdayPicker'
 import type { MatchRow, ScorerDraft } from '@/components/admin/types'
-import { CupSettlementPreview, EMPTY_CUP, MatchSettleCard, PostponedMatchCard, SettledMatchRow, type CupInput, type SettleMode } from '@/components/admin/ResultCards'
+import { AnnulledMatchCard, CupSettlementPreview, EMPTY_CUP, MatchSettleCard, PostponedMatchCard, SettledMatchRow, type CupInput, type SettleMode } from '@/components/admin/ResultCards'
 import type { EffectiveMatchdayIndex } from '@/lib/season'
 
 /**
@@ -114,7 +114,11 @@ export function ErgebnisseTabView({
     const upcoming = open.filter((m) => !hasScore(m) && new Date(m.match_date).getTime() > now).sort(byDate)
     const postponed = scoped.filter((m) => m.status === 'postponed').sort(byDate)
     const settled = scoped.filter((m) => m.status === 'finished').sort((a, b) => byDate(b, a))
-    return { scoped, missing, unsettled, upcoming, postponed, settled }
+    // Dauerhaft eigene Gruppe, unabhängig vom Status-Schnellfilter unten (show()) — ein
+    // annulliertes Spiel fällt sonst weder unter "Verschoben" noch "Abgerechnet" und wäre nach
+    // dem Annullieren aus der Admin-Oberfläche verschwunden (siehe AnnulledMatchCard-Kommentar).
+    const annulled = scoped.filter((m) => m.status === 'annulled').sort((a, b) => byDate(b, a))
+    return { scoped, missing, unsettled, upcoming, postponed, settled, annulled }
   }, [matches, comp, mdFilter, matchdayForFilter, now])
 
   // Gesamtübersicht über ALLE Spiele (unabhängig von den Filtern) — wie bisher auf dieser Seite.
@@ -231,6 +235,15 @@ export function ErgebnisseTabView({
           <AreaTitle aside={view.postponed.length} hint="Sobald ein neuer Termin feststeht, hier eintragen — das Spiel gilt dann wieder als geplant.">Verschobene Spiele</AreaTitle>
           <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
             {view.postponed.map((m) => <PostponedMatchCard key={m.id} match={m} onRescheduled={onRescheduled} onMessage={onMessage} />)}
+          </div>
+        </section>
+      )}
+
+      {view.annulled.length > 0 && (
+        <section aria-label="Annullierte Spiele">
+          <AreaTitle aside={view.annulled.length} hint="Nichtantritt/endgültige Annullierung — die offizielle BFV-Wertung für die Tabelle kann hier jederzeit nachgetragen/korrigiert werden, unabhängig vom Status-Filter oben.">Annullierte Spiele</AreaTitle>
+          <div className="space-y-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
+            {view.annulled.map((m) => <AnnulledMatchCard key={m.id} match={m} onChanged={onRescheduled} onMessage={onMessage} />)}
           </div>
         </section>
       )}

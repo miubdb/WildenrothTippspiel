@@ -6,6 +6,7 @@ import { getForm } from '@/lib/odds'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import { computeTeamRoster, groupRosterByPosition, type TeamRosterEntry } from '@/lib/leagueStats'
 import { SEASON_START } from '@/lib/season'
+import { resultForStandings } from '@/lib/matchAnnulment'
 
 export const revalidate = 60
 const CREST = '/crests/spvgg-wildenroth.png'
@@ -94,8 +95,9 @@ function computeStandings(matches: Match[]): Standing[] {
   for (const [id, name] of teamMap)
     stats.set(id, { teamId: id, teamName: name, played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0 })
   for (const m of matches) {
-    if (m.status !== 'finished' || m.home_score === null || m.away_score === null) continue
-    const hs = m.home_score; const as_ = m.away_score
+    const result = resultForStandings(m)
+    if (!result) continue
+    const hs = result.home_score; const as_ = result.away_score
     const home = stats.get(m.home_team_id)!; const away = stats.get(m.away_team_id)!
     home.played++; away.played++
     home.gf += hs; home.ga += as_; home.gd = home.gf - home.ga
@@ -145,6 +147,7 @@ export default async function WildenrothTeamPage() {
     supabase
       .from('matches')
       .select(`id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status,
+               annulment_official_home_score, annulment_official_away_score, annulment_official_confirmed_at,
                home_team:teams!matches_home_team_id_fkey(id, name, short_name),
                away_team:teams!matches_away_team_id_fkey(id, name, short_name)`)
       .gte('match_date', SEASON_START)
@@ -181,7 +184,7 @@ export default async function WildenrothTeamPage() {
   const standings = computeStandings(matches)
   const wildenrothSt = standings.find((s) => s.teamName.includes('Wildenroth') && !s.teamName.includes('II'))
   const wildenrothPos = wildenrothSt ? standings.findIndex((s) => s.teamId === wildenrothSt.teamId) + 1 : 0
-  const hasFinished = matches.some((m) => m.status === 'finished')
+  const hasFinished = matches.some((m) => resultForStandings(m) != null)
   const form = wildenrothSt ? getForm(matches, wildenrothSt.teamId, 5) : []
 
   const priorStanding = hasFinished ? null : await getWildenrothPriorStanding(supabase, 'SpVgg Wildenroth')
