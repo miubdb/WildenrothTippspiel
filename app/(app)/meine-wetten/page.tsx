@@ -9,7 +9,7 @@ import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import { getCurrentUser } from '@/app/_lib/currentUser'
 import { defaultCurrentMatchday } from '@/app/_lib/currentMatchday'
 import type { Match } from '@/types'
-import { visibleComboIds } from '@/lib/slipLifecycle'
+import { groupBetsIntoItems } from '@/lib/meineWettenItems'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,29 +26,70 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
 
   // Eine Welle statt fünf nacheinander: Scheine, Kader-Namen, Saisonspiele und
   // die Einstellungen für den aktuellen Spieltag sind voneinander unabhängig.
-  const [{ data: betsRaw }, { data: rosterRows }, seasonMatchesRaw, { data: settingsRows }] = await Promise.all([
-    supabase
-      .from('bets')
-      .select(
-        `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id, season, is_risky, special_id,
-       match:matches(id, matchday, match_date, home_score, away_score, status,
-         home_team:teams!matches_home_team_id_fkey(name, short_name),
-         away_team:teams!matches_away_team_id_fkey(name, short_name)
-       )`
-      )
-      .eq('user_id', user.id)
-      .neq('status', 'void')
-      .order('created_at', { ascending: false })
-      .limit(500),
-    supabase.from('wildenroth_players').select('id, name'),
-    fetchAllRows((from, to) => supabase
-      .from('matches')
-      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, status, match_category, is_topspiel, tippspiel_matchday, competition_type')
-      .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
-      .order('id')
-      .range(from, to)),
-    supabase.from('app_settings').select('key, value'),
-  ])
+  // Eigene Wetten paginiert geladen (fetchAllRows), nicht mehr .limit(500) — ein aktiver
+  // Spieler überschreitet 500 Zeilen durchaus innerhalb einer Saison (jedes Kombi-Leg ist eine
+  // eigene Zeile), ein starres Limit hätte ältere Scheine irgendwann kommentarlos abgeschnitten.
+  //
+  // fetchAllRows WIRFT bei einem Fehler (siehe lib/supabase/paginatedSelect.ts), es gibt kein
+  // { data, error }-Objekt zurück. Promise.all([...]) muss deshalb hier in try/catch stehen,
+  // sonst würde ein Fehlschlag entweder die ganze Seite mit einem generischen Next.js-Fehler
+  // abbrechen oder — schlimmer — bei einem falschen Destructuring unbemerkt zu "keine Wetten".
+  type BetRow = {
+    id: number; market_type: string; selection: string; stake: number; odds_value: number
+    status: string; payout: number | null; created_at: string; combo_id: number | null
+    season: string | null; is_risky: boolean | null; special_id: number | null
+    match: { id: number; matchday: number; match_date: string; home_score: number | null; away_score: number | null; status: string
+      home_team: { name: string; short_name: string } | { name: string; short_name: string }[] | null
+      away_team: { name: string; short_name: string } | { name: string; short_name: string }[] | null
+    } | { id: number; matchday: number; match_date: string; home_score: number | null; away_score: number | null; status: string
+      home_team: { name: string; short_name: string } | { name: string; short_name: string }[] | null
+      away_team: { name: string; short_name: string } | { name: string; short_name: string }[] | null
+    }[] | null
+  }
+  let betsRaw: BetRow[]
+  let rosterRows: { id: number; name: string }[] | null
+  let seasonMatchesRaw: unknown[]
+  let settingsRows: { key: string; value: string }[] | null
+  try {
+    const [betsResolved, rosterRes, seasonMatchesResolved, settingsRes] = await Promise.all([
+      fetchAllRows<BetRow>((from, to) => supabase
+        .from('bets')
+        .select(
+          `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id, season, is_risky, special_id,
+         match:matches(id, matchday, match_date, home_score, away_score, status,
+           home_team:teams!matches_home_team_id_fkey(name, short_name),
+           away_team:teams!matches_away_team_id_fkey(name, short_name)
+         )`
+        )
+        .eq('user_id', user.id)
+        .neq('status', 'void')
+        .order('id', { ascending: false })
+        .range(from, to)),
+      supabase.from('wildenroth_players').select('id, name'),
+      fetchAllRows((from, to) => supabase
+        .from('matches')
+        .select('id, match_number, matchday, home_team_id, away_team_id, match_date, status, match_category, is_topspiel, tippspiel_matchday, competition_type')
+        .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
+        .order('id')
+        .range(from, to)),
+      supabase.from('app_settings').select('key, value'),
+    ])
+    betsRaw = betsResolved
+    rosterRows = rosterRes.data
+    seasonMatchesRaw = seasonMatchesResolved
+    settingsRows = settingsRes.data
+  } catch (err) {
+    // Ein Fehlschlag hier darf NIE stillschweigend als "keine Wetten" durchgehen — das hätte
+    // genau wieder eine leer wirkende Kombi-Historie zur Folge, nur aus einem anderen Grund als
+    // der eigentliche ID-Typ-Fehler. Lieber ehrlich einen Fehlerzustand zeigen.
+    console.error('Meine Wetten: Laden der Wetten/Spiele fehlgeschlagen:', err)
+    return (
+      <div className="px-4 py-8 text-center">
+        <p className="text-sm font-semibold text-red-700">Deine Wetten konnten nicht geladen werden.</p>
+        <p className="mt-1 text-sm text-gray-500">Bitte die Seite neu laden. Falls das Problem bleibt, bitte melden.</p>
+      </div>
+    )
+  }
 
   const specialIds = [...new Set((betsRaw ?? []).map((b) => b.special_id).filter((id): id is number => id != null))]
   const specialsById: Record<number, { matchday: number; template_key: string; options: { key: string; label: string }[]; settlement_result: { finalStat: number; winningKey: string } | null }> = {}
@@ -62,22 +103,27 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
     })(),
   }))
   // laufende Saison (+ Testspieltag), wie im Profil
-  let bets = allBets.filter((b) => !b.season || b.season === STATS_CURRENT_SEASON || b.season === 'TEST')
+  const bets = allBets.filter((b) => !b.season || b.season === STATS_CURRENT_SEASON || b.season === 'TEST')
 
-  const comboIds = [...new Set(bets.filter((b) => b.combo_id).map((b) => b.combo_id as string))]
-  const comboMap = new Map<string, { id: string; stake: number; total_odds: number; status: string; payout: number | null }>()
+  // combo_id/combo_bets.id sind in Postgres immer integer — hier bewusst NIE als string
+  // typisiert; groupBetsIntoItems (lib/meineWettenItems.ts) normalisiert intern auf String(...).
+  const comboIds = [...new Set(bets.filter((b) => b.combo_id != null).map((b) => b.combo_id as number))]
   // Kombischeine und Specials hängen nur von den Scheinen ab und laufen gemeinsam.
   const [cbRes, specialsRes] = await Promise.all([
-    comboIds.length > 0 ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds) : Promise.resolve({ data: [] as { id: string; stake: number; total_odds: number; status: string; payout: number | null }[] }),
-    specialIds.length > 0 ? supabase.from('matchday_specials').select('id, matchday, template_key, options, settlement_result').in('id', specialIds) : Promise.resolve({ data: [] as { id: number; matchday: number; template_key: string; options: unknown; settlement_result: unknown }[] }),
+    comboIds.length > 0 ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds) : Promise.resolve({ data: [] as { id: number; stake: number; total_odds: number; status: string; payout: number | null }[], error: null }),
+    specialIds.length > 0 ? supabase.from('matchday_specials').select('id, matchday, template_key, options, settlement_result').in('id', specialIds) : Promise.resolve({ data: [] as { id: number; matchday: number; template_key: string; options: unknown; settlement_result: unknown }[], error: null }),
   ])
-  // A cancelled combo's still-neutralized leg remains in bets for the
-  // audit trail. It must NEVER recreate a fake won slip or count in totals.
-  // Missing parent rows are also excluded (fail closed).
-  const visibleIds = visibleComboIds(cbRes.data ?? [])
-  bets = bets.filter(b => b.combo_id == null || visibleIds.has(String(b.combo_id)))
-  for (const cb of cbRes.data ?? []) {
-    if (visibleIds.has(String(cb.id))) comboMap.set(String(cb.id), cb)
+  // Derselbe Grundsatz wie oben: ein Fehlschlag beim Laden der Kombischeine darf NIE
+  // stillschweigend "alle Kombis unsichtbar" bedeuten (leeres visibleIds hätte exakt diesen
+  // Effekt) — lieber explizit scheitern als eine irreführend leere Historie zeigen.
+  if (cbRes.error) {
+    console.error('Meine Wetten: Laden der Kombischeine fehlgeschlagen:', cbRes.error)
+    return (
+      <div className="px-4 py-8 text-center">
+        <p className="text-sm font-semibold text-red-700">Deine Kombiwetten konnten nicht geladen werden.</p>
+        <p className="mt-1 text-sm text-gray-500">Bitte die Seite neu laden. Falls das Problem bleibt, bitte melden.</p>
+      </div>
+    )
   }
   for (const sp of specialsRes.data ?? []) {
     specialsById[sp.id] = {
@@ -89,15 +135,9 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
 
   const playerNameMap: Record<number, string> = Object.fromEntries((rosterRows ?? []).map((r) => [r.id, r.name]))
 
-  const seen = new Set<string>()
-  const items: HistoryItem[] = []
-  for (const bet of bets) {
-    if (!bet.combo_id) items.push({ kind: 'single', bet: bet as never })
-    else if (!seen.has(bet.combo_id)) {
-      seen.add(bet.combo_id)
-      items.push({ kind: 'combo', comboId: bet.combo_id, legs: bets.filter((b) => b.combo_id === bet.combo_id) as never, cb: comboMap.get(bet.combo_id) })
-    }
-  }
+  // Gruppierung in Scheine (Einzeltipp/Kombischein) über die geteilte, separat getestete
+  // Funktion (scripts/meine-wetten-check.ts) — nicht mehr hier dupliziert nachgebaut.
+  const items = groupBetsIntoItems(bets, cbRes.data ?? []) as unknown as HistoryItem[]
 
   // Zuordnung zum Tippspiel-Spieltag wie in der Platzierungs-API (lib/season.ts, effectiveMatchdayOf; Pokal: rohe Nummer) – NICHT die
   // rohe BFV-Nummer. Ein Schein hat keinen gespeicherten Spieltag; liegen seine Spiele in mehreren Spieltagen, wird das als „gemischt“

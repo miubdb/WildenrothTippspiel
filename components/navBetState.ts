@@ -1,4 +1,5 @@
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { occupiesBettingSlot } from '@/lib/slipLifecycle'
 import type { Match } from '@/types'
 
 /**
@@ -36,25 +37,34 @@ export function activeTippMatchday(seasonMatches: MatchLite[]): { matchday: numb
   return { matchday, matchIds: matches.filter((m) => effOf(m) === matchday).map((m) => m.id) }
 }
 
-type BetLite = { combo_id: number | string | null; is_risky: boolean | null; is_bonus: boolean | null }
+type SingleBetLite = { is_risky: boolean | null; is_bonus: boolean | null }
+type ComboLite = { is_risky: boolean | null; status: string }
 
-/** `bets` = alle nicht stornierten Tipps des Nutzers auf Spielen des Spieltags (eine Zeile je Tipp). */
-export function countPlacedSlots(bets: BetLite[]): { normal: number; risky: number } {
+/**
+ * `singleBets` = Einzeltipp-Zeilen (combo_id IS NULL) des Nutzers auf Spielen des Spieltags.
+ * `combos` = je EINE Zeile pro Kombischein des Nutzers, mit dem AUTORITATIVEN `combo_bets.status`
+ * (nicht dem Status einzelner Legs!) — ein Kombischein belegt den Platz nur, solange sein
+ * `combo_bets.status` selbst das noch sagt (`occupiesBettingSlot`, lib/slipLifecycle.ts).
+ *
+ * Grund für die Trennung (Regression vom 22.10.2026): ein storniertes Kombi kann noch ein
+ * einzelnes, aus der amtlichen Annullierung stammendes `neutralized`-Leg besitzen, während die
+ * übrigen Legs bereits `void` sind. Ein Lookup, der nur Leg-Zeilen dedupliziert (wie zuvor hier),
+ * sieht diese eine Zeile, zählt sie als belegten Risky-/Normal-Platz — obwohl der Kombischein als
+ * Ganzes storniert und für den Nutzer nicht mehr aktiv ist. Die einzige verlässliche Quelle ist
+ * der Status der Kombi selbst, nie der eines einzelnen Legs.
+ */
+export function countPlacedSlots(singleBets: SingleBetLite[], combos: ComboLite[]): { normal: number; risky: number } {
   let normal = 0
   let risky = 0
-  const comboSeen = new Set<string>()
-  for (const b of bets) {
-    if (b.combo_id == null) {
-      if (b.is_bonus) continue
-      if (b.is_risky) risky++
-      else normal++
-    } else {
-      const key = String(b.combo_id)
-      if (comboSeen.has(key)) continue
-      comboSeen.add(key)
-      if (b.is_risky) risky++
-      else normal++
-    }
+  for (const b of singleBets) {
+    if (b.is_bonus) continue
+    if (b.is_risky) risky++
+    else normal++
+  }
+  for (const c of combos) {
+    if (!occupiesBettingSlot(c.status)) continue
+    if (c.is_risky) risky++
+    else normal++
   }
   return { normal, risky }
 }

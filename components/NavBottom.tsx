@@ -20,8 +20,23 @@ export async function NavBottom({ userId }: { userId: string }) {
       .order('id').range(from, to))
     const active = activeTippMatchday(seasonMatches as never)
     if (active.matchday != null && active.matchIds.length > 0) {
-      const { data: rows } = await supabase.from('bets').select('combo_id, is_risky, is_bonus').eq('user_id', userId).in('match_id', active.matchIds).neq('status', 'void')
-      const { normal, risky } = countPlacedSlots(rows ?? [])
+      const { data: rows, error: betsError } = await supabase.from('bets').select('combo_id, is_risky, is_bonus').eq('user_id', userId).in('match_id', active.matchIds).neq('status', 'void')
+      if (betsError) throw new Error(betsError.message)
+      const betRows = rows ?? []
+      const singleBets = betRows.filter((b) => b.combo_id == null)
+      // Je Kombi nur EINE Zeile: is_risky teilen sich alle Legs einer Kombi (siehe Doku oben),
+      // der Platz-Status kommt dagegen NICHT aus dieser Zeile, sondern unten aus combo_bets.status.
+      const comboIsRisky = new Map<number, boolean | null>()
+      for (const b of betRows) {
+        if (b.combo_id != null && !comboIsRisky.has(b.combo_id as number)) comboIsRisky.set(b.combo_id as number, b.is_risky)
+      }
+      let combos: { is_risky: boolean | null; status: string }[] = []
+      if (comboIsRisky.size > 0) {
+        const { data: cbRows, error: cbError } = await supabase.from('combo_bets').select('id, status').in('id', [...comboIsRisky.keys()])
+        if (cbError) throw new Error(cbError.message)
+        combos = (cbRows ?? []).map((cb) => ({ is_risky: comboIsRisky.get(cb.id) ?? null, status: cb.status }))
+      }
+      const { normal, risky } = countPlacedSlots(singleBets, combos)
       navBets = { matchday: active.matchday, normal, risky }
     }
   } catch { /* ein Fehler blendet die Zahl einfach aus */ }
