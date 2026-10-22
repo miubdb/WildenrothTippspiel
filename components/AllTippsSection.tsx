@@ -424,10 +424,14 @@ export function AllTippsSection({
                 // Picking the Special leg here would show its answer (e.g.
                 // "Ja") as if it were this match's own tip.
                 const ownLeg = legs.find(l => l.match_id === match.id && l.market_type !== 'matchday_special') ?? legs[0]
-                const otherLegs = legs.filter(l => l.id !== ownLeg.id)
+                // Im großen Kombi-Kärtchen ist der ERSTE wirkliche Anpfiff
+                // immer die sichtbare erste Zeile – auch dann, wenn die Karte
+                // aus technischen Gründen bei einem anderen Match hängt.
+                const firstChronologicalLeg = legs[0]
+                const additionalChronologicalLegs = legs.slice(1)
                 const onlyNeutralizedVisible = legs.length === 1 && ownLeg.status === 'neutralized' && comboStatus === 'pending'
                 const ownLegMoot = ownLeg.status === 'pending' && comboStatus === 'lost'
-                const legWonButComboLost = ownLeg.status === 'won' && comboStatus === 'lost'
+                const legWonButComboLost = firstChronologicalLeg.status === 'won' && comboStatus === 'lost'
 
                 const renderLeg = (leg: typeof ownLeg) => {
                   const moot = leg.status === 'pending' && comboStatus === 'lost'
@@ -516,7 +520,7 @@ export function AllTippsSection({
                       </div>
                     </div>
                     <div className="border-t border-black/5 dark:border-white/5 px-3 py-1.5">
-                      {renderLeg(ownLeg)}
+                      {renderLeg(firstChronologicalLeg)}
                       {legWonButComboLost && (
                         <p className="text-[10px] text-gray-400 dark:text-gray-500 italic pl-4 pt-0.5">
                           Dieser Tipp war richtig, die Kombi ist aber an anderer Stelle verloren.
@@ -527,13 +531,13 @@ export function AllTippsSection({
                           Weitere Kombi-Tipps sind möglicherweise erst ab dem jeweiligen Anpfiff sichtbar.
                         </p>
                       )}
-                      {otherLegs.length > 0 && (
+                      {additionalChronologicalLegs.length > 0 && (
                         <details className="mt-0.5">
                           <summary className="text-[10px] text-blue-700 dark:text-blue-400 font-semibold cursor-pointer py-1 select-none">
-                            +{otherLegs.length} weitere{otherLegs.length === 1 ? 'r' : ''} Tipp{otherLegs.length !== 1 ? 'e' : ''} in dieser Kombi
+                            +{additionalChronologicalLegs.length} weitere{additionalChronologicalLegs.length === 1 ? 'r' : ''} Tipp{additionalChronologicalLegs.length !== 1 ? 'e' : ''} in dieser Kombi
                           </summary>
                           <div className="space-y-1 pt-0.5">
-                            {otherLegs.map(renderLeg)}
+                            {additionalChronologicalLegs.map(renderLeg)}
                           </div>
                         </details>
                       )}
