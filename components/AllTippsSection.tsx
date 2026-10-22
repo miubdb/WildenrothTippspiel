@@ -6,6 +6,7 @@ import { wildiLabel } from '@/components/WildiIcon'
 import { cappedPayout } from '@/lib/payout'
 import { oddsColorClass, socialSelLabel, sortComboLegsChronologically, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
 import { matchResultDisplay } from '@/lib/matchResultDisplay'
+import { isVisibleComboStatus } from '@/lib/slipLifecycle'
 import type { Match } from '@/types'
 
 type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number; stake: number | null; special_id: number | null; is_risky?: boolean }
@@ -117,7 +118,12 @@ export function AllTippsSection({
 
   // Base visible set: never show storniert/void bets (unrelated to the new
   // filter — this was already the behaviour before the toggle existed).
-  const nonVoidSocial = socialBets.filter(b => b.status !== 'void')
+  // Parent combo status is authoritative: a cancelled combo can still
+  // contain an audit-retained neutralized leg. That leg must never reappear
+  // under "Alle Tipps" as a pending/won combo.
+  const nonVoidSocial = socialBets.filter(b =>
+    b.status !== 'void' && (b.combo_id == null || isVisibleComboStatus(socialCombos[String(b.combo_id)]?.status))
+  )
 
   // A combo's overall status — same fallback-from-legs logic used for the
   // combo card's own status further down, computed once here so the
