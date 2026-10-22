@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { TeamLogo } from '@/components/TeamLogo'
 import { wildiLabel } from '@/components/WildiIcon'
 import { cappedPayout } from '@/lib/payout'
-import { oddsColorClass, socialSelLabel, ANNULLED_EXPLANATION_TEXT, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
+import { oddsColorClass, socialSelLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
 import { matchResultDisplay } from '@/lib/matchResultDisplay'
 import type { Match } from '@/types'
 
@@ -70,7 +70,7 @@ export function AllTippsSection({
   const neutralizedNote = (bet: SocialBet) =>
     bet.status === 'neutralized' ? (
       <p className="mt-0.5 text-[10px] leading-snug text-slate-500 dark:text-slate-400">
-        {ANNULLED_EXPLANATION_TEXT}
+        Annulliert · Auswahl mit Quote 1,00 neutralisiert. Andere Tipps bleiben gültig.
       </p>
     ) : null
 
@@ -236,6 +236,7 @@ export function AllTippsSection({
                   {bet.status === 'pending' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                   {bet.status === 'won' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                   {bet.status === 'lost' && <span>Einsatz: <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span></span>}
+                  {bet.status === 'neutralized' && <span className="text-slate-500 dark:text-slate-400">Annulliert · voller Einsatz erstattet ({stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}). Keine Gewinn-/Verlustwertung.</span>}
                 </div>
               </details>
             )
