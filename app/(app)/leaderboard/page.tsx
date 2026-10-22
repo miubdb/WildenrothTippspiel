@@ -10,6 +10,7 @@ import { cappedPayout } from '@/lib/payout'
 import { CUP_MARKET_LABEL, plainSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
+import { isVisibleComboStatus, occupiesBettingSlot } from '@/lib/slipLifecycle'
 
 // Short cache instead of the previous 60s: settlement results have to show up
 // promptly, and both settlement routes call revalidatePath('/leaderboard')
@@ -287,12 +288,22 @@ export default async function LeaderboardPage({
       .select('user_id, combo_id')
       .in('match_id', [...matchdayMatchIds])
       .neq('status', 'void')
+    // The parent combo status is authoritative; a previously annulled,
+    // later cancelled combo may retain a neutralized leg for auditing.
+    const mdComboIds = [...new Set((mdBetRows ?? [])
+      .filter(b => b.combo_id != null).map(b => Number(b.combo_id)))]
+    const { data: mdComboRows } = mdComboIds.length > 0
+      ? await adminSupa.from('combo_bets').select('id, status').in('id', mdComboIds)
+      : { data: [] as { id: number; status: string }[] }
+    const liveMdCombos = new Set((mdComboRows ?? [])
+      .filter(c => occupiesBettingSlot(c.status)).map(c => c.id))
     const seenUserCombo = new Set<string>()
     for (const b of mdBetRows ?? []) {
       if (!b.combo_id) {
         betCountsPerUser[b.user_id] = (betCountsPerUser[b.user_id] ?? 0) + 1
         continue
       }
+      if (!liveMdCombos.has(Number(b.combo_id))) continue
       const key = `${b.user_id}:${b.combo_id}`
       if (!seenUserCombo.has(key)) {
         seenUserCombo.add(key)
@@ -360,13 +371,15 @@ export default async function LeaderboardPage({
       })(),
     })) as BetRow[]
 
-    matchdayBets.push(...mapped)
-
     const comboIds = [...new Set(mapped.filter(b => b.combo_id).map(b => b.combo_id as number))]
-    if (comboIds.length > 0) {
-      const { data: cbData } = await supabase
-        .from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds)
-      for (const cb of cbData ?? []) combosObj[cb.id] = cb
+    const { data: cbData } = comboIds.length > 0
+      ? await supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds)
+      : { data: [] as ComboMeta[] }
+    const visibleComboIds = new Set((cbData ?? []).filter(cb => isVisibleComboStatus(cb.status)).map(cb => Number(cb.id)))
+    const visibleMapped = mapped.filter(b => !b.combo_id || visibleComboIds.has(Number(b.combo_id)))
+    matchdayBets.push(...visibleMapped)
+    for (const cb of cbData ?? []) {
+      if (visibleComboIds.has(Number(cb.id))) combosObj[cb.id] = cb
     }
 
     // Fetch initial reactions for displayed bets and combos
