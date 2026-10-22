@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { TeamLogo } from '@/components/TeamLogo'
 import { wildiLabel } from '@/components/WildiIcon'
 import { cappedPayout } from '@/lib/payout'
-import { oddsColorClass, socialSelLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
+import { oddsColorClass, socialSelLabel, sortComboLegsChronologically, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
 import { matchResultDisplay } from '@/lib/matchResultDisplay'
 import type { Match } from '@/types'
 
@@ -29,6 +29,7 @@ export function AllTippsSection({
   playerNameMap,
   userId,
   specialsById,
+  socialMatchKickoffs,
 }: {
   matchdayMatches: Match[]
   betCountByMatch: Record<number, number>
@@ -39,6 +40,8 @@ export function AllTippsSection({
   playerNameMap: Record<number, string>
   userId: string
   specialsById?: Record<number, SpecialDisplayInfo>
+  /** Datum je tatsächlich sichtbarem Tipp, auch für Nachholspiele aus anderen BFV-Spieltagen. */
+  socialMatchKickoffs: Record<number, string>
 }) {
   // "Spieltag-Special" label for a bet leg — falls back to the generic
   // socialSelLabel-style text if the Special row isn't joined for some
@@ -78,6 +81,17 @@ export function AllTippsSection({
   const now = useMemo(() => new Date(), [])
   const matchMap = useMemo(() => new Map(matchdayMatches.map(m => [m.id, m])), [matchdayMatches])
   const profileMap = useMemo(() => new Map(socialProfiles.map(p => [p.id, p])), [socialProfiles])
+  // Dieselbe reine Anzeige-Sortierung wie in "Meine Wetten" / Wetthistorie.
+  // Specials besitzen nur einen technischen representative_match_id und
+  // haben deshalb KEINEN echten Spiel-Anpfiff: immer ans Ende der Liste.
+  const sortSocialComboLegs = (legs: SocialBet[]) => sortComboLegsChronologically(legs, leg => ({
+    kickoff: leg.market_type === 'matchday_special'
+      ? null
+      : socialMatchKickoffs[leg.match_id] ?? matchMap.get(leg.match_id)?.match_date ?? null,
+    matchId: leg.match_id,
+    legId: leg.id,
+  }))
+
 
   const nameOf = (uid: string) => {
     if (uid === userId) return 'Du'
@@ -248,7 +262,7 @@ export function AllTippsSection({
             // list (see below), not spotlighted in the header — matches how
             // every other combo leg looks, keeps the header focused on the
             // combo itself rather than mixing in one leg's own answer/odds.
-            const otherLegs = legs.filter(l => l.id !== specialLeg.id)
+            const otherLegs = sortSocialComboLegs(legs.filter(l => l.id !== specialLeg.id))
             const cb = socialCombos[comboId]
             const totalOdds = cb?.total_odds ?? legs.reduce((acc, l) => acc * l.odds_value, 1)
             const stake = cb?.stake ?? 0
@@ -392,7 +406,7 @@ export function AllTippsSection({
               })}
 
               {comboIdsHere.map(comboId => {
-                const legs = activeSocial.filter(b => b.combo_id === comboId)
+                const legs = sortSocialComboLegs(activeSocial.filter(b => b.combo_id === comboId))
                 if (legs.length === 0) return null
                 const owner = legs[0].user_id
                 const cb = socialCombos[comboId]
