@@ -1082,7 +1082,10 @@ export default async function TippsPage({
   // Includes the current user's own bets — the "Tipps der anderen" section below shows
   // them inline (labelled "Du") alongside everyone else's, for a single complete overview
   // per match, rather than requiring a separate look at "Own placed bets" for that.
-  const anyMatchStarted = matchdayMatches.some((m) => new Date(m.match_date) <= new Date())
+  // Nach endgültiger Annullierung sind die neutralisierten Auswahlen
+  // sofort öffentlich, auch vor dem ursprünglich geplanten Anpfiff.
+  // RLS lässt ALLE übrigen noch nicht gestarteten Kombi-Legs verborgen.
+  const anyMatchStarted = matchdayMatches.some((m) => m.status === 'annulled' || new Date(m.match_date) <= new Date())
   if (anyMatchStarted && matchdayMatchIds.length > 0) {
     const { data: rawSocial } = await supabase
       .from('bets')
