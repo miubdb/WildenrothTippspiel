@@ -77,6 +77,21 @@ Oberalting-Seefeld — wird erst in der Tabelle gewertet, sobald ein Admin dies 
 bestätigter BFV-Entscheidung separat bestätigt. Bis dahin bleibt das Spiel in der Tabelle
 unberücksichtigt, genau wie jedes andere noch nicht entschiedene Spiel.
 
+## Anzeige im Tippspiel-Spielplan
+
+Ein endgültig annulliertes Spiel gilt für die **Spielübersicht** als abgeschlossen, obwohl
+`matches.status = 'annulled'` bleibt und kein reales Ergebnis vorliegt. Bis zur
+amtlichen BFV-Bestätigung steht im Spielplan statt eines erfundenen 2:0:
+
+- Nichtantritt Gast: **N.AN. GAST**
+- Nichtantritt Heim: **N.AN. HEIM**
+- Anderer Ausfall: **ANNULLIERT**
+
+Sobald die eigene separate offizielle Wertung tatsächlich bestätigt wurde, zeigt
+der Spielplan **2:0 (Wertung)** beziehungsweise das amtliche Ergebnis mit dem Zusatz
+`(Wertung)`. Keine dieser Anzeigen ändert die Wettneutralisierung, die echten
+`home_score`/`away_score`, Torschützen oder das Quotenmodell.
+
 ## Stornierbarkeit
 
 Die **bestehenden** Stornierungsregeln der App gelten weiterhin; es gibt **kein automatisches Recht**, eine bereits begonnene Kombi aufgrund des Nichtantritts als Ganzes zu stornieren. Technisch zulässige Stornierungen vor Beginn sind weiterhin möglich; die neutralisierte Auswahl wird dabei nicht als noch ausstehendes Spiel behandelt. Die Storno-Bedingungen müssen mit dem jeweils tatsächlich implementierten Code übereinstimmen.
