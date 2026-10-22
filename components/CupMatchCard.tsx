@@ -6,6 +6,7 @@ import { useBetSlip } from '@/context/BetSlipContext'
 import { isAgainstWildenroth as checkAgainstWildenroth } from '@/lib/wildenroth'
 import { TeamLogo } from '@/components/TeamLogo'
 import { CUP_MARKET_LABEL, cupSelectionLabel } from '@/lib/betDisplay'
+import { isMatchConcluded, matchResultDisplay } from '@/lib/matchResultDisplay'
 
 type GoalscorerRow = {
   player_id: number
@@ -47,7 +48,7 @@ export function CupMatchCard({
   const [tab, setTab] = useState<CupTab>('specials')
   // Siehe components/BettingMatchCard.tsx — dieselbe kompakte Ergebniszeile
   // für ein abgeschlossenes Spiel, nur ohne dessen Markt-/Formular-Abschnitte.
-  const [compact, setCompact] = useState(match.status === 'finished')
+  const [compact, setCompact] = useState(isMatchConcluded(match))
 
   const homeName = match.home_team?.name ?? 'Heim'
   const awayName = match.away_team?.name ?? 'Gast'
@@ -61,7 +62,8 @@ export function CupMatchCard({
   const kickoffPassed = matchDate <= now
   const isScheduled = match.status === 'scheduled' && !kickoffPassed
   const isLive = match.status === 'live' || (match.status === 'scheduled' && kickoffPassed)
-  const isFinished = match.status === 'finished'
+  const isFinished = isMatchConcluded(match)
+  const resultDisplay = matchResultDisplay(match)
 
   const matchInvolvesWildenroth = wildenrothTeamId != null &&
     (match.home_team_id === wildenrothTeamId || match.away_team_id === wildenrothTeamId)
@@ -152,8 +154,8 @@ export function CupMatchCard({
         <span className="flex-shrink-0 text-[11px]" aria-hidden>🏆</span>
         <TeamLogo name={homeName} size="sm" />
         <span className="flex-1 min-w-0 truncate text-left text-xs font-semibold text-gray-700 dark:text-gray-300">{homeName}</span>
-        <span className="flex-shrink-0 bg-gray-800 text-white text-sm font-black px-2.5 py-1 rounded-lg tabular-nums">
-          {match.home_score} : {match.away_score}
+        <span className="flex-shrink-0 bg-gray-800 text-white text-[10px] sm:text-sm font-black px-2.5 py-1 rounded-lg tabular-nums whitespace-nowrap">
+          {resultDisplay?.label ?? '—'}
         </span>
         <span className="flex-1 min-w-0 truncate text-right text-xs font-semibold text-gray-700 dark:text-gray-300">{awayName}</span>
         <TeamLogo name={awayName} size="sm" />
@@ -208,7 +210,7 @@ export function CupMatchCard({
             <span className="font-bold text-gray-900 dark:text-gray-100 text-xs text-center truncate w-full">{homeName}</span>
           </div>
           {isFinished ? (
-            <span className="font-black text-gray-900 dark:text-gray-100 text-xl flex-shrink-0 px-1">{match.home_score}:{match.away_score}</span>
+            <span className="font-black text-gray-900 dark:text-gray-100 text-xs sm:text-xl flex-shrink-0 px-1 text-center">{resultDisplay?.label ?? '—'}</span>
           ) : (
             <span className="text-gray-400 text-[11px] flex-shrink-0 px-1">vs.</span>
           )}
@@ -217,6 +219,9 @@ export function CupMatchCard({
             <span className="font-bold text-gray-900 dark:text-gray-100 text-xs text-center truncate w-full">{awayName}</span>
           </div>
         </div>
+        {match.status === 'annulled' && resultDisplay?.detail && (
+          <p className="mt-2 text-center text-[11px] text-gray-500 dark:text-gray-400">{resultDisplay.detail}</p>
+        )}
         <div className="mt-2 flex items-center justify-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
           <span>{isToday ? 'Heute' : dateStr} · {timeStr} Uhr</span>
         </div>
