@@ -4,7 +4,8 @@ import { useMemo, useState } from 'react'
 import { TeamLogo } from '@/components/TeamLogo'
 import { wildiLabel } from '@/components/WildiIcon'
 import { cappedPayout } from '@/lib/payout'
-import { oddsColorClass, socialSelLabel, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
+import { oddsColorClass, socialSelLabel, ANNULLED_EXPLANATION_TEXT, type SpecialDisplayInfo, specialMarketLabel, specialSelectionLabel } from '@/lib/betDisplay'
+import { matchResultDisplay } from '@/lib/matchResultDisplay'
 import type { Match } from '@/types'
 
 type SocialBet = { id: string; market_type: string; selection: string; odds_value: number; status: string; combo_id: string | null; user_id: string; match_id: number; stake: number | null; special_id: number | null; is_risky?: boolean }
@@ -51,6 +52,28 @@ export function AllTippsSection({
     const special = leg.special_id != null ? specialsById?.[leg.special_id] : undefined
     return special ? specialMarketLabel(special) : 'Spieltag-Special'
   }
+  // Die Originalquote bleibt historisch erhalten. Für eine neutralisierte
+  // Auswahl gilt effektiv Quote 1,00, auch in bereits verlorenen Kombis.
+  const renderLegOdds = (bet: SocialBet) => bet.status === 'neutralized'
+    ? (
+      <span className="flex flex-shrink-0 items-center gap-1 whitespace-nowrap text-[10px] text-slate-500 dark:text-slate-400">
+        <span className="line-through">@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+        <span aria-hidden="true">→</span>
+        <span className="font-bold">@1,00</span>
+      </span>
+    ) : (
+      <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>
+        @{bet.odds_value.toFixed(2).replace('.', ',')}
+      </span>
+    )
+
+  const neutralizedNote = (bet: SocialBet) =>
+    bet.status === 'neutralized' ? (
+      <p className="mt-0.5 text-[10px] leading-snug text-slate-500 dark:text-slate-400">
+        {ANNULLED_EXPLANATION_TEXT}
+      </p>
+    ) : null
+
   const [onlyActive, setOnlyActive] = useState(false)
   const now = useMemo(() => new Date(), [])
   const matchMap = useMemo(() => new Map(matchdayMatches.map(m => [m.id, m])), [matchdayMatches])
@@ -196,7 +219,7 @@ export function AllTippsSection({
           {specialSingles.map(bet => {
             const stake = bet.stake ?? 0
             const potWin = Math.round(stake * bet.odds_value * 100) / 100
-            const edgeCls = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
+            const edgeCls = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : bet.status === 'neutralized' ? 'border-l-slate-400' : 'border-l-yellow-400'
             return (
               <details key={bet.id} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
                 <summary className="px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
@@ -204,7 +227,7 @@ export function AllTippsSection({
                     {renderAvatar(bet.user_id, 'w-4 h-4', 'bg-red-100 dark:bg-red-900/30', 'text-red-700 dark:text-red-400', 'text-[9px]')}
                     <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(bet.user_id)}</span>
                     <span className="truncate flex-1 min-w-0 text-gray-600 dark:text-gray-300">{specialLegLabel(bet)}</span>
-                    <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+                    {renderLegOdds(bet)}
                     <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
                   </div>
                   <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 pl-[1.375rem]">{specialLegTitle(bet)}</div>
@@ -240,7 +263,7 @@ export function AllTippsSection({
                     <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(specialLeg.user_id)}</span>
                     <span className="text-[9px] font-bold bg-blue-600 text-white rounded px-1 py-0.5 flex-shrink-0">KOMBI</span>
                     <LegResultMark moot={legMoot} />
-                    <span className={`font-bold ml-auto flex-shrink-0 ${oddsColorClass(specialLeg.status)}`}>@{specialLeg.odds_value.toFixed(2).replace('.', ',')}</span>
+                    <span className="ml-auto">{renderLegOdds(specialLeg)}</span>
                     <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
                   </div>
                   <div className={`text-[10px] mt-0.5 pl-[1.375rem] ${legMoot ? 'text-gray-300 dark:text-gray-600' : 'text-gray-400 dark:text-gray-500'}`}>{specialLegTitle(specialLeg)}</div>
@@ -252,7 +275,7 @@ export function AllTippsSection({
                     </p>
                   )}
                   <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400">
-                    <span>{legs.length} Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                    <span>{legs.length} sichtbare Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
                     {stake > 0 && comboStatus === 'pending' && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                     {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
                     {comboStatus === 'lost' && stake > 0 && <span><span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>{' → wäre '}<span className="text-red-400 line-through">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
@@ -270,8 +293,9 @@ export function AllTippsSection({
                               {finished && <span className="text-gray-400 dark:text-gray-500 text-[10px] font-bold flex-shrink-0">{lm!.home_score}:{lm!.away_score}</span>}
                             </div>
                             <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
+                        {neutralizedNote(leg)}
                           </div>
-                          <span className={`font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                          {renderLegOdds(leg)}
                         </div>
                       )
                     })}
@@ -282,7 +306,7 @@ export function AllTippsSection({
                         <div className="text-gray-400 dark:text-gray-500 text-[10px] truncate">{specialLegTitle(specialLeg)}</div>
                         <div className="font-medium text-gray-800 dark:text-gray-200">{specialLegLabel(specialLeg)}</div>
                       </div>
-                      <span className={`font-bold flex-shrink-0 ${oddsColorClass(specialLeg.status)}`}>@{specialLeg.odds_value.toFixed(2).replace('.', ',')}</span>
+                      {renderLegOdds(specialLeg)}
                     </div>
                   </div>
                 </div>
@@ -294,7 +318,7 @@ export function AllTippsSection({
 
       <div className="divide-y divide-gray-100 dark:divide-gray-700">
         {matchdayMatches.map(match => {
-          const matchKickedOff = new Date(match.match_date) <= now
+          const matchKickedOff = match.status === 'annulled' || new Date(match.match_date) <= now
           const count = betCountByMatch[match.id] ?? 0
 
           if (!matchKickedOff) {
@@ -335,15 +359,17 @@ export function AllTippsSection({
                 <span className="text-gray-400 dark:text-gray-500 text-xs flex-shrink-0">vs</span>
                 <span>{match.away_team?.name ?? '?'}</span>
                 <TeamLogo name={match.away_team?.name ?? '?'} size="sm" />
-                {match.status === 'finished' && match.home_score != null && (
-                  <span className="ml-auto text-xs font-black text-red-700 dark:text-red-400">{match.home_score}:{match.away_score}</span>
+                {matchResultDisplay(match) && (
+                  <span className="ml-auto text-xs font-bold text-slate-600 dark:text-slate-300">
+                    {matchResultDisplay(match)?.label}
+                  </span>
                 )}
               </div>
 
               {singles.map(bet => {
                 const stake = bet.stake ?? 0
                 const potWin = Math.round(stake * bet.odds_value * 100) / 100
-                const edgeCls = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : 'border-l-yellow-400'
+                const edgeCls = bet.status === 'won' ? 'border-l-green-500' : bet.status === 'lost' ? 'border-l-red-400' : bet.status === 'neutralized' ? 'border-l-slate-400' : 'border-l-yellow-400'
                 return (
                   <details key={bet.id} className={`group rounded-lg bg-gray-50 dark:bg-gray-700/40 border-l-4 ${edgeCls} overflow-hidden`}>
                     <summary className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 cursor-pointer select-none list-none marker:hidden">
@@ -351,13 +377,14 @@ export function AllTippsSection({
                       <span className="font-semibold text-gray-800 dark:text-gray-200 truncate flex-shrink-0 max-w-[9rem]">{nameOf(bet.user_id)}</span>
                       <span className="text-[9px] font-bold bg-gray-500 dark:bg-gray-600 text-white rounded px-1 py-0.5 flex-shrink-0">EINZEL</span>
                       <span className="truncate flex-1 min-w-0 text-gray-600 dark:text-gray-300">{socialSelLabel(bet.market_type, bet.selection, playerNameMap)}</span>
-                      <span className={`font-bold flex-shrink-0 ${oddsColorClass(bet.status)}`}>@{bet.odds_value.toFixed(2).replace('.', ',')}</span>
+                      {renderLegOdds(bet)}
                       <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
                     </summary>
                     <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 text-[11px] text-gray-500 dark:text-gray-400">
                       {bet.status === 'pending' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                       {bet.status === 'won' && <span>Einsatz: {stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                       {bet.status === 'lost' && <span>Einsatz: <span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span></span>}
+                      {bet.status === 'neutralized' && <span className="text-slate-500 dark:text-slate-400">Annulliert · voller Einsatz erstattet ({stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}). Keine Gewinn-/Verlustwertung.</span>}
                     </div>
                   </details>
                 )
@@ -383,6 +410,7 @@ export function AllTippsSection({
                 // "Ja") as if it were this match's own tip.
                 const ownLeg = legs.find(l => l.match_id === match.id && l.market_type !== 'matchday_special') ?? legs[0]
                 const otherLegs = legs.filter(l => l.id !== ownLeg.id)
+                const onlyNeutralizedVisible = legs.length === 1 && ownLeg.status === 'neutralized' && comboStatus === 'pending'
                 const ownLegMoot = ownLeg.status === 'pending' && comboStatus === 'lost'
                 const legWonButComboLost = ownLeg.status === 'won' && comboStatus === 'lost'
 
@@ -396,8 +424,9 @@ export function AllTippsSection({
                         <div className="flex-1 min-w-0">
                           <div className="text-gray-400 dark:text-gray-500 text-[10px] truncate">{specialLegTitle(leg)}</div>
                           <div className="font-medium text-gray-800 dark:text-gray-200">{specialLegLabel(leg)}</div>
+                          {neutralizedNote(leg)}
                         </div>
-                        <span className={`font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                        {renderLegOdds(leg)}
                       </div>
                     )
                   }
@@ -411,8 +440,9 @@ export function AllTippsSection({
                           {finished && <span className="text-gray-400 dark:text-gray-500 text-[10px] font-bold flex-shrink-0">{lm!.home_score}:{lm!.away_score}</span>}
                         </div>
                         <div className="font-medium text-gray-800 dark:text-gray-200">{socialSelLabel(leg.market_type, leg.selection, playerNameMap)}</div>
+                        {neutralizedNote(leg)}
                       </div>
-                      <span className={`font-bold flex-shrink-0 ${oddsColorClass(leg.status)}`}>@{leg.odds_value.toFixed(2).replace('.', ',')}</span>
+                      {renderLegOdds(leg)}
                     </div>
                   )
                 }
@@ -428,17 +458,22 @@ export function AllTippsSection({
                         <span className={`truncate flex-1 min-w-0 ${ownLegMoot ? 'text-gray-400 dark:text-gray-500' : 'text-gray-600 dark:text-gray-300'}`}>
                           {ownLeg.market_type === 'matchday_special' ? specialLegLabel(ownLeg) : socialSelLabel(ownLeg.market_type, ownLeg.selection, playerNameMap)}
                         </span>
-                        <span className={`font-bold flex-shrink-0 ${oddsColorClass(ownLeg.status)}`}>@{ownLeg.odds_value.toFixed(2).replace('.', ',')}</span>
+                        {renderLegOdds(ownLeg)}
                         <span className="text-gray-400 dark:text-gray-500 text-[10px] flex-shrink-0 transition-transform group-open:rotate-180">▾</span>
                       </summary>
                       <div className="px-2.5 pb-2 pt-1 border-t border-black/5 dark:border-white/5 space-y-1.5">
+                        {onlyNeutralizedVisible && (
+                          <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                            Andere Tipps dieser Kombi können bis zu deren Freigabe noch verborgen sein.
+                          </p>
+                        )}
                         {ownLegMoot && (
                           <p className="text-[10px] text-gray-400 dark:text-gray-500 italic">
                             Dieser Tipp ist noch offen, aber die Kombi ist bereits an anderer Stelle verloren.
                           </p>
                         )}
                         <div className="flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400">
-                          <span>{legs.length} Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                          <span>{legs.length} sichtbare Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
                           {stake > 0 && comboStatus === 'pending' && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                           {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span>{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
                           {comboStatus === 'lost' && stake > 0 && <span><span className="text-red-500 line-through">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)}</span>{' → wäre '}<span className="text-red-400 line-through">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
@@ -458,7 +493,7 @@ export function AllTippsSection({
                       <span className="text-xs font-semibold text-gray-800 dark:text-gray-200 truncate min-w-0 flex-1">{nameOf(owner)}</span>
                     </div>
                     <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 px-3 pb-2 pt-0.5 text-[11px]">
-                      <span className="text-gray-500 dark:text-gray-400">{legs.length} Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
+                      <span className="text-gray-500 dark:text-gray-400">{legs.length} sichtbare Tipps · <span className={`font-bold ${oddsColorClass(comboStatus)}`}>@{totalOdds.toFixed(2).replace('.', ',')}</span></span>
                       <div className="ml-auto text-right">
                         {stake > 0 && comboStatus === 'pending' && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-gray-700 dark:text-gray-200">{potWin.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(potWin)}</span></span>}
                         {stake > 0 && comboStatus === 'won' && cb?.payout != null && <span className="text-gray-500 dark:text-gray-400">{stake.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(stake)} → <span className="font-bold text-green-600">+{cb.payout.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {wildiLabel(cb.payout)}</span></span>}
@@ -470,6 +505,11 @@ export function AllTippsSection({
                       {legWonButComboLost && (
                         <p className="text-[10px] text-gray-400 dark:text-gray-500 italic pl-4 pt-0.5">
                           Dieser Tipp war richtig, die Kombi ist aber an anderer Stelle verloren.
+                        </p>
+                      )}
+                      {onlyNeutralizedVisible && (
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 pt-1">
+                          Weitere Kombi-Tipps sind möglicherweise erst ab dem jeweiligen Anpfiff sichtbar.
                         </p>
                       )}
                       {otherLegs.length > 0 && (
