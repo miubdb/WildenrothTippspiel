@@ -175,6 +175,9 @@ Zwingend:
 - Einzelne Legs sind bei einer Kombination nie die Quelle des finalen
   Status; insbesondere ist "alle übrigen Legs sind neutralized" **kein
   Beweis** für einen Gewinn.
+- Ein als Ganzes `neutralized`/erstattet markierter Schein wird unter
+  **„Annulliert · Einsatz erstattet“** angezeigt, aber weder als gewonnen oder
+  verloren, noch als aktiv eingesetztes Kapital oder belegter Risky-Platz.
 - Die tatsächlich gezahlte Stornoerstattung erfolgt weiterhin **einmalig**;
   der ursprüngliche Einsatz darf weder als Minus in der Bilanz auftauchen
   noch die Normal-/Risky-Limits besetzen.
