@@ -24,6 +24,7 @@ import { computeStornoChamp } from '@/lib/awards'
 import { cappedPayout } from '@/lib/payout'
 import { MatchdaySpecialsSection, type MatchdaySpecialForDisplay } from '@/components/MatchdaySpecialsSection'
 import { defaultCurrentMatchday } from '@/app/_lib/currentMatchday'
+import { isComboSociallyStarted, isSingleSociallyVisible } from '@/lib/socialBetVisibility'
 
 export const revalidate = 60
 
@@ -1093,13 +1094,69 @@ export default async function TippsPage({
       .in('match_id', matchdayMatchIds)
 
     if (rawSocial && rawSocial.length > 0) {
-      socialBets = rawSocial
-      const uids = [...new Set(rawSocial.map(b => b.user_id))]
-      const comboIds = [...new Set(rawSocial.filter(b => b.combo_id).map(b => b.combo_id as string))]
+      // KRITISCH: SELECT-RLS erlaubt Admins ALLE Wetten und den Besitzern ihre
+      // eigenen Scheine. Das ist NICHT die Social-Freigabe! Unbegonnene,
+      // noch stornierbare Kombis müssen hier für JEDEN ausgeblendet werden,
+      // einschließlich Admin/Owner. Der Testfall #594/#608 machte das sichtbar.
+      const comboIds = [...new Set(rawSocial
+        .filter(b => b.combo_id != null)
+        .map(b => Number(b.combo_id)))]
+      const startedComboIds = new Set<number>()
+      if (comboIds.length > 0) {
+        // Für eine sichere Entscheidung alle Legs der betroffenen Kombis
+        // laden (auch diejenigen außerhalb des angezeigten Spieltags).
+        // Nur diese Status-/Termin-Metadaten werden intern geprüft; keine
+        // verborgenen Auswahlen gelangen in den Social-Response.
+        try {
+          const admin = createAdminClient()
+          const fullLegs = await fetchAllRows((from, to) => admin
+            .from('bets')
+            .select('id, combo_id, match_id, status, market_type')
+            .in('combo_id', comboIds)
+            .order('id', { ascending: true })
+            .range(from, to))
+          const allComboMatchIds = [...new Set(fullLegs.map(l => l.match_id))]
+          const comboMatches = allComboMatchIds.length
+            ? await fetchAllRows((from, to) => admin
+                .from('matches')
+                .select('id, match_date, status')
+                .in('id', allComboMatchIds)
+                .order('id', { ascending: true })
+                .range(from, to))
+            : []
+          const legsByCombo = new Map<number, typeof fullLegs>()
+          for (const l of fullLegs) {
+            const key = Number(l.combo_id)
+            if (!legsByCombo.has(key)) legsByCombo.set(key, [])
+            legsByCombo.get(key)!.push(l)
+          }
+          const socialNow = new Date()
+          for (const cid of comboIds) {
+            if (isComboSociallyStarted(legsByCombo.get(cid) ?? [], comboMatches, socialNow)) {
+              startedComboIds.add(cid)
+            }
+          }
+        } catch (error) {
+          // Fail closed: Keine Kombi freigeben, falls die Prüfung scheitert.
+          console.error('Alle Tipps: combo start visibility check failed:', error)
+        }
+      }
+      const matchesById = new Map(allMatches.map(m => [m.id, m]))
+      const socialNow = new Date()
+      socialBets = rawSocial.filter(b => b.combo_id != null
+        ? startedComboIds.has(Number(b.combo_id))
+        : isSingleSociallyVisible(b, matchesById.get(b.match_id), socialNow))
+      // Profile/Kombi-Gesamtdaten ausschließlich für freigegebene Scheine laden.
+      const uids = [...new Set(socialBets.map(b => b.user_id))]
+      const visibleComboIds = [...new Set(socialBets
+        .filter(b => b.combo_id != null)
+        .map(b => Number(b.combo_id)))]
       const [pResult, cbResult] = await Promise.all([
-        supabase.from('profiles').select('id, display_name, username, avatar_url').in('id', uids),
-        comboIds.length > 0
-          ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds)
+        uids.length
+          ? supabase.from('profiles').select('id, display_name, username, avatar_url').in('id', uids)
+          : Promise.resolve({ data: [] }),
+        visibleComboIds.length
+          ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', visibleComboIds)
           : Promise.resolve({ data: [] }),
       ])
       socialProfiles = pResult.data ?? []
