@@ -53,6 +53,7 @@ export default async function TippsPage({
         // model sees (lib/oddsInputs.ts); the cup columns below are only used
         // for this page's own display/markets.
         `${ODDS_MATCH_COLUMNS}, competition_name, competition_round, cup_shootout_winner, cup_first_goal_team,
+         annulment_type, annulment_official_home_score, annulment_official_away_score, annulment_official_confirmed_at,
          ${ODDS_MATCH_JOINS}`
       )
       .gte('match_date', SEASON_START)
@@ -1549,7 +1550,7 @@ export default async function TippsPage({
           // and miss Kreisliga matches reassigned into this Spieltag).
           const mdMatches = seasonMatches.filter((m) => effectiveMatchdayOf(m) === md)
           const hasScheduled = mdMatches.some((m) => m.status === 'scheduled')
-          const allFinished = mdMatches.length > 0 && mdMatches.every((m) => m.status === 'finished')
+          const allFinished = mdMatches.length > 0 && mdMatches.every((m) => m.status === 'finished' || m.status === 'annulled')
           return (
             <Link
               key={md}
