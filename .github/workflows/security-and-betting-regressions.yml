@@ -47,9 +47,16 @@ jobs:
         # as part of a dependency-only emergency security patch.
         continue-on-error: true
         run: npm run lint
-      - name: Strict ESLint for changed TypeScript files
+      - name: Strict ESLint for changed TypeScript files (no NEW errors vs. base)
         shell: bash
         run: |
+          # NOT "lint every changed file in full" — a touched file (e.g. app/admin/page.tsx)
+          # can carry pre-existing baseline errors (see the full-repo step above) that have
+          # nothing to do with this change; failing on those would make it impossible to ever
+          # touch that file again for an unrelated reason. Instead: lint each changed file as
+          # it stands now AND as it stood at $BASE (via `git show`, no working-tree mutation),
+          # and fail only if THIS change raised that file's own error COUNT — i.e. a genuinely
+          # new problem, not inherited debt. A newly added file has no $BASE version → 0.
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
             BASE=FETCH_HEAD
@@ -59,10 +66,28 @@ jobs:
           mapfile -d '' FILES < <(git diff --name-only -z "$BASE" HEAD -- '*.ts' '*.tsx')
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo 'No changed TS/TSX files. Full lint baseline is reported above.'
-          else
-            echo "Linting ${#FILES[@]} changed TS/TSX files"
-            npx eslint -- "${FILES[@]}"
+            exit 0
           fi
+          echo "Checking ${#FILES[@]} changed TS/TSX files for new lint errors introduced by this change"
+          FAIL=0
+          count_errors() {
+            node -e "let d=[];try{d=JSON.parse(require('fs').readFileSync(0,'utf8'))}catch{};console.log(d.reduce((s,r)=>s+(r.errorCount||0),0))"
+          }
+          for f in "${FILES[@]}"; do
+            [ -f "$f" ] || continue
+            AFTER=$(npx eslint -f json -- "$f" 2>/dev/null | count_errors)
+            BEFORE=0
+            if git cat-file -e "$BASE:$f" 2>/dev/null; then
+              BEFORE=$(git show "$BASE:$f" | npx eslint --stdin --stdin-filename "$f" -f json 2>/dev/null | count_errors)
+            fi
+            if [ "$AFTER" -gt "$BEFORE" ]; then
+              echo "::error file=$f::New lint errors introduced ($BEFORE -> $AFTER). Run 'npx eslint $f' locally and fix what this change added."
+              FAIL=1
+            else
+              echo "OK: $f ($BEFORE -> $AFTER errors, no increase)"
+            fi
+          done
+          exit $FAIL
       - name: Verify annulment, cancellations and Risky accounting
         run: |
           node --experimental-strip-types scripts/run-match-annulment-check.mjs
