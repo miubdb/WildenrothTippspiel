@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { EmptyNote, LoadingBlock, Section } from '@/components/admin/ui'
 
 interface MatchdayParticipation { matchday: number; users: number; legs: number; isCurrent: boolean; participationRate: number | null }
@@ -60,9 +60,18 @@ const BAR_AREA_HEIGHT_PX = 84
  *  `h-20`), jeder Balken rechnet seine Höhe direkt in px dagegen — kein Prozentwert, der gegen
  *  eine unbestimmte Elternhöhe aufgelöst werden müsste. `showValue` zeigt die Zahl IMMER über dem
  *  Balken (nicht nur beim Hover) — auf Wunsch, nachdem reine Balkenhöhen ohne Beschriftung als zu
- *  schwer lesbar empfunden wurden. */
+ *  schwer lesbar empfunden wurden.
+ *
+ *  `minBarWidthPx`: ohne diese Prop teilen sich alle Balken gleichmäßig die volle Breite
+ *  (`flex-1`) — das zwingt den Aufrufer, die Datenmenge künstlich zu begrenzen (z. B. nur die
+ *  letzten 8 Spieltage), sonst werden die Balken bei wachsender Saison immer schmaler und
+ *  irgendwann unlesbar. Mit `minBarWidthPx` bekommt jeder Balken stattdessen eine feste
+ *  Mindestbreite und der Container scrollt horizontal (`overflow-x-auto`) statt zu stauchen — so
+ *  bleibt die GANZE Historie sichtbar (nicht nur ein willkürlich abgeschnittenes Fenster), ohne
+ *  dass einzelne Balken zu schmal zum Ablesen werden. Scrollt beim Laden automatisch ans Ende
+ *  (den aktuellen/letzten Balken), damit der Blick nicht erst beim ältesten Spieltag startet. */
 function VerticalBars<T>({
-  data, valueFor, labelFor, tooltipFor, highlight, tickEvery = 1, showValue = false,
+  data, valueFor, labelFor, tooltipFor, highlight, tickEvery = 1, showValue = false, minBarWidthPx,
 }: {
   data: T[]
   valueFor: (d: T) => number
@@ -71,15 +80,42 @@ function VerticalBars<T>({
   highlight?: (d: T) => boolean
   tickEvery?: number
   showValue?: boolean
+  minBarWidthPx?: number
 }) {
   const maxValue = Math.max(1, ...data.map(valueFor))
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const dataLength = data.length
+  useEffect(() => {
+    if (!minBarWidthPx || !scrollRef.current) return
+    // Zwei rAF-Ticks statt direkt setzen: unmittelbar nach dem Mount hat der Browser die
+    // scrollbare Breite (`scrollWidth`) noch nicht zuverlässig fertig layoutet — ein sofortiges
+    // scrollLeft=scrollWidth landete dann teils noch am Anfang statt am Ende der Liste.
+    const el = scrollRef.current
+    let raf2 = 0
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => { el.scrollLeft = el.scrollWidth })
+    })
+    return () => {
+      cancelAnimationFrame(raf1)
+      cancelAnimationFrame(raf2)
+    }
+  }, [minBarWidthPx, dataLength])
   return (
-    <div className="flex items-end gap-1" style={{ height: BAR_AREA_HEIGHT_PX + (showValue ? 16 : 0) }}>
+    <div
+      ref={scrollRef}
+      className={`flex items-end gap-1 ${minBarWidthPx ? 'overflow-x-auto' : ''}`}
+      style={{ height: BAR_AREA_HEIGHT_PX + (showValue ? 16 : 0) }}
+    >
       {data.map((d, i) => {
         const v = valueFor(d)
         const barPx = v > 0 ? Math.max(2, (v / maxValue) * BAR_AREA_HEIGHT_PX) : 0
         return (
-          <div key={i} className="flex-1 flex flex-col items-center justify-end gap-0.5" title={tooltipFor(d)}>
+          <div
+            key={i}
+            className={`flex flex-col items-center justify-end gap-0.5 ${minBarWidthPx ? 'flex-shrink-0' : 'flex-1'}`}
+            style={minBarWidthPx ? { width: minBarWidthPx } : undefined}
+            title={tooltipFor(d)}
+          >
             {showValue && <span className="text-[10px] font-bold text-gray-700">{v}</span>}
             <div
               className={`w-full rounded-t ${highlight?.(d) ? 'bg-red-300' : 'bg-red-500'}`}
@@ -177,7 +213,6 @@ export function StatsTab({ onMessage }: { onMessage: (m: string | null) => void 
   if (loading) return <LoadingBlock label="Statistik wird geladen …" />
   if (loadFailed || !data) return <EmptyNote>Statistik konnte nicht geladen werden.</EmptyNote>
 
-  const recentParticipation = data.participation.slice(-8)
   const current = data.participation.find((p) => p.isCurrent) ?? null
   const delta = current && data.avgRecentParticipation != null ? Math.round((current.users - data.avgRecentParticipation) * 10) / 10 : null
   const insight = buildInsight(data)
@@ -215,21 +250,25 @@ export function StatsTab({ onMessage }: { onMessage: (m: string | null) => void 
             />
           </div>
 
-          {recentParticipation.length === 0 ? (
+          {data.participation.length === 0 ? (
             <EmptyNote>Noch keine Wetten in der laufenden Saison.</EmptyNote>
           ) : (
             <>
               <VerticalBars
-                data={recentParticipation}
+                data={data.participation}
                 valueFor={(d) => d.users}
                 labelFor={(d) => String(d.matchday)}
                 tooltipFor={(d) => `Spieltag ${d.matchday}${d.isCurrent ? ' (läuft noch)' : ''}: ${d.users} von ${data.totalEligibleUsers} Nutzern (${fmtPct(d.participationRate)}), ${d.legs} Tipp-Legs`}
                 highlight={(d) => d.isCurrent}
                 showValue
+                minBarWidthPx={34}
               />
-              <div className="flex items-center gap-3 text-[10px] text-gray-400">
-                <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />abgeschlossen</span>
-                <span><span className="inline-block w-2 h-2 rounded-full bg-red-300 mr-1" />läuft noch (unvollständig)</span>
+              <div className="flex items-center justify-between gap-3 text-[10px] text-gray-400">
+                <div className="flex items-center gap-3">
+                  <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />abgeschlossen</span>
+                  <span><span className="inline-block w-2 h-2 rounded-full bg-red-300 mr-1" />läuft noch (unvollständig)</span>
+                </div>
+                {data.participation.length > 8 && <span>{data.participation.length} Spieltage insgesamt · ← scrollen für ältere</span>}
               </div>
             </>
           )}
