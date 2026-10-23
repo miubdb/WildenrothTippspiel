@@ -22,7 +22,7 @@ import { ADMIN_TAB_ICONS, AdminTabBadge } from '@/components/admin/ui'
  * Die Untermenüs (`subs`) sind Sprungmarken auf Abschnitts-IDs innerhalb des jeweils aktiven
  * Tabs (`document.getElementById`). Für Ergebnisse gibt es bewusst keine — schon im alten
  * Redesign leer, weil die Filter dort die Rolle übernehmen. Für "Mehr" sind es bewusst nur die
- * 4 Kategorie-Anker (nicht jeder einzelne Abschnitt darunter) — sonst wäre die Untermenü-Liste
+ * 5 Kategorie-Anker (nicht jeder einzelne Abschnitt darunter) — sonst wäre die Untermenü-Liste
  * selbst wieder überladen, genau das Gegenteil des Auftrags. Jede hier gelistete `id` ist auch
  * tatsächlich ein `<Section id="…">`/`<CategoryGroup id="…">` in der jeweiligen Tab-Fläche —
  * kein Sprungziel ins Leere.
@@ -41,9 +41,9 @@ const TABS: TabDef[] = [
   { id: 'quoten', label: 'Quoten', desc: 'Neu berechnen, Vorschau, manuell überschreiben', subs: [
     { id: 'qu-berechnung', label: 'Neu berechnen' }, { id: 'qu-warnungen', label: 'Quotenprüfung' }, { id: 'qu-vorschau', label: 'Vorschau & Überschreiben' },
   ] },
-  { id: 'mehr', label: 'Mehr', desc: 'Spieler, Kader & Transfers, Umfrage, System & Wartung', subs: [
+  { id: 'mehr', label: 'Mehr', desc: 'Spieler, Kader & Transfers, Umfrage, Statistik, System & Wartung', subs: [
     { id: 'mh-spieler', label: 'Spieler & Mitglieder' }, { id: 'mh-kader', label: 'Kader & Transfers' },
-    { id: 'mh-umfrage', label: 'Umfrage' }, { id: 'mh-system', label: 'System & Wartung' },
+    { id: 'mh-umfrage', label: 'Umfrage' }, { id: 'mh-statistik', label: 'Statistik' }, { id: 'mh-system', label: 'System & Wartung' },
   ] },
 ]
 
