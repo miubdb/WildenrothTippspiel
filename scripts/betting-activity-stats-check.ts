@@ -7,7 +7,8 @@
 import { buildEffectiveMatchdayIndex } from '@/lib/season'
 import {
   computeMatchdayParticipation, averageRecentParticipation, placementEvents,
-  computeHourBuckets, computeWeekdayBuckets, topBucket, type ActivityLeg,
+  computeHourBuckets, computeWeekdayBuckets, topBucket, computeDaypartBuckets,
+  computeWeekdaySplit, participationRate, type ActivityLeg,
 } from '@/lib/bettingActivityStats'
 import type { Match } from '@/types'
 
@@ -101,9 +102,35 @@ function runPlacementEventsAndTimeBuckets() {
   test('topBucket auf leerem Array liefert null, nicht undefined/Fehler', topBucket([]) === null)
 }
 
+function runDaypartsWeekdaySplitAndParticipationRate() {
+  // Je ein Treffer in einer anderen Stunde pro Tagesabschnitt, damit jeder Abschnitt isoliert
+  // geprüft werden kann: Nacht(3), Morgens(7), Vormittag(10), Mittag(12), Nachmittag(16), Abend(19), Spätabend(23).
+  const hours = Array.from({ length: 24 }, (_, hour) => ({ hour, count: [3, 7, 10, 12, 16, 19, 23].includes(hour) ? 1 : 0 }))
+  const dayparts = computeDaypartBuckets(hours)
+  const byKey = new Map(dayparts.map((d) => [d.key, d]))
+  test('7 Tagesabschnitte, decken alle 24 Stunden ab', dayparts.length === 7 && dayparts.reduce((s, d) => s + (d.endHour - d.startHour + 1), 0) === 24)
+  test('Nacht (0-5) erfasst die Stunde-3-Platzierung', byKey.get('nacht')?.count === 1)
+  test('Mittag (12-13) erfasst die Stunde-12-Platzierung', byKey.get('mittag')?.count === 1)
+  test('Spätabend (22-23) erfasst die Stunde-23-Platzierung', byKey.get('spaetabend')?.count === 1)
+  test('Jeder Tagesabschnitt mit 1 von 7 Treffern zeigt ~14,3%', byKey.get('mittag')?.share === Math.round((1 / 7) * 1000) / 10)
+
+  // Mo=10, Di=5, Mi=5, Do=5, Fr=10, Sa=20, So=10 → Summe 65, Wochenende (Sa+So) = 30.
+  const weekdays = [10, 5, 5, 5, 10, 20, 10].map((count, weekday) => ({ weekday, count }))
+  const split = computeWeekdaySplit(weekdays)
+  test('Wochenende-Summe (Sa+So) ist 30', split.weekendCount === 30)
+  test('Werktag-Summe (Mo-Fr) ist 35', split.weekdayCount === 35)
+  test('Wochenende-Anteil ist 30/65 ≈ 46,2%', split.weekendShare === Math.round((30 / 65) * 1000) / 10)
+  test('Werktag- und Wochenende-Anteil ergeben zusammen 100%', Math.round(((split.weekdayShare ?? 0) + (split.weekendShare ?? 0)) * 10) / 10 === 100)
+  test('Leere Wochentagsliste liefert null-Anteile statt NaN', computeWeekdaySplit([]).weekendShare === null)
+
+  test('participationRate(24, 40) = 60,0%', participationRate(24, 40) === 60)
+  test('participationRate mit 0 Berechtigten liefert null, nicht Infinity/NaN', participationRate(5, 0) === null)
+}
+
 export function run(): number {
   runMatchdayParticipation()
   runPlacementEventsAndTimeBuckets()
+  runDaypartsWeekdaySplitAndParticipationRate()
   console.log(`${checks - errors}/${checks} tests passed`)
   return errors
 }
