@@ -31,10 +31,21 @@ function Metric({ label, value, note }: { label: string; value: string; note?: s
   )
 }
 
-/** Vertikales Balkendiagramm, dasselbe Muster wie `ScaleBlock` in SurveyTab.tsx — bewusst
- *  wiederverwendet statt einer neuen Chart-Bibliothek, damit der Admin-Bereich visuell konsistent
- *  bleibt. `highlight` markiert einen einzelnen Balken (der laufende, noch unvollständige
- *  Spieltag) in einem helleren Ton statt der normalen Akzentfarbe. */
+// Höhe des Balkenbereichs in px (nicht nur die Tailwind-Klasse `h-20`, siehe unten).
+const BAR_AREA_HEIGHT_PX = 80
+
+/** Vertikales Balkendiagramm, vom Muster her wie `ScaleBlock` in SurveyTab.tsx, aber bewusst MIT
+ *  Pixel- statt Prozent-Höhen für die Balken: eine Balken-`div` mit `height: X%` braucht eine
+ *  Elternbox mit einer DEFINIERTEN Höhe, damit der Prozentwert überhaupt etwas auflöst (CSS-Spec).
+ *  Die direkte Elternbox hier ist eine Flex-Spalte (`flex flex-col`) in einer Flex-Zeile mit
+ *  `items-end` — `items-end` schaltet das Standard-`stretch` ab, wodurch diese Spalte NIE eine
+ *  definierte Höhe bekommt, sondern sich an ihrem Inhalt orientiert. Ergebnis: JEDE Prozent-Höhe
+ *  darin löst zu "auto" (= 0) auf, und nur noch `minHeight` greift — alle Balken wurden dadurch
+ *  gleich hoch dargestellt, unabhängig vom tatsächlichen Wert (siehe Screenshot vom 23.10.2026,
+ *  wo weder "Beteiligung je Spieltag" noch "nach Uhrzeit/Wochentag" irgendeine Höhenvariation
+ *  zeigten). Fix: Balkenbereich bekommt eine feste Höhe in px (`BAR_AREA_HEIGHT_PX`, nicht nur
+ *  `h-20`), jeder Balken rechnet seine Höhe direkt in px dagegen — kein Prozentwert, der gegen
+ *  eine unbestimmte Elternhöhe aufgelöst werden müsste. */
 function VerticalBars<T>({
   data, valueFor, labelFor, tooltipFor, highlight, tickEvery = 1,
 }: {
@@ -47,14 +58,15 @@ function VerticalBars<T>({
 }) {
   const maxValue = Math.max(1, ...data.map(valueFor))
   return (
-    <div className="flex items-end gap-1 h-20">
+    <div className="flex items-end gap-1" style={{ height: BAR_AREA_HEIGHT_PX }}>
       {data.map((d, i) => {
         const v = valueFor(d)
+        const barPx = v > 0 ? Math.max(2, (v / maxValue) * BAR_AREA_HEIGHT_PX) : 0
         return (
           <div key={i} className="flex-1 flex flex-col items-center justify-end gap-0.5" title={tooltipFor(d)}>
             <div
               className={`w-full rounded-t ${highlight?.(d) ? 'bg-red-300' : 'bg-red-500'}`}
-              style={{ height: `${(v / maxValue) * 100}%`, minHeight: v > 0 ? 2 : 0 }}
+              style={{ height: barPx }}
             />
             <span className="text-[9px] text-gray-400">{i % tickEvery === 0 ? labelFor(d) : ''}</span>
           </div>
