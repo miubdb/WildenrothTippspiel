@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { EmptyNote, LoadingBlock, Section } from '@/components/admin/ui'
 
 interface MatchdayParticipation { matchday: number; users: number; legs: number; isCurrent: boolean; participationRate: number | null }
@@ -67,9 +67,19 @@ const BAR_AREA_HEIGHT_PX = 84
  *  letzten 8 Spieltage), sonst werden die Balken bei wachsender Saison immer schmaler und
  *  irgendwann unlesbar. Mit `minBarWidthPx` bekommt jeder Balken stattdessen eine feste
  *  Mindestbreite und der Container scrollt horizontal (`overflow-x-auto`) statt zu stauchen — so
- *  bleibt die GANZE Historie sichtbar (nicht nur ein willkürlich abgeschnittenes Fenster), ohne
- *  dass einzelne Balken zu schmal zum Ablesen werden. Scrollt beim Laden automatisch ans Ende
- *  (den aktuellen/letzten Balken), damit der Blick nicht erst beim ältesten Spieltag startet. */
+ *  bleibt die GANZE Historie sichtbar, ohne dass einzelne Balken zu schmal zum Ablesen werden.
+ *  Scrollt beim Laden automatisch ans Ende (den aktuellen/letzten Balken).
+ *
+ *  Dieser Zweig nutzt bewusst CSS GRID statt verschachteltem Flexbox (wie der `flex-1`-Zweig
+ *  unten): ein `overflow-x: auto`-Element mit einer EIGENEN festen `height` plus einem
+ *  verschachtelten `display:flex; flex-direction:column`-Kind darin kollabierte im Chromium-Test
+ *  auf die Höhe seiner mittleren Zeile (84px) und schnitt Zahl/Beschriftung ab — ein Flex-Item,
+ *  das selbst ein Flex-Container ist, bekommt innerhalb eines Elements mit eigenem `overflow-x`
+ *  offenbar keine korrekte hypothetische Kreuzgröße zugewiesen (reproduziert und mit
+ *  `getBoundingClientRect`/`offsetHeight` verifiziert: jede einzelne Unterzeile maß für sich
+ *  korrekt 14/84/12px, der äußere Spalten-Wrapper trotzdem nur 84px). Ein Grid mit explizitem
+ *  `grid-template-rows` pro Zeile (Zahl/Balken/Beschriftung) und `grid-auto-flow: column` hat
+ *  dasselbe Problem nicht — dort bekommt jede Spur eine feste, unabhängige Höhe. */
 function VerticalBars<T>({
   data, valueFor, labelFor, tooltipFor, highlight, tickEvery = 1, showValue = false, minBarWidthPx,
 }: {
@@ -100,22 +110,48 @@ function VerticalBars<T>({
       cancelAnimationFrame(raf2)
     }
   }, [minBarWidthPx, dataLength])
+
+  if (minBarWidthPx) {
+    const VALUE_ROW_PX = 14
+    const TICK_ROW_PX = 12
+    return (
+      <div
+        ref={scrollRef}
+        className="overflow-x-auto"
+        style={{
+          display: 'grid',
+          gridTemplateRows: showValue ? `${VALUE_ROW_PX}px ${BAR_AREA_HEIGHT_PX}px ${TICK_ROW_PX}px` : `${BAR_AREA_HEIGHT_PX}px ${TICK_ROW_PX}px`,
+          gridAutoFlow: 'column',
+          gridAutoColumns: minBarWidthPx,
+          columnGap: 4,
+        }}
+      >
+        {data.map((d, i) => {
+          const v = valueFor(d)
+          const barPx = v > 0 ? Math.max(2, (v / maxValue) * BAR_AREA_HEIGHT_PX) : 0
+          return (
+            <Fragment key={i}>
+              {showValue && (
+                <span className="text-[10px] font-bold text-gray-700 text-center self-end" title={tooltipFor(d)}>{v}</span>
+              )}
+              <div className="flex items-end justify-center" title={tooltipFor(d)}>
+                <div className={`w-full rounded-t ${highlight?.(d) ? 'bg-red-300' : 'bg-red-500'}`} style={{ height: barPx }} />
+              </div>
+              <span className="text-[9px] text-gray-400 text-center self-start">{i % tickEvery === 0 ? labelFor(d) : ''}</span>
+            </Fragment>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
-    <div
-      ref={scrollRef}
-      className={`flex items-end gap-1 ${minBarWidthPx ? 'overflow-x-auto' : ''}`}
-      style={{ height: BAR_AREA_HEIGHT_PX + (showValue ? 16 : 0) }}
-    >
+    <div className="flex items-end gap-1" style={{ height: BAR_AREA_HEIGHT_PX + (showValue ? 16 : 0) }}>
       {data.map((d, i) => {
         const v = valueFor(d)
         const barPx = v > 0 ? Math.max(2, (v / maxValue) * BAR_AREA_HEIGHT_PX) : 0
         return (
-          <div
-            key={i}
-            className={`flex flex-col items-center justify-end gap-0.5 ${minBarWidthPx ? 'flex-shrink-0' : 'flex-1'}`}
-            style={minBarWidthPx ? { width: minBarWidthPx } : undefined}
-            title={tooltipFor(d)}
-          >
+          <div key={i} className="flex-1 flex flex-col items-center justify-end gap-0.5" title={tooltipFor(d)}>
             {showValue && <span className="text-[10px] font-bold text-gray-700">{v}</span>}
             <div
               className={`w-full rounded-t ${highlight?.(d) ? 'bg-red-300' : 'bg-red-500'}`}
