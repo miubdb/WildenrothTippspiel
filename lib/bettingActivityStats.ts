@@ -114,3 +114,54 @@ export function topBucket<T extends { count: number }>(buckets: T[]): T | null {
   if (buckets.length === 0) return null
   return buckets.reduce((best, b) => (b.count > best.count ? b : best))
 }
+
+/**
+ * Admin-Statistik, 2. Ausbaustufe: 24 Einzelstunden sind schwer auf einen Blick zu lesen — die
+ * Tageszeit-Gruppierung beantwortet "wann wird getippt" in einem Satz statt in 24 Balken. Die
+ * Grenzen sind an den Tagesablauf rund um Kreisliga-Anstoßzeiten angelehnt (Vormittag/Mittag als
+ * eigene, schmale Fenster, weil genau dort laut Produktionsdaten der Peak liegt — Montag-12-Uhr-
+ * Wettfreigabe), decken alle 24 Stunden genau einmal ab.
+ */
+export interface DaypartDef { key: string; label: string; startHour: number; endHour: number }
+export interface DaypartBucket extends DaypartDef { count: number; share: number | null }
+
+export const DAYPART_DEFS: DaypartDef[] = [
+  { key: 'nacht', label: 'Nachts (0–5 Uhr)', startHour: 0, endHour: 5 },
+  { key: 'morgen', label: 'Morgens (6–9 Uhr)', startHour: 6, endHour: 9 },
+  { key: 'vormittag', label: 'Vormittags (10–11 Uhr)', startHour: 10, endHour: 11 },
+  { key: 'mittag', label: 'Mittags (12–13 Uhr)', startHour: 12, endHour: 13 },
+  { key: 'nachmittag', label: 'Nachmittags (14–17 Uhr)', startHour: 14, endHour: 17 },
+  { key: 'abend', label: 'Abends (18–21 Uhr)', startHour: 18, endHour: 21 },
+  { key: 'spaetabend', label: 'Spätabends (22–23 Uhr)', startHour: 22, endHour: 23 },
+]
+
+export function computeDaypartBuckets(hours: HourBucket[]): DaypartBucket[] {
+  const total = hours.reduce((s, h) => s + h.count, 0)
+  return DAYPART_DEFS.map((d) => {
+    const count = hours.filter((h) => h.hour >= d.startHour && h.hour <= d.endHour).reduce((s, h) => s + h.count, 0)
+    return { ...d, count, share: total > 0 ? Math.round((count / total) * 1000) / 10 : null }
+  })
+}
+
+/** Wochenende = Sa+So (Index 5/6 in computeWeekdayBuckets, Mo=0). Beantwortet "wetten die Leute
+ *  eher unter der Woche oder am Wochenende" als eine Zahl statt sieben einzelner Balken. */
+export interface WeekdaySplit { weekdayCount: number; weekendCount: number; weekdayShare: number | null; weekendShare: number | null }
+
+export function computeWeekdaySplit(weekdays: WeekdayBucket[]): WeekdaySplit {
+  const total = weekdays.reduce((s, w) => s + w.count, 0)
+  const weekendCount = weekdays.filter((w) => w.weekday === 5 || w.weekday === 6).reduce((s, w) => s + w.count, 0)
+  const weekdayCount = total - weekendCount
+  return {
+    weekdayCount,
+    weekendCount,
+    weekdayShare: total > 0 ? Math.round((weekdayCount / total) * 1000) / 10 : null,
+    weekendShare: total > 0 ? Math.round((weekendCount / total) * 1000) / 10 : null,
+  }
+}
+
+/** Anteil `users` an `totalEligibleUsers` (berechtigte, nicht gelöschte Nutzer — dieselbe
+ *  Definition wie das "berechtigt"-Pill im Spieler-Tab) in Prozent, eine Nachkommastelle. */
+export function participationRate(users: number, totalEligibleUsers: number): number | null {
+  if (totalEligibleUsers <= 0) return null
+  return Math.round((users / totalEligibleUsers) * 1000) / 10
+}
