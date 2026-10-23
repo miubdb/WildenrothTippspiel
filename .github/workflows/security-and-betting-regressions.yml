@@ -69,6 +69,7 @@ jobs:
           node --experimental-strip-types scripts/run-slip-lifecycle-check.mjs
           node --experimental-strip-types scripts/run-meine-wetten-check.mjs
           node --experimental-strip-types scripts/run-combo-leg-order-check.mjs
+          node --experimental-strip-types scripts/run-betting-activity-stats-check.mjs
       - name: Verify production build without real secrets
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid.supabase.co

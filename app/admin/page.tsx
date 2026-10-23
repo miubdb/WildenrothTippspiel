@@ -9,6 +9,7 @@ import type { OddsAnomaly } from '@/lib/oddsAnomalies'
 import { homeHandicapFavored } from '@/lib/oddsMarkets'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, nearestMatchdayByDate, SEASON_START } from '@/lib/season'
 import { SurveyTab } from '@/components/admin/SurveyTab'
+import { StatsTab } from '@/components/admin/StatsTab'
 import { AuditLogPanel } from '@/components/admin/AuditLogPanel'
 import { Btn, CategoryGroup, Chips, EmptyNote, Field, inputCls, LoadingBlock, Notice, Panel, Pill, Section, selectCls, useConfirm, wl } from '@/components/admin/ui'
 import { AdminShellNav } from '@/components/admin/AdminShellNav'
@@ -49,7 +50,7 @@ const TAB_DESC: Record<Tab, string> = {
   ergebnisse: 'Ergebnisse eintragen und Wetten abrechnen',
   spieltag: 'Cockpit, Spiele, Tipps, Topspiel, Torschützen',
   quoten: 'Neu berechnen, Vorschau, Quotenprüfung',
-  mehr: 'Spieler, Kader, Umfrage, System & Wartung',
+  mehr: 'Spieler, Kader, Umfrage, Statistik, System & Wartung',
 }
 
 export default function AdminPage() {
@@ -677,7 +678,7 @@ export default function AdminPage() {
         )}
 
         {/* "Mehr" Tab (Admin 3.0) — Verwaltung + Umfrage sind keine eigenen Tabs mehr, sondern
-            4 Kategorien hier (CategoryGroup, components/admin/ui.tsx). Bonus-Tipps/Specials sind
+            5 Kategorien hier (CategoryGroup, components/admin/ui.tsx). Bonus-Tipps/Specials sind
             nach Spieltag umgezogen (siehe dort) — hier bewusst nicht mehr dupliziert. */}
         {tab === 'mehr' && (
           <div className="space-y-3">
@@ -732,6 +733,10 @@ export default function AdminPage() {
 
             <CategoryGroup id="mh-umfrage" title="Umfrage" subtitle="Teilnahme, Auswertungen, Einzelantworten, Einstellungen">
               <SurveyTab onMessage={setMessage} />
+            </CategoryGroup>
+
+            <CategoryGroup id="mh-statistik" title="Statistik" subtitle="Beteiligung je Spieltag, Wettzeiten nach Uhrzeit & Wochentag">
+              <StatsTab onMessage={setMessage} />
             </CategoryGroup>
 
             <CategoryGroup id="mh-system" title="System & Wartung" subtitle="Saison, Push, Tests, Awards — seltene und gefährliche Aktionen">
