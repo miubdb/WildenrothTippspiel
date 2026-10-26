@@ -115,7 +115,6 @@ export default async function LeaderboardPage({
   // grouping exactly, or the persisted Spieltagskönig trophy and this page's
   // live Wochentippkönig banner could disagree about the same Spieltag.
   const recapMatchdayOf = (m: Match) => recapMatchdayOfShared(m, mdIndex)
-  const byKickoff = (a: number, b: number) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0)
   // Outlier-robust variant for firstScheduledMd below — matchdayMinDate is
   // NOT outlier-robust (see its doc in lib/season.ts) and is keyed by RAW
   // matchday, so a rescheduled makeup match that now runs under a DIFFERENT
@@ -134,8 +133,8 @@ export default async function LeaderboardPage({
   // Fall back to 1-28 placeholder when no real season matches exist yet (ignore test matchday).
   // Chronological order by actual kickoff (outlier-robust median anchor, see
   // lib/season.ts) — mirrors the same picker order used on tipps/page.tsx.
-  // Every date-dependent decision below goes through the explicit `byKickoff`
-  // comparator instead of this array's own order, so reordering it here is safe.
+  // Date-sensitive ordering below uses the outlier-robust median anchor where
+  // chronology matters, so raw rescheduled kickoffs cannot distort Spieltag order.
   const allMatchdays = kreisligaMatchdaysDisplayOrder.length > 0
     ? [...(hasTestMatchday ? [999] : []), ...kreisligaMatchdaysDisplayOrder]
     : [...(hasTestMatchday ? [999] : []), ...Array.from({ length: 28 }, (_, i) => i + 1)]
