@@ -434,7 +434,7 @@ export default async function LeaderboardPage({
 
   // Single bets
   for (const b of allBets) {
-    if (b.status === 'pending' || b.status === 'void' || !b.match_id) continue
+    if (b.status === 'pending' || b.status === 'void' || b.status === 'neutralized' || !b.match_id) continue
     const md = matchToMatchday.get(b.match_id)
     if (!md || b.combo_id) continue
     const key = `${b.user_id}_${md}`
@@ -442,12 +442,18 @@ export default async function LeaderboardPage({
     mdPnl.set(key, (mdPnl.get(key) ?? 0) + delta)
   }
 
-  // Combo bets — map combo → matchday via first leg
+  // Combo bets — assign each combo to exactly one Spieltag. Today every
+  // valid combo's legs normally belong to the same effective Spieltag, but a
+  // reschedule can make a cross-Spieltag combo possible. Never depend on the
+  // arbitrary DB/leg iteration order: choose the chronologically earliest
+  // effective Spieltag by the same median anchor used everywhere else.
   const comboToMatchday = new Map<number, number>()
   for (const b of allBets) {
     if (b.combo_id && b.match_id) {
       const md = matchToMatchday.get(b.match_id)
-      if (md && !comboToMatchday.has(b.combo_id)) comboToMatchday.set(b.combo_id, md)
+      if (!md) continue
+      const current = comboToMatchday.get(b.combo_id)
+      if (current == null || byAnchor(md, current) < 0) comboToMatchday.set(b.combo_id, md)
     }
   }
   for (const cb of allCombos) {
@@ -464,8 +470,19 @@ export default async function LeaderboardPage({
   // used to make this permanently stuck on last season's final matchdays (the
   // 🔥 streak badge in particular never lit up during the whole current season).
   const settledMatchdays = [...new Set(
-    seasonMatches.filter(m => m.status === 'finished').map(m => recapMatchdayOf(m))
-  )].filter((md): md is number => md !== null).sort(byKickoff)
+    seasonMatches.map(m => recapMatchdayOf(m))
+  )]
+    .filter((md): md is number => md !== null && md !== 999)
+    .filter((md) => {
+      const nonPostponed = seasonMatches
+        .filter(m => recapMatchdayOf(m) === md && m.status !== 'postponed' && m.status !== 'annulled')
+      return nonPostponed.length > 0 && nonPostponed.every(m => m.status === 'finished')
+    })
+    // IMPORTANT: matchdayMinDate is intentionally NOT used here. A single
+    // raw-matchday outlier can make a later effective Spieltag look months
+    // older (ST13 currently has raw_min 09.09. although it ran 21.–25.10.).
+    // The median anchor is the stable chronological order for "in Folge".
+    .sort(byAnchor)
   const weeklyWinners = new Map<number, string>() // matchday → userId
 
   for (const md of settledMatchdays) {
@@ -498,7 +515,7 @@ export default async function LeaderboardPage({
       return nonPostponed.length > 0 && nonPostponed.every(m => m.status === 'finished')
     })
     .map(([md]) => md)
-    .sort(byKickoff)
+    .sort(byAnchor)
   const latestCompletedMd = fullyCompletedMds.at(-1)
   const previousCompletedMd = fullyCompletedMds.at(-2)
   const previousMdCutoff = previousCompletedMd != null
@@ -520,7 +537,7 @@ export default async function LeaderboardPage({
   // old weekly cron), so it must NOT get an adjustment applied.
   const pocketPenaltyAdjustment = new Map<string, number>()
   if (latestCompletedMd != null) {
-    const { data: pocketMoneyRan } = await supabase
+    const { data: pocketMoneyRan } = await adminSupa
       .from('push_reminders')
       .select('id')
       .eq('type', 'pocket_money')
@@ -583,8 +600,8 @@ export default async function LeaderboardPage({
     // them — e.g. 5 newcomers between ST7 and ST2 alone turned a real ↓7 for
     // one user into a displayed ↓2.
     const previousOrder = currentOrder.filter(p => hadPresenceBeforePreviousMd.has(p.id)).sort((a, b) => {
-      const prevA = a.balance - (mdPnl.get(`${a.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(a.id) ?? 0)
-      const prevB = b.balance - (mdPnl.get(`${b.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(b.id) ?? 0)
+      const prevA = a.balance + (pendingStakesPerUser[a.id] ?? 0) - (mdPnl.get(`${a.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(a.id) ?? 0)
+      const prevB = b.balance + (pendingStakesPerUser[b.id] ?? 0) - (mdPnl.get(`${b.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(b.id) ?? 0)
       if (prevB !== prevA) return prevB - prevA
       return (a.display_name || a.username).localeCompare(b.display_name || b.username, 'de')
     })
