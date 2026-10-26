@@ -75,10 +75,10 @@ jobs:
           }
           for f in "${FILES[@]}"; do
             [ -f "$f" ] || continue
-            AFTER=$(npx eslint -f json -- "$f" 2>/dev/null | count_errors)
+            AFTER=$((npx eslint -f json -- "$f" 2>/dev/null || true) | count_errors)
             BEFORE=0
             if git cat-file -e "$BASE:$f" 2>/dev/null; then
-              BEFORE=$(git show "$BASE:$f" | npx eslint --stdin --stdin-filename "$f" -f json 2>/dev/null | count_errors)
+              BEFORE=$((git show "$BASE:$f" | npx eslint --stdin --stdin-filename "$f" -f json 2>/dev/null || true) | count_errors)
             fi
             if [ "$AFTER" -gt "$BEFORE" ]; then
               echo "::error file=$f::New lint errors introduced ($BEFORE -> $AFTER). Run 'npx eslint $f' locally and fix what this change added."
