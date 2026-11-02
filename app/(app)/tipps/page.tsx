@@ -234,7 +234,12 @@ export default async function TippsPage({
     .filter((m) => effectiveMatchdayOf(m) === currentMatchday)
     .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
 
-  const deadline = matchdayMatches[0] ? new Date(matchdayMatches[0].match_date) : null
+  // Verschobene Partien ohne bestätigten Nachholtermin sind im Wettschein-Spielplan
+  // unsichtbar. Die originale matchdayMatches-Liste bleibt für Recap, bestehende
+  // Wetten und Spieltagsstatistik unverändert.
+  const visibleMatchdayMatches = matchdayMatches.filter((m) => m.status !== 'postponed')
+
+  const deadline = visibleMatchdayMatches[0] ? new Date(visibleMatchdayMatches[0].match_date) : null
   const isDeadlinePassed = deadline ? deadline <= new Date() : false
 
   // Betting window: opens Monday 12:00 of match week (unless early_betting_open override is set)
@@ -1686,7 +1691,7 @@ export default async function TippsPage({
             sobald er vom BFV veröffentlicht wurde.
           </div>
         </div>
-      ) : matchdayMatches.length === 0 ? (
+      ) : visibleMatchdayMatches.length === 0 ? (
         <div className="text-center py-16 text-gray-400 dark:text-gray-500">
           <div className="text-4xl mb-3">⚽</div>
           <div className="font-medium">Keine Spiele</div>
@@ -1694,7 +1699,7 @@ export default async function TippsPage({
       ) : (
         <div className="space-y-3">
           {(() => {
-            const kreisligaAll = matchdayMatches.filter(m => !m.match_category || m.match_category === 'kreisliga')
+            const kreisligaAll = visibleMatchdayMatches.filter(m => !m.match_category || m.match_category === 'kreisliga')
             // Cup fixtures (competition_type='cup') are pinned at the top of
             // their own Spieltag's section in a distinct card instead of the
             // normal Kreisliga list — same effective Spieltag (matchday/
@@ -1702,7 +1707,7 @@ export default async function TippsPage({
             // display slot and its own 4-market card (see CupMatchCard).
             const cupMatches = kreisligaAll.filter(m => m.competition_type === 'cup')
             const kreisliga = kreisligaAll.filter(m => m.competition_type !== 'cup')
-            const bklasse = matchdayMatches.filter(m => m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel))
+            const bklasse = visibleMatchdayMatches.filter(m => m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel))
             return (
               <>
                 {cupMatches.map((match) => (
