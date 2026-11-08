@@ -433,6 +433,16 @@ function OptionBars({ options, pctKey }: { options: { option: string; count: num
   )
 }
 
+/** Voluntary single-choice questions use the answered population for the shown
+ * percentage; keep "visible" separately to make non-response transparent. */
+function answeredOptionDistribution(stat: SingleChoiceStat) {
+  const responded = stat.total - stat.shownButUnanswered
+  return stat.options.map((option) => ({
+    ...option,
+    pct: responded > 0 ? (option.count / responded) * 100 : 0,
+  }))
+}
+
 function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
   const { allgemein, risky, fairness, wettmaerkte, kommunikation, startgeldPreise, zukunft } = crossTabs
   return (
@@ -534,12 +544,14 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
             <SingleBlock stat={kommunikation.q20} />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Lesehäufigkeit (Q21a, freiwillig, n={kommunikation.recapFrequency.total - kommunikation.recapFrequency.shownButUnanswered})</div>
-            <OptionBars options={kommunikation.recapFrequency.options} pctKey="pct" />
+            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Lesehäufigkeit (Q21a, freiwillig)</div>
+            <div className="text-[10px] text-gray-400 mb-1">{kommunikation.recapFrequency.total - kommunikation.recapFrequency.shownButUnanswered} Antworten von {kommunikation.recapFrequency.total} Teilnehmern · Prozente bezogen auf Antwortende</div>
+            <OptionBars options={answeredOptionDistribution(kommunikation.recapFrequency)} pctKey="pct" />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Kanal (Q21b, nur Leser, freiwillig, n={kommunikation.recapChannel.total - kommunikation.recapChannel.shownButUnanswered})</div>
-            <OptionBars options={kommunikation.recapChannel.options} pctKey="pct" />
+            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Kanal (Q21b, nur Leser, freiwillig)</div>
+            <div className="text-[10px] text-gray-400 mb-1">{kommunikation.recapChannel.total - kommunikation.recapChannel.shownButUnanswered} Antworten von {kommunikation.recapChannel.total} angezeigten Fragen · Prozente bezogen auf Antwortende</div>
+            <OptionBars options={answeredOptionDistribution(kommunikation.recapChannel)} pctKey="pct" />
           </div>
           <div>
             <div className="font-semibold text-gray-600 mb-1">Gewünschter Benachrichtigungskanal (Q22)</div>
