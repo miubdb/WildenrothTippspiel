@@ -14,7 +14,7 @@ import {
 import {
   toggleMultiOption, isValidMultiSelection, validateIncomingAnswers, stripHiddenAnswers, nextSubmittedAt,
 } from '@/lib/surveyValidation'
-import { isActuallySubmitted, type SurveyRow } from '@/lib/surveyAggregate'
+import { isActuallySubmitted, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
 import {
   currentSurveyModeKey, resolveSurveyMode, surveyModeAllowsAccess, surveyModeShowsHelpLink, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW,
   currentSurveyVersion, SURVEY_VERSION_PRODUCTION, SURVEY_VERSION_PREVIEW,
@@ -162,6 +162,22 @@ export function run(): number {
     check('Server entfernt Kanalantwort beim Wechsel auf Nichtleser', nonreader.ok && nonreader.answers.q21_recap_channel === undefined)
     const invalid = validateIncomingAnswers({ q21_recap_frequency: readers[0], q21_recap_channel: 'Alte Antwortoption' })
     check('Nicht mehr gültige Recap-Antwort wird abgewiesen', !invalid.ok)
+
+    const t = '2026-11-08T11:00:00.000Z'
+    const row = (id: string, answers: Answers): SurveyRow => ({
+      user_id: id, answers, started_at: t, submitted_at: t, updated_at: t,
+    })
+    const data = computeCrossTabs([
+      row('r1', { q21_recap_frequency: readers[0], q21_recap_channel: channel.options![0] }),
+      row('r2', { q21_recap_frequency: readers[1] }),
+      row('r3', { q21_recap_frequency: readers[2], q21_recap_channel: channel.options![1] }),
+      row('r4', { q21_recap_frequency: 'Ich kenne die Recaps, lese sie aber nicht.' }),
+      row('r5', { q21_recap_frequency: 'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt.' }),
+      row('r6', {}),
+    ], new Map()).kommunikation
+    check('Admin-Auswertung Q21a: alle 6 Teilnehmer, 5 Antworten', data.recapFrequency.total === 6 && data.recapFrequency.shownButUnanswered === 1)
+    check('Admin-Auswertung Q21b: nur 3 Leser sehen die Frage, davon 2 Antworten', data.recapChannel.total === 3 && data.recapChannel.shownButUnanswered === 1)
+    check('Admin-Auswertung Q21b: WhatsApp-Bekanntheit bleibt differenziert', data.recapChannel.options[0].count === 1 && data.recapChannel.options[1].count === 1)
   }
 
   console.log('\n6. Multi-Select-Exklusivität und maxSelect (toggleMultiOption)')
