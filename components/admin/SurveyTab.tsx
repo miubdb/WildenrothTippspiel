@@ -534,7 +534,11 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
             <SingleBlock stat={kommunikation.q20} />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Kanal (Q21, freiwillig, n={kommunikation.recapChannel.total})</div>
+            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Lesehäufigkeit (Q21a, freiwillig, n={kommunikation.recapFrequency.total - kommunikation.recapFrequency.shownButUnanswered})</div>
+            <OptionBars options={kommunikation.recapFrequency.options} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Kanal (Q21b, nur Leser, freiwillig, n={kommunikation.recapChannel.total - kommunikation.recapChannel.shownButUnanswered})</div>
             <OptionBars options={kommunikation.recapChannel.options} pctKey="pct" />
           </div>
           <div>
