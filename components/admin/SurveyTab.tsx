@@ -24,6 +24,8 @@ interface SurveyData {
   perQuestion: QuestionStat[]
   crossTabs: SurveyCrossTabs
   participants: Participant[]
+  operatorUserId: string | null
+  community: { overview: SurveyOverview; perQuestion: QuestionStat[]; crossTabs: SurveyCrossTabs }
 }
 
 const MODE_LABEL: Record<string, string> = { hidden: 'Versteckt', direct_only: 'Nur Direktlink', help_only: 'Nur unter Hilfe', prominent: 'Prominent (Startseite)' }
@@ -55,6 +57,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
   const [loadFailed, setLoadFailed] = useState(false)
   const [viewParticipant, setViewParticipant] = useState<Participant | null>(null)
   const [busy, setBusy] = useState(false)
+  const [audience, setAudience] = useState<'community' | 'all'>('community')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -145,7 +148,13 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
     </Panel>
   )
 
-  const { settings, overview, perQuestion, crossTabs, participants } = data
+  const { settings, participants } = data
+  const communityAvailable = !!data.operatorUserId
+  const communitySelected = audience === 'community' && communityAvailable
+  const { overview, perQuestion, crossTabs } = communitySelected ? data.community : data
+  const analysisParticipants = communitySelected
+    ? participants.filter((p) => p.userId !== data.operatorUserId)
+    : participants
   const statById = new Map(perQuestion.map((s) => [s.stat.questionId, s]))
 
   return (
@@ -193,6 +202,25 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
 
       <Section id="uf-uebersicht" title="Übersicht" subtitle="Teilnahme & kombinierte Auswertungen" defaultOpen badge={<Pill tone="neutral">{overview.submitted} abgegeben</Pill>}>
         <div className="space-y-4">
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+            <div className="mb-2 text-[13px] font-bold text-gray-900">Welche Antworten auswerten?</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label="Auswertungsgruppe">
+              <button type="button" disabled={!communityAvailable} aria-pressed={communitySelected}
+                onClick={() => setAudience('community')}
+                className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-[13px] font-bold ${communitySelected ? 'border-sky-700 bg-sky-700 text-white' : 'border-gray-300 bg-white text-gray-700'} disabled:cursor-not-allowed disabled:opacity-50`}>
+                Nur Community (ohne Betreiber)
+              </button>
+              <button type="button" aria-pressed={!communitySelected} onClick={() => setAudience('all')}
+                className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-[13px] font-bold ${!communitySelected ? 'border-sky-700 bg-sky-700 text-white' : 'border-gray-300 bg-white text-gray-700'}`}>
+                Alle Antworten (inkl. Betreiber)
+              </button>
+            </div>
+            <p className="mt-2 text-[12px] leading-5 text-gray-600">
+              {communityAvailable
+                ? 'Standard: Deine Teilnahme zählt nicht in die Community-Auswertung. Mit „Alle Antworten“ kannst du sie zum Vergleich dazunehmen. Keine Antwort wird gelöscht oder verändert.'
+                : 'Das Betreiberkonto konnte nicht zugeordnet werden. Daher ist der Community-Filter vorübergehend deaktiviert und es werden alle Antworten angezeigt.'}
+            </p>
+          </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <Metric label="Aktive User" value={overview.activeUsers} />
             <Metric label="Umfrage begonnen" value={overview.started} />
@@ -205,7 +233,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
           {overview.startedNotSubmitted > 0 && (
             <Notice tone="open"><strong>{overview.startedNotSubmitted}</strong> Person(en) haben begonnen, aber noch nicht abgegeben.</Notice>
           )}
-          <SurveyInsightsPanel participants={participants} />
+          <SurveyInsightsPanel participants={analysisParticipants} />
           <details className="group rounded-xl border border-gray-200 bg-white">
             <summary className="min-h-[48px] cursor-pointer list-none px-4 py-3 text-[13px] font-bold text-gray-800">
               Bestehende kombinierte Auswertungen und Detailtabellen aufklappen
@@ -237,9 +265,12 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
         </div>
       </Section>
 
-      <Section id="uf-antworten" title="Einzelantworten" subtitle="Je Teilnehmer ansehen oder löschen" badge={<Pill tone="neutral">{participants.length}</Pill>}>
+      <Section id="uf-antworten" title="Einzelantworten" subtitle="Alle Teilnehmer inkl. Betreiber ansehen oder löschen" badge={<Pill tone="neutral">{participants.length}</Pill>}>
         <div className="space-y-3">
-          <a href="/api/admin/survey/export" className="text-[13px] font-semibold text-red-700 hover:underline">CSV Export</a>
+          <a href={`/api/admin/survey/export?scope=${communitySelected ? 'community' : 'all'}`}
+            className="text-[13px] font-semibold text-red-700 hover:underline">
+            CSV-Export ({communitySelected ? 'nur Community' : 'alle inkl. Betreiber'})
+          </a>
           {participants.length === 0 ? <EmptyNote>Noch keine Antworten.</EmptyNote> : (
             <div className="-mx-4 overflow-x-auto px-4">
               <table className="w-full min-w-[640px] text-[13px]">

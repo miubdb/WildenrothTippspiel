@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { ALL_QUESTIONS, visibleQuestionsForAnswers } from '@/lib/survey'
 import type { Answers } from '@/lib/survey'
 import { currentSurveyVersion } from '@/lib/surveyMode'
+import { findSurveyOperatorId, withoutSurveyOperator } from '@/lib/surveyAudience'
 
 // Formula-injection guard: a cell starting with =, +, -, or @ is executed as
 // a formula by Excel/LibreOffice/Google Sheets when the file is opened — a
@@ -33,7 +34,11 @@ function answerToText(v: Answers[string]): string {
 // fancier per spec. Questions the respondent's jump logic skipped are left
 // blank rather than mislabeled as "not answered" vs "skipped" — both render
 // as an empty cell, which is the simplest reasonable flattening for a CSV.
-export async function GET() {
+export async function GET(req: Request) {
+  const scope = new URL(req.url).searchParams.get('scope') ?? 'all'
+  if (scope !== 'community' && scope !== 'all') {
+    return NextResponse.json({ error: 'Unbekannte Auswertungsgruppe.' }, { status: 400 })
+  }
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Nicht angemeldet.' }, { status: 401 })
@@ -46,10 +51,18 @@ export async function GET() {
   const admin = createAdminClient()
   const [{ data: rows }, { data: profiles }] = await Promise.all([
     admin.from('survey_responses').select('user_id, answers, started_at, submitted_at, updated_at').eq('survey_version', version),
-    admin.from('profiles').select('id, username, display_name'),
+    admin.from('profiles').select('id, username, display_name, is_admin'),
   ])
 
   const profileMap = new Map((profiles ?? []).map((p) => [p.id as string, p]))
+  const operatorUserId = findSurveyOperatorId(profiles ?? [])
+  if (scope === 'community' && !operatorUserId) {
+    // Never silently claim to exclude the operator when the lookup fails.
+    return NextResponse.json({ error: 'Betreiberkonto konnte nicht eindeutig bestimmt werden.' }, { status: 409 })
+  }
+  const exportRows = scope === 'community' && operatorUserId
+    ? withoutSurveyOperator(rows ?? [], operatorUserId)
+    : (rows ?? [])
 
   const header = [
     'Nutzer', 'User-ID', 'Umfrageversion', 'Gestartet am', 'Abgegeben am', 'Zuletzt geändert',
@@ -58,7 +71,7 @@ export async function GET() {
 
   const lines = [header.map(csvEscape).join(';')]
 
-  for (const r of rows ?? []) {
+  for (const r of exportRows) {
     const p = profileMap.get(r.user_id as string)
     const answers = (r.answers ?? {}) as Answers
     const visibleIds = new Set(visibleQuestionsForAnswers(answers).map((q) => q.id))
@@ -79,7 +92,7 @@ export async function GET() {
   return new NextResponse(csv, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="umfrage_${version}.csv"`,
+      'Content-Disposition': `attachment; filename="umfrage_${version}_${scope}.csv"`,
     },
   })
 }
