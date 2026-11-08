@@ -24,7 +24,6 @@ export interface InsightParticipant {
 const fmt = (n: number) => n.toLocaleString('de-DE')
 const pct = (n: number | null) => n == null ? '—' : n.toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' %'
 const euros = (n: number) => n.toLocaleString('de-DE', { maximumFractionDigits: 0 }) + ' €'
-const Q29_SKIP = new Set(['Ich wette bereits so häufig, wie ich möchte.', 'Ich wette bewusst nur, wenn ich eine gute Gelegenheit sehe', 'Sonstiges'])
 
 function TinyMetric({ label, rate, note }: { label: string; rate: InsightRate; note: string }) {
   return (
@@ -83,7 +82,7 @@ function actualResponses(stat: QuestionStat): number {
   return stat.stat.entries.length
 }
 
-const controlCls = 'min-h-[44px] w-full rounded-xl border border-gray-300 bg-white px-3 text-[14px] text-gray-900 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20'
+const controlCls = 'min-h-[44px] w-full rounded-xl border border-gray-300 bg-white px-3 text-[16px] text-gray-900 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20'
 
 export function SurveyInsightsPanel({ participants }: { participants: InsightParticipant[] }) {
   const [segment, setSegment] = useState<SurveySegment>('all')
@@ -104,7 +103,6 @@ export function SurveyInsightsPanel({ participants }: { participants: InsightPar
 
   const selectedRows = useMemo(() => submitted.filter((r) => inSurveySegment(r.answers, segment)), [submitted, segment])
   const insights = useMemo(() => computeSurveyDecisionInsights(selectedRows), [selectedRows])
-  const allInsights = useMemo(() => computeSurveyDecisionInsights(submitted), [submitted])
   const stats = useMemo(() => computePerQuestionStats(selectedRows, new Map()), [selectedRows])
   const allStats = useMemo(() => computePerQuestionStats(submitted, new Map()), [submitted])
   const stat = stats.find((q) => q.stat.questionId === questionId)
@@ -285,7 +283,7 @@ export function SurveyInsightsPanel({ participants }: { participants: InsightPar
         {stat && question && (
           <div className="mt-4">
             <div className="text-[13px] font-bold leading-5 text-gray-800">{question.text}</div>
-            <p className="mt-1 text-[12px] text-gray-500">{actualResponses(stat)} beantwortet · {stat.stat.type === undefined ? '' : ''}{stat.type === 'single' ? stat.stat.total : stat.type === 'multi' ? stat.stat.visibleCount : stat.stat.visibleCount} {stat.type === 'single' ? 'sichtbar' : 'als Basis'} {stat.type === 'multi' ? '· Mehrfachauswahl, Summe kann über 100 % liegen' : ''}</p>
+            <p className="mt-1 text-[12px] text-gray-500">{actualResponses(stat)} beantwortet · {stat.type === 'single' || stat.type === 'scale' ? stat.stat.total : stat.stat.visibleCount} sichtbar {stat.type === 'multi' ? '· Mehrfachauswahl, Summe kann über 100 % liegen' : ''}</p>
             {stat.type === 'scale' && <p className="mt-1 text-[12px] text-gray-600">Durchschnitt: {stat.stat.avg == null ? '—' : stat.stat.avg.toFixed(1)} · Median: {stat.stat.median == null ? '—' : stat.stat.median}</p>}
             {stat.type === 'freetext' ? (
               <p className="mt-2 text-[13px] text-gray-600">{stat.stat.entries.length} Textantworten – unten in der Freitext-Suche einzeln lesbar.</p>
