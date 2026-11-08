@@ -433,7 +433,6 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       {
         id: 'q21_recap_channel', type: 'single', required: false,
         text: 'Wo liest du die Spieltags-Recaps hauptsächlich?',
-        helpText: 'Nur wenn du Recaps liest. Uns interessiert auch, ob dir die Recaps in der App bekannt waren.',
         options: [
           'Über WhatsApp – ich wusste, dass es die Recaps auch in der App gibt.',
           'Über WhatsApp – ich wusste nicht, dass es die Recaps auch in der App gibt.',
