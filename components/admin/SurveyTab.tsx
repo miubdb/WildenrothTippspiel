@@ -6,6 +6,7 @@ import type {
   SurveyOverview, QuestionStat, SurveyCrossTabs, SingleChoiceStat, ScaleStat, MultiStat, FreetextStat,
 } from '@/lib/surveyAggregate'
 import { Btn, EmptyNote, LoadingBlock, Notice, Panel, Pill, Section, useConfirm } from '@/components/admin/ui'
+import { SurveyInsightsPanel } from '@/components/admin/SurveyInsightsPanel'
 
 interface Participant {
   userId: string
@@ -146,6 +147,9 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
 
   const { settings, overview, perQuestion, crossTabs, participants } = data
   const statById = new Map(perQuestion.map((s) => [s.stat.questionId, s]))
+  const q30 = crossTabs.zukunft.q30
+  const q30Answered = q30.total - q30.shownButUnanswered
+  const returningCount = q30.options.filter((o) => o.option === 'Ja, auf jeden Fall' || o.option === 'Eher ja').reduce((sum, o) => sum + o.count, 0)
 
   return (
     <div className="space-y-4">
@@ -199,12 +203,20 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
             <Metric label="Noch nicht teilgenommen" value={overview.notStarted} />
             <Metric label="Teilnahmequote" value={fmtPct(overview.participationRatePct)} />
             <Metric label="Ø Zufriedenheit (Q1)" value={fmtNum(overview.avgQ1, 1)} />
-            <Metric label="Ø Wiederteilnahme (Q30)" value={fmtNum(overview.avgQ30, 1)} />
+            <Metric label="Wieder dabei bei kostenlosem Spiel" value={q30Answered > 0 ? fmtPct(100 * returningCount / q30Answered) : '—'} />
           </div>
           {overview.startedNotSubmitted > 0 && (
             <Notice tone="open"><strong>{overview.startedNotSubmitted}</strong> Person(en) haben begonnen, aber noch nicht abgegeben.</Notice>
           )}
-          <CrossTabsSection crossTabs={crossTabs} />
+          <SurveyInsightsPanel participants={participants} />
+          <details className="group rounded-xl border border-gray-200 bg-white">
+            <summary className="min-h-[48px] cursor-pointer list-none px-4 py-3 text-[13px] font-bold text-gray-800">
+              Bestehende kombinierte Auswertungen und Detailtabellen aufklappen
+              <span aria-hidden="true" className="ml-2 text-gray-400 group-open:hidden">+</span>
+              <span aria-hidden="true" className="ml-2 hidden text-gray-400 group-open:inline">−</span>
+            </summary>
+            <div className="border-t border-gray-200 p-4"><CrossTabsSection crossTabs={crossTabs} /></div>
+          </details>
         </div>
       </Section>
 
@@ -322,7 +334,7 @@ function SingleBlock({ stat }: { stat: SingleChoiceStat }) {
   return (
     <div>
       <div className="text-sm font-semibold text-gray-800 mb-1.5">{stat.text}</div>
-      <div className="text-[11px] text-gray-400 mb-1.5">{stat.total} Antworten</div>
+      <div className="text-[11px] text-gray-500 mb-1.5">{stat.total - stat.shownButUnanswered} Antworten · {stat.total} Teilnehmern angezeigt</div>
       <div className="space-y-1.5">
         {stat.options.map((o) => (
           <div key={o.option} className="flex items-center gap-2 text-xs">
