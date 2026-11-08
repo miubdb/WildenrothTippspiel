@@ -131,7 +131,7 @@ const Q20_FOLLOWUP_TRIGGERS = [
 ]
 
 const Q23_FOLLOWUP_TRIGGERS = [
-  'Ich wünsche mir zusätzliche Auswertungen.'
+  'Ich wünsche mir zusätzliche Auswertungen.',
   'Die vorhandenen Statistiken sollten verständlicher dargestellt werden',
   'Ich wünsche mir weniger Statistiken',
 ]
