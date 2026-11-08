@@ -83,7 +83,7 @@ export interface SingleChoiceStat {
   /** total − Σ option counts: visible but left blank — always 0 for an
    *  unconditionally-required question (submission blocks otherwise); a
    *  non-zero value here for q5/q7/q8/q13/q_payout_risky/q21_recap_channel/
-   *  q23 is the real "freiwillig nicht beantwortet" count, distinct from
+   *  q21_recap_frequency/q23 is the real "freiwillig nicht beantwortet" count, distinct from
    *  "nicht gezeigt" (never in `total` to begin with). */
   shownButUnanswered: number
 }
@@ -367,8 +367,9 @@ const Q20_PROBLEM_OPTIONS = new Set([
 export interface KommunikationCrossTab {
   q20: SingleChoiceStat
   pushProblemPct: number
-  /** Freiwillig (siehe lib/survey.ts) — `total` ist deshalb schon die
-   *  korrekte, kleinere Grundgesamtheit für "freiwillig nicht beantwortet". */
+  /** Beide freiwillig. recapChannel.total zählt ausschließlich Nutzer,
+   *  die eine der drei Leserkategorien in recapFrequency ausgewählt haben. */
+  recapFrequency: SingleChoiceStat
   recapChannel: SingleChoiceStat
   q22: SingleChoiceStat
   q23: SingleChoiceStat
@@ -381,6 +382,7 @@ function computeKommunikationCrossTab(rows: SurveyRow[], profileMap: Map<string,
   return {
     q20,
     pushProblemPct: q20.total > 0 ? (problemCount / q20.total) * 100 : 0,
+    recapFrequency: singleChoiceStats(QUESTION_BY_ID.get('q21_recap_frequency')!, rows),
     recapChannel: singleChoiceStats(QUESTION_BY_ID.get('q21_recap_channel')!, rows),
     q22: singleChoiceStats(QUESTION_BY_ID.get('q22')!, rows),
     q23: singleChoiceStats(QUESTION_BY_ID.get('q23')!, rows),
