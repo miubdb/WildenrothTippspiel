@@ -488,7 +488,7 @@ export interface SurveyOverview {
   notStarted: number
   participationRatePct: number
   avgQ1: number | null
-  avgQ30: number | null
+  returningPct: number | null
 }
 
 export function computeOverview(allRows: SurveyRow[], activeUserIds: Set<string>): SurveyOverview {
@@ -498,7 +498,8 @@ export function computeOverview(allRows: SurveyRow[], activeUserIds: Set<string>
   const submitted = submittedRows.length
   const activeUsers = activeUserIds.size
   const q1nums = submittedRows.map((r) => r.answers.q1).filter((n): n is number => typeof n === 'number')
-  const q30nums = submittedRows.map((r) => r.answers.q30).filter((n): n is number => typeof n === 'number')
+  const q30Answers = submittedRows.map((r) => r.answers.q30).filter((a): a is string => typeof a === 'string')
+  const q30Returning = q30Answers.filter((answer) => answer === 'Ja, auf jeden Fall' || answer === 'Eher ja').length
   return {
     activeUsers,
     started,
@@ -507,6 +508,6 @@ export function computeOverview(allRows: SurveyRow[], activeUserIds: Set<string>
     notStarted: Math.max(0, activeUsers - started),
     participationRatePct: activeUsers > 0 ? (submitted / activeUsers) * 100 : 0,
     avgQ1: avg(q1nums),
-    avgQ30: avg(q30nums),
+    returningPct: q30Answers.length > 0 ? (q30Returning / q30Answers.length) * 100 : null,
   }
 }
