@@ -433,6 +433,16 @@ function OptionBars({ options, pctKey }: { options: { option: string; count: num
   )
 }
 
+/** Voluntary single-choice questions use the answered population for the shown
+ * percentage; keep "visible" separately to make non-response transparent. */
+function answeredOptionDistribution(stat: SingleChoiceStat) {
+  const responded = stat.total - stat.shownButUnanswered
+  return stat.options.map((option) => ({
+    ...option,
+    pct: responded > 0 ? (option.count / responded) * 100 : 0,
+  }))
+}
+
 function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
   const { allgemein, risky, fairness, wettmaerkte, kommunikation, startgeldPreise, zukunft } = crossTabs
   return (
@@ -534,8 +544,14 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
             <SingleBlock stat={kommunikation.q20} />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Kanal (Q21, freiwillig, n={kommunikation.recapChannel.total})</div>
-            <OptionBars options={kommunikation.recapChannel.options} pctKey="pct" />
+            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Lesehäufigkeit (Q21a, freiwillig)</div>
+            <div className="text-[10px] text-gray-400 mb-1">{kommunikation.recapFrequency.total - kommunikation.recapFrequency.shownButUnanswered} Antworten von {kommunikation.recapFrequency.total} Teilnehmern · Prozente bezogen auf Antwortende</div>
+            <OptionBars options={answeredOptionDistribution(kommunikation.recapFrequency)} pctKey="pct" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Spieltags-Recaps — Kanal (Q21b, nur Leser, freiwillig)</div>
+            <div className="text-[10px] text-gray-400 mb-1">{kommunikation.recapChannel.total - kommunikation.recapChannel.shownButUnanswered} Antworten von {kommunikation.recapChannel.total} angezeigten Fragen · Prozente bezogen auf Antwortende</div>
+            <OptionBars options={answeredOptionDistribution(kommunikation.recapChannel)} pctKey="pct" />
           </div>
           <div>
             <div className="font-semibold text-gray-600 mb-1">Gewünschter Benachrichtigungskanal (Q22)</div>
@@ -570,7 +586,7 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
             </div>
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Gewünschte Preisarten (Q7, max. 2 + „Keine Präferenz&rdquo;, n={startgeldPreise.q7.respondents})</div>
+            <div className="font-semibold text-gray-600 mb-1">Gewünschte Preisarten (Q7, max. 2 + „Preise egal&rdquo;, n={startgeldPreise.q7.respondents})</div>
             <OptionBars options={startgeldPreise.q7.options} pctKey="pctOfRespondents" />
           </div>
           <div>
@@ -589,12 +605,12 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
 
         <DetailSection title="Zukunft & Verbesserungen (Q29/Q30/Features)" defaultOpen>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Gründe für weniger Wetten (Q29, max. 3, n={zukunft.q29.respondents})</div>
+            <div className="font-semibold text-gray-600 mb-1">Gründe für Wettaktivität (Q29, max. 3, n={zukunft.q29.respondents})</div>
             <div className="text-[10px] text-gray-400 mb-1">{fmtPct(zukunft.satisfiedPct)} davon sind mit ihrer Wettaktivität bereits zufrieden (exklusive Option).</div>
             <OptionBars options={zukunft.q29.options} pctKey="pctOfRespondents" />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Teilnahme 2027/28 (Q30)</div>
+            <div className="font-semibold text-gray-600 mb-1">Teilnahme 2027/28 bei kostenlosem Wettspiel (Q30)</div>
             <OptionBars options={zukunft.q30.options} pctKey="pct" />
           </div>
           <div>

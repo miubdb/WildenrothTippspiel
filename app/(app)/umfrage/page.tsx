@@ -219,7 +219,7 @@ export default function UmfragePage() {
           <p>Hilf mit, das Wildenroth-Wettspiel zu verbessern! ⚽</p>
           <p>
             Wir möchten wissen, was dir am Wettspiel gefällt, was wir verbessern können und welche
-            neuen Funktionen dich interessieren. Die Umfrage dauert ungefähr 10–15 Minuten. Einige
+            neuen Funktionen dich interessieren. Die Umfrage dauert ca. 15 Minuten. Einige
             Fragen sind freiwillig, und je nach Antwort werden nicht alle Fragen angezeigt. Deine
             Rückmeldungen helfen uns bei der Planung der Rückrunde und der kommenden Saison 2027/28.
           </p>
@@ -334,6 +334,9 @@ function SaveIndicator({ state }: { state: SaveState }) {
 
 function QuestionCard({ q, answers, value, onChange }: { q: QuestionDef; answers: Answers; value: Answers[string]; onChange: (v: Answers[string]) => void }) {
   const required = isRequired(q, answers)
+  const collapsible = q.type === 'freetext' && ['q_technical_feedback', 'q26', 'q_features_text'].includes(q.id)
+  const [expanded, setExpanded] = useState(() => typeof value === 'string' && value.trim().length > 0)
+  const hasText = typeof value === 'string' && value.trim().length > 0
   return (
     <>
       {q.dividerBefore && (
@@ -358,7 +361,16 @@ function QuestionCard({ q, answers, value, onChange }: { q: QuestionDef; answers
           {q.type === 'scale' && <ScaleInput q={q} value={value as number | undefined} onChange={onChange} />}
           {q.type === 'single' && <SingleChoiceInput q={q} value={value as string | undefined} onChange={onChange} />}
           {q.type === 'multi' && <MultiChoiceInput q={q} value={value as string[] | undefined} onChange={onChange} />}
-          {q.type === 'freetext' && <FreetextInput q={q} value={value as string | undefined} onChange={onChange} />}
+          {q.type === 'freetext' && (collapsible ? (
+            <div>
+              <button type="button" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}
+                className="w-full text-left rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center justify-between">
+                <span>{expanded ? 'Freitext einklappen' : hasText ? 'Gespeicherte Anmerkung bearbeiten' : 'Freiwillige Anmerkung hinzufügen'}</span>
+                <span aria-hidden="true">{expanded ? '−' : '+'}</span>
+              </button>
+              {expanded && <div className="mt-2"><FreetextInput q={q} value={value as string | undefined} onChange={onChange} /></div>}
+            </div>
+          ) : <FreetextInput q={q} value={value as string | undefined} onChange={onChange} />)}
         </div>
       </div>
     </>
@@ -464,7 +476,11 @@ function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: strin
   return (
     <div>
       {q.maxSelect && (
-        <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-1.5">Max. {q.maxSelect} Auswahlmöglichkeiten</p>
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-1.5">
+          {q.id === 'q_features'
+            ? `${selected.some((x) => exclusive.has(x)) ? 0 : concreteSelectedCount} von ${q.maxSelect} ausgewählt`
+            : `Max. ${q.maxSelect} Auswahlmöglichkeiten`}
+        </p>
       )}
       {q.optionGroups && q.optionGroups.length > 0 ? (
         <div className="space-y-3">

@@ -14,7 +14,7 @@ import {
 import {
   toggleMultiOption, isValidMultiSelection, validateIncomingAnswers, stripHiddenAnswers, nextSubmittedAt,
 } from '@/lib/surveyValidation'
-import { isActuallySubmitted, type SurveyRow } from '@/lib/surveyAggregate'
+import { isActuallySubmitted, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
 import {
   currentSurveyModeKey, resolveSurveyMode, surveyModeAllowsAccess, surveyModeShowsHelpLink, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW,
   currentSurveyVersion, SURVEY_VERSION_PRODUCTION, SURVEY_VERSION_PREVIEW,
@@ -35,27 +35,27 @@ function q(id: string) {
 }
 
 export function run(): number {
-  console.log('\n1. Schema-Grundstruktur: 7 Bereiche, 41 Felder, keine doppelten IDs')
+  console.log('\n1. Schema-Grundstruktur: 7 Bereiche, 42 Felder, keine doppelten IDs')
   {
     check('genau 7 Bereiche', SURVEY_SECTIONS.length === 7, `${SURVEY_SECTIONS.length}`)
-    check('genau 41 Fragefelder insgesamt', ALL_QUESTIONS.length === 41, `${ALL_QUESTIONS.length}`)
+    check('genau 42 Fragefelder insgesamt', ALL_QUESTIONS.length === 42, `${ALL_QUESTIONS.length}`)
     const ids = ALL_QUESTIONS.map((x) => x.id)
     check('keine doppelten Frage-IDs', new Set(ids).size === ids.length)
     const perSection = SURVEY_SECTIONS.map((s) => s.questions.length)
-    check('Felder pro Bereich: 6,11,3,5,6,4,6', perSection.join(',') === '6,11,3,5,6,4,6', perSection.join(','))
+    check('Felder pro Bereich: 6,11,3,5,7,4,6', perSection.join(',') === '6,11,3,5,7,4,6', perSection.join(','))
   }
 
   console.log('\n2. Maximal 27 Pflichtfelder (bei der Antwortkombination, die am meisten Pflichtfragen freischaltet)')
   {
     // q4 in {2,3,4} schaltet q5/q7/q8 scharf; q12 positiv schaltet q13/Auszahlung-Risky scharf —
     // zusammen die maximal mögliche Pflichtfeldzahl in einem Durchlauf.
-    const maxAnswers: Answers = { q4: 'Ich würde ein Startgeld mit Preisen bevorzugen.', q12: '2 Risky-Wetten' }
+    const maxAnswers: Answers = { q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q12: '2 Risky-Wetten' }
     const requiredCount = ALL_QUESTIONS.filter((qq) => isQuestionVisible(qq, maxAnswers) && isRequired(qq, maxAnswers)).length
     check('max. 27 Pflichtfelder erreichbar, nie mehr', requiredCount === 27, `${requiredCount}`)
 
     // Minimal-Pfad (q4=1 abschaffen, q12=0 abschaffen) muss entsprechend WENIGER Pflichtfragen zeigen.
     const minAnswers: Answers = {
-      q4: 'Das Wettspiel soll kostenlos bleiben. Mit Startgeld würde ich nicht mehr teilnehmen.',
+      q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.',
       q12: '0 – Risky-Wetten vollständig abschaffen',
     }
     const minRequiredCount = ALL_QUESTIONS.filter((qq) => isQuestionVisible(qq, minAnswers) && isRequired(qq, minAnswers)).length
@@ -116,7 +116,7 @@ export function run(): number {
       { id: 'q9_text', trigger: { q9: 'Häufig' }, noTrigger: { q9: 'Nie' } },
       { id: 'q19_text', trigger: { q19: 'Ja, beim angezeigten Guthaben oder Guthabenverlauf' }, noTrigger: { q19: 'Nein, mir ist nichts Ungewöhnliches aufgefallen' } },
       { id: 'q20_text', trigger: { q20: 'Ich habe die Einrichtung versucht, aber sie hat nicht funktioniert' }, noTrigger: { q20: 'Ich nutze sie und finde sie hilfreich' } },
-      { id: 'q23_text', trigger: { q23: 'Ich wünsche mir zusätzliche Statistiken' }, noTrigger: { q23: 'Die Statistiken sind so, wie sie sind, gut' } },
+      { id: 'q23_text', trigger: { q23: 'Ich wünsche mir zusätzliche Auswertungen.' }, noTrigger: { q23: 'Die Statistiken passen für mich so, wie sie sind.' } },
       { id: 'q25_text', trigger: { q25: ['1X2 / Spielausgang'] }, noTrigger: { q25: ['Auf keinen – ich möchte alle behalten'] } },
       { id: 'q29_text', trigger: { q29: ['Sonstiges'] }, noTrigger: { q29: ['Ich vergesse, rechtzeitig zu wetten'] } },
       { id: 'q_motivation_text', trigger: { q_motivation: ['Etwas anderes'] }, noTrigger: { q_motivation: ['Der Wettbewerb um die Plätze in der Rangliste'] } },
@@ -129,6 +129,68 @@ export function run(): number {
       const stripped = stripHiddenAnswers({ ...c.noTrigger, [c.id]: 'alte stale Antwort' })
       check(`${c.id}: stale Antwort nach Rücknahme des Triggers entfernt`, stripped[c.id] === undefined)
     }
+  }
+
+  check('Q20: bewusst deaktivierte Pushs sind kein Problem-Trigger',
+    !isQuestionVisible(q('q20_text'), { q20: 'Ich habe sie bewusst deaktiviert bzw. möchte keine' }))
+  check('Q23: sieben trennscharfe Antworten', q('q23').options!.length === 7)
+  check('Q23: Nichtkenntnis und fehlende Beurteilbarkeit getrennt', q('q23').options!.some(x => x.includes('bisher nicht angesehen')) && q('q23').options!.some(x => x.includes('kann sie aber nicht beurteilen')))
+  check('Q4 hat fünf Optionen', q('q4').options!.length === 5)
+  check('Q7 hat sieben Preisarten', q('q7').options!.length === 7)
+  check('Q8 hat fünf Antwortoptionen', q('q8').options!.length === 5)
+  check('Q29 hat 13 Antworten', q('q29').options!.length === 13)
+  check('Feature-Auswahl behält 13 Ideen und eine exklusive Nein-Option', q('q_features').options!.length === 14)
+  check('Q30 benennt den kostenlosen Fall', q('q30').text.includes('kostenlos'))
+  check('Die drei einklappbaren Freitexte bleiben freiwillig und sichtbar',
+    ['q_technical_feedback', 'q26', 'q_features_text'].every((id) => !isRequired(q(id), {}) && isQuestionVisible(q(id), {})))
+  check('Q31 bleibt sichtbar', isQuestionVisible(q('q31'), {}))
+  console.log('\n5b. Recap-Leserhäufigkeit und Kanal: Sprunglogik + Antwortvalidierung')
+  {
+    const frequency = q('q21_recap_frequency')
+    const channel = q('q21_recap_channel')
+    check('Recap-Häufigkeit bleibt freiwillig', !isRequired(frequency, {}))
+    check('Recap-Kanal bleibt freiwillig', !isRequired(channel, { q21_recap_frequency: 'Ich lese eigentlich jeden Recap.' }))
+    const readers = [
+      'Ich lese eigentlich jeden Recap.',
+      'Ich lese die meisten Recaps, aber nicht alle.',
+      'Ich schaue nur gelegentlich rein.',
+    ]
+    for (const value of readers) {
+      check(`Recap-Kanal bei Leser "${value}" sichtbar`, isQuestionVisible(channel, { q21_recap_frequency: value }))
+    }
+    for (const value of [
+      undefined,
+      'Ich kenne die Recaps, lese sie aber nicht.',
+      'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt.',
+    ]) {
+      const answers: Answers = value ? { q21_recap_frequency: value } : {}
+      check(`Recap-Kanal ohne regelmäßige/gelegentliche Nutzung ausgeblendet (${value ?? 'keine Antwort'})`, !isQuestionVisible(channel, answers))
+      const stripped = stripHiddenAnswers({ ...answers, q21_recap_channel: channel.options![0] })
+      check('Ausgeblendete Recap-Kanalantwort wird entfernt', stripped.q21_recap_channel === undefined)
+    }
+    const readerAnswers = { q21_recap_frequency: readers[1], q21_recap_channel: channel.options![1] }
+    const valid = validateIncomingAnswers(readerAnswers)
+    check('Recap-Kanal samt App-Bekanntheit wird validiert', valid.ok && valid.answers.q21_recap_channel === channel.options![1])
+    const nonreader = validateIncomingAnswers({ q21_recap_frequency: 'Ich kenne die Recaps, lese sie aber nicht.', q21_recap_channel: channel.options![0] })
+    check('Server entfernt Kanalantwort beim Wechsel auf Nichtleser', nonreader.ok && nonreader.answers.q21_recap_channel === undefined)
+    const invalid = validateIncomingAnswers({ q21_recap_frequency: readers[0], q21_recap_channel: 'Alte Antwortoption' })
+    check('Nicht mehr gültige Recap-Antwort wird abgewiesen', !invalid.ok)
+
+    const t = '2026-11-08T11:00:00.000Z'
+    const row = (id: string, answers: Answers): SurveyRow => ({
+      user_id: id, answers, started_at: t, submitted_at: t, updated_at: t,
+    })
+    const data = computeCrossTabs([
+      row('r1', { q21_recap_frequency: readers[0], q21_recap_channel: channel.options![0] }),
+      row('r2', { q21_recap_frequency: readers[1] }),
+      row('r3', { q21_recap_frequency: readers[2], q21_recap_channel: channel.options![1] }),
+      row('r4', { q21_recap_frequency: 'Ich kenne die Recaps, lese sie aber nicht.' }),
+      row('r5', { q21_recap_frequency: 'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt.' }),
+      row('r6', {}),
+    ], new Map()).kommunikation
+    check('Admin-Auswertung Q21a: alle 6 Teilnehmer, 5 Antworten', data.recapFrequency.total === 6 && data.recapFrequency.shownButUnanswered === 1)
+    check('Admin-Auswertung Q21b: nur 3 Leser sehen die Frage, davon 2 Antworten', data.recapChannel.total === 3 && data.recapChannel.shownButUnanswered === 1)
+    check('Admin-Auswertung Q21b: WhatsApp-Bekanntheit bleibt differenziert', data.recapChannel.options[0].count === 1 && data.recapChannel.options[1].count === 1)
   }
 
   console.log('\n6. Multi-Select-Exklusivität und maxSelect (toggleMultiOption)')
@@ -158,12 +220,12 @@ export function run(): number {
     const selCExcl = toggleMultiOption(qc, selC, 'Für mich ist alles ausreichend nachvollziehbar')
     check('Nachvollziehbarkeit: exklusive Option trotz Maximum wählbar', selCExcl.length === 1)
 
-    // Q7: 1 exklusive Option ("Keine Präferenz"), max 2 konkrete.
+    // Q7: 1 exklusive Option ("Mir ist die Art der Preise egal"), max 2 konkrete.
     const q7 = q('q7')
     let sel7 = toggleMultiOption(q7, [], 'Geldpreise')
-    sel7 = toggleMultiOption(q7, sel7, 'Gutscheine (z. B. Bürgi-Getränke)')
-    const sel7Excl = toggleMultiOption(q7, sel7, 'Keine Präferenz')
-    check('Q7: "Keine Präferenz" trotz 2 bereits gewählter Optionen wählbar', sel7Excl.length === 1 && sel7Excl[0] === 'Keine Präferenz')
+    sel7 = toggleMultiOption(q7, sel7, 'Gutscheine (z. B. für Getränke oder Essen)')
+    const sel7Excl = toggleMultiOption(q7, sel7, 'Mir ist die Art der Preise egal')
+    check('Q7: "Mir ist die Art der Preise egal" trotz 2 bereits gewählter Optionen wählbar', sel7Excl.length === 1 && sel7Excl[0] === 'Mir ist die Art der Preise egal')
 
     // Q29: "Sonstiges" zählt gegen das Limit von 3, Zufriedenheits-Option ist exklusiv.
     const q29 = q('q29')
@@ -173,7 +235,7 @@ export function run(): number {
     check('Q29: "Sonstiges" zählt gegen das Limit von 3', sel29.length === 3)
     const sel29Blocked = toggleMultiOption(q29, sel29, 'Zu wenig Wildis')
     check('Q29: 4. Option (nach "Sonstiges") blockiert', sel29Blocked.length === 3)
-    const sel29Excl = toggleMultiOption(q29, sel29, 'Ich bin mit meiner aktuellen Wettaktivität zufrieden und möchte nicht häufiger wetten')
+    const sel29Excl = toggleMultiOption(q29, sel29, 'Ich wette bereits so häufig, wie ich möchte.')
     check('Q29: exklusive Zufriedenheits-Option trotz Maximum wählbar', sel29Excl.length === 1)
 
     // Feature-Frage: "Keine" jederzeit klickbar, auch bei 3 bereits gewählten Features;
@@ -205,9 +267,9 @@ export function run(): number {
       return r.ok && typeof r.answers.q31 === 'string' && (r.answers.q31 as string).length <= 2000
     })())
     check('absurd überlanger Freitext (Missbrauchsversuch) wird abgelehnt', !validateIncomingAnswers({ q31: 'x'.repeat(50000) }).ok)
-    check('gültige, vollständige Antworten werden akzeptiert', validateIncomingAnswers({ q1: 8, q4: 'Das kann ich erst entscheiden, wenn Höhe des Startgelds und mögliche Preise feststehen.' }).ok)
+    check('gültige, vollständige Antworten werden akzeptiert', validateIncomingAnswers({ q1: 8, q4: 'Das kann ich erst entscheiden, wenn die Höhe des Startgelds und die möglichen Preise feststehen.' }).ok)
     // Server muss eine versteckte Folgefrage aus einer Einreichung entfernen, nicht nur ablehnen.
-    const stale = validateIncomingAnswers({ q4: 'Das Wettspiel soll kostenlos bleiben. Mit Startgeld würde ich nicht mehr teilnehmen.', q5: '10 €' })
+    const stale = validateIncomingAnswers({ q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.', q5: '10 €' })
     check('stale Q5-Antwort hinter inzwischen verstecktem Q4=1 wird beim Speichern entfernt', stale.ok && stale.answers.q5 === undefined)
     // Multi-Select-Validator direkt (nicht nur über das API-Wrapper).
     check('isValidMultiSelection: leeres Array ist gültig (keine Pflichtprüfung hier)', isValidMultiSelection(q('q25'), []))
@@ -235,13 +297,13 @@ export function run(): number {
       q3: 'Montagvormittag (wie bisher)', q9: 'Nie', q10: '250 Wildis (wie bisher)', q11: '2 (wie bisher)',
       q12: '0 – Risky-Wetten vollständig abschaffen', q_payout_normal: '10.000 Wildis (wie bisher)',
       q15: '10 Wildis (wie bisher)', q16: '50 Wildis (wie bisher)',
-      q17: 'Die bisherige Regel beibehalten – keine Wetten gegen die eigene Mannschaft',
+      q17: 'Bisherige Regel beibehalten – keine Wetten gegen die eigene Mannschaft.',
       q19: 'Nein, mir ist nichts Ungewöhnliches aufgefallen',
       q25: ['Auf keinen – ich möchte alle behalten'],
-      q27: 'Alle Kreisliga-Spiele (wie bisher)', q28: 'Wildenroth II + 1 Topspiel (wie bisher)',
+      q27: 'Alle Kreisliga-Spiele (wie bisher)', q28: 'Wildenroth II + 1 weiteres ausgewähltes Spiel (wie bisher)',
       q20: 'Ich nutze sie und finde sie hilfreich', q22: 'WhatsApp und App-Push',
-      q4: 'Das Wettspiel soll kostenlos bleiben. Mit Startgeld würde ich nicht mehr teilnehmen.',
-      q29: ['Ich bin mit meiner aktuellen Wettaktivität zufrieden und möchte nicht häufiger wetten'],
+      q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.',
+      q29: ['Ich wette bereits so häufig, wie ich möchte.'],
       q30: 'Ja, auf jeden Fall', q_features: ['Keine dieser Funktionen interessiert mich'],
     }
     check('Testvorlage "complete" ist tatsächlich vollständig', isSurveyComplete(complete), 'Testdaten-Fehler, nicht Produktionscode')
@@ -256,7 +318,7 @@ export function run(): number {
 
     // Der eigentliche gemeldete Bug: Q4 auf einen Wert geändert, der Q5 Pflicht macht, Q5 aber
     // noch nicht beantwortet — ein vorher abgegebener Stand darf dadurch NICHT "abgegeben" bleiben.
-    const incompleteAfterEdit: Answers = { ...complete, q4: 'Ich würde ein Startgeld mit Preisen bevorzugen.' }
+    const incompleteAfterEdit: Answers = { ...complete, q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.' }
     check('Testvorlage wird durch den Q4-Wechsel tatsächlich unvollständig (Q5/Q7/Q8 jetzt Pflicht, fehlen)',
       !isSurveyComplete(incompleteAfterEdit), 'Testdaten-Fehler, nicht Produktionscode')
     check('save: bereits abgegeben, aber nach Bearbeitung unvollständig → wird auf null zurückgesetzt (der gemeldete Bug)',
