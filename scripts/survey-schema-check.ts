@@ -14,7 +14,8 @@ import {
 import {
   toggleMultiOption, isValidMultiSelection, validateIncomingAnswers, stripHiddenAnswers, nextSubmittedAt,
 } from '@/lib/surveyValidation'
-import { isActuallySubmitted, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
+import { isActuallySubmitted, computeOverview, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
+import { computeSurveyDecisionInsights, inSurveySegment } from '@/lib/surveyInsights'
 import {
   currentSurveyModeKey, resolveSurveyMode, surveyModeAllowsAccess, surveyModeShowsHelpLink, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW,
   currentSurveyVersion, SURVEY_VERSION_PRODUCTION, SURVEY_VERSION_PREVIEW,
@@ -328,6 +329,12 @@ export function run(): number {
     const rowOk: SurveyRow = { user_id: 'u1', answers: complete, started_at: earlier, submitted_at: earlier, updated_at: now }
     const rowStaleFlag: SurveyRow = { user_id: 'u2', answers: incompleteAfterEdit, started_at: earlier, submitted_at: earlier, updated_at: now }
     const rowNotSubmitted: SurveyRow = { user_id: 'u3', answers: complete, started_at: earlier, submitted_at: null, updated_at: now }
+    const rowNotReturning: SurveyRow = {
+      ...rowOk, user_id: 'u4', answers: { ...complete, q30: 'Eher nein' },
+    }
+    const renewedOverview = computeOverview([rowOk, rowNotReturning], new Set(['u1', 'u4']))
+    check('Q30-Teilnahmeabsicht zählt Textoptionen statt einen ungültigen Durchschnitt',
+      renewedOverview.returningPct === 50)
     check('isActuallySubmitted: vollständige Antworten + Zeitstempel → true', isActuallySubmitted(rowOk))
     check('isActuallySubmitted: Zeitstempel gesetzt, aber Antworten unvollständig → false (Verteidigungslinie 2)', !isActuallySubmitted(rowStaleFlag))
     check('isActuallySubmitted: kein Zeitstempel → false', !isActuallySubmitted(rowNotSubmitted))
@@ -475,6 +482,36 @@ export function run(): number {
       if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV
       else process.env.VERCEL_ENV = originalVercelEnv
     }
+  }
+
+  console.log('\n14. Interaktive Auswertung: Filter, Basisgrößen und Szenario-Rechnung')
+  {
+    const date = '2026-11-08T12:00:00Z'
+    const make = (id: string, answers: Answers): SurveyRow =>
+      ({ user_id: id, answers, started_at: date, updated_at: date, submitted_at: date })
+    // Intentionally partial, as the pure insight function receives only already-validated rows.
+    const rows: SurveyRow[] = [
+      make('r1', { q1: 8, q30: 'Ja, auf jeden Fall', q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.', q9: 'Häufig', q20: 'Ich nutze sie, bekomme aber zu viele Benachrichtigungen', q21_recap_frequency: 'Ich lese eigentlich jeden Recap.', q_features: ['Cashout'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
+      make('r2', { q1: 8, q30: 'Eher ja', q4: 'Ich würde lieber kostenlos weiterspielen, wäre bei einem angemessenen Startgeld aber trotzdem dabei.', q5: '20 €', q9: 'Nie', q20: 'Ich habe sie bewusst deaktiviert bzw. möchte keine', q21_recap_frequency: 'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt.', q_features: ['Cashout'], q29: ['Ich wette bewusst nur, wenn ich eine gute Gelegenheit sehe'] }),
+      make('r3', { q1: 8, q30: 'Eher nein', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: '10 €', q9: 'Sehr häufig', q20: 'Ich habe sie aktiviert, aber sie kommen nicht zuverlässig an', q21_recap_frequency: 'Ich lese die meisten Recaps, aber nicht alle.', q_features: ['Individuelle Push-Einstellungen'], q29: ['Ich habe zu wenig Wildis'] }),
+      make('r4', { q1: 8, q30: 'Ich bin noch unentschlossen', q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q21_recap_frequency: 'Ich kenne die Recaps, lese sie aber nicht.', q_features: ['Keine dieser Funktionen interessiert mich'], q29: ['Ich wette bereits so häufig, wie ich möchte.'] }),
+      make('r5', { q1: 8, q30: 'Ja, auf jeden Fall', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: '15 €', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q_features: ['Cashout'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
+      make('r6', { q1: 8, q30: 'Ja, auf jeden Fall', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: 'Kann ich noch nicht beurteilen', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q_features: ['Spiele favorisieren'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
+    ]
+    const summary = computeSurveyDecisionInsights(rows)
+    check('Q30: 4 von 6 wollen bei kostenloser Teilnahme wieder dabei sein', summary.returning.count === 4 && summary.returning.base === 6)
+    check('Q4: 2 von 6 würden bei Startgeld aussteigen', summary.feeExit.count === 2 && summary.feeExit.base === 6)
+    check('Q20: bewusst deaktivierte Pushs zählen nicht als technisches Problem', summary.pushProblems.count === 2 && summary.pushProblems.base === 6)
+    check('Q21: 2 von 4 Antwortenden lesen die meisten Recaps', summary.recapReaders.count === 2 && summary.recapReaders.base === 4)
+    check('Q5: Zahlbereitschaft 5/10/15/20-Euro-Szenarien', [3, 3, 2, 1].every((n, i) => summary.prices[i].willing === n))
+    check('Q5: rechnerisches Budget niemals als reale Einnahme ausgegeben', summary.prices[2].hypotheticalBudget === 30)
+    check('Feature-Ranking: „Keine“ nicht als Feature gezählt', summary.topFeatures[0].label === 'Cashout' && summary.topFeatures[0].count === 3)
+    check('Q29: bewusst selektives Wetten ist kein Hindernis', !summary.topObstacles.some((r) => r.label.includes('bewusst nur')))
+    check('Q29: konkretes häufigstes Hindernis hat 3 Stimmen', summary.topObstacles[0].count === 3)
+    check('Segmente filtern Q4-Ausstiegsrisiko korrekt', rows.filter((r) => inSurveySegment(r.answers, 'fee_exit')).length === 2)
+    check('Segmente filtern Q30-Rückkehrer korrekt', rows.filter((r) => inSurveySegment(r.answers, 'return_yes')).length === 4)
+    check('Kleine Stichproben erzeugen keine automatischen Handlungsimpulse', computeSurveyDecisionInsights(rows.slice(0, 4)).suggestions.length === 0)
+    check('Leere Stichprobe erzeugt keine irreführenden 0-Prozentwerte', computeSurveyDecisionInsights([]).returning.pct === null)
   }
 
   console.log(`\n${checks} Prüfungen, ${failures} Fehler.`)
