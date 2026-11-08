@@ -147,9 +147,6 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
 
   const { settings, overview, perQuestion, crossTabs, participants } = data
   const statById = new Map(perQuestion.map((s) => [s.stat.questionId, s]))
-  const q30 = crossTabs.zukunft.q30
-  const q30Answered = q30.total - q30.shownButUnanswered
-  const returningCount = q30.options.filter((o) => o.option === 'Ja, auf jeden Fall' || o.option === 'Eher ja').reduce((sum, o) => sum + o.count, 0)
 
   return (
     <div className="space-y-4">
@@ -203,7 +200,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
             <Metric label="Noch nicht teilgenommen" value={overview.notStarted} />
             <Metric label="Teilnahmequote" value={fmtPct(overview.participationRatePct)} />
             <Metric label="Ø Zufriedenheit (Q1)" value={fmtNum(overview.avgQ1, 1)} />
-            <Metric label="Wieder dabei bei kostenlosem Spiel" value={q30Answered > 0 ? fmtPct(100 * returningCount / q30Answered) : '—'} />
+            <Metric label="Wieder dabei bei kostenlosem Spiel" value={overview.returningPct == null ? '—' : fmtPct(overview.returningPct)} />
           </div>
           {overview.startedNotSubmitted > 0 && (
             <Notice tone="open"><strong>{overview.startedNotSubmitted}</strong> Person(en) haben begonnen, aber noch nicht abgegeben.</Notice>
