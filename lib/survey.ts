@@ -127,12 +127,11 @@ const Q20_FOLLOWUP_TRIGGERS = [
   'Ich nutze sie, bekomme aber zu viele Benachrichtigungen',
   'Ich habe sie aktiviert, aber sie kommen nicht zuverlässig an',
   'Ich nutze sie, finde sie aber kaum hilfreich',
-  'Ich habe sie bewusst deaktiviert bzw. möchte keine',
   'Ich habe die Einrichtung versucht, aber sie hat nicht funktioniert',
 ]
 
 const Q23_FOLLOWUP_TRIGGERS = [
-  'Ich wünsche mir zusätzliche Statistiken',
+  'Ich wünsche mir zusätzliche Auswertungen.'
   'Die vorhandenen Statistiken sollten verständlicher dargestellt werden',
   'Ich wünsche mir weniger Statistiken',
 ]
@@ -145,18 +144,18 @@ const Q25_MARKET_OPTIONS = [
 const Q25_NONE = 'Auf keinen – ich möchte alle behalten'
 const Q25_CANT_JUDGE = 'Kann ich nicht beurteilen'
 
-const Q29_SATISFIED = 'Ich bin mit meiner aktuellen Wettaktivität zufrieden und möchte nicht häufiger wetten'
+const Q29_SATISFIED = 'Ich wette bereits so häufig, wie ich möchte.'
 const Q29_OTHER = 'Sonstiges'
 
-const Q4_WOULD_LEAVE = 'Das Wettspiel soll kostenlos bleiben. Mit Startgeld würde ich nicht mehr teilnehmen.'
-const Q4_UNDECIDED = 'Das kann ich erst entscheiden, wenn Höhe des Startgelds und mögliche Preise feststehen.'
+const Q4_WOULD_LEAVE = 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.'
+const Q4_UNDECIDED = 'Das kann ich erst entscheiden, wenn die Höhe des Startgelds und die möglichen Preise feststehen.'
 // Q4 options for which Q5/Q7/Q8 are shown at all (everything except "would leave").
 const Q4_SHOWS_FOLLOWUPS = (a: Answers) => typeof a.q4 === 'string' && a.q4 !== Q4_WOULD_LEAVE
 // Q5 additionally excludes the "undecided" option — never ask for a max.
 // amount from someone who says they can't judge it without knowing the prizes.
 const Q5_VISIBLE = (a: Answers) => Q4_SHOWS_FOLLOWUPS(a) && a.q4 !== Q4_UNDECIDED
 
-const Q7_NO_PREFERENCE = 'Keine Präferenz'
+const Q7_NO_PREFERENCE = 'Mir ist die Art der Preise egal'
 
 const FEATURES_NONE = 'Keine dieser Funktionen interessiert mich'
 
@@ -255,20 +254,20 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       },
       {
         id: 'q10', type: 'single', required: true,
-        infoText: 'Aktuell liegt der maximale Einsatz bei 250 Wildis pro Wettschein. Die Begrenzung soll verhindern, dass durch besonders hohe Einsätze unverhältnismäßig große Gewinne entstehen und der Wettbewerb zu stark beeinflusst wird. Zusätzlich gibt es eine maximale Auszahlung von 10.000 Wildis bei normalen und 15.000 Wildis bei Risky-Wetten.',
+        infoText: 'Aktuell liegt der maximale Einsatz bei 250 Wildis pro Wettschein. Das Limit soll verhindern, dass sehr hohe Einsätze den Wettbewerb übermäßig beeinflussen.',
         text: 'Wie hoch sollte der maximale Einsatz pro Wettschein deiner Meinung nach sein?',
         options: ['100 Wildis', '200 Wildis', '250 Wildis (wie bisher)', '300 Wildis', '500 Wildis', 'Kein Einsatzlimit', 'Ist mir egal'],
       },
       {
         id: 'q11', type: 'single', required: true,
-        infoText: 'Aktuell sind pro Spieltag maximal 2 normale Wettscheine und 1 Risky-Wette erlaubt.',
+        infoText: 'Aktuell sind pro Spieltag maximal 2 normale Wettscheine erlaubt.',
         text: 'Wie viele normale Wettscheine sollten pro Spieltag maximal erlaubt sein?',
         options: ['1', '2 (wie bisher)', '3', '4', '5 oder mehr', 'Keine Begrenzung', 'Ist mir egal'],
       },
       {
         id: 'q12', type: 'single', required: true,
         dividerBefore: 'Risky-Wetten',
-        infoText: 'Aktuell darf jeder Teilnehmer pro Spieltag eine Risky-Wette mit einer Mindest-Gesamtquote von 20 abgeben. Zusätzlich sind zwei normale Wettscheine erlaubt.',
+        infoText: 'Risky-Wetten sind für höhere Gesamtquoten gedacht. Aktuell ist pro Spieltag eine Risky-Wette erlaubt.',
         text: 'Wie viele Risky-Wetten sollten deiner Meinung nach pro Spieltag erlaubt sein?',
         options: [
           Q12_ABOLISH, '1 Risky-Wette (wie bisher)', '2 Risky-Wetten', '3 Risky-Wetten', '4 oder mehr Risky-Wetten',
@@ -293,7 +292,7 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         id: 'q_payout_risky', type: 'single',
         required: q12RequiresFollowups,
         visible: q12Visible,
-        infoText: 'Aktuell beträgt die maximale Auszahlung bei einer Risky-Wette 15.000 Wildis.',
+        infoText: 'Bei normalen Wettscheinen gilt ein Auszahlungslimit von 10.000 Wildis, bei Risky-Wetten von 15.000 Wildis. Auch höhere rechnerische Gewinne sind gedeckelt.',
         text: 'Wie hoch sollte die maximale Auszahlung bei einer Risky-Wette sein?',
         options: ['10.000 Wildis', '15.000 Wildis (wie bisher)', '20.000 Wildis', '25.000 Wildis', 'Mehr als 25.000 Wildis', 'Keine Begrenzung', 'Ist mir egal', 'Kann ich nicht beurteilen'],
       },
@@ -319,13 +318,13 @@ export const SURVEY_SECTIONS: SectionDef[] = [
     questions: [
       {
         id: 'q17', type: 'single', required: true,
-        infoText: 'Aktuell dürfen Spieler und Trainer nicht gegen ihre eigene Mannschaft wetten. Die Regel soll Interessenkonflikte und mögliche Spielmanipulationen verhindern.',
-        text: 'Welche Wettbeschränkungen sollte es für Wildenroth-Spieler und Trainer bei Spielen der eigenen Mannschaft geben?',
+        infoText: 'Aktuell dürfen Spieler und Trainer nicht gegen die Mannschaft wetten, für die sie selbst spielen oder die sie betreuen. Die Regel soll Interessenkonflikte vermeiden.',
+        text: 'Welche Wettbeschränkungen sollten für Spieler und Trainer bei Spielen ihrer eigenen Mannschaft gelten?',
         options: [
-          'Die bisherige Regel beibehalten – keine Wetten gegen die eigene Mannschaft',
-          'Die Regel erweitern – zusätzlich Wetten auf selbst beeinflussbare Ereignisse verbieten (z. B. eigener Treffer)',
-          'Alle Wetten auf Spiele der eigenen Mannschaft verbieten – auch auf Siege',
-          'Die bisherige Einschränkung abschaffen – auch Wetten gegen die eigene Mannschaft erlauben',
+          'Bisherige Regel beibehalten – keine Wetten gegen die eigene Mannschaft.',
+          'Regel verschärfen – zusätzlich Wetten auf selbst beeinflussbare Ereignisse verbieten (z. B. eigener Treffer).',
+          'Alle Wetten auf Spiele der eigenen Mannschaft verbieten – auch auf deren Sieg.',
+          'Bisherige Einschränkung abschaffen – Wetten gegen die eigene Mannschaft erlauben.',
           'Ist mir egal',
           'Kann ich nicht beurteilen',
         ],
@@ -358,7 +357,8 @@ export const SURVEY_SECTIONS: SectionDef[] = [
     questions: [
       {
         id: 'q25', type: 'multi', required: true, maxSelect: 3,
-        text: 'Auf welche der aktuell angebotenen Wettmärkte könntest du am ehesten verzichten?',
+        text: 'Falls wir das Wettangebot künftig vereinfachen: Auf welche Wettmärkte könntest du am ehesten verzichten?',
+        helpText: 'Wähle bis zu drei Märkte, die dir persönlich am wenigsten wichtig sind. Deine Auswahl bedeutet keine automatische Abschaffung.',
         options: [...Q25_MARKET_OPTIONS, Q25_NONE, Q25_CANT_JUDGE],
         exclusiveOptions: [Q25_NONE, Q25_CANT_JUDGE],
       },
@@ -375,8 +375,8 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       },
       {
         id: 'q27', type: 'single', required: true,
-        infoText: 'Aktuell werden alle Spiele der Kreisliga 2 zum Wetten angeboten.',
-        text: 'Wie viele Spiele aus der Kreisliga 2 sollten künftig pro regulärem Spieltag zum Wetten angeboten werden?',
+        infoText: 'Aktuell bieten wir alle Kreisliga-2-Spiele an. Bei einer kleineren Auswahl bleibt Wildenroth I weiterhin dabei.',
+        text: 'Wie umfangreich soll das Wettangebot für die Kreisliga 2 künftig sein?',
         options: [
           'Alle Kreisliga-Spiele (wie bisher)', 'Wildenroth I + 3–4 weitere Spiele', 'Wildenroth I + 1–2 weitere Spiele',
           'Nur Wildenroth I', 'Ist mir egal', 'Ich verfolge die Kreisliga zu wenig, um das beurteilen zu können',
@@ -384,10 +384,10 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       },
       {
         id: 'q28', type: 'single', required: true,
-        infoText: 'Aktuell werden pro regulärem Spieltag Wildenroth II und ein ausgewähltes Topspiel aus der B-Klasse 2 angeboten.',
-        text: 'Wie viele Spiele der B-Klasse 2 sollten künftig pro regulärem Spieltag zum Wetten angeboten werden?',
+        infoText: 'Aktuell bieten wir pro regulärem Spieltag Wildenroth II und ein weiteres ausgewähltes B-Klasse-2-Spiel an.',
+        text: 'Wie umfangreich soll das Wettangebot für die B-Klasse 2 künftig sein?',
         options: [
-          'Keine B-Klasse-Spiele', 'Nur Wildenroth II', 'Wildenroth II + 1 Topspiel (wie bisher)', 'Wildenroth II + 2–3 weitere Spiele',
+          'Keine B-Klasse-Spiele', 'Nur Wildenroth II', 'Wildenroth II + 1 weiteres ausgewähltes Spiel (wie bisher)', 'Wildenroth II + 2–3 weitere Spiele',
           'Alle Spiele der B-Klasse 2', 'Ist mir egal', 'Ich verfolge die B-Klasse zu wenig, um das beurteilen zu können',
         ],
       },
@@ -416,21 +416,34 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       {
         id: 'q20_text', type: 'freetext', required: false,
         text: 'Was genau stört dich an den Push-Benachrichtigungen oder hat nicht funktioniert?',
-        helpText: 'Gib wenn möglich Gerät/Browser und das Problem an.',
+        helpText: 'Nenne gern die betroffene Benachrichtigung oder das Problem. Bei technischen Schwierigkeiten helfen Gerät und Browser.',
         visible: (a) => typeof a.q20 === 'string' && Q20_FOLLOWUP_TRIGGERS.includes(a.q20),
       },
       {
-        id: 'q21_recap_channel', type: 'single', required: false,
-        text: 'Welche Aussage trifft am ehesten auf dich und die Spieltags-Recaps zu?',
+        id: 'q21_recap_frequency', type: 'single', required: false,
+        text: 'Wie regelmäßig liest du unsere Spieltags-Recaps?',
         options: [
-          'Ich lese sie hauptsächlich über WhatsApp und kenne auch die App-Version',
-          'Ich lese sie hauptsächlich über WhatsApp und wusste nicht, dass es sie auch in der App gibt',
-          'Ich lese sie hauptsächlich in der App',
-          'Ich lese sie über WhatsApp und in der App ungefähr gleich häufig',
-          'Ich lese die Recaps nur selten',
-          'Ich lese die Recaps gar nicht, kenne sie aber',
-          'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt',
+          'Ich lese eigentlich jeden Recap.',
+          'Ich lese die meisten Recaps, aber nicht alle.',
+          'Ich schaue nur gelegentlich rein.',
+          'Ich kenne die Recaps, lese sie aber nicht.',
+          'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt.',
         ],
+      },
+      {
+        id: 'q21_recap_channel', type: 'single', required: false,
+        text: 'Wo liest du die Spieltags-Recaps hauptsächlich?',
+        options: [
+          'Über WhatsApp – ich wusste, dass es die Recaps auch in der App gibt.',
+          'Über WhatsApp – ich wusste nicht, dass es die Recaps auch in der App gibt.',
+          'Direkt in der Tippspiel-App.',
+          'Über WhatsApp und in der App ungefähr gleich häufig.',
+        ],
+        visible: (a) => typeof a.q21_recap_frequency === 'string' && [
+          'Ich lese eigentlich jeden Recap.',
+          'Ich lese die meisten Recaps, aber nicht alle.',
+          'Ich schaue nur gelegentlich rein.',
+        ].includes(a.q21_recap_frequency),
       },
       {
         id: 'q22', type: 'single', required: true,
@@ -444,14 +457,15 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       {
         id: 'q23', type: 'single', required: false,
         infoText: 'Gemeint sind die persönlichen Wettstatistiken im Profil, z. B. Gewinnserien, Lieblingsmarkt oder durchschnittliche Quote — nicht externe BFV-/FuPa-Statistiken.',
-        text: 'Was würdest du dir für die persönlichen Wettstatistiken in deinem Profil wünschen?',
+        text: 'Welche Aussage trifft auf die persönlichen Wettstatistiken in deinem Profil am ehesten zu?',
         options: [
-          'Ich wünsche mir zusätzliche Statistiken',
+          'Ich wünsche mir zusätzliche Auswertungen.',
           'Die vorhandenen Statistiken sollten verständlicher dargestellt werden',
-          'Die Statistiken sind so, wie sie sind, gut',
+          'Die Statistiken passen für mich so, wie sie sind.',
           'Ich wünsche mir weniger Statistiken',
           'Ich brauche keine persönlichen Wettstatistiken',
-          'Ich habe sie mir noch nicht angesehen oder kann sie nicht beurteilen',
+          'Ich habe mir die Statistiken bisher nicht angesehen.',
+          'Ich habe sie mir angesehen, kann sie aber nicht beurteilen.',
         ],
       },
       {
@@ -473,35 +487,38 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         text: 'Welche Aussage beschreibt deine Einstellung zu einem möglichen Startgeld am besten?',
         options: [
           Q4_WOULD_LEAVE,
-          'Ich bevorzuge ein kostenloses Wettspiel, würde bei einem passenden Startgeld aber weiterhin teilnehmen.',
-          'Ich würde ein Startgeld mit Preisen bevorzugen.',
-          'Beide Modelle sind für mich in Ordnung, solange das Startgeld passt.',
+          'Ich würde lieber kostenlos weiterspielen, wäre bei einem angemessenen Startgeld aber trotzdem dabei.',
+          'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.',
+          'Beide Modelle wären für mich in Ordnung, solange das Startgeld angemessen ist.',
           Q4_UNDECIDED,
         ],
       },
       {
         id: 'q5', type: 'single',
         required: Q5_VISIBLE, visible: Q5_VISIBLE,
-        text: 'Welchen Betrag wärst du maximal bereit, als Startgeld für eine Saison zu bezahlen?',
+        text: 'Welchen der folgenden Beträge würdest du als einmaliges Startgeld für die gesamte Saison höchstens bezahlen?',
+        helpText: 'Wähle den höchsten Betrag aus, den du noch akzeptieren würdest.',
         options: ['Weniger als 5 €', '5 €', '10 €', '15 €', '20 €', 'Mehr als 20 €', 'Kann ich noch nicht beurteilen'],
       },
       {
         id: 'q7', type: 'multi', maxSelect: 2,
         required: Q4_SHOWS_FOLLOWUPS, visible: Q4_SHOWS_FOLLOWUPS,
-        text: 'Welche Arten von Preisen würdest du beim Wildenroth-Wettspiel am liebsten gewinnen?',
-        options: ['Geldpreise', 'Gutscheine (z. B. Bürgi-Getränke)', 'Wanderpokale', 'Wildenroth-Merchandise', 'Andere Sachpreise', 'Erlebnispreise (z. B. Fußballtickets, Veranstaltungen)', Q7_NO_PREFERENCE],
+        text: 'Welche Arten von Preisen würdest du dir für die Saisonwertung am meisten wünschen?',
+        helpText: 'Wähle bis zu zwei Preisarten aus, die dich am meisten ansprechen.',
+        options: ['Geldpreise', 'Gutscheine (z. B. für Getränke oder Essen)', 'Pokale und Trophäen (z. B. Wanderpokal)', 'Wildenroth-Merchandise (z. B. Fanschal oder Shirt)', 'Andere Sachpreise (z. B. Sportartikel)', 'Erlebnispreise (z. B. Fußballtickets oder Veranstaltungen)', Q7_NO_PREFERENCE],
         exclusiveOptions: [Q7_NO_PREFERENCE],
       },
       {
         id: 'q8', type: 'single',
         required: Q4_SHOWS_FOLLOWUPS, visible: Q4_SHOWS_FOLLOWUPS,
-        text: 'Wie sollte das Preisbudget am Saisonende deiner Meinung nach verteilt werden?',
+        text: 'Wie sollten die Preise am Ende der Saison verteilt werden?',
+        helpText: 'Es geht um die grundsätzliche Verteilung, unabhängig von der späteren Höhe des Preisbudgets.',
         options: [
-          'Wenige, dafür größere Preise für die Bestplatzierten',
-          'Größere Hauptpreise und zusätzlich kleinere Preise, z. B. für besondere Leistungen',
-          'Möglichst viele Teilnehmer sollen einen kleineren Preis erhalten können',
+          'Wenige, dafür größere Preise ausschließlich für die Bestplatzierten.',
+          'Größere Hauptpreise für die Bestplatzierten und zusätzlich kleinere Preise, z. B. für Sonderwertungen oder besondere Leistungen.',
+          'Möglichst viele Teilnehmer sollen die Chance auf einen kleineren Preis haben.',
           'Ist mir egal',
-          'Kann ich ohne konkretes Preisbudget noch nicht beurteilen',
+          'Das kann ich ohne ein konkretes Preisbudget noch nicht beurteilen.',
         ],
       },
     ],
@@ -514,7 +531,8 @@ export const SURVEY_SECTIONS: SectionDef[] = [
     questions: [
       {
         id: 'q29', type: 'multi', required: true, maxSelect: 3,
-        text: 'Welche Gründe führen dazu, dass du manchmal weniger wettest oder einen Spieltag auslässt?',
+        text: 'Welche Gründe beeinflussen, ob du an einem Spieltag wettest oder aussetzt?',
+        helpText: 'Wähle bis zu drei Gründe aus, die auf dich zutreffen.',
         options: [
           'Ich vergesse, rechtzeitig zu wetten',
           'Mir fehlt manchmal die Zeit',
@@ -534,18 +552,19 @@ export const SURVEY_SECTIONS: SectionDef[] = [
       },
       {
         id: 'q29_text', type: 'freetext', required: false,
-        text: 'Welcher weitere Grund führt dazu, dass du manchmal weniger wettest oder einen Spieltag auslässt?',
+        text: 'Welcher weitere Grund beeinflusst deine Wettaktivität?',
         visible: (a) => Array.isArray(a.q29) && (a.q29 as string[]).includes(Q29_OTHER),
       },
       {
         id: 'q30', type: 'single', required: true,
-        text: 'Planst du, auch in der Saison 2027/28 wieder am Wildenroth-Wettspiel teilzunehmen?',
+        text: 'Angenommen, das Wildenroth-Wettspiel bleibt auch in der Saison 2027/28 kostenlos: Würdest du wieder teilnehmen?',
+        helpText: 'Ob ein mögliches Startgeld deine Entscheidung beeinflusst, hast du bereits im Abschnitt „Startgeld & Preise“ angegeben.',
         options: ['Ja, auf jeden Fall', 'Eher ja', 'Ich bin noch unentschlossen', 'Eher nein', 'Nein, voraussichtlich nicht'],
       },
       {
         id: 'q_features', type: 'multi', required: true, maxSelect: 3,
         text: 'Welche neuen Funktionen würdest du dir für das Wildenroth-Wettspiel am meisten wünschen?',
-        helpText: 'Wähle insgesamt maximal drei Funktionen aus. Die Vorschläge sind Ideen und noch keine zugesagten Funktionen.',
+        helpText: 'Wähle bis zu drei Ideen aus, die du dir am meisten wünschst. Die Vorschläge sind noch keine zugesagten Funktionen.',
         options: [
           'Cashout', 'Quotenänderungen & Quotenverlauf', 'Same-Game-Kombis', 'Systemwetten', 'Wildi-Boost', 'Wettscheine als Entwurf speichern',
           'Spieler-Duelle', 'Zusätzliche Achievements', 'Wochen-Challenges', 'Zusätzliche Ranglisten',
@@ -560,18 +579,18 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         ],
         optionHelp: {
           'Cashout': 'Laufende Wetten vorzeitig gegen eine angebotene Auszahlung beenden.',
-          'Quotenänderungen & Quotenverlauf': 'Quoten können sich während der Wettphase ändern. Du kannst nachvollziehen, wie sie sich entwickelt haben. Bereits abgegebene Wetten behalten ihre ursprüngliche Quote.',
-          'Same-Game-Kombis': 'Mehrere Tipps zum selben Spiel kombinieren, z. B. Wildenroth-Sieg und über 2,5 Tore.',
-          'Systemwetten': 'Beispielsweise bei einer 2-aus-3-Wette auch mit einem falschen Tipp noch eine Auszahlung erhalten.',
-          'Wildi-Boost': 'Freiwillig auf Siege von Wildenroth I und II tippen und bei Erfolg einen zusätzlichen Bonus erhalten.',
-          'Wettscheine als Entwurf speichern': 'Tipps zusammenstellen, für später merken und erst dann verbindlich abgeben.',
-          'Spieler-Duelle': 'Gegen andere Teilnehmer in einem direkten Tippvergleich antreten.',
-          'Zusätzliche Achievements': 'Neue sammelbare Erfolge und Abzeichen als Erweiterung des bestehenden Pokalschranks.',
-          'Wochen-Challenges': 'Freiwillige Aufgaben und Herausforderungen zusätzlich zu den bestehenden Bonus-Tipps.',
-          'Zusätzliche Ranglisten': 'Beispielsweise Monatswertungen oder eine Risky-Rangliste.',
-          'Individuelle Push-Einstellungen': 'Selbst entscheiden, welche Arten von Benachrichtigungen man erhält.',
+          'Quotenänderungen & Quotenverlauf': 'Quotenänderungen vor dem Wettschluss sehen; abgegebene Wetten behalten ihre Quote.',
+          'Same-Game-Kombis': 'Verschiedene Tipps auf dasselbe Spiel kombinieren, z. B. Sieg und über 2,5 Tore.',
+          'Systemwetten': 'Bei einer 2-aus-3-Wette kann auch mit einem falschen Tipp eine Auszahlung entstehen.',
+          'Wildi-Boost': 'Bei erfolgreichen Tipps auf Wildenroth I oder II einen Extra-Bonus erhalten.',
+          'Wettscheine als Entwurf speichern': 'Wettscheine vorbereiten und später verbindlich abgeben.',
+          'Spieler-Duelle': 'Im direkten Tippvergleich gegen andere Teilnehmer antreten.',
+          'Zusätzliche Achievements': 'Neue Erfolge und Abzeichen für den bestehenden Pokalschrank.',
+          'Wochen-Challenges': 'Neue freiwillige Aufgaben neben den bisherigen Bonus-Tipps.',
+          'Zusätzliche Ranglisten': 'Zum Beispiel Monatswertungen oder eine eigene Risky-Rangliste.',
+          'Individuelle Push-Einstellungen': 'Selbst auswählen, welche Push-Benachrichtigungen ankommen.',
           'Spiele favorisieren': 'Interessante Spiele markieren und schneller wiederfinden.',
-          'Wettscheine teilen': 'Eigene Wetten oder Gewinne als Bild oder Link mit Freunden teilen.',
+          'Wettscheine teilen': 'Eigene Wettscheine oder Gewinne als Bild oder Link teilen.',
         },
       },
       {
