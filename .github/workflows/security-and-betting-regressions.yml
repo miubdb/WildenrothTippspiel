@@ -88,6 +88,8 @@ jobs:
             fi
           done
           exit $FAIL
+      - name: Verify survey schema, skip logic and recap analytics
+        run: node --experimental-strip-types scripts/run-survey-schema-check.mjs
       - name: Verify annulment, cancellations and Risky accounting
         run: |
           node --experimental-strip-types scripts/run-match-annulment-check.mjs
