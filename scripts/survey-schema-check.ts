@@ -35,14 +35,14 @@ function q(id: string) {
 }
 
 export function run(): number {
-  console.log('\n1. Schema-Grundstruktur: 7 Bereiche, 41 Felder, keine doppelten IDs')
+  console.log('\n1. Schema-Grundstruktur: 7 Bereiche, 42 Felder, keine doppelten IDs')
   {
     check('genau 7 Bereiche', SURVEY_SECTIONS.length === 7, `${SURVEY_SECTIONS.length}`)
-    check('genau 41 Fragefelder insgesamt', ALL_QUESTIONS.length === 41, `${ALL_QUESTIONS.length}`)
+    check('genau 42 Fragefelder insgesamt', ALL_QUESTIONS.length === 42, `${ALL_QUESTIONS.length}`)
     const ids = ALL_QUESTIONS.map((x) => x.id)
     check('keine doppelten Frage-IDs', new Set(ids).size === ids.length)
     const perSection = SURVEY_SECTIONS.map((s) => s.questions.length)
-    check('Felder pro Bereich: 6,11,3,5,6,4,6', perSection.join(',') === '6,11,3,5,6,4,6', perSection.join(','))
+    check('Felder pro Bereich: 6,11,3,5,7,4,6', perSection.join(',') === '6,11,3,5,7,4,6', perSection.join(','))
   }
 
   console.log('\n2. Maximal 27 Pflichtfelder (bei der Antwortkombination, die am meisten Pflichtfragen freischaltet)')
@@ -129,6 +129,39 @@ export function run(): number {
       const stripped = stripHiddenAnswers({ ...c.noTrigger, [c.id]: 'alte stale Antwort' })
       check(`${c.id}: stale Antwort nach Rücknahme des Triggers entfernt`, stripped[c.id] === undefined)
     }
+  }
+
+  console.log('\n5b. Recap-Leserhäufigkeit und Kanal: Sprunglogik + Antwortvalidierung')
+  {
+    const frequency = q('q21_recap_frequency')
+    const channel = q('q21_recap_channel')
+    check('Recap-Häufigkeit bleibt freiwillig', !isRequired(frequency, {}))
+    check('Recap-Kanal bleibt freiwillig', !isRequired(channel, { q21_recap_frequency: 'Ich lese eigentlich jeden Recap.' }))
+    const readers = [
+      'Ich lese eigentlich jeden Recap.',
+      'Ich lese die meisten Recaps, aber nicht alle.',
+      'Ich schaue nur gelegentlich rein.',
+    ]
+    for (const value of readers) {
+      check(`Recap-Kanal bei Leser "${value}" sichtbar`, isQuestionVisible(channel, { q21_recap_frequency: value }))
+    }
+    for (const value of [
+      undefined,
+      'Ich kenne die Recaps, lese sie aber nicht.',
+      'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt.',
+    ]) {
+      const answers: Answers = value ? { q21_recap_frequency: value } : {}
+      check(`Recap-Kanal ohne regelmäßige/gelegentliche Nutzung ausgeblendet (${value ?? 'keine Antwort'})`, !isQuestionVisible(channel, answers))
+      const stripped = stripHiddenAnswers({ ...answers, q21_recap_channel: channel.options![0] })
+      check('Ausgeblendete Recap-Kanalantwort wird entfernt', stripped.q21_recap_channel === undefined)
+    }
+    const readerAnswers = { q21_recap_frequency: readers[1], q21_recap_channel: channel.options![1] }
+    const valid = validateIncomingAnswers(readerAnswers)
+    check('Recap-Kanal samt App-Bekanntheit wird validiert', valid.ok && valid.answers.q21_recap_channel === channel.options![1])
+    const nonreader = validateIncomingAnswers({ q21_recap_frequency: 'Ich kenne die Recaps, lese sie aber nicht.', q21_recap_channel: channel.options![0] })
+    check('Server entfernt Kanalantwort beim Wechsel auf Nichtleser', nonreader.ok && nonreader.answers.q21_recap_channel === undefined)
+    const invalid = validateIncomingAnswers({ q21_recap_frequency: readers[0], q21_recap_channel: 'Alte Antwortoption' })
+    check('Nicht mehr gültige Recap-Antwort wird abgewiesen', !invalid.ok)
   }
 
   console.log('\n6. Multi-Select-Exklusivität und maxSelect (toggleMultiOption)')
