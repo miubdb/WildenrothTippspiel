@@ -16,6 +16,7 @@ import {
 } from '@/lib/surveyValidation'
 import { isActuallySubmitted, computeOverview, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
 import { computeSurveyDecisionInsights, inSurveySegment } from '@/lib/surveyInsights'
+import { findSurveyOperatorId, withoutSurveyOperator } from '@/lib/surveyAudience'
 import {
   currentSurveyModeKey, resolveSurveyMode, surveyModeAllowsAccess, surveyModeShowsHelpLink, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW,
   currentSurveyVersion, SURVEY_VERSION_PRODUCTION, SURVEY_VERSION_PREVIEW,
@@ -512,6 +513,37 @@ export function run(): number {
     check('Segmente filtern Q30-Rückkehrer korrekt', rows.filter((r) => inSurveySegment(r.answers, 'return_yes')).length === 4)
     check('Kleine Stichproben erzeugen keine automatischen Handlungsimpulse', computeSurveyDecisionInsights(rows.slice(0, 4)).suggestions.length === 0)
     check('Leere Stichprobe erzeugt keine irreführenden 0-Prozentwerte', computeSurveyDecisionInsights([]).returning.pct === null)
+  }
+
+  console.log('\n15. Betreiberfilter – Community ohne Betreiber vs. alle')
+  {
+    const profiles = [
+      { id: 'operator', username: 'miubdb', is_admin: true },
+      { id: 'another-admin', username: 'other-admin', is_admin: true },
+      { id: 'player', username: 'player1', is_admin: false },
+    ]
+    const operatorId = findSurveyOperatorId(profiles)
+    check('Nur das konkret benannte Betreiberkonto wird erkannt', operatorId === 'operator')
+    check('Unpassende Konten werden nie als Betreiber angenommen',
+      findSurveyOperatorId([{ id: 'fake', username: 'miubdb', is_admin: false }]) === null)
+    const rows = [
+      { user_id: 'operator', answers: { q30: 'Eher nein' } },
+      { user_id: 'another-admin', answers: { q30: 'Eher ja' } },
+      { user_id: 'player', answers: { q30: 'Ja, auf jeden Fall' } },
+    ]
+    const community = withoutSurveyOperator(rows, operatorId!)
+    check('Community entfernt genau die Antwort des Betreibers',
+      community.length === 2 && community.every((r) => r.user_id !== 'operator'))
+    check('Andere Admins zählen weiterhin als Mitspieler zur Community',
+      community.some((r) => r.user_id === 'another-admin'))
+    check('Originalantworten bleiben für Gesamtauswertung erhalten', rows.length === 3)
+    check('Community- und Gesamtquote unterscheiden sich korrekt',
+      computeSurveyDecisionInsights(community.map((r) => ({
+        ...r, started_at: '2026-11-08', submitted_at: '2026-11-08', updated_at: '2026-11-08',
+      }))).returning.pct === 100 &&
+      computeSurveyDecisionInsights(rows.map((r) => ({
+        ...r, started_at: '2026-11-08', submitted_at: '2026-11-08', updated_at: '2026-11-08',
+      }))).returning.count === 2)
   }
 
   console.log(`\n${checks} Prüfungen, ${failures} Fehler.`)
