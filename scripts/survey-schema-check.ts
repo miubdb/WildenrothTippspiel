@@ -8,7 +8,7 @@
  * Usage: node --experimental-strip-types scripts/run-survey-schema-check.mjs
  */
 import {
-  SURVEY_SECTIONS, ALL_QUESTIONS, QUESTION_BY_ID, isRequired, isQuestionVisible,
+  SURVEY_SECTIONS, ALL_QUESTIONS, QUESTION_BY_ID, isRequired, isQuestionVisible, visibleQuestionsForSection,
   isSectionComplete, isSurveyComplete, type Answers,
 } from '@/lib/survey'
 import {
