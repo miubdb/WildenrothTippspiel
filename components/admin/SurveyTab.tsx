@@ -58,6 +58,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
   const [viewParticipant, setViewParticipant] = useState<Participant | null>(null)
   const [busy, setBusy] = useState(false)
   const [audience, setAudience] = useState<'community' | 'all'>('community')
+  const [view, setView] = useState<'overview' | 'analysis' | 'responses' | 'settings'>('overview')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -159,51 +160,23 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
 
   return (
     <div className="space-y-4">
-      <Section id="uf-sichtbarkeit" title="Sichtbarkeit & Konfiguration" subtitle="Umfrage-Rollout steuern (V2)" defaultOpen>
-        <div className="space-y-3">
-          <Notice tone="info">
-            Dieser Schalter steuert ausschließlich <code>app_settings.{settings.surveyModeKey}</code>,
-            <strong> nur für die Umgebung, in der dieses Admin-Panel gerade läuft</strong> ({settings.isProduction ? 'Production (main)' : 'Preview/integration'}).
-            Production und Preview/integration haben JEWEILS ihren eigenen, komplett getrennten
-            Schlüssel (<code>survey_mode_v2</code> bzw. <code>survey_mode_v2_preview</code>) in derselben
-            Datenbank — eine Freigabe hier wirkt sich nie auf die jeweils andere Umgebung aus, weder
-            sichtbar noch tatsächlich freigeschaltet. Ebenso speichert diese Umgebung ihre Antworten
-            unter einer eigenen Umfrageversion: aktuell <strong><code>{settings.surveyVersion}</code></strong>{' '}
-            — auch Export, Einzel-Löschung und Komplettreset betreffen ausschließlich diese Version, nie
-            die der anderen Umgebung. Das alte <code>survey_mode</code>/<code>winter_2026_v1</code> (V1)
-            bleibt davon unberührt und wird hier nicht mehr angezeigt/gesteuert; V1 hat bisher keine
-            abgegebenen Antworten. Solange hier nichts geändert wird, bleibt V2 in beiden Umgebungen auf
-            „Versteckt&rdquo; — keine Freischaltung ohne ausdrückliche Freigabe für genau diese Umgebung.
-          </Notice>
-          <div className="flex flex-wrap gap-2">
-            {(['hidden', 'direct_only', 'help_only', 'prominent'] as const).map((m) => (
-              <Btn key={m} variant={settings.surveyMode === m ? 'primary' : 'secondary'} size="sm" className="flex-1" disabled={busy} onClick={() => setMode(m)}>
-                {MODE_LABEL[m]}
-              </Btn>
-            ))}
-          </div>
-          <p className="text-[13px] leading-5 text-gray-600">
-            Aktuell ({settings.isProduction ? 'Production' : 'Preview/integration'}): <strong>{MODE_LABEL[settings.surveyMode] ?? settings.surveyMode}</strong> ·
-            {' '}„Nur Direktlink&rdquo; = /umfrage ist für angemeldete Nutzer erreichbar, aber weder in der Hilfe noch auf der Startseite verlinkt.
-            „Nur unter Hilfe&rdquo; = über Hilfe → Feedback &amp; Umfrage erreichbar, kein Hinweis auf der Startseite.
-            „Prominent&rdquo; zeigt zusätzlich einen Banner auf der Startseite.
-          </p>
-          <div className="flex flex-col gap-3 rounded-xl bg-gray-50 p-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-[15px] font-bold text-gray-900">Bulk-Reset erlaubt (Testphase)</div>
-              <div className="text-[13px] text-gray-600">Schaltet den Button „Alle Testantworten löschen&rdquo; unten frei/aus.</div>
-            </div>
-            <Btn variant={settings.allowReset ? 'secondary' : 'primary'} disabled={busy} onClick={() => setAllowReset(!settings.allowReset)}>
-              {settings.allowReset ? 'Deaktivieren' : 'Aktivieren'}
-            </Btn>
-          </div>
-        </div>
-      </Section>
-
-      <Section id="uf-uebersicht" title="Übersicht" subtitle="Teilnahme & kombinierte Auswertungen" defaultOpen badge={<Pill tone="neutral">{overview.submitted} abgegeben</Pill>}>
-        <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="tablist" aria-label="Umfrageverwaltung">
+        {([
+          { id: 'overview', label: 'Überblick' },
+          { id: 'analysis', label: 'Analysen' },
+          { id: 'responses', label: 'Antworten' },
+          { id: 'settings', label: 'Einstellungen' },
+        ] as const).map((item) => (
+          <button type="button" key={item.id} role="tab" aria-selected={view === item.id}
+            onClick={() => setView(item.id)}
+            className={`min-h-[46px] rounded-xl border px-3 py-2 text-[13px] font-bold ${view === item.id
+              ? 'border-red-700 bg-red-700 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-red-300'}`}>
+            {item.label}
+          </button>
+        ))}
+      </div>
           <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-            <div className="mb-2 text-[13px] font-bold text-gray-900">Welche Antworten auswerten?</div>
+            <div className="mb-2 text-[13px] font-bold text-gray-900">Auswertungsbasis</div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label="Auswertungsgruppe">
               <button type="button" disabled={!communityAvailable} aria-pressed={communitySelected}
                 onClick={() => setAudience('community')}
@@ -215,24 +188,30 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
                 Alle Antworten (inkl. Betreiber)
               </button>
             </div>
-            <p className="mt-2 text-[12px] leading-5 text-gray-600">
-              {communityAvailable
-                ? 'Standard: Deine Teilnahme zählt nicht in die Community-Auswertung. Mit „Alle Antworten“ kannst du sie zum Vergleich dazunehmen. Keine Antwort wird gelöscht oder verändert.'
-                : 'Das Betreiberkonto konnte nicht zugeordnet werden. Daher ist der Community-Filter vorübergehend deaktiviert und es werden alle Antworten angezeigt.'}
-            </p>
           </div>
+
+      {view === 'overview' && (
+        <>
+      <Section id="uf-uebersicht" title="Übersicht" subtitle="Teilnahme & kombinierte Auswertungen" defaultOpen badge={<Pill tone="neutral">{overview.submitted} abgegeben</Pill>}>
+        <div className="space-y-4">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <Metric label="Aktive User" value={overview.activeUsers} />
-            <Metric label="Umfrage begonnen" value={overview.started} />
-            <Metric label="Vollständig abgegeben" value={overview.submitted} highlight="green" />
-            <Metric label="Noch nicht teilgenommen" value={overview.notStarted} />
             <Metric label="Teilnahmequote" value={fmtPct(overview.participationRatePct)} />
-            <Metric label="Ø Zufriedenheit (Q1)" value={fmtNum(overview.avgQ1, 1)} />
-            <Metric label="Wieder dabei bei kostenlosem Spiel" value={overview.returningPct == null ? '—' : fmtPct(overview.returningPct)} />
+            <Metric label="Ø Zufriedenheit" value={fmtNum(overview.avgQ1, 1)} />
+            <Metric label="Wieder dabei (kostenlos)" value={overview.returningPct == null ? '—' : fmtPct(overview.returningPct)} />
           </div>
+          <p className="text-[13px] text-gray-600">{overview.submitted} abgegeben · {overview.started} begonnen · {overview.activeUsers} aktive Nutzer</p>
           {overview.startedNotSubmitted > 0 && (
             <Notice tone="open"><strong>{overview.startedNotSubmitted}</strong> Person(en) haben begonnen, aber noch nicht abgegeben.</Notice>
           )}
+        </div>
+      </Section>
+
+        </>
+      )}
+      {view === 'analysis' && (
+        <>
+      {overview.submitted > 0 ? (
+        <>
           <SurveyInsightsPanel participants={analysisParticipants} />
           <details className="group rounded-xl border border-gray-200 bg-white">
             <summary className="min-h-[48px] cursor-pointer list-none px-4 py-3 text-[13px] font-bold text-gray-800">
@@ -242,9 +221,9 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
             </summary>
             <div className="border-t border-gray-200 p-4"><CrossTabsSection crossTabs={crossTabs} /></div>
           </details>
-        </div>
-      </Section>
 
+        </>
+      ) : <EmptyNote>Noch keine vollständig abgegebenen Antworten für die Analyse.</EmptyNote>}
       <Section id="uf-fragen" title="Auswertung je Frage" subtitle={`Basierend auf ${overview.submitted} vollständig abgegebenen Antworten`}>
         <div className="space-y-3">
           {SURVEY_SECTIONS.map((section) => (
@@ -265,6 +244,10 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
         </div>
       </Section>
 
+        </>
+      )}
+      {view === 'responses' && (
+        <>
       <Section id="uf-antworten" title="Einzelantworten" subtitle="Alle Teilnehmer inkl. Betreiber ansehen oder löschen" badge={<Pill tone="neutral">{participants.length}</Pill>}>
         <div className="space-y-3">
           <a href={`/api/admin/survey/export?scope=${communitySelected ? 'community' : 'all'}`}
@@ -309,6 +292,41 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
         </div>
       </Section>
 
+        </>
+      )}
+      {view === 'settings' && (
+        <>
+      <Section id="uf-sichtbarkeit" title="Sichtbarkeit & Konfiguration" subtitle="Freigabe und Einstellungen" defaultOpen>
+        <div className="space-y-3">
+          <details className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-[13px] text-gray-700">
+            <summary className="cursor-pointer font-semibold">Technische Details zur Trennung von Preview und Production</summary>
+            <p className="mt-2 leading-5">Diese Umgebung: <strong>{settings.isProduction ? 'Production' : 'Preview'}</strong> · Schlüssel <code>{settings.surveyModeKey}</code> · Datenversion <code>{settings.surveyVersion}</code>. Sichtbarkeit und Antworten sind zwischen Preview und Production getrennt. Ältere Umfrageversionen bleiben erhalten.</p>
+          </details>
+          <div className="flex flex-wrap gap-2">
+            {(['hidden', 'direct_only', 'help_only', 'prominent'] as const).map((m) => (
+              <Btn key={m} variant={settings.surveyMode === m ? 'primary' : 'secondary'} size="sm" className="flex-1" disabled={busy} onClick={() => setMode(m)}>
+                {MODE_LABEL[m]}
+              </Btn>
+            ))}
+          </div>
+          <p className="text-[13px] leading-5 text-gray-600">
+            Aktuell ({settings.isProduction ? 'Production' : 'Preview/integration'}): <strong>{MODE_LABEL[settings.surveyMode] ?? settings.surveyMode}</strong> ·
+            {' '}„Nur Direktlink&rdquo; = /umfrage ist für angemeldete Nutzer erreichbar, aber weder in der Hilfe noch auf der Startseite verlinkt.
+            „Nur unter Hilfe&rdquo; = über Hilfe → Feedback &amp; Umfrage erreichbar, kein Hinweis auf der Startseite.
+            „Prominent&rdquo; zeigt zusätzlich einen Banner auf der Startseite.
+          </p>
+          <div className="flex flex-col gap-3 rounded-xl bg-gray-50 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-[15px] font-bold text-gray-900">Bulk-Reset erlaubt (Testphase)</div>
+              <div className="text-[13px] text-gray-600">Schaltet den Button „Alle Testantworten löschen&rdquo; unten frei/aus.</div>
+            </div>
+            <Btn variant={settings.allowReset ? 'secondary' : 'primary'} disabled={busy} onClick={() => setAllowReset(!settings.allowReset)}>
+              {settings.allowReset ? 'Deaktivieren' : 'Aktivieren'}
+            </Btn>
+          </div>
+        </div>
+      </Section>
+
       <Section id="uf-danger" title="Testphase — Alle Antworten löschen" subtitle="Unwiderruflich, nur für die Testphase" tone="critical">
         <div className="space-y-3">
           <p className="text-[14px] leading-6 text-red-900">
@@ -326,6 +344,8 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
         </div>
       </Section>
 
+        </>
+      )}
       {/* Participant detail */}
       {viewParticipant && (
         <ParticipantDetail participant={viewParticipant} onClose={() => setViewParticipant(null)} />
