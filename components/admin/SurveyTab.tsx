@@ -180,11 +180,11 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label="Auswertungsgruppe">
               <button type="button" disabled={!communityAvailable} aria-pressed={communitySelected}
                 onClick={() => setAudience('community')}
-                className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-[13px] font-bold ${communitySelected ? 'border-sky-700 bg-sky-700 text-white' : 'border-gray-300 bg-white text-gray-700'} disabled:cursor-not-allowed disabled:opacity-50`}>
+                className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-[13px] font-bold ${communitySelected ? 'border-red-700 bg-red-700 text-white' : 'border-gray-300 bg-white text-gray-700'} disabled:cursor-not-allowed disabled:opacity-50`}>
                 Nur Community (ohne Betreiber)
               </button>
               <button type="button" aria-pressed={!communitySelected} onClick={() => setAudience('all')}
-                className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-[13px] font-bold ${!communitySelected ? 'border-sky-700 bg-sky-700 text-white' : 'border-gray-300 bg-white text-gray-700'}`}>
+                className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-[13px] font-bold ${!communitySelected ? 'border-red-700 bg-red-700 text-white' : 'border-gray-300 bg-white text-gray-700'}`}>
                 Alle Antworten (inkl. Betreiber)
               </button>
             </div>
@@ -522,7 +522,7 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
           </div>
         </DetailSection>
 
-        <DetailSection title="Risky-Wetten (Q12/Q13/Auszahlung)" defaultOpen>
+        <DetailSection title="Rired-Wetten (Q12/Q13/Auszahlung)" defaultOpen>
           <div className="grid grid-cols-3 gap-1.5">
             <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
               <div className="text-sm font-bold text-gray-700">{fmtPct(risky.q12Groups.abolishPct)}</div>
