@@ -48,7 +48,7 @@ function RankBars({ values, emptyText }: { values: InsightRank[]; emptyText?: st
           </div>
           <div className="mt-1 flex items-center gap-2">
             <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
-              <div className="h-full rounded-full bg-sky-600" style={{ width: String(Math.max(0, Math.min(100, v.pct ?? 0))) + '%' }} />
+              <div className="h-full rounded-full bg-red-600" style={{ width: String(Math.max(0, Math.min(100, v.pct ?? 0))) + '%' }} />
             </div>
             <span className="w-12 shrink-0 text-right text-[11px] tabular-nums text-gray-500">{pct(v.pct)}</span>
           </div>
@@ -82,7 +82,7 @@ function actualResponses(stat: QuestionStat): number {
   return stat.stat.entries.length
 }
 
-const controlCls = 'min-h-[44px] w-full rounded-xl border border-gray-300 bg-white px-3 text-[16px] text-gray-900 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20'
+const controlCls = 'min-h-[44px] w-full rounded-xl border border-gray-300 bg-white px-3 text-[16px] text-gray-900 focus:border-red-600 focus:outline-none focus:ring-2 focus:ring-red-600/20'
 
 export function SurveyInsightsPanel({ participants }: { participants: InsightParticipant[] }) {
   const [segment, setSegment] = useState<SurveySegment>('all')
@@ -144,6 +144,7 @@ export function SurveyInsightsPanel({ participants }: { participants: InsightPar
       'Push-Probleme: ' + pct(insights.pushProblems.pct) + ' (' + insights.pushProblems.count + '/' + insights.pushProblems.base + ')',
       'Häufig als unrealistisch empfundene Quoten: ' + pct(insights.quotaProblems.pct) + ' (' + insights.quotaProblems.count + '/' + insights.quotaProblems.base + ')',
       'Top-Features: ' + (insights.topFeatures.slice(0, 3).map((v) => v.label + ' ' + v.count + '/' + v.base).join('; ') || '—'),
+      'Neue Wettmärkte: ' + (insights.additionalMarkets.slice(0, 3).map((v) => v.label + ' ' + v.count + '/' + v.base).join('; ') || '—'),
       'Häufigste Hindernisse: ' + (insights.topObstacles.slice(0, 3).map((v) => v.label + ' ' + v.count + '/' + v.base).join('; ') || '—'),
       'Startgeld: Selbst angegebene Zahlungsbereitschaft, kein Einnahmeversprechen.',
       'Achtung: Kleine oder selektive Stichproben lassen keine repräsentativen Schlussfolgerungen zu.',
@@ -161,12 +162,12 @@ export function SurveyInsightsPanel({ participants }: { participants: InsightPar
       <div className="rounded-2xl border border-gray-200 bg-gray-50/80 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-sky-700">Umfrage-Cockpit · V2</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-red-700">Umfrage-Cockpit · V2</p>
             <h3 className="mt-1 text-[19px] font-black leading-6 text-gray-900">Was sollten wir zur nächsten Saison verbessern?</h3>
             <p className="mt-1 text-[13px] leading-5 text-gray-600">Live berechnet aus vollständig abgegebenen Antworten. Alle Filter betreffen nur diese Ansicht.</p>
           </div>
           <button type="button" onClick={() => void copyReport()} disabled={selectedRows.length === 0}
-            className="min-h-[40px] rounded-xl border border-gray-300 bg-white px-3 text-[13px] font-semibold text-gray-800 hover:border-sky-500 disabled:opacity-50">
+            className="min-h-[40px] rounded-xl border border-gray-300 bg-white px-3 text-[13px] font-semibold text-gray-800 hover:border-red-500 disabled:opacity-50">
             Kurzbericht kopieren
           </button>
         </div>
@@ -218,6 +219,11 @@ export function SurveyInsightsPanel({ participants }: { participants: InsightPar
           <h4 className="mb-1 text-[15px] font-bold text-gray-900">Häufigste Hindernisse beim Wetten</h4>
           <p className="mb-3 text-[12px] text-gray-500">Bewusst selektive Wetter sind kein Problem und werden hier nicht mitgezählt.</p>
           <RankBars values={insights.topObstacles} />
+        </section>
+        <section className="rounded-xl border border-gray-200 bg-white p-4">
+          <h4 className="mb-1 text-[15px] font-bold text-gray-900">Meistgewünschte neue Wettmärkte</h4>
+          <p className="mb-3 text-[12px] text-gray-500">Drei konkrete Marktwünsche plus freiwillige eigene Vorschläge.</p>
+          <RankBars values={insights.additionalMarkets} />
         </section>
         <section className="rounded-xl border border-gray-200 bg-white p-4">
           <h4 className="mb-1 text-[15px] font-bold text-gray-900">Wettmärkte mit geringstem Stellenwert</h4>
@@ -301,7 +307,7 @@ export function SurveyInsightsPanel({ participants }: { participants: InsightPar
                       </div>
                       <div className="mt-1 flex items-center gap-2">
                         <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
-                          <div className="h-full rounded-full bg-sky-600" style={{ width: String(Math.min(100, Math.max(0, o.pct))) + '%' }} />
+                          <div className="h-full rounded-full bg-red-600" style={{ width: String(Math.min(100, Math.max(0, o.pct))) + '%' }} />
                         </div>
                         {diff !== null && <span className="w-20 text-right text-[11px] tabular-nums text-gray-500">{diff > 0 ? '+' : ''}{diff.toLocaleString('de-DE', { maximumFractionDigits: 1 })} %-Pkt.</span>}
                       </div>

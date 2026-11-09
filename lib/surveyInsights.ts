@@ -26,6 +26,7 @@ export interface SurveyDecisionInsights {
   topFeatures: InsightRank[]
   topObstacles: InsightRank[]
   expendableMarkets: InsightRank[]
+  additionalMarkets: InsightRank[]
   prices: { price: number; willing: number; population: number; hypotheticalBudget: number }[]
   suggestions: { title: string; reason: string; base: number }[]
 }
@@ -49,6 +50,7 @@ const Q29_NOT_OBSTACLES = new Set([
   'Sonstiges',
 ])
 const Q25_NOT_MARKETS = new Set(['Auf keinen – ich möchte alle behalten', 'Kann ich nicht beurteilen'])
+const Q26_NOT_MARKETS = new Set(['Keine zusätzlichen Wettmärkte nötig', 'Kann ich nicht beurteilen'])
 const Q5_EUROS: Record<string, number> = {
   'Weniger als 5 €': 0,
   '5 €': 5,
@@ -102,6 +104,7 @@ export function computeSurveyDecisionInsights(rows: SurveyRow[]): SurveyDecision
   const topFeatures = rank(rows, 'q_features', new Set(['Keine dieser Funktionen interessiert mich']), 5)
   const topObstacles = rank(rows, 'q29', Q29_NOT_OBSTACLES, 5)
   const expendableMarkets = rank(rows, 'q25', Q25_NOT_MARKETS, 5)
+  const additionalMarkets = rank(rows, 'q26_markets', Q26_NOT_MARKETS, 5)
   const suggestions: SurveyDecisionInsights['suggestions'] = []
 
   // Deliberately conservative: possible actions are prompts for investigation,
@@ -128,7 +131,7 @@ export function computeSurveyDecisionInsights(rows: SurveyRow[]): SurveyDecision
     submitted: rows.length,
     satisfactionAvg: satisfactions.length > 0 ? satisfactions.reduce((sum, value) => sum + value, 0) / satisfactions.length : null,
     returning, leaving, feeExit, pushProblems, quotaProblems, recapReaders,
-    topFeatures, topObstacles, expendableMarkets, prices, suggestions,
+    topFeatures, topObstacles, expendableMarkets, additionalMarkets, prices, suggestions,
   }
 }
 

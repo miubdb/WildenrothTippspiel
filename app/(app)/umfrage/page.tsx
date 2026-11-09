@@ -6,7 +6,7 @@ import {
   SURVEY_SECTIONS, visibleQuestionsForSection, isSurveyComplete, isRequired,
   type Answers, type QuestionDef,
 } from '@/lib/survey'
-import { toggleMultiOption, stripHiddenAnswers } from '@/lib/surveyValidation'
+import { toggleMultiOption, stripHiddenAnswers, normalizeLegacySurveyAnswers } from '@/lib/surveyValidation'
 import { questionPages, pageComplete } from '@/lib/surveyPresentation'
 
 type LoadState = 'loading' | 'ready' | 'error'
@@ -18,11 +18,12 @@ const RULE_SUMMARIES: Record<string, string> = {
   q3: 'Aktuell: Montagvormittag',
   q9: 'Was bedeutet „unrealistisch“?',
   q10: 'Aktuell: maximal 250 Wildis',
+  q15_zero: 'Nur bei Abschaffung des Taschengelds',
   q11: 'Aktuell: 2 normale Wettscheine',
-  q12: 'Aktuell: 1 Rired-Wette',
+  q12: 'Aktuell: 1 Risky-Wette',
   q13: 'Aktuell: Mindestquote 20',
   q_payout_normal: 'Aktuell: Auszahlung bis 10.000 Wildis',
-  q_payout_risky: 'Aktuell: Rired-Auszahlung bis 15.000 Wildis',
+  q_payout_risky: 'Aktuell: Risky-Auszahlung bis 15.000 Wildis',
   q15: 'Aktuell: 10 Wildis Taschengeld',
   q16: 'Aktuell: 50 Wildis Abzug',
   q17: 'Aktuell: nicht gegen die eigene Mannschaft wetten',
@@ -30,7 +31,7 @@ const RULE_SUMMARIES: Record<string, string> = {
   q28: 'Aktuell: Wildenroth II + 1 weiteres Spiel',
   q22: 'Beispiele für Neuigkeiten',
   q23: 'Nur Statistiken in deinem eigenen Profil',
-  q4: 'Aktuell kostenlos · Startgeld 2027/28 wird geprüft',
+  q4: 'Aktuell kostenlos · nur eine Interessenabfrage',
 }
 
 export default function UmfragePage() {
@@ -45,6 +46,10 @@ export default function UmfragePage() {
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null)
   const [justSubmitted, setJustSubmitted] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Reopening a saved V2 answer may require new questions to be answered.
+  // Never auto-write the migrated draft on GET (which could silently reset
+  // a previous submitted timestamp before the participant touches anything).
+  const saveEnabled = useRef(false)
   const answersRef = useRef<Answers>({})
   useEffect(() => { answersRef.current = answers }, [answers])
   // Serializes save() calls so two requests (e.g. the 900ms debounce firing
@@ -63,8 +68,9 @@ export default function UmfragePage() {
       .then((data) => {
         setSurveyMode(data.surveyMode ?? 'hidden')
         if (data.response) {
-          setAnswers(data.response.answers ?? {})
-          setSubmittedAt(data.response.submitted_at ?? null)
+          const resumedAnswers = normalizeLegacySurveyAnswers(data.response.answers ?? {})
+          setAnswers(resumedAnswers)
+          setSubmittedAt(isSurveyComplete(resumedAnswers) ? data.response.submitted_at ?? null : null)
           setStarted(true)
         }
         setLoadState('ready')
@@ -111,7 +117,7 @@ export default function UmfragePage() {
   // "no data loss on navigating away" without needing an explicit save click
   // after every single field.
   useEffect(() => {
-    if (!started) return
+    if (!started || !saveEnabled.current) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => { save('save') }, 900)
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
@@ -119,8 +125,9 @@ export default function UmfragePage() {
   }, [answers, started])
 
   function setAnswer(id: string, value: Answers[string]) {
+    saveEnabled.current = true
     // stripHiddenAnswers runs on every change (not just at save time) — a
-    // trigger answer changing (q4, q12, q25, q29, q_motivation, q9, q19,
+    // trigger answer changing (q4, q12, q25, q29, q_motivation, q9, q19, q15, q10,
     // q20, q23, …) must immediately drop any now-hidden follow-up answer
     // from the ACTIVE in-memory state too, not just from what eventually
     // gets persisted, so the UI never shows (or silently keeps) a stale
@@ -129,6 +136,7 @@ export default function UmfragePage() {
   }
 
   function handleStart() {
+    saveEnabled.current = true
     setStarted(true)
   }
 
@@ -371,12 +379,13 @@ function SaveIndicator({ state }: { state: SaveState }) {
 
 function QuestionCard({ q, answers, value, onChange }: { q: QuestionDef; answers: Answers; value: Answers[string]; onChange: (v: Answers[string]) => void }) {
   const required = isRequired(q, answers)
-  const collapsible = q.type === 'freetext' && ['q_technical_feedback', 'q26', 'q_features_text'].includes(q.id)
+  const collapsible = q.type === 'freetext' && ['q_technical_feedback', 'q26', 'q_features_text', 'q15_zero_text', 'q25_text'].includes(q.id)
+  const forceExpanded = q.id === 'q15_zero_text' && answers.q15_zero === 'Andere Lösung'
   const [expanded, setExpanded] = useState(() => typeof value === 'string' && value.trim().length > 0)
   const hasText = typeof value === 'string' && value.trim().length > 0
   // A collapsed optional field should look like a small invitation, not like
   // another full unanswered question demanding the participant's attention.
-  if (collapsible && !expanded) {
+  if (collapsible && !expanded && !forceExpanded) {
     return (
       <button type="button" onClick={() => setExpanded(true)} className="flex min-h-[48px] w-full items-center gap-2 rounded-xl border border-dashed border-gray-300 bg-white px-4 py-3 text-left text-[13px] font-medium leading-5 text-gray-600 hover:border-red-400 hover:text-red-800 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300">
         <span className="text-lg leading-none text-red-700 dark:text-red-400" aria-hidden="true">+</span>
@@ -414,8 +423,10 @@ function QuestionCard({ q, answers, value, onChange }: { q: QuestionDef; answers
           {q.type === 'scale' && <ScaleInput q={q} value={value as number | undefined} onChange={onChange} />}
           {q.type === 'single' && <SingleChoiceInput q={q} value={value as string | undefined} onChange={onChange} />}
           {q.type === 'multi' && <MultiChoiceInput q={q} value={value as string[] | undefined} onChange={onChange} />}
-          {q.type === 'freetext' && <FreetextInput q={q} value={value as string | undefined} onChange={onChange} />}
-          {collapsible && <button type="button" onClick={() => setExpanded(false)} className="mt-2 text-[12px] font-medium text-red-700 dark:text-red-400">Anmerkung einklappen</button>}
+          {q.type === 'freetext' && (q.inputMode === 'positive-integer'
+            ? <PositiveStakeInput value={value as string | undefined} onChange={onChange} />
+            : <FreetextInput q={q} value={value as string | undefined} onChange={onChange} />)}
+          {collapsible && !forceExpanded && <button type="button" onClick={() => setExpanded(false)} className="mt-2 text-[12px] font-medium text-red-700 dark:text-red-400">Anmerkung einklappen</button>}
         </div>
       </div>
     </>
@@ -510,6 +521,7 @@ function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: strin
   const exclusive = new Set(q.exclusiveOptions ?? [])
   const concreteSelectedCount = selected.filter((o) => !exclusive.has(o)).length
   const [activeGroup, setActiveGroup] = useState(q.optionGroups?.[0]?.label ?? '')
+  const activeGroupIndex = q.optionGroups?.findIndex((group) => group.label === activeGroup) ?? 0
 
   function toggle(opt: string) {
     onChange(toggleMultiOption(q, selected, opt))
@@ -542,6 +554,9 @@ function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: strin
       )}
       {q.optionGroups && q.optionGroups.length > 0 ? (
         <div>
+          <div className="mb-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-[12px] font-semibold leading-5 text-gray-700 dark:border-gray-700 dark:bg-gray-700/30 dark:text-gray-200">
+            Alle drei Kategorien ansehen · Kategorie {activeGroupIndex + 1} von {q.optionGroups.length}
+          </div>
           <div className="mb-3 grid grid-cols-3 gap-1.5" role="group" aria-label="Feature-Kategorien">
             {q.optionGroups.map((g) => (
               <button key={g.label} type="button" aria-pressed={activeGroup === g.label}
@@ -560,11 +575,45 @@ function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: strin
           {ungrouped.length > 0 && (
             <div className="mt-3 space-y-2 border-t border-gray-100 pt-3 dark:border-gray-700">{ungrouped.map(renderOption)}</div>
           )}
-          <p className="mt-2 text-[11px] leading-4 text-gray-500 dark:text-gray-400">Du kannst zwischen den Kategorien wechseln. Deine Auswahl bleibt erhalten.</p>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <p className="text-[12px] leading-4 text-gray-600 dark:text-gray-300">Auswahl aus allen Kategorien bleibt erhalten.</p>
+            {activeGroupIndex < q.optionGroups.length - 1 && (
+              <button type="button"
+                onClick={() => setActiveGroup(q.optionGroups![activeGroupIndex + 1].label)}
+                className="min-h-[44px] shrink-0 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-[12px] font-bold text-red-800 hover:bg-red-100 dark:border-red-600 dark:bg-red-950/40 dark:text-red-200">
+                Nächste Kategorie →
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <div className="space-y-2">{(q.options ?? []).map(renderOption)}</div>
       )}
+    </div>
+  )
+}
+
+function PositiveStakeInput({ value, onChange }: { value: string | undefined; onChange: (value: string) => void }) {
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <input
+          type="text"
+          inputMode="numeric"
+          pattern="[1-9][0-9]*"
+          autoComplete="off"
+          aria-label="Eigener maximaler Einsatz in Wildis"
+          value={value ?? ''}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/[^0-9]/g, '').replace(/^0+/, '')
+            onChange(digits)
+          }}
+          placeholder="z. B. 400 oder 1000"
+          className="w-full rounded-xl border border-gray-300 bg-white px-3 py-3 pr-16 text-[16px] font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100"
+        />
+        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[13px] font-bold text-gray-500 dark:text-gray-300">Wildis</span>
+      </div>
+      <p className="text-[12px] text-gray-600 dark:text-gray-300">Beliebiger positiver Betrag in ganzen Wildis. Keine Obergrenze.</p>
     </div>
   )
 }

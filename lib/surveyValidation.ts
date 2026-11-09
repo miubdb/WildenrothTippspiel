@@ -75,6 +75,12 @@ export function isValidAnswerValue(q: QuestionDef, value: unknown): boolean {
     case 'multi':
       return isValidMultiSelection(q, value)
     case 'freetext':
+      if (q.inputMode === 'positive-integer') {
+        // Decimal digits kept as a string: no arbitrary numeric maximum,
+        // no JS Number precision loss for large Wildis amounts. Empty drafts
+        // are valid for autosave, but a required field blocks submission.
+        return typeof value === 'string' && (value === '' || (/^[1-9][0-9]*$/.test(value) && value.length <= FREETEXT_MAX_LENGTH))
+      }
       // Deliberately more lenient than FREETEXT_MAX_LENGTH here — a moderate
       // overage (e.g. a careless paste) is truncated below in
       // validateIncomingAnswers rather than losing the whole answer; only a
@@ -100,6 +106,41 @@ export function stripHiddenAnswers(answers: Answers): Answers {
     if (v !== undefined) result[q.id] = v
   }
   return result
+}
+
+/**
+ * Adapt in-progress answers saved during the V2 preview before the final
+ * question wording/option updates. This never deletes a submitted row or
+ * rewrites the DB automatically. It only maps the former *equivalent*
+ * options to their current names on resume; withdrawn options are dropped
+ * so the participant can choose again.
+ */
+export function normalizeLegacySurveyAnswers(raw: Answers): Answers {
+  const migrated: Answers = { ...raw }
+  const aliases: Record<string, Record<string, string>> = {
+    q27: {
+      'Alle Kreisliga-Spiele (wie bisher)': 'Alle Spiele der Liga (wie bisher)',
+      'Ist mir egal': 'Keine Meinung dazu',
+      'Ich verfolge die Kreisliga zu wenig, um das beurteilen zu können': 'Keine Meinung dazu',
+    },
+    q28: {
+      'Keine B-Klasse-Spiele': 'Keine Spiele aus dieser Liga',
+      'Wildenroth II + 1 weiteres ausgewähltes Spiel (wie bisher)': 'Wildenroth II + 1 weiteres Spiel (wie bisher)',
+      'Alle Spiele der B-Klasse 2': 'Alle Spiele der Liga',
+      'Ist mir egal': 'Keine Meinung dazu',
+      'Ich verfolge die B-Klasse zu wenig, um das beurteilen zu können': 'Keine Meinung dazu',
+    },
+  }
+  for (const [id, aliasesForQuestion] of Object.entries(aliases)) {
+    const v = migrated[id]
+    if (typeof v === 'string' && aliasesForQuestion[v]) migrated[id] = aliasesForQuestion[v]
+  }
+  // No longer offer speculative "Erlebnispreise"; preserve the rest of Q7.
+  if (Array.isArray(migrated.q7)) {
+    const valid = new Set(QUESTION_BY_ID.get('q7')?.options ?? [])
+    migrated.q7 = migrated.q7.filter((option) => valid.has(option))
+  }
+  return stripHiddenAnswers(migrated)
 }
 
 export type AnswersValidationResult =

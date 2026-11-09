@@ -39,18 +39,18 @@ interface AdminUser {
   created_at: string
 }
 
-// Admin 3.0: von 5 auf 4 Hauptbereiche reduziert — "Verwaltung" und "Umfrage" sind keine
-// eigenen Tabs mehr, sondern Kategorien im neuen Tab "Mehr" (siehe AdminShellNav.tsx).
-type Tab = 'ergebnisse' | 'spieltag' | 'quoten' | 'mehr'
+// Separate Umfrage-Tab für die Winterumfrage; „Mehr“ enthält übrige Verwaltung.
+type Tab = 'ergebnisse' | 'spieltag' | 'quoten' | 'umfrage' | 'mehr'
 
-const TAB_VALUES: Tab[] = ['ergebnisse', 'spieltag', 'quoten', 'mehr']
+const TAB_VALUES: Tab[] = ['ergebnisse', 'spieltag', 'quoten', 'umfrage', 'mehr']
 
-const TAB_LABEL: Record<Tab, string> = { ergebnisse: 'Ergebnisse', spieltag: 'Spieltag', quoten: 'Quoten', mehr: 'Mehr' }
+const TAB_LABEL: Record<Tab, string> = { ergebnisse: 'Ergebnisse', spieltag: 'Spieltag', quoten: 'Quoten', umfrage: 'Umfrage', mehr: 'Mehr' }
 const TAB_DESC: Record<Tab, string> = {
   ergebnisse: 'Ergebnisse eintragen und Wetten abrechnen',
   spieltag: 'Cockpit, Spiele, Tipps, Topspiel, Torschützen',
   quoten: 'Neu berechnen, Vorschau, Quotenprüfung',
-  mehr: 'Spieler, Kader, Umfrage, Statistik, System & Wartung',
+  umfrage: 'Teilnahme, Auswertungen und Einstellungen',
+  mehr: 'Spieler, Kader, Statistik, System & Wartung',
 }
 
 export default function AdminPage() {
@@ -78,7 +78,7 @@ export default function AdminPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const requested = params.get('tab')
-    const LEGACY_TAB: Record<string, Tab> = { verwaltung: 'mehr', umfrage: 'mehr' }
+    const LEGACY_TAB: Record<string, Tab> = { verwaltung: 'mehr' }
     if (requested && requested in LEGACY_TAB) {
       setTab(LEGACY_TAB[requested])
     } else if (requested && (TAB_VALUES as string[]).includes(requested)) {
@@ -677,9 +677,11 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* "Mehr" Tab (Admin 3.0) — Verwaltung + Umfrage sind keine eigenen Tabs mehr, sondern
-            5 Kategorien hier (CategoryGroup, components/admin/ui.tsx). Bonus-Tipps/Specials sind
-            nach Spieltag umgezogen (siehe dort) — hier bewusst nicht mehr dupliziert. */}
+        {/* Survey is a separate main tab. Settings and participant data remain
+            subject to the existing admin permissions and API checks. */}
+        {tab === 'umfrage' && <SurveyTab onMessage={setMessage} />}
+
+        {/* "Mehr": Spieler, Kader, Statistik, System & Wartung. */}
         {tab === 'mehr' && (
           <div className="space-y-3">
 
@@ -729,10 +731,6 @@ export default function AdminPage() {
               <Section id="vw-kader" title="Kader verwalten" subtitle="Spieler, Transfers, Kaderinformationen" defaultOpen>
                 <KaderSection onMessage={setMessage} />
               </Section>
-            </CategoryGroup>
-
-            <CategoryGroup id="mh-umfrage" title="Umfrage" subtitle="Teilnahme, Auswertungen, Einzelantworten, Einstellungen">
-              <SurveyTab onMessage={setMessage} />
             </CategoryGroup>
 
             <CategoryGroup id="mh-statistik" title="Statistik" subtitle="Beteiligung je Spieltag, Wettzeiten nach Uhrzeit & Wochentag">

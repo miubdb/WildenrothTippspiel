@@ -12,7 +12,7 @@ import {
   isSectionComplete, isSurveyComplete, type Answers,
 } from '@/lib/survey'
 import {
-  toggleMultiOption, isValidMultiSelection, validateIncomingAnswers, stripHiddenAnswers, nextSubmittedAt,
+  toggleMultiOption, isValidMultiSelection, isValidAnswerValue, validateIncomingAnswers, stripHiddenAnswers, normalizeLegacySurveyAnswers, nextSubmittedAt,
 } from '@/lib/surveyValidation'
 import { isActuallySubmitted, computeOverview, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
 import { computeSurveyDecisionInsights, inSurveySegment } from '@/lib/surveyInsights'
@@ -38,23 +38,23 @@ function q(id: string) {
 }
 
 export function run(): number {
-  console.log('\n1. Schema-Grundstruktur: 7 Bereiche, 42 Felder, keine doppelten IDs')
+  console.log('\n1. Schema-Grundstruktur: 7 Bereiche, 46 Felder, keine doppelten IDs')
   {
     check('genau 7 Bereiche', SURVEY_SECTIONS.length === 7, `${SURVEY_SECTIONS.length}`)
-    check('genau 42 Fragefelder insgesamt', ALL_QUESTIONS.length === 42, `${ALL_QUESTIONS.length}`)
+    check('genau 46 Fragefelder insgesamt', ALL_QUESTIONS.length === 46, `${ALL_QUESTIONS.length}`)
     const ids = ALL_QUESTIONS.map((x) => x.id)
     check('keine doppelten Frage-IDs', new Set(ids).size === ids.length)
     const perSection = SURVEY_SECTIONS.map((s) => s.questions.length)
-    check('Felder pro Bereich: 6,11,3,5,7,4,6', perSection.join(',') === '6,11,3,5,7,4,6', perSection.join(','))
+    check('Felder pro Bereich: 6,14,4,8,2,7,5', perSection.join(',') === '6,14,4,8,2,7,5', perSection.join(','))
   }
 
-  console.log('\n2. Maximal 27 Pflichtfelder (bei der Antwortkombination, die am meisten Pflichtfragen freischaltet)')
+  console.log('\n2. Maximal 28 Pflichtfelder (bei der Antwortkombination, die am meisten Pflichtfragen freischaltet)')
   {
     // q4 in {2,3,4} schaltet q5/q7/q8 scharf; q12 positiv schaltet q13/Auszahlung-Risky scharf —
     // zusammen die maximal mögliche Pflichtfeldzahl in einem Durchlauf.
-    const maxAnswers: Answers = { q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q12: '2 Risky-Wetten' }
+    const maxAnswers: Answers = { q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q12: '2 Risky-Wetten', q10: 'Anderer Betrag' }
     const requiredCount = ALL_QUESTIONS.filter((qq) => isQuestionVisible(qq, maxAnswers) && isRequired(qq, maxAnswers)).length
-    check('max. 27 Pflichtfelder erreichbar, nie mehr', requiredCount === 27, `${requiredCount}`)
+    check('max. 28 Pflichtfelder erreichbar, nie mehr', requiredCount === 28, `${requiredCount}`)
 
     // Minimal-Pfad (q4=1 abschaffen, q12=0 abschaffen) muss entsprechend WENIGER Pflichtfragen zeigen.
     const minAnswers: Answers = {
@@ -139,14 +139,45 @@ export function run(): number {
   check('Q23: sieben trennscharfe Antworten', q('q23').options!.length === 7)
   check('Q23: Nichtkenntnis und fehlende Beurteilbarkeit getrennt', q('q23').options!.some(x => x.includes('bisher nicht angesehen')) && q('q23').options!.some(x => x.includes('kann sie aber nicht beurteilen')))
   check('Q4 hat fünf Optionen', q('q4').options!.length === 5)
-  check('Q7 hat sieben Preisarten', q('q7').options!.length === 7)
+  check('Q7 hat sechs realistische Preisarten', q('q7').options!.length === 6)
   check('Q8 hat fünf Antwortoptionen', q('q8').options!.length === 5)
   check('Q29 hat 13 Antworten', q('q29').options!.length === 13)
-  check('Feature-Auswahl behält 13 Ideen und eine exklusive Nein-Option', q('q_features').options!.length === 14)
+  check('Feature-Auswahl hat 14 Ideen plus eine exklusive Nein-Option', q('q_features').options!.length === 15 && q('q_features').maxSelect === 5)
   check('Q30 benennt den kostenlosen Fall', q('q30').text.includes('kostenlos'))
-  check('Die drei einklappbaren Freitexte bleiben freiwillig und sichtbar',
+  check('Die drei allgemeinen einklappbaren Freitexte bleiben freiwillig und sichtbar',
     ['q_technical_feedback', 'q26', 'q_features_text'].every((id) => !isRequired(q(id), {}) && isQuestionVisible(q(id), {})))
+  check('Taschengeld-Freitext wird nur bei Abschaffung eingeblendet und bleibt freiwillig',
+    !isRequired(q('q15_zero_text'), {q15:'0 Wildis (abschaffen)'}) &&
+    isQuestionVisible(q('q15_zero_text'), {q15:'0 Wildis (abschaffen)'}) &&
+    !isQuestionVisible(q('q15_zero_text'), {}))
   check('Q31 bleibt sichtbar', isQuestionVisible(q('q31'), {}))
+  check('Preisfrage enthält keine Erlebnispreise', !q('q7').options!.some(x => x.includes('Erlebnispreise')))
+  check('Startgeld-Info kündigt keine Einführung an', q('q4').infoText!.includes('nicht beschlossen'))
+  check('Neue Wettmärkte strukturiert vor freiwilligem Verzicht',
+    ALL_QUESTIONS.findIndex(x => x.id === 'q26_markets') < ALL_QUESTIONS.findIndex(x => x.id === 'q25') &&
+    isRequired(q('q26_markets'), {}) && !isRequired(q('q25'), {}))
+  check('Wettmarkt Freitext bleibt freiwillig', !isRequired(q('q26'), {}))
+  check('Nachvollziehbarkeit startet mit positiver Antwort', q('q_comprehensibility').options?.[0] === 'Für mich ist alles ausreichend nachvollziehbar')
+  check('Wettanzahl normal und Risky stehen auf derselben Seite',
+    SURVEY_SECTIONS.some(s => questionPages(visibleQuestionsForSection(s, {})).some(p => p.some(x => x.id === 'q11') && p.some(x => x.id === 'q12'))))
+  check('Wildenroth I und II stehen auf derselben Seite',
+    SURVEY_SECTIONS.some(s => questionPages(visibleQuestionsForSection(s, {})).some(p => p.some(x => x.id === 'q27') && p.some(x => x.id === 'q28'))))
+  check('Startgeld kommt direkt nach Wettregeln', SURVEY_SECTIONS[2].title === 'Startgeld & Preise')
+  check('Wettaktivität kommt vor Kommunikation', ALL_QUESTIONS.findIndex(x => x.id === 'q29') < ALL_QUESTIONS.findIndex(x => x.id === 'q20'))
+  check('Taschengeld-Abschaffung löst freiwillige Folgefrage aus',
+    isQuestionVisible(q('q15_zero'), { q15: '0 Wildis (abschaffen)' }) &&
+    !isQuestionVisible(q('q15_zero'), { q15: '10 Wildis (wie bisher)' }) &&
+    !isRequired(q('q15_zero'), { q15: '0 Wildis (abschaffen)' }))
+  check('Eigener Einsatz erforderlich bei anderer Betrag',
+    isRequired(q('q10_amount'), {q10:'Anderer Betrag'}) &&
+    isQuestionVisible(q('q10_amount'), {q10:'Anderer Betrag'}) &&
+    !isQuestionVisible(q('q10_amount'), {q10:'250 Wildis (wie bisher)'}))
+  check('Alte Testoptionen werden beim Wiederöffnen zugeordnet',
+    normalizeLegacySurveyAnswers({
+      q27:'Alle Kreisliga-Spiele (wie bisher)', q28:'Wildenroth II + 1 weiteres ausgewähltes Spiel (wie bisher)',
+      q7:['Geldpreise','Erlebnispreise (z. B. Fußballtickets oder Veranstaltungen)'],
+    }).q28 === 'Wildenroth II + 1 weiteres Spiel (wie bisher)')
+
   console.log('\n5b. Recap-Leserhäufigkeit und Kanal: Sprunglogik + Antwortvalidierung')
   {
     const frequency = q('q21_recap_frequency')
@@ -226,7 +257,7 @@ export function run(): number {
     // Q7: 1 exklusive Option ("Mir ist die Art der Preise egal"), max 2 konkrete.
     const q7 = q('q7')
     let sel7 = toggleMultiOption(q7, [], 'Geldpreise')
-    sel7 = toggleMultiOption(q7, sel7, 'Gutscheine (z. B. für Getränke oder Essen)')
+    sel7 = toggleMultiOption(q7, sel7, 'Gutscheine (z. B. Bürgerstadl/Getränkekammerl)')
     const sel7Excl = toggleMultiOption(q7, sel7, 'Mir ist die Art der Preise egal')
     check('Q7: "Mir ist die Art der Preise egal" trotz 2 bereits gewählter Optionen wählbar', sel7Excl.length === 1 && sel7Excl[0] === 'Mir ist die Art der Preise egal')
 
@@ -241,15 +272,19 @@ export function run(): number {
     const sel29Excl = toggleMultiOption(q29, sel29, 'Ich wette bereits so häufig, wie ich möchte.')
     check('Q29: exklusive Zufriedenheits-Option trotz Maximum wählbar', sel29Excl.length === 1)
 
-    // Feature-Frage: "Keine" jederzeit klickbar, auch bei 3 bereits gewählten Features;
+    // Feature-Frage: "Keine" jederzeit klickbar, auch bei 5 gewählten Features;
     // Feature-Freitext bleibt unabhängig davon immer sichtbar (separate Frage, kein visible()).
     const qf = q('q_features')
     let selF = toggleMultiOption(qf, [], 'Cashout')
     selF = toggleMultiOption(qf, selF, 'Spieler-Duelle')
     selF = toggleMultiOption(qf, selF, 'Spiele favorisieren')
-    check('Features: 3 aus verschiedenen Gruppen wählbar (Gruppierung ist nur visuell)', selF.length === 3)
+    selF = toggleMultiOption(qf, selF, 'Zusätzliche Bonus-Tipps')
+    selF = toggleMultiOption(qf, selF, 'Wochen-Challenges')
+    check('Features: fünf Ideen gruppenübergreifend wählbar', selF.length === 5)
+    const sixth = toggleMultiOption(qf, selF, 'Wettscheine teilen')
+    check('Features: sechste Auswahl wird abgelehnt', sixth.length === 5 && !sixth.includes('Wettscheine teilen'))
     const selFNone = toggleMultiOption(qf, selF, 'Keine dieser Funktionen interessiert mich')
-    check('Features: "Keine" trotz 3 gewählter Features wählbar, ersetzt alles', selFNone.length === 1)
+    check('Features: "Keine" trotz fünf gewählter Features wählbar, ersetzt alles', selFNone.length === 1)
     check('Feature-Freitext ist immer sichtbar (auch bei "Keine")', isQuestionVisible(q('q_features_text'), { q_features: selFNone }))
   }
 
@@ -302,8 +337,8 @@ export function run(): number {
       q15: '10 Wildis (wie bisher)', q16: '50 Wildis (wie bisher)',
       q17: 'Bisherige Regel beibehalten – keine Wetten gegen die eigene Mannschaft.',
       q19: 'Nein, mir ist nichts Ungewöhnliches aufgefallen',
-      q25: ['Auf keinen – ich möchte alle behalten'],
-      q27: 'Alle Kreisliga-Spiele (wie bisher)', q28: 'Wildenroth II + 1 weiteres ausgewähltes Spiel (wie bisher)',
+      q25: ['Auf keinen – ich möchte alle behalten'], q26_markets: ['Keine zusätzlichen Wettmärkte nötig'],
+      q27: 'Alle Spiele der Liga (wie bisher)', q28: 'Wildenroth II + 1 weiteres Spiel (wie bisher)',
       q20: 'Ich nutze sie und finde sie hilfreich', q22: 'WhatsApp und App-Push',
       q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.',
       q29: ['Ich wette bereits so häufig, wie ich möchte.'],
@@ -586,6 +621,14 @@ export function run(): number {
       questionPages(longQuestions).length > 1)
     check('Kompakte Antwortfelder mit je acht Optionen dürfen zusammenstehen',
       questionPages([q('q_payout_normal'), q('q_payout_risky')]).length === 1)
+    const numeric = q('q10_amount')
+    check('Arbiträr großer positiver Einsatz als Zahlentext erlaubt', isValidAnswerValue(numeric, '100000000000000000000000000000'))
+    check('Negative, Dezimal- und Nullbeträge werden abgelehnt',
+      ['-1','1.5','0','1e6','abc'].every(x => !isValidAnswerValue(numeric,x)))
+    check('Unbeantwortete freie Einsatzhöhe blockiert nächsten Schritt',
+      !pageComplete([numeric], {q10:'Anderer Betrag'}))
+    check('Ausgefüllte freie Einsatzhöhe gibt nächsten Schritt frei',
+      pageComplete([numeric], {q10:'Anderer Betrag',q10_amount:'400'}))
     const q4 = q('q4')
     const q5 = q('q5')
     check('Unbeantwortete Pflichtfrage blockiert den nächsten UX-Schritt',
@@ -597,7 +640,7 @@ export function run(): number {
     check('Freiwilliger Freitext blockiert den UX-Schritt nicht',
       pageComplete([q('q31')], {}))
     check('Die große Feature-Frage steht in einem eigenen UX-Block',
-      questionPages(visibleQuestionsForSection(SURVEY_SECTIONS[6], {})).some(
+      questionPages(visibleQuestionsForSection(SURVEY_SECTIONS[4], {})).some(
         (page) => page.length === 1 && page[0].id === 'q_features'))
   }
 

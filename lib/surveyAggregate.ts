@@ -330,6 +330,7 @@ const Q25_CANT_JUDGE = 'Kann ich nicht beurteilen'
 
 export interface WettmaerkteCrossTab {
   q25: MultiStat
+  q26_markets: MultiStat
   /** Anteil, der auf MINDESTENS einen konkreten Markt verzichten könnte, vs.
    *  "alle behalten" vs. "kann ich nicht beurteilen" — dieselbe Grundgesamtheit
    *  (Antwortende von Q25), nicht die Gesamtzahl aller Teilnehmer. */
@@ -347,6 +348,7 @@ function computeWettmaerkteCrossTab(rows: SurveyRow[]): WettmaerkteCrossTab {
   const cantJudgeCount = q25.options.find((o) => o.option === Q25_CANT_JUDGE)?.count ?? 0
   return {
     q25,
+    q26_markets: multiStats(QUESTION_BY_ID.get('q26_markets')!, rows),
     wouldDropAtLeastOnePct: base > 0 ? ((base - noneCount - cantJudgeCount) / base) * 100 : 0,
     keepAllPct: base > 0 ? (noneCount / base) * 100 : 0,
     cantJudgePct: base > 0 ? (cantJudgeCount / base) * 100 : 0,
