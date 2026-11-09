@@ -144,8 +144,12 @@ export function run(): number {
   check('Q29 hat 13 Antworten', q('q29').options!.length === 13)
   check('Feature-Auswahl hat 14 Ideen plus eine exklusive Nein-Option', q('q_features').options!.length === 15 && q('q_features').maxSelect === 5)
   check('Q30 benennt den kostenlosen Fall', q('q30').text.includes('kostenlos'))
-  check('Die drei einklappbaren Freitexte bleiben freiwillig und sichtbar',
-    ['q_technical_feedback', 'q26', 'q_features_text', 'q15_zero_text'].every((id) => !isRequired(q(id), {}) && isQuestionVisible(q(id), {})))
+  check('Die drei allgemeinen einklappbaren Freitexte bleiben freiwillig und sichtbar',
+    ['q_technical_feedback', 'q26', 'q_features_text'].every((id) => !isRequired(q(id), {}) && isQuestionVisible(q(id), {})))
+  check('Taschengeld-Freitext wird nur bei Abschaffung eingeblendet und bleibt freiwillig',
+    !isRequired(q('q15_zero_text'), {q15:'0 Wildis (abschaffen)'}) &&
+    isQuestionVisible(q('q15_zero_text'), {q15:'0 Wildis (abschaffen)'}) &&
+    !isQuestionVisible(q('q15_zero_text'), {}))
   check('Q31 bleibt sichtbar', isQuestionVisible(q('q31'), {}))
   check('Preisfrage enthält keine Erlebnispreise', !q('q7').options!.some(x => x.includes('Erlebnispreise')))
   check('Startgeld-Info kündigt keine Einführung an', q('q4').infoText!.includes('nicht beschlossen'))
