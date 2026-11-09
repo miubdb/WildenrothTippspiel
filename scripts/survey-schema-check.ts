@@ -16,7 +16,7 @@ import {
 } from '@/lib/surveyValidation'
 import { isActuallySubmitted, computeOverview, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
 import { computeSurveyDecisionInsights, inSurveySegment } from '@/lib/surveyInsights'
-import { questionPages, pageComplete } from '@/lib/surveyPresentation'
+import { questionPages, pageComplete, estimateQuestionHeight, QUESTION_PAGE_BUDGET } from '@/lib/surveyPresentation'
 import { findSurveyOperatorId, withoutSurveyOperator } from '@/lib/surveyAudience'
 import {
   currentSurveyModeKey, resolveSurveyMode, surveyModeAllowsAccess, surveyModeShowsHelpLink, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW,
@@ -564,13 +564,28 @@ export function run(): number {
         const flattened = pages.flat().map((question) => question.id)
         check(`Bereich ${section.id}: UX-Blöcke verlieren/verdoppeln keine Fragen`,
           flattened.length === visible.length && flattened.every((id, idx) => id === visible[idx].id))
-        check(`Bereich ${section.id}: maximal drei Fragen je Block`,
-          pages.every((page) => page.length <= 3))
-        check(`Bereich ${section.id}: große Auswahllisten stehen alleine`,
-          pages.every((page) => page.length <= 1 ||
-            page.every((question) => (question.options?.length ?? 0) < 7 && question.id !== 'q_features')))
+        check(`Bereich ${section.id}: nie mehr als fünf Fragen pro Block`,
+          pages.every((page) => page.length <= 5))
+        check(`Bereich ${section.id}: visuelles Budget wird eingehalten`,
+          pages.every((page) => page.length === 1 ||
+            page.reduce((height, question) => height + estimateQuestionHeight(question), 0) <= QUESTION_PAGE_BUDGET))
+        check(`Bereich ${section.id}: Feature-Auswahl bleibt eine eigenständige Seite`,
+          pages.every((page) => !page.some((question) => question.id === 'q_features') || page.length === 1))
       }
     }
+    const shortQuestions = Array.from({ length: 5 }, (_, index) =>
+      ({ ...q('q2'), id: `short-${index}`, text: 'Wie einfach ist das?' }))
+    const longQuestions = Array.from({ length: 4 }, (_, index) =>
+      ({ ...q('q_comprehensibility'), id: `long-${index}`,
+        text: 'Welche dieser unterschiedlichen Funktionen würdest du verbessern?',
+        options: Array.from({ length: 10 }, (_, choice) =>
+          `Option ${choice + 1}: Bei dieser Funktion ist die Antwort ausführlich erklärt und umfasst mehrere Zeilen.`) }))
+    check('Fünf kurze Skalenfragen passen gemeinsam in einen Schritt',
+      questionPages(shortQuestions).length === 1 && questionPages(shortQuestions)[0].length === 5)
+    check('Vier große Fragen werden nach ihrem Platzbedarf aufgeteilt',
+      questionPages(longQuestions).length > 1)
+    check('Kompakte Antwortfelder mit je acht Optionen dürfen zusammenstehen',
+      questionPages([q('q_payout_normal'), q('q_payout_risky')]).length === 1)
     const q4 = q('q4')
     const q5 = q('q5')
     check('Unbeantwortete Pflichtfrage blockiert den nächsten UX-Schritt',
