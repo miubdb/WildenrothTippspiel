@@ -357,19 +357,19 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         ],
       },
       {
-        id: 'q5', type: 'single',
-        required: Q5_VISIBLE, visible: Q5_VISIBLE,
-        text: 'Welchen der folgenden Beträge würdest du als einmaliges Startgeld für die gesamte Saison höchstens bezahlen?',
-        helpText: 'Wähle den höchsten Betrag aus, den du noch akzeptieren würdest.',
-        options: ['Weniger als 5 €', '5 €', '10 €', '15 €', '20 €', 'Mehr als 20 €', 'Kann ich noch nicht beurteilen'],
-      },
-      {
         id: 'q7', type: 'multi', maxSelect: 2,
         required: Q4_SHOWS_FOLLOWUPS, visible: Q4_SHOWS_FOLLOWUPS,
         text: 'Welche Arten von Preisen würdest du dir für die Saisonwertung am meisten wünschen?',
         helpText: 'Wähle bis zu zwei Preisarten aus, die dich am meisten ansprechen.',
         options: ['Geldpreise', 'Gutscheine (z. B. Bürgerstadl/Getränkekammerl)', 'Pokale und Trophäen (z. B. Wanderpokal)', 'Wildenroth-Merchandise (z. B. Fanschal oder Shirt)', 'Andere Sachpreise (z. B. Sportartikel)', Q7_NO_PREFERENCE],
         exclusiveOptions: [Q7_NO_PREFERENCE],
+      },
+      {
+        id: 'q5', type: 'single',
+        required: Q5_VISIBLE, visible: Q5_VISIBLE,
+        text: 'Welchen der folgenden Beträge würdest du als einmaliges Startgeld für die gesamte Saison höchstens bezahlen?',
+        helpText: 'Wähle den höchsten Betrag aus, den du noch akzeptieren würdest.',
+        options: ['Weniger als 5 €', '5 €', '10 €', '15 €', '20 €', 'Mehr als 20 €', 'Kann ich noch nicht beurteilen'],
       },
       {
         id: 'q8', type: 'single',
