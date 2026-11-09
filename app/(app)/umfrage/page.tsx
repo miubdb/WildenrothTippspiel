@@ -46,6 +46,10 @@ export default function UmfragePage() {
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null)
   const [justSubmitted, setJustSubmitted] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Reopening a saved V2 answer may require new questions to be answered.
+  // Never auto-write the migrated draft on GET (which could silently reset
+  // a previous submitted timestamp before the participant touches anything).
+  const saveEnabled = useRef(false)
   const answersRef = useRef<Answers>({})
   useEffect(() => { answersRef.current = answers }, [answers])
   // Serializes save() calls so two requests (e.g. the 900ms debounce firing
@@ -64,8 +68,9 @@ export default function UmfragePage() {
       .then((data) => {
         setSurveyMode(data.surveyMode ?? 'hidden')
         if (data.response) {
-          setAnswers(normalizeLegacySurveyAnswers(data.response.answers ?? {}))
-          setSubmittedAt(data.response.submitted_at ?? null)
+          const resumedAnswers = normalizeLegacySurveyAnswers(data.response.answers ?? {})
+          setAnswers(resumedAnswers)
+          setSubmittedAt(isSurveyComplete(resumedAnswers) ? data.response.submitted_at ?? null : null)
           setStarted(true)
         }
         setLoadState('ready')
@@ -112,7 +117,7 @@ export default function UmfragePage() {
   // "no data loss on navigating away" without needing an explicit save click
   // after every single field.
   useEffect(() => {
-    if (!started) return
+    if (!started || !saveEnabled.current) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => { save('save') }, 900)
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
@@ -120,6 +125,7 @@ export default function UmfragePage() {
   }, [answers, started])
 
   function setAnswer(id: string, value: Answers[string]) {
+    saveEnabled.current = true
     // stripHiddenAnswers runs on every change (not just at save time) — a
     // trigger answer changing (q4, q12, q25, q29, q_motivation, q9, q19, q15, q10,
     // q20, q23, …) must immediately drop any now-hidden follow-up answer
@@ -130,6 +136,7 @@ export default function UmfragePage() {
   }
 
   function handleStart() {
+    saveEnabled.current = true
     setStarted(true)
   }
 
