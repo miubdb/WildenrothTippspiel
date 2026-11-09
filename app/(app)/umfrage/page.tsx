@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  SURVEY_SECTIONS, visibleQuestionsForSection, isSectionComplete, isSurveyComplete, isRequired,
+  SURVEY_SECTIONS, visibleQuestionsForSection, isSurveyComplete, isRequired,
   type Answers, type QuestionDef,
 } from '@/lib/survey'
 import { toggleMultiOption, stripHiddenAnswers } from '@/lib/surveyValidation'
@@ -271,27 +271,26 @@ export default function UmfragePage() {
 
   if (!started) {
     return (
-      <div className="px-4 py-6 space-y-4">
-        <div className="bg-red-700 text-white rounded-2xl px-5 py-4">
-          <div className="text-red-200 text-xs font-medium uppercase tracking-wide">SpVgg Wildenroth</div>
-          <div className="text-2xl font-black mt-0.5">Umfrage</div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-5 py-4 text-sm text-gray-600 dark:text-gray-300 space-y-2">
-          <p>Hilf mit, das Wildenroth-Wettspiel zu verbessern! ⚽</p>
-          <p>
-            Wir möchten wissen, was dir am Wettspiel gefällt, was wir verbessern können und welche
-            neuen Funktionen dich interessieren. Die Umfrage dauert ca. 15 Minuten. Einige
-            Fragen sind freiwillig, und je nach Antwort werden nicht alle Fragen angezeigt. Deine
-            Rückmeldungen helfen uns bei der Planung der Rückrunde und der kommenden Saison 2027/28.
+      <div className="mx-auto max-w-2xl space-y-4 px-4 py-6">
+        <div className="rounded-2xl border border-gray-200 bg-white px-5 py-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <span className="text-[12px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-400">Winterumfrage 2026</span>
+          <h1 className="mt-2 text-[25px] font-black leading-8 text-gray-900 dark:text-white">Deine Meinung zählt.</h1>
+          <p className="mt-2 text-[15px] leading-6 text-gray-600 dark:text-gray-300">
+            Was macht Spaß, was nervt – und was sollten wir zur nächsten Saison verbessern?
           </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700 pt-2">
-            Hinweis: Deine Antworten sind für die Administratoren deiner Teilnahme zuordenbar; die
-            Umfrage ist nicht anonym.
-          </p>
+          <div className="mt-4 flex flex-wrap gap-2 text-[12px] font-medium text-gray-700 dark:text-gray-200">
+            <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">Ca. 15 Minuten</span>
+            <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">7 Themen</span>
+            <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">Zwischenspeichern möglich</span>
+          </div>
         </div>
+        <p className="px-1 text-[12px] leading-5 text-gray-500 dark:text-gray-400">
+          Die Umfrage ist nicht anonym: Administratoren können deine Antworten deinem Benutzerkonto zuordnen.
+        </p>
         <button
+          type="button"
           onClick={handleStart}
-          className="w-full py-3 rounded-xl bg-red-700 hover:bg-red-800 text-white font-bold transition-colors"
+          className="min-h-[52px] w-full rounded-xl bg-sky-700 px-4 py-3 text-[15px] font-bold text-white transition-colors hover:bg-sky-800"
         >
           Umfrage starten
         </button>
