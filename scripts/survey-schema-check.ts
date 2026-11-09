@@ -8,7 +8,7 @@
  * Usage: node --experimental-strip-types scripts/run-survey-schema-check.mjs
  */
 import {
-  SURVEY_SECTIONS, ALL_QUESTIONS, QUESTION_BY_ID, isRequired, isQuestionVisible,
+  SURVEY_SECTIONS, ALL_QUESTIONS, QUESTION_BY_ID, isRequired, isQuestionVisible, visibleQuestionsForSection,
   isSectionComplete, isSurveyComplete, type Answers,
 } from '@/lib/survey'
 import {
@@ -16,6 +16,7 @@ import {
 } from '@/lib/surveyValidation'
 import { isActuallySubmitted, computeOverview, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
 import { computeSurveyDecisionInsights, inSurveySegment } from '@/lib/surveyInsights'
+import { questionPages, pageComplete } from '@/lib/surveyPresentation'
 import { findSurveyOperatorId, withoutSurveyOperator } from '@/lib/surveyAudience'
 import {
   currentSurveyModeKey, resolveSurveyMode, surveyModeAllowsAccess, surveyModeShowsHelpLink, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW,
@@ -544,6 +545,45 @@ export function run(): number {
       computeSurveyDecisionInsights(rows.map((r) => ({
         ...r, started_at: '2026-11-08', submitted_at: '2026-11-08', updated_at: '2026-11-08',
       }))).returning.count === 2)
+  }
+
+  console.log('\n16. Teilnehmer-UX – Frageblöcke ohne verlorene Fragen')
+  {
+    for (const section of SURVEY_SECTIONS) {
+      const scenarios: Answers[] = [
+        {},
+        { q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.',
+          q12: '0 – Risky-Wetten vollständig abschaffen' },
+        { q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.',
+          q12: '2 Risky-Wetten', q9: 'Häufig', q25: ['1X2 / Spielausgang'],
+          q20: 'Ich nutze sie, bekomme aber zu viele Benachrichtigungen' },
+      ]
+      for (const scenario of scenarios) {
+        const visible = section.questions.filter((question) => isQuestionVisible(question, scenario))
+        const pages = questionPages(visible)
+        const flattened = pages.flat().map((question) => question.id)
+        check(`Bereich ${section.id}: UX-Blöcke verlieren/verdoppeln keine Fragen`,
+          flattened.length === visible.length && flattened.every((id, idx) => id === visible[idx].id))
+        check(`Bereich ${section.id}: maximal drei Fragen je Block`,
+          pages.every((page) => page.length <= 3))
+        check(`Bereich ${section.id}: große Auswahllisten stehen alleine`,
+          pages.every((page) => page.length <= 1 ||
+            page.every((question) => (question.options?.length ?? 0) < 7 && question.id !== 'q_features')))
+      }
+    }
+    const q4 = q('q4')
+    const q5 = q('q5')
+    check('Unbeantwortete Pflichtfrage blockiert den nächsten UX-Schritt',
+      !pageComplete([q4], {}))
+    check('Beantwortete Pflichtfrage gibt nächsten UX-Schritt frei',
+      pageComplete([q4], { q4: q4.options![0] }))
+    check('Bedingte Pflichtfrage wird wie bisher geprüft',
+      !pageComplete([q5], { q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.' }))
+    check('Freiwilliger Freitext blockiert den UX-Schritt nicht',
+      pageComplete([q('q31')], {}))
+    check('Die große Feature-Frage steht in einem eigenen UX-Block',
+      questionPages(visibleQuestionsForSection(SURVEY_SECTIONS[6], {})).some(
+        (page) => page.length === 1 && page[0].id === 'q_features'))
   }
 
   console.log(`\n${checks} Prüfungen, ${failures} Fehler.`)

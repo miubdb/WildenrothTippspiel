@@ -3,13 +3,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  SURVEY_SECTIONS, visibleQuestionsForSection, isSectionComplete, isSurveyComplete, isRequired,
+  SURVEY_SECTIONS, visibleQuestionsForSection, isSurveyComplete, isRequired,
   type Answers, type QuestionDef,
 } from '@/lib/survey'
 import { toggleMultiOption, stripHiddenAnswers } from '@/lib/surveyValidation'
+import { questionPages, pageComplete } from '@/lib/surveyPresentation'
 
 type LoadState = 'loading' | 'ready' | 'error'
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+
+// Keep the CURRENT numerical rule easily visible, but make detailed reasoning
+// opt-in rather than placing a paragraph above every single question.
+const RULE_SUMMARIES: Record<string, string> = {
+  q3: 'Aktuell: Montagvormittag',
+  q9: 'Was bedeutet „unrealistisch“?',
+  q10: 'Aktuell: maximal 250 Wildis',
+  q11: 'Aktuell: 2 normale Wettscheine',
+  q12: 'Aktuell: 1 Risky-Wette',
+  q13: 'Aktuell: Mindestquote 20',
+  q_payout_normal: 'Aktuell: Auszahlung bis 10.000 Wildis',
+  q_payout_risky: 'Aktuell: Risky-Auszahlung bis 15.000 Wildis',
+  q15: 'Aktuell: 10 Wildis Taschengeld',
+  q16: 'Aktuell: 50 Wildis Abzug',
+  q17: 'Aktuell: nicht gegen die eigene Mannschaft wetten',
+  q27: 'Aktuell: alle Kreisliga-Spiele',
+  q28: 'Aktuell: Wildenroth II + 1 weiteres Spiel',
+  q22: 'Beispiele für Neuigkeiten',
+  q23: 'Nur Statistiken in deinem eigenen Profil',
+  q4: 'Aktuell kostenlos · Startgeld 2027/28 wird geprüft',
+}
 
 export default function UmfragePage() {
   const [loadState, setLoadState] = useState<LoadState>('loading')
@@ -18,6 +40,7 @@ export default function UmfragePage() {
   const [submittedAt, setSubmittedAt] = useState<string | null>(null)
   const [started, setStarted] = useState(false)
   const [sectionIdx, setSectionIdx] = useState(0)
+  const [pageIdx, setPageIdx] = useState(0)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null)
   const [justSubmitted, setJustSubmitted] = useState(false)
@@ -124,7 +147,9 @@ export default function UmfragePage() {
 
   async function goNext() {
     const section = SURVEY_SECTIONS[sectionIdx]
-    if (!isSectionComplete(section, answers)) return
+    const blocks = questionPages(visibleQuestionsForSection(section, answers))
+    const currentBlock = Math.min(pageIdx, blocks.length - 1)
+    if (!pageComplete(blocks[currentBlock], answers)) return
     // Cancel the debounced autosave before firing our own save for this
     // click — without this, a save() from THIS click and the pending
     // 900ms-later debounce timer can both fire (e.g. answering the last
@@ -141,17 +166,24 @@ export default function UmfragePage() {
     // succeeded; on failure the user stays put with their answers intact
     // and sees a retry affordance (see saveError below).
     if (!result.ok) return
-    if (sectionIdx < SURVEY_SECTIONS.length - 1) {
+    if (currentBlock + 1 < blocks.length) {
+      setPageIdx(currentBlock + 1)
+    } else if (sectionIdx < SURVEY_SECTIONS.length - 1) {
       setSectionIdx((i) => i + 1)
-      scrollToTop()
+      setPageIdx(0)
     }
+    scrollToTop()
   }
 
   function goBack() {
-    if (sectionIdx > 0) {
+    if (pageIdx > 0) {
+      setPageIdx((i) => i - 1)
+    } else if (sectionIdx > 0) {
+      const previousSection = SURVEY_SECTIONS[sectionIdx - 1]
       setSectionIdx((i) => i - 1)
-      scrollToTop()
+      setPageIdx(questionPages(visibleQuestionsForSection(previousSection, answers)).length - 1)
     }
+    scrollToTop()
   }
 
   async function handleSubmit() {
@@ -192,7 +224,7 @@ export default function UmfragePage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => { setJustSubmitted(false); setSectionIdx(0) }}
+            onClick={() => { setJustSubmitted(false); setSectionIdx(0); setPageIdx(0) }}
             className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-200"
           >
             Antworten ansehen / ändern
@@ -210,27 +242,26 @@ export default function UmfragePage() {
 
   if (!started) {
     return (
-      <div className="px-4 py-6 space-y-4">
-        <div className="bg-red-700 text-white rounded-2xl px-5 py-4">
-          <div className="text-red-200 text-xs font-medium uppercase tracking-wide">SpVgg Wildenroth</div>
-          <div className="text-2xl font-black mt-0.5">Umfrage</div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-5 py-4 text-sm text-gray-600 dark:text-gray-300 space-y-2">
-          <p>Hilf mit, das Wildenroth-Wettspiel zu verbessern! ⚽</p>
-          <p>
-            Wir möchten wissen, was dir am Wettspiel gefällt, was wir verbessern können und welche
-            neuen Funktionen dich interessieren. Die Umfrage dauert ca. 15 Minuten. Einige
-            Fragen sind freiwillig, und je nach Antwort werden nicht alle Fragen angezeigt. Deine
-            Rückmeldungen helfen uns bei der Planung der Rückrunde und der kommenden Saison 2027/28.
+      <div className="mx-auto max-w-2xl space-y-4 px-4 py-6">
+        <div className="rounded-2xl border border-gray-200 bg-white px-5 py-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <span className="text-[12px] font-bold uppercase tracking-wide text-sky-700 dark:text-sky-400">Winterumfrage 2026</span>
+          <h1 className="mt-2 text-[25px] font-black leading-8 text-gray-900 dark:text-white">Deine Meinung zählt.</h1>
+          <p className="mt-2 text-[15px] leading-6 text-gray-600 dark:text-gray-300">
+            Was macht Spaß, was nervt – und was sollten wir zur nächsten Saison verbessern?
           </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700 pt-2">
-            Hinweis: Deine Antworten sind für die Administratoren deiner Teilnahme zuordenbar; die
-            Umfrage ist nicht anonym.
-          </p>
+          <div className="mt-4 flex flex-wrap gap-2 text-[12px] font-medium text-gray-700 dark:text-gray-200">
+            <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">Ca. 15 Minuten</span>
+            <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">7 Themen</span>
+            <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">Zwischenspeichern möglich</span>
+          </div>
         </div>
+        <p className="px-1 text-[12px] leading-5 text-gray-500 dark:text-gray-400">
+          Die Umfrage ist nicht anonym: Administratoren können deine Antworten deinem Benutzerkonto zuordnen.
+        </p>
         <button
+          type="button"
           onClick={handleStart}
-          className="w-full py-3 rounded-xl bg-red-700 hover:bg-red-800 text-white font-bold transition-colors"
+          className="min-h-[52px] w-full rounded-xl bg-sky-700 px-4 py-3 text-[15px] font-bold text-white transition-colors hover:bg-sky-800"
         >
           Umfrage starten
         </button>
@@ -240,20 +271,26 @@ export default function UmfragePage() {
 
   const section = SURVEY_SECTIONS[sectionIdx]
   const visibleQuestions = visibleQuestionsForSection(section, answers)
-  const sectionOk = isSectionComplete(section, answers)
-  const isLast = sectionIdx === SURVEY_SECTIONS.length - 1
-  const progressPct = ((sectionIdx + 1) / SURVEY_SECTIONS.length) * 100
+  const blocks = questionPages(visibleQuestions)
+  const activeBlock = Math.min(pageIdx, blocks.length - 1)
+  const currentQuestions = blocks[activeBlock]
+  const blockOk = pageComplete(currentQuestions, answers)
+  const onLastBlock = activeBlock === blocks.length - 1
+  const isLast = sectionIdx === SURVEY_SECTIONS.length - 1 && onLastBlock
+  const progressPct = (sectionIdx + (activeBlock + 1) / blocks.length) / SURVEY_SECTIONS.length * 100
 
   return (
-    <div className="px-4 py-4 space-y-4 pb-8">
-      <div>
-        <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1.5">
-          <span>Bereich {sectionIdx + 1} von {SURVEY_SECTIONS.length} · {section.title}</span>
+    <div className="mx-auto max-w-2xl space-y-4 px-3 py-4 pb-8 sm:px-4">
+      <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="mb-1.5 flex items-center justify-between gap-2 text-[12px] text-gray-500 dark:text-gray-400">
+          <span>Bereich {sectionIdx + 1} von {SURVEY_SECTIONS.length}</span>
           <SaveIndicator state={saveState} />
         </div>
-        <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
-          <div className="h-full bg-red-700 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+        <h1 className="mb-2 text-[18px] font-bold leading-6 text-gray-900 dark:text-gray-100">{section.title}</h1>
+        <div className="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700" role="progressbar" aria-valuenow={Math.round(progressPct)} aria-valuemin={0} aria-valuemax={100} aria-label="Umfragefortschritt">
+          <div className="h-full rounded-full bg-sky-600 transition-all dark:bg-sky-500" style={{ width: `${progressPct}%` }} />
         </div>
+        <p className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">Schritt {activeBlock + 1} von {blocks.length} in diesem Bereich</p>
       </div>
 
       {submittedAt && (
@@ -276,14 +313,14 @@ export default function UmfragePage() {
         </div>
       )}
 
-      <div className="space-y-4">
-        {visibleQuestions.map((q) => (
+      <div className="space-y-3">
+        {currentQuestions.map((q) => (
           <QuestionCard key={q.id} q={q} answers={answers} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} />
         ))}
       </div>
 
       <div className="flex gap-2 pt-2">
-        {sectionIdx > 0 && (
+        {(sectionIdx > 0 || activeBlock > 0) && (
           <button
             onClick={goBack}
             className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-200"
@@ -294,8 +331,8 @@ export default function UmfragePage() {
         {!isLast ? (
           <button
             onClick={goNext}
-            disabled={!sectionOk}
-            className="flex-1 py-3 rounded-xl bg-red-700 hover:bg-red-800 disabled:opacity-40 text-white font-bold transition-colors"
+            disabled={!blockOk}
+            className="flex-1 py-3 rounded-xl bg-sky-700 hover:bg-sky-800 disabled:opacity-40 text-white font-bold transition-colors"
           >
             Weiter
           </button>
@@ -309,9 +346,9 @@ export default function UmfragePage() {
           </button>
         )}
       </div>
-      {!sectionOk && (
-        <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
-          Bitte beantworte alle Pflichtfragen (*), um fortzufahren.
+      {!blockOk && (
+        <p className="text-center text-xs text-gray-500 dark:text-gray-400">
+          Bitte beantworte die Pflichtfragen auf dieser Seite, um fortzufahren.
         </p>
       )}
 
@@ -337,40 +374,48 @@ function QuestionCard({ q, answers, value, onChange }: { q: QuestionDef; answers
   const collapsible = q.type === 'freetext' && ['q_technical_feedback', 'q26', 'q_features_text'].includes(q.id)
   const [expanded, setExpanded] = useState(() => typeof value === 'string' && value.trim().length > 0)
   const hasText = typeof value === 'string' && value.trim().length > 0
+  // A collapsed optional field should look like a small invitation, not like
+  // another full unanswered question demanding the participant's attention.
+  if (collapsible && !expanded) {
+    return (
+      <button type="button" onClick={() => setExpanded(true)} className="flex min-h-[48px] w-full items-center gap-2 rounded-xl border border-dashed border-gray-300 bg-white px-4 py-3 text-left text-[13px] font-medium leading-5 text-gray-600 hover:border-sky-400 hover:text-sky-800 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300">
+        <span className="text-lg leading-none text-sky-700 dark:text-sky-400" aria-hidden="true">+</span>
+        <span>{hasText ? 'Anmerkung bearbeiten' : q.text}</span>
+        <span className="ml-auto shrink-0 text-[11px] text-gray-400">{hasText ? 'Gespeichert' : 'Optional'}</span>
+      </button>
+    )
+  }
   return (
     <>
       {q.dividerBefore && (
         <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 pt-2 -mb-1">{q.dividerBefore}</h3>
       )}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-4 py-4">
-        {q.infoText && (
-          <div className="bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700 rounded-xl px-3 py-2 mb-3 text-xs text-gray-500 dark:text-gray-400">
-            {q.infoText}
+      <div className="rounded-2xl border border-gray-200 bg-white px-4 py-4 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:px-5">
+        <div className="mb-3">
+          <div className="mb-1 flex items-start gap-2">
+            <h2 id={`question-${q.id}`} className="min-w-0 flex-1 text-[16px] font-semibold leading-6 text-gray-900 dark:text-gray-100">{q.text}</h2>
+            {!required && <span className="mt-1 shrink-0 rounded-md bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">Optional</span>}
           </div>
-        )}
-        <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1 flex items-start gap-1.5">
-          <span>{q.text}</span>
-          {required
-            ? <span className="text-red-600 flex-shrink-0">*</span>
-            : <span className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 rounded-full px-1.5 py-0.5 mt-0.5">Freiwillig</span>}
+          {q.infoText && (
+            <details className="group mt-2 rounded-lg bg-sky-50/60 px-3 py-2 text-[12px] text-sky-900 dark:bg-sky-950/30 dark:text-sky-200">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium [&::-webkit-details-marker]:hidden">
+                <span className="flex items-center gap-1.5"><span aria-hidden="true">ⓘ</span>{RULE_SUMMARIES[q.id] ?? 'Hinweis zur Frage'}</span>
+                <span className="shrink-0 text-[11px] text-sky-700 group-open:hidden dark:text-sky-300">Details</span>
+                <span className="hidden shrink-0 text-[11px] text-sky-700 group-open:inline dark:text-sky-300">Schließen</span>
+              </summary>
+              <p className="mt-2 border-t border-sky-100 pt-2 leading-5 dark:border-sky-900">{q.infoText}</p>
+            </details>
+          )}
+          {q.helpText && q.type !== 'freetext' && (
+            <p className="mt-2 text-[12px] leading-5 text-gray-500 dark:text-gray-400">{q.helpText}</p>
+          )}
         </div>
-        {q.helpText && q.type !== 'freetext' && (
-          <p className="text-[12px] text-gray-400 dark:text-gray-500 mb-2.5">{q.helpText}</p>
-        )}
-        <div className={q.helpText && q.type !== 'freetext' ? '' : 'mt-3'}>
+        <div>
           {q.type === 'scale' && <ScaleInput q={q} value={value as number | undefined} onChange={onChange} />}
           {q.type === 'single' && <SingleChoiceInput q={q} value={value as string | undefined} onChange={onChange} />}
           {q.type === 'multi' && <MultiChoiceInput q={q} value={value as string[] | undefined} onChange={onChange} />}
-          {q.type === 'freetext' && (collapsible ? (
-            <div>
-              <button type="button" aria-expanded={expanded} onClick={() => setExpanded((v) => !v)}
-                className="w-full text-left rounded-xl border border-gray-200 dark:border-gray-600 px-3 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 flex items-center justify-between">
-                <span>{expanded ? 'Freitext einklappen' : hasText ? 'Gespeicherte Anmerkung bearbeiten' : 'Freiwillige Anmerkung hinzufügen'}</span>
-                <span aria-hidden="true">{expanded ? '−' : '+'}</span>
-              </button>
-              {expanded && <div className="mt-2"><FreetextInput q={q} value={value as string | undefined} onChange={onChange} /></div>}
-            </div>
-          ) : <FreetextInput q={q} value={value as string | undefined} onChange={onChange} />)}
+          {q.type === 'freetext' && <FreetextInput q={q} value={value as string | undefined} onChange={onChange} />}
+          {collapsible && <button type="button" onClick={() => setExpanded(false)} className="mt-2 text-[12px] font-medium text-sky-700 dark:text-sky-400">Anmerkung einklappen</button>}
         </div>
       </div>
     </>
@@ -383,13 +428,15 @@ function ScaleInput({ q, value, onChange }: { q: QuestionDef; value: number | un
   const nums = Array.from({ length: max - min + 1 }, (_, i) => min + i)
   return (
     <div>
-      <div className="flex flex-wrap gap-1.5">
+      <div className={`grid gap-1.5 ${nums.length > 5 ? 'grid-cols-5 sm:grid-cols-10' : 'grid-cols-5'}`}>
         {nums.map((n) => (
           <button
             key={n}
             onClick={() => onChange(n)}
-            className={`w-9 h-9 rounded-lg text-sm font-bold transition-colors ${
-              value === n ? 'bg-red-700 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            type="button"
+            aria-pressed={value === n}
+            className={`min-h-[42px] rounded-lg text-sm font-bold transition-colors ${
+              value === n ? 'bg-sky-700 text-white dark:bg-sky-500 dark:text-gray-950' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
             {n}
@@ -407,19 +454,23 @@ function ScaleInput({ q, value, onChange }: { q: QuestionDef; value: number | un
 }
 
 function SingleChoiceInput({ q, value, onChange }: { q: QuestionDef; value: string | undefined; onChange: (v: string) => void }) {
+  const compact = ['q5', 'q10', 'q11', 'q13', 'q15', 'q16', 'q_payout_normal', 'q_payout_risky'].includes(q.id)
   return (
-    <div className="space-y-1.5">
+    <div className={compact ? 'grid grid-cols-2 gap-2' : 'grid grid-cols-1 gap-2'}>
       {(q.options ?? []).map((opt) => (
         <button
+          type="button"
           key={opt}
+          aria-pressed={value === opt}
           onClick={() => onChange(opt)}
-          className={`w-full text-left px-3 py-2.5 rounded-xl text-sm border transition-colors ${
-            value === opt
-              ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-800 dark:text-red-300 font-semibold'
-              : 'bg-gray-50 dark:bg-gray-700/40 border-transparent text-gray-700 dark:text-gray-300 hover:border-gray-200 dark:hover:border-gray-600'
-          }`}
+          className={`flex min-h-[46px] items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-[13px] leading-5 transition-colors ${value === opt
+            ? 'border-sky-600 bg-sky-50 font-semibold text-sky-950 dark:border-sky-400 dark:bg-sky-900/30 dark:text-sky-100'
+            : 'border-gray-200 bg-white text-gray-700 hover:border-sky-300 dark:border-gray-600 dark:bg-gray-700/30 dark:text-gray-200'}`}
         >
-          {opt}
+          <span aria-hidden="true" className={`flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-full border-2 ${value === opt ? 'border-sky-700 dark:border-sky-400' : 'border-gray-300 dark:border-gray-500'}`}>
+            {value === opt && <span className="h-[7px] w-[7px] rounded-full bg-sky-700 dark:bg-sky-400" />}
+          </span>
+          <span>{opt}</span>
         </button>
       ))}
     </div>
@@ -427,24 +478,29 @@ function SingleChoiceInput({ q, value, onChange }: { q: QuestionDef; value: stri
 }
 
 function OptionButton({ opt, checked, disabled, onClick, help }: { opt: string; checked: boolean; disabled: boolean; onClick: () => void; help?: string }) {
+  const [showHelp, setShowHelp] = useState(false)
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`w-full flex items-start gap-2.5 text-left px-3 py-2.5 rounded-xl text-sm border transition-colors disabled:opacity-40 ${
-        checked
-          ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700 text-red-800 dark:text-red-300 font-semibold'
-          : 'bg-gray-50 dark:bg-gray-700/40 border-transparent text-gray-700 dark:text-gray-300 hover:border-gray-200 dark:hover:border-gray-600'
-      }`}
-    >
-      <span className={`w-4 h-4 mt-0.5 rounded flex-shrink-0 border-2 flex items-center justify-center ${checked ? 'bg-red-700 border-red-700' : 'border-gray-300 dark:border-gray-500'}`}>
-        {checked && <span className="text-white text-[10px]">✓</span>}
-      </span>
-      <span>
-        <span className="block">{opt}</span>
-        {help && <span className="block text-[11px] font-normal text-gray-400 dark:text-gray-500 mt-0.5">{help}</span>}
-      </span>
-    </button>
+    <div className={`rounded-xl border transition-colors ${checked
+      ? 'border-sky-600 bg-sky-50 text-sky-950 dark:border-sky-400 dark:bg-sky-900/30 dark:text-sky-100'
+      : 'border-gray-200 bg-white text-gray-700 dark:border-gray-600 dark:bg-gray-700/30 dark:text-gray-200'}`}>
+      <div className="flex min-h-[46px] items-center">
+        <button type="button" onClick={onClick} disabled={disabled} aria-pressed={checked}
+          className="flex min-h-[46px] min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left text-[13px] leading-5 disabled:opacity-40">
+          <span aria-hidden="true" className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border-2 ${checked ? 'border-sky-700 bg-sky-700 text-white dark:border-sky-400 dark:bg-sky-500 dark:text-gray-950' : 'border-gray-300 dark:border-gray-500'}`}>
+            {checked && <span className="text-[12px] leading-none">✓</span>}
+          </span>
+          <span className={checked ? 'font-semibold' : ''}>{opt}</span>
+        </button>
+        {help && (
+          <button type="button" aria-label={`Erklärung zu ${opt}`} aria-expanded={showHelp}
+            onClick={() => setShowHelp((show) => !show)}
+            className="mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[16px] font-bold text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900/30">
+            ⓘ
+          </button>
+        )}
+      </div>
+      {help && showHelp && <p className="border-t border-sky-100 px-3 py-2 text-[12px] font-normal leading-5 text-gray-600 dark:border-gray-600 dark:text-gray-300">{help}</p>}
+    </div>
   )
 }
 
@@ -452,6 +508,7 @@ function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: strin
   const selected = value ?? []
   const exclusive = new Set(q.exclusiveOptions ?? [])
   const concreteSelectedCount = selected.filter((o) => !exclusive.has(o)).length
+  const [activeGroup, setActiveGroup] = useState(q.optionGroups?.[0]?.label ?? '')
 
   function toggle(opt: string) {
     onChange(toggleMultiOption(q, selected, opt))
@@ -476,26 +533,36 @@ function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: strin
   return (
     <div>
       {q.maxSelect && (
-        <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-1.5">
+        <p className="mb-2 text-[12px] font-semibold text-gray-600 dark:text-gray-300">
           {q.id === 'q_features'
-            ? `${selected.some((x) => exclusive.has(x)) ? 0 : concreteSelectedCount} von ${q.maxSelect} ausgewählt`
-            : `Max. ${q.maxSelect} Auswahlmöglichkeiten`}
+            ? `${concreteSelectedCount} von ${q.maxSelect} Ideen ausgewählt`
+            : `Bis zu ${q.maxSelect} auswählen`}
         </p>
       )}
       {q.optionGroups && q.optionGroups.length > 0 ? (
-        <div className="space-y-3">
-          {q.optionGroups.map((g) => (
-            <div key={g.label}>
-              <div className="text-[11px] font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1.5">{g.label}</div>
-              <div className="space-y-1.5">{g.options.map(renderOption)}</div>
-            </div>
-          ))}
+        <div>
+          <div className="mb-3 grid grid-cols-3 gap-1.5" role="group" aria-label="Feature-Kategorien">
+            {q.optionGroups.map((g) => (
+              <button key={g.label} type="button" aria-pressed={activeGroup === g.label}
+                onClick={() => setActiveGroup(g.label)}
+                className={`min-h-[48px] rounded-lg border px-2 py-2 text-center text-[11px] font-semibold leading-4 ${activeGroup === g.label
+                  ? 'border-sky-600 bg-sky-50 text-sky-900 dark:border-sky-400 dark:bg-sky-900/30 dark:text-sky-100'
+                  : 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-700/30 dark:text-gray-300'}`}>
+                {g.label}
+                {selected.filter((o) => g.options.includes(o)).length > 0 && (
+                  <span className="ml-1 text-sky-700 dark:text-sky-300">({selected.filter((o) => g.options.includes(o)).length})</span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-2">{(q.optionGroups.find((g) => g.label === activeGroup) ?? q.optionGroups[0]).options.map(renderOption)}</div>
           {ungrouped.length > 0 && (
-            <div className="space-y-1.5 pt-1 border-t border-gray-100 dark:border-gray-700">{ungrouped.map(renderOption)}</div>
+            <div className="mt-3 space-y-2 border-t border-gray-100 pt-3 dark:border-gray-700">{ungrouped.map(renderOption)}</div>
           )}
+          <p className="mt-2 text-[11px] leading-4 text-gray-500 dark:text-gray-400">Du kannst zwischen den Kategorien wechseln. Deine Auswahl bleibt erhalten.</p>
         </div>
       ) : (
-        <div className="space-y-1.5">{(q.options ?? []).map(renderOption)}</div>
+        <div className="space-y-2">{(q.options ?? []).map(renderOption)}</div>
       )}
     </div>
   )
@@ -509,7 +576,7 @@ function FreetextInput({ q, value, onChange }: { q: QuestionDef; value: string |
         onChange={(e) => onChange(e.target.value)}
         placeholder="Optional…"
         rows={3}
-        className="w-full text-sm rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/40 px-3 py-2.5 text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"
+        className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-[16px] text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-300 dark:border-gray-600 dark:bg-gray-700/40 dark:text-gray-200 dark:placeholder-gray-500 resize-y"
       />
       <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">{q.helpText ?? 'Freiwillig'}</p>
     </div>
