@@ -566,7 +566,7 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
           </div>
         </DetailSection>
 
-        <DetailSection title="Wettmärkte & Spielauswahl (Q25/Q27/Q28)">
+        <DetailSection title="Neue Märkte, Verzicht & Ligen (Q26/Q25/Q27/Q28)">
           <div className="grid grid-cols-3 gap-1.5">
             <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
               <div className="text-sm font-bold text-gray-700">{fmtPct(wettmaerkte.wouldDropAtLeastOnePct)}</div>
@@ -582,15 +582,19 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
             </div>
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Verzichtbare Märkte (Q25, n={wettmaerkte.q25.respondents})</div>
+            <div className="font-semibold text-gray-600 mb-1">Gewünschte neue Märkte (n={wettmaerkte.q26_markets.respondents})</div>
+            <OptionBars options={wettmaerkte.q26_markets.options} pctKey="pctOfRespondents" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Verzichtbare Märkte (freiwillig, n={wettmaerkte.q25.respondents})</div>
             <OptionBars options={wettmaerkte.q25.options} pctKey="pctOfRespondents" />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Kreisliga-Spielumfang (Q27)</div>
+            <div className="font-semibold text-gray-600 mb-1">Liga von Wildenroth I (Q27)</div>
             <OptionBars options={wettmaerkte.q27.options} pctKey="pct" />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">B-Klasse-Spielumfang (Q28)</div>
+            <div className="font-semibold text-gray-600 mb-1">Liga von Wildenroth II (Q28)</div>
             <OptionBars options={wettmaerkte.q28.options} pctKey="pct" />
           </div>
         </DetailSection>
