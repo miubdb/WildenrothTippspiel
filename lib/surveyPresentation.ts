@@ -13,7 +13,7 @@ const COMPACT_SINGLE_IDS = new Set([
   'q5', 'q10', 'q11', 'q13', 'q15', 'q16',
   'q_payout_normal', 'q_payout_risky',
 ])
-const COLLAPSED_TEXT_IDS = new Set(['q_technical_feedback', 'q26', 'q_features_text'])
+const COLLAPSED_TEXT_IDS = new Set(['q_technical_feedback', 'q26', 'q_features_text', 'q15_zero_text', 'q25_text'])
 const estimateLines = (text: string, charsPerLine: number) =>
   Math.max(1, Math.ceil(text.length / charsPerLine))
 
@@ -27,6 +27,7 @@ export function estimateQuestionHeight(question: QuestionDef): number {
     ? 7 + estimateLines(question.helpText, 55) * 18 : 0
   const outer = heading + rule + help
 
+  if (question.inputMode === 'positive-integer') return outer + 115
   if (question.type === 'freetext') return outer + 128
   if (question.type === 'scale') {
     const count = (question.scaleMax ?? 5) - (question.scaleMin ?? 1) + 1
@@ -64,14 +65,21 @@ export function questionPages(questions: QuestionDef[]): QuestionDef[][] {
     page = []
     used = 0
   }
-
-  for (const question of questions) {
-    const estimated = estimateQuestionHeight(question)
+  const KEEP_TOGETHER: Record<string, string> = {
+    q11: 'q12', // number of normal vs Risky slips
+    q27: 'q28', // league coverage: first and second team
+  }
+  for (let i = 0; i < questions.length; i++) {
+    const question = questions[i]
+    const pairId = KEEP_TOGETHER[question.id]
+    const hasPair = i + 1 < questions.length && questions[i + 1].id === pairId
+    const group = hasPair ? [question, questions[++i]] : [question]
+    const estimated = group.reduce((total, item) => total + estimateQuestionHeight(item), 0)
     // Feature selection is an interaction of its own: categories + explanation toggles.
-    const ownPage = question.id === 'q_features'
+    const ownPage = group.some((q) => q.id === 'q_features')
     if (page.length && (ownPage || used + estimated > QUESTION_PAGE_BUDGET
-      || page.length >= MAX_QUESTIONS_SAFETY_CAP)) flush()
-    page.push(question)
+      || page.length + group.length > MAX_QUESTIONS_SAFETY_CAP)) flush()
+    page.push(...group)
     used += estimated
     if (ownPage) flush()
   }
