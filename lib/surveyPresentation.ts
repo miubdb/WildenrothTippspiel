@@ -7,7 +7,7 @@ import { isRequired, type Answers, type QuestionDef } from './survey'
  * so 4 short questions need not be split like 4 complex questions.
  * No DOM measuring/re-layout after taps: this keeps the active page stable.
  */
-export const QUESTION_PAGE_BUDGET = 1100
+export const QUESTION_PAGE_BUDGET = 1350
 const MAX_QUESTIONS_SAFETY_CAP = 5
 const COMPACT_SINGLE_IDS = new Set([
   'q5', 'q10', 'q11', 'q13', 'q15', 'q16',
