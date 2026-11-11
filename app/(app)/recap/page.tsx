@@ -23,7 +23,7 @@ export default async function RecapHubPage() {
   const hinrundeVisible = vis === 'published' || isAdmin
   const sorted = [...done].sort((a, b) => b - a)
   return (
-    <div className="space-y-4">
+    <div className="px-4 py-4 space-y-4">
       <h1 className="text-2xl font-black text-gray-900 dark:text-gray-100">Recaps</h1>
       <RecapTypeNav current="spieltag" available={{ hinrunde: hinrundeVisible }} />
       {hinrundeVisible && (

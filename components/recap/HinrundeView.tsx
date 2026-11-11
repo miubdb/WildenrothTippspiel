@@ -1,5 +1,5 @@
 import type { RecapReport } from '@/lib/recap/report'
-import { explainIq } from '@/lib/recap/tipperIq'
+import { explainIq, IQ_MIN_MATCHDAYS, IQ_MIN_SLIPS } from '@/lib/recap/tipperIq'
 import type { AwardResult } from '@/lib/recap/halbzeitAwards'
 import { wildiLabel } from '@/components/WildiIcon'
 
@@ -106,7 +106,7 @@ export function HinrundeView({ report, myId, previewTo }: { report: RecapReport;
 
       {/* Tipper-IQ */}
       <Section title="Tipper-IQ" sub="Ein spielerischer Qualitätsindex, kein wissenschaftliches Maß. 50 = so viel getroffen, wie die Quoten erwarten lassen.">
-        {me && !me.eligible && <div className="mx-4 mt-3 rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3 text-xs text-gray-600 dark:text-gray-300"><b>Noch nicht gewertet:</b> {me.notRatedReason}. Dein Zwischenwert: {me.iq.toFixed(1).replace('.', ',')} (ohne Ranglistenplatz).</div>}
+        {me && !me.eligible && <div className="mx-4 mt-3 rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3 text-xs text-gray-600 dark:text-gray-300"><b>{me.notRatedReason}.</b> Dein berechneter IQ: {me.iq.toFixed(1).replace('.', ',')} – ohne Ranglistenplatz.</div>}
         <div className="divide-y divide-gray-50 dark:divide-gray-700">
           {rated.map((x) => (
             <details key={x.userId} className={`group ${x.userId === myId ? 'bg-red-50 dark:bg-red-900/10' : ''}`}>
@@ -131,7 +131,7 @@ export function HinrundeView({ report, myId, previewTo }: { report: RecapReport;
             </details>
           ))}
         </div>
-        {unrated.length > 0 && <div className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-50 dark:border-gray-700">Noch nicht gewertet ({unrated.length}): weniger als 18 abgerechnete Wettscheine oder weniger als 7 aktive Spieltage.</div>}
+        {unrated.length > 0 && <div className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-50 dark:border-gray-700">Noch nicht für die offizielle Rangliste qualifiziert ({unrated.length}): weniger als {IQ_MIN_SLIPS} abgerechnete Wettscheine oder weniger als {IQ_MIN_MATCHDAYS} aktive Spieltage. Den eigenen Zwischenwert siehst du oben.</div>}
         <div className="px-4 pb-4 text-[11px] text-gray-400">Berechnung: Treffer gegen die Erwartung aus den Quoten (1/Quote), exakt gegen den Zufall gemessen. Gleiche Tipps in mehreren Scheinen zählen nur anteilig. Bonus-Tipps, Spieltags-Specials, offene und stornierte Scheine zählen nicht.</div>
       </Section>
 
@@ -142,6 +142,23 @@ export function HinrundeView({ report, myId, previewTo }: { report: RecapReport;
 
       {/* Wildenroth */}
       <WildenrothSection r={r} nm={nm} av={av} />
+
+
+      {/* Fakten */}
+      <Section title="Interessante Fakten" sub="Nachgerechnet aus den abgerechneten Kombis – ohne Award.">
+        <div className="p-4 space-y-4 text-sm text-gray-800 dark:text-gray-100">
+          <div>
+            <div className="text-xs font-bold text-red-700 dark:text-red-300 mb-1">💥 KOMBI-KILLER</div>
+            <p><b>{r.facts.comboKillers.singleBlockerCombos}</b> Kombis scheiterten an genau einem falschen Tipp – bei <b>{r.facts.comboKillers.wildenrothCombos}</b> davon war das ein Spiel mit Wildenroth I oder II.</p>
+            <ul className="mt-2 space-y-1">{r.facts.comboKillers.byMatch.map((k) => <li key={k.matchId} className="text-xs text-gray-600 dark:text-gray-300">· {r.matchLabels[k.matchId]}: {k.combos} Kombis von {k.users} Tippern ({f0(k.potentialPayout)} Wildis verpasst, gedeckelt)</li>)}</ul>
+          </div>
+          <div>
+            <div className="text-xs font-bold text-red-700 dark:text-red-300 mb-1">🥅 EIN TOR FEHLTE</div>
+            <p><b>{r.facts.oneGoalShort.cases.length === 0 ? 0 : r.facts.oneGoalShort.cases.length}</b> von {r.facts.oneGoalShort.singleBlockerCombos} dieser Kombis wären mit einem einzigen zusätzlichen oder fehlenden Tor aufgegangen (berechnet für Spielausgang, Doppelte Chance, Handicap, Über/Unter, Beide treffen, Ergebnis). {r.facts.oneGoalShort.notComputable} Fälle (z. B. Torschützen) sind aus dem Endergebnis nicht berechenbar und bleiben außen vor.</p>
+            <ul className="mt-2 space-y-1">{r.facts.oneGoalShort.cases.map((c) => <li key={c.slip.key} className="text-xs text-gray-600 dark:text-gray-300">· {nm(c.slip.userId)}: {r.matchLabels[c.matchId]} ({c.actual}) – mit {c.saver} wären {f0(c.potentialPayout)} Wildis drin gewesen</li>)}</ul>
+          </div>
+        </div>
+      </Section>
 
       {fun.length > 0 && (
         <Section title="Sonderstatistiken" sub="Zum Schmunzeln – echte Zahlen, aber ohne Pokal.">
@@ -162,7 +179,9 @@ export function HinrundeView({ report, myId, previewTo }: { report: RecapReport;
 }
 
 function AwardBlock({ a, nm, av, compact }: { a: AwardResult; nm: (id: string) => string; av: (id: string, s?: number) => React.ReactNode; compact?: boolean }) {
-  const [w, ...rest] = a.entries
+  const [w, ...restAll] = a.entries
+  const tied = restAll.filter((e) => e.value === w.value)
+  const rest = restAll.filter((e) => e.value !== w.value)
   return (
     <div className="px-4 py-3">
       <div className="flex items-center gap-3">
@@ -174,6 +193,7 @@ function AwardBlock({ a, nm, av, compact }: { a: AwardResult; nm: (id: string) =
         <div className="text-right text-sm font-black text-gray-900 dark:text-gray-100">{w.value}</div>
       </div>
       {w.detail && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-9">{w.detail}</p>}
+      {tied.length > 0 && <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mt-1 ml-9">Gleichstand mit {tied.map((e) => nm(e.userId)).join(' · ')}</p>}
       {!compact && rest.length > 0 && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-9">Dahinter: {rest.map((e) => `${nm(e.userId)} (${e.value})`).join(' · ')}</p>}
       <p className="text-[11px] text-gray-400 mt-1 ml-9">{a.rule}</p>
     </div>

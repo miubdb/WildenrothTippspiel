@@ -7,11 +7,11 @@
 import { buildSlips, isSettled, type RecapBetRow, type RecapComboRow, type RecapMatchRow, type Slip } from '@/lib/recap/slips'
 import {
   computeOverlapWeights, computeTipperIqRanking, computeUserIq, exactZ, normalCdf, normalInv, scoreFromZ,
-  isIqEligibleSlip, IQ_WEIGHTS_DEFAULT, IQ_ALT_WEIGHTS, probSumAtLeast,
+  isIqEligibleSlip, IQ_MIN_SLIPS, IQ_MIN_MATCHDAYS, IQ_WEIGHTS_DEFAULT, IQ_ALT_WEIGHTS, probSumAtLeast,
 } from '@/lib/recap/tipperIq'
-import { classifyStance, computeWildenrothRecords } from '@/lib/recap/wildenrothStance'
-import { breakdownSlips, findNearMisses, longestStreaks, computeTrajectories, bestComebacks } from '@/lib/recap/hinrundeStats'
-import { computeRangeReadiness, recapVisibility } from '@/lib/recap/availability'
+import { classifyStance, computeWildenrothRecords, computeOptimists } from '@/lib/recap/wildenrothStance'
+import { breakdownSlips, findNearMisses, longestStreaks, computeTrajectories, bestComebacks, findComboKillers, findOneGoalShort, mondayMorningStats, biggestNetLosers, validateSettleReproduction } from '@/lib/recap/hinrundeStats'
+import { canViewRecapReport, computeRangeReadiness, recapVisibility } from '@/lib/recap/availability'
 import { buildRecapReport } from '@/lib/recap/report'
 
 let errors = 0
@@ -97,11 +97,13 @@ function userWith(userId: string, nSlips: number, nMds: number, hitEvery = 3): S
   }
   return arr
 }
-test('17 Scheine → noch nicht gewertet, kein Rang', (() => { const r = computeUserIq('a', userWith('a', 17, 8)); return !r.eligible && r.rank == null && (r.notRatedReason ?? '').includes('17') })())
-test('18 Scheine aber 6 Spieltage → noch nicht gewertet', !computeUserIq('a', userWith('a', 18, 6)).eligible)
-test('18 Scheine / 7 Spieltage → gewertet', computeUserIq('a', userWith('a', 18, 7)).eligible)
-test('Ranking vergibt Plätze nur an Gewertete, lückenlos ab 1', (() => { const rk = computeTipperIqRanking([...userWith('a', 30, 8, 2), ...userWith('b', 30, 8, 5), ...userWith('c', 5, 3)]); return rk.filter((r) => r.rank != null).map((r) => r.rank).join() === '1,2' && rk[2].userId === 'c' && rk[2].rank == null })())
-test('Besserer Tipper hat höheren IQ', (() => { const rk = computeTipperIqRanking([...userWith('a', 30, 8, 2), ...userWith('b', 30, 8, 5)]); return rk[0].userId === 'a' && rk[0].iq > rk[1].iq })())
+test('17 Scheine → noch nicht gewertet, kein Rang', (() => { const r = computeUserIq('a', userWith('a', 17, 10)); return !r.eligible && r.rank == null && (r.notRatedReason ?? '').includes('17') && (r.notRatedReason ?? '').includes('offizielle Rangliste') })())
+test('18 Scheine aber 9 Spieltage → noch nicht qualifiziert, IQ trotzdem berechnet', (() => { const r = computeUserIq('a', userWith('a', 18, 9)); return !r.eligible && r.iq > 0 && r.rank == null })())
+test('18 Scheine / 10 Spieltage → qualifiziert (keine Mindest-Trefferzahl)', computeUserIq('a', userWith('a', 18, 10, 1000)).eligible)
+test('Grenze steht in Konstanten: 18 Scheine / 10 Spieltage', IQ_MIN_SLIPS === 18 && IQ_MIN_MATCHDAYS === 10)
+test('Qualifikation hängt nur von Scheinen/Spieltagen ab, nicht von Person oder Trefferzahl', computeUserIq('zzz', userWith('zzz', 18, 10, 1)).eligible === computeUserIq('aaa', userWith('aaa', 18, 10, 1000)).eligible)
+test('Ranking vergibt Plätze nur an Gewertete, lückenlos ab 1', (() => { const rk = computeTipperIqRanking([...userWith('a', 30, 10, 2), ...userWith('b', 30, 10, 5), ...userWith('c', 5, 3)]); return rk.filter((r) => r.rank != null).map((r) => r.rank).join() === '1,2' && rk[2].userId === 'c' && rk[2].rank == null })())
+test('Besserer Tipper hat höheren IQ', (() => { const rk = computeTipperIqRanking([...userWith('a', 30, 10, 2), ...userWith('b', 30, 10, 5)]); return rk[0].userId === 'a' && rk[0].iq > rk[1].iq })())
 test('IQ stets in [0,100]', computeTipperIqRanking([...userWith('a', 40, 10, 1), ...userWith('b', 40, 10, 1000)]).every((r) => r.iq >= 0 && r.iq <= 100))
 test('Determinismus: zweimal gerechnet identisch', JSON.stringify(computeTipperIqRanking(userWith('a', 30, 8))) === JSON.stringify(computeTipperIqRanking(userWith('a', 30, 8))))
 {
@@ -189,6 +191,63 @@ test('Neutrale Torwetten (Über/Unter, BTTS) sind KEINE Gegenwette', classifySta
   test('Nie nach Datum allein: Zukunftsdatum ohne Abschluss bleibt gesperrt', !computeRangeReadiness(ms2, [], 1, 3).ready)
   test('Sichtbarkeit: nicht bereit → versteckt; bereit ohne Freigabe → unveröffentlicht; mit Freigabe → öffentlich', recapVisibility(false, 'true') === 'hidden_not_ready' && recapVisibility(true, null) === 'ready_unpublished' && recapVisibility(true, 'true') === 'published')
 }
+
+
+// ── 9. Zusatzfakten ────────────────────────────────────────────────────────────────────────
+{
+  bets.length = 0; combos.length = 0
+  const m1 = addMatch(400, 4, 25, { home_team_id: 14, away_team_id: 9, home_score: 1, away_score: 1 })
+  const m2 = addMatch(401, 4, 25, { home_team_id: 5, away_team_id: 6, home_score: 2, away_score: 0 })
+  const m3 = addMatch(402, 4, 25, { home_team_id: 7, away_team_id: 8, home_score: 3, away_score: 1 })
+  // Kombi 1: einziger Fehler = Wildenroth-Spiel (Siegtipp, 1:1)  → "Ein Tor fehlte" (Gasttor/Heimtor mehr: Heimtor mehr = 2:1 gewinnt)
+  combo('k1', [{ matchId: m1, odds: 2, status: 'lost', selection: 'home' }, { matchId: m2, odds: 2, status: 'won' }, { matchId: m3, odds: 2, status: 'won' }], 10, 'lost')
+  // Kombi 2: zwei Fehler → kein Killer
+  combo('k2', [{ matchId: m1, odds: 2, status: 'lost', selection: 'home' }, { matchId: m2, odds: 2, status: 'lost', selection: 'away' }], 10, 'lost')
+  // Kombi 3: einziger Fehler Über 3,5 bei 2:0 → ein Tor reicht nicht (2 fehlen)
+  combo('k3', [{ matchId: m2, odds: 2, status: 'lost', market: 'over_under_3_5', selection: 'over_3.5' }, { matchId: m3, odds: 2, status: 'won' }], 10, 'lost')
+  // Kombi 4: einziger Fehler Torschütze → nicht berechenbar
+  combo('k4', [{ matchId: m2, odds: 2, status: 'lost', market: 'goalscorer', selection: '7' }, { matchId: m3, odds: 2, status: 'won' }], 10, 'lost')
+  // Kombi 5: teil-neutralisiertes Leg zählt nicht als Fehler/Treffer
+  combo('k5', [{ matchId: m1, odds: 2, status: 'lost', selection: 'home' }, { matchId: m2, odds: 1, status: 'won' }], 10, 'lost')
+  bets[bets.length - 1].status = 'neutralized'
+  const sl = buildSlips({ bets, combos, matches }).slips
+  const ck = findComboKillers(sl, matches)
+  test('Kombi-Killer: nur Kombis mit genau einem falschen Tipp (k1, k3, k4); k2 hat zwei Fehler, k5 bleibt nach Neutralisierung ohne zweites aktives Leg', ck.singleBlockerCombos === 3 && ck.wildenrothCombos === 1)
+  test('Kombi-Killer: Spiel mit den meisten zerstörten Kombis zuerst', ck.byMatch[0].matchId === m1 || ck.byMatch[0].combos >= 1)
+  const og = findOneGoalShort(sl, matches)
+  test('Ein Tor fehlte: Siegtipp bei 1:1 wäre mit einem Heimtor mehr aufgegangen', og.cases.some((c) => c.matchId === m1 && c.saver === 'ein Heimtor mehr'))
+  test('Ein Tor fehlte: Über 3,5 bei 2:0 zählt NICHT (zwei Tore fehlen)', !og.cases.some((c) => c.marketType === 'over_under_3_5') && og.computableButNotOneGoal === 1)
+  test('Ein Tor fehlte: Torschützen sind nicht berechenbar und werden ausgewiesen, nicht geraten', og.notComputable === 1)
+  test('settleBet reproduziert die gespeicherten Status (0 Abweichungen) bei konsistenten Daten', Object.values(validateSettleReproduction(sl.filter((x) => x.userId === 'x'), matches)).every((v) => v.mismatches === 0))
+}
+{
+  bets.length = 0; combos.length = 0
+  // 2026-09-07 ist ein Montag (Sommerzeit UTC+2): 06:30Z = 08:30 Berlin (Vormittag); 09:59Z = 11:59; 10:00Z = 12:00 (nicht mehr)
+  // 2026-10-26 ist ein Montag (Winterzeit UTC+1): 10:59Z = 11:59 Berlin (Vormittag), 11:00Z = 12:00
+  for (const t of ['2026-09-07T06:30:00Z', '2026-09-07T09:59:00Z', '2026-09-07T10:00:00Z', '2026-10-26T10:59:00Z', '2026-10-26T11:00:00Z', '2026-09-07T03:59:00Z', '2026-09-08T08:00:00Z']) bet('mo', 101, { created_at: t })
+  const mm = mondayMorningStats(buildSlips({ bets, combos, matches }).slips, new Set())[0]
+  test('Montagmorgen (Europe/Berlin, Sommer- und Winterzeit): 6:00–11:59 zählt, 12:00 nicht, Dienstag nicht', mm.mondayMorningSlips === 3 && mm.slips === 7)
+}
+{
+  bets.length = 0; combos.length = 0
+  bet('l1', 101, { stake: 100, status: 'lost' }); bet('l2', 101, { stake: 50, status: 'lost' }); bet('w1', 101, { stake: 10, status: 'won', payout: 50 })
+  bet('l1', 101, { stake: 100, status: 'lost', is_bonus: true })
+  const nl = biggestNetLosers(buildSlips({ bets, combos, matches }).slips, new Set(['l2']))
+  test('Wildi-Vernichter: größter Nettoverlust, Bonus-Tipps und gelöschte Konten außen vor', nl[0].userId === 'l1' && nl[0].net === -100 && !nl.some((x) => x.userId === 'l2'))
+}
+{
+  bets.length = 0; combos.length = 0
+  const a = addMatch(500, 5, 1, { home_team_id: 14, away_team_id: 9, home_score: 0, away_score: 1 })
+  const b = addMatch(501, 5, 8, { home_team_id: 9, away_team_id: 40, home_score: 0, away_score: 0 })
+  const c = addMatch(502, 5, 15, { home_team_id: 14, away_team_id: 9, home_score: 3, away_score: 0 })
+  bet('o', a, { selection: 'home', status: 'lost' }); bet('o', b, { selection: 'away', status: 'lost' }); bet('o', c, { selection: 'home', status: 'won', payout: 20 })
+  bet('o', a, { market_type: 'over_under_3_5', selection: 'over_3.5', status: 'lost' })
+  const o = computeOptimists(buildSlips({ bets, combos, matches }).slips, matches)[0]
+  test('Ewiger Optimist: verfehlte Siegtipp-Spiele und erneute Siegtipps danach; neutrale Torwette zählt nicht', o.winTipMatches === 3 && o.lostWinTipMatches === 2 && o.backedAfterLoss === 2)
+}
+
+test('Zugriff: normales Mitglied sieht unveröffentlichten Bericht nie (bereit oder nicht)', !canViewRecapReport('hidden_not_ready', false, 15) && !canViewRecapReport('ready_unpublished', false, 16))
+test('Zugriff: Mitglied sieht veröffentlichten Bericht; Admin sieht Vorschau, aber erst ab einem fertigen Spieltag', canViewRecapReport('published', false, 16) && canViewRecapReport('ready_unpublished', true, 16) && canViewRecapReport('hidden_not_ready', true, 3) && !canViewRecapReport('hidden_not_ready', true, 0))
 
 // ── 8. Gesamtbericht, Datenschutz ─────────────────────────────────────────────────────────
 {

@@ -158,3 +158,36 @@ export function computeWildenrothRecords(
   }
   return out
 }
+
+export interface OptimistRecord { userId: string; winTipMatches: number; lostWinTipMatches: number; backedAfterLoss: number }
+/** „Ewiger Optimist": Wildenroth-Spiele mit Siegtipp, die verloren gingen (Wildenroth gewann nicht, kein einziger Siegtipp
+ *  des Tippers ging dort auf), und Siegtipps, die er NACH einem solchen Reinfall (zeitlich nach Anstoß) erneut abgab. */
+export function computeOptimists(slips: Slip[], matches: RecapMatchRow[]): OptimistRecord[] {
+  const mt = new Map(matches.map((m) => [m.id, m]))
+  const per = new Map<string, Map<number, { won: boolean }>>()
+  for (const s of slips) {
+    if (s.status !== 'won' && s.status !== 'lost') continue
+    for (const l of s.legs) {
+      if (l.matchId == null || (l.status !== 'won' && l.status !== 'lost')) continue
+      const m = mt.get(l.matchId)
+      if (!m) continue
+      const wHome = m.home_team_id === WILDENROTH_TEAM_I || m.home_team_id === WILDENROTH_TEAM_II
+      const wAway = m.away_team_id === WILDENROTH_TEAM_I || m.away_team_id === WILDENROTH_TEAM_II
+      if (!wHome && !wAway) continue
+      if (classifyStance(l.marketType, l.selection, wHome) !== 'win') continue
+      const u = per.get(s.userId) ?? new Map()
+      const cur = u.get(l.matchId) ?? { won: false }
+      if (l.status === 'won') cur.won = true
+      u.set(l.matchId, cur)
+      per.set(s.userId, u)
+    }
+  }
+  const out: OptimistRecord[] = []
+  for (const [userId, ms] of per) {
+    const ordered = [...ms.entries()].sort((a, b) => new Date(mt.get(a[0])!.match_date).getTime() - new Date(mt.get(b[0])!.match_date).getTime())
+    let lostSoFar = 0, after = 0
+    for (const [, v] of ordered) { if (lostSoFar > 0) after++; if (!v.won) lostSoFar++ }
+    out.push({ userId, winTipMatches: ms.size, lostWinTipMatches: [...ms.values()].filter((v) => !v.won).length, backedAfterLoss: after })
+  }
+  return out.sort((a, b) => b.lostWinTipMatches - a.lostWinTipMatches || b.backedAfterLoss - a.backedAfterLoss)
+}

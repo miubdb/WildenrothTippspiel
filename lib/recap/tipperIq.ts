@@ -47,7 +47,7 @@ import { isSettled, modelProbability, type Slip } from '@/lib/recap/slips'
 
 export const IQ_VERSION = '1.0'
 export const IQ_MIN_SLIPS = 18
-export const IQ_MIN_MATCHDAYS = 7
+export const IQ_MIN_MATCHDAYS = 10
 export const IQ_DIFFICULT_ODDS = [3, 5] as const
 
 export interface IqWeights { hit: number; consistency: number; difficult: number; robust: number }
@@ -327,8 +327,8 @@ export function computeUserIq(userId: string, userSlipsAll: Slip[], options: IqO
   }
 
   let reason: string | null = null
-  if (slips.length < minSlips) reason = `Erst ${slips.length} von ${minSlips} nötigen abgerechneten Wettscheinen`
-  else if (activeMds < minMds) reason = `Erst ${activeMds} von ${minMds} nötigen aktiven Spieltagen`
+  if (slips.length < minSlips) reason = `Noch nicht für die offizielle Rangliste qualifiziert: erst ${slips.length} von ${minSlips} nötigen abgerechneten Wettscheinen`
+  else if (activeMds < minMds) reason = `Noch nicht für die offizielle Rangliste qualifiziert: erst ${activeMds} von ${minMds} nötigen aktiven Spieltagen`
 
   return {
     userId, iq, components,

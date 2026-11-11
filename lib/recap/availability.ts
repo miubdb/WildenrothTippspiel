@@ -48,3 +48,14 @@ export function recapVisibility(ready: boolean, publishedSetting: string | null 
 }
 
 export const HINRUNDE = { key: 'hinrunde', from: 1, to: 16, title: 'Hinrunden-Recap', settingKey: 'recap_published_hinrunde' } as const
+
+/**
+ * Darf der Bericht (die Auswertung selbst, nicht nur die Hülle) an diesen Betrachter gehen?
+ * Einzige Stelle der Zugriffsentscheidung – wird serverseitig in loadHinrundeState VOR dem Berechnen
+ * ausgewertet, damit unveröffentlichte Zahlen nie in die Antwort an normale Mitglieder gelangen.
+ * Mitglieder: nur veröffentlicht (setzt „bereit" voraus). Admins: Vorschau, sobald mind. ein Spieltag fertig ist.
+ */
+export function canViewRecapReport(visibility: RecapVisibility, isAdmin: boolean, completedUpTo: number): boolean {
+  if (visibility === 'published') return true
+  return isAdmin && completedUpTo > 0
+}
