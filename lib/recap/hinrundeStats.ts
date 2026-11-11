@@ -26,6 +26,10 @@ export interface SlipBreakdown {
   lost: number
   open: number
   cancelledByUser: number
+  /** Storniert, aber ohne gespeicherten Grund (ältere Stornos) – vermutlich vom Nutzer, nicht belegt. */
+  voidNoReason: number
+  /** Vom System storniert, weil der Torschütze nicht verfügbar war. */
+  voidAdminUnavailable: number
   voidOther: number
   neutralized: number
   /** Legs aller NICHT stornierten Scheine. */
@@ -37,7 +41,7 @@ export interface SlipBreakdown {
 }
 
 export function breakdownSlips(slips: Slip[]): SlipBreakdown {
-  const b: SlipBreakdown = { total: slips.length, singles: 0, combos: 0, won: 0, lost: 0, open: 0, cancelledByUser: 0, voidOther: 0, neutralized: 0, activeLegs: 0, neutralizedLegs: 0, bonusSlips: 0, riskySlips: 0 }
+  const b: SlipBreakdown = { total: slips.length, singles: 0, combos: 0, won: 0, lost: 0, open: 0, cancelledByUser: 0, voidNoReason: 0, voidAdminUnavailable: 0, voidOther: 0, neutralized: 0, activeLegs: 0, neutralizedLegs: 0, bonusSlips: 0, riskySlips: 0 }
   for (const s of slips) {
     if (s.kind === 'single') b.singles++; else b.combos++
     if (s.status === 'won') b.won++
@@ -45,6 +49,8 @@ export function breakdownSlips(slips: Slip[]): SlipBreakdown {
     else if (s.status === 'pending') b.open++
     else if (s.status === 'neutralized') b.neutralized++
     else if (s.voidReason === 'user_cancelled') b.cancelledByUser++
+    else if (s.voidReason == null) b.voidNoReason++
+    else if (s.voidReason === 'admin_goalscorer_unavailable') b.voidAdminUnavailable++
     else b.voidOther++
     if (s.status !== 'void') {
       b.activeLegs += s.legs.filter((l) => l.status !== 'neutralized').length
