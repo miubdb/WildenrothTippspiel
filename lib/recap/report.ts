@@ -27,12 +27,18 @@ export interface RecapReport {
   wildenroth: { all: WildenrothUserRecord[]; I: WildenrothUserRecord[]; II: WildenrothUserRecord[] }
   /** Namen/Avatare nur für die in Rankings/Awards genannten, nicht gelöschten Tipper. */
   people: Record<string, { name: string; avatarUrl: string | null }>
+  /** Lesbare Legs der in Highlights genannten Scheine (Schlüssel = Slip.key). */
+  slipLegs: Record<string, { match: string; market: string; selection: string; odds: number; status: string }[]>
+  /** Anzeigename je Spiel-ID für Klügster Treffer u. Ä. */
+  matchLabels: Record<number, string>
 }
 
 export interface ReportInput {
   allSlips: Slip[]
   matches: RecapMatchRow[]
   range: MatchdayRange
+  /** Beschriftungen (optional – ohne sie bleiben die Legs leer). */
+  labeler?: { matchLabel: (matchId: number) => string; marketLabel: (market: string) => string; selectionLabel: (market: string, selection: string) => string }
   profiles: { id: string; display_name: string | null; username: string | null; avatar_url?: string | null; deleted_at: string | null }[]
 }
 
@@ -53,17 +59,33 @@ export function buildRecapReport(inp: ReportInput): RecapReport {
   const clever = findCleverHits(allSlips, rangeSlips, excluded).slice(0, 5)
   const moves = biggestRankMoves(traj)
   for (const x of [...nm.map((m) => m.slip.userId), ...clever.map((c) => c.userId), moves.climb?.userId, moves.crash?.userId]) if (x) named.add(x)
+  for (const w of rec('all')) if (w.win.matches > 0 || w.against.legs > 0) named.add(w.userId)
   const people: RecapReport['people'] = {}
   for (const p of profiles) if (named.has(p.id) && !p.deleted_at) people[p.id] = { name: p.display_name || p.username || 'Unbekannt', avatarUrl: p.avatar_url ?? null }
+  const overview = computeOverview(rangeSlips, matches)
+  const refKeys = new Set<string>()
+  for (const t of [...tips.single.slice(0, 3), ...tips.combo.slice(0, 3)]) refKeys.add(t.slip.key)
+  for (const m of nm) refKeys.add(m.slip.key)
+  for (const r of [overview.highestOddsWon, overview.biggestSingleWin, overview.biggestComboWin]) if (r) refKeys.add(r.key)
+  const slipLegs: RecapReport['slipLegs'] = {}
+  const matchLabels: RecapReport['matchLabels'] = {}
+  const lab = inp.labeler
+  if (lab) {
+    for (const s of rangeSlips) if (refKeys.has(s.key)) {
+      slipLegs[s.key] = s.legs.filter((l) => l.status !== 'neutralized').map((l) => ({ match: l.matchId != null ? lab.matchLabel(l.matchId) : 'Spieltags-Special', market: lab.marketLabel(l.marketType), selection: lab.selectionLabel(l.marketType, l.selection), odds: l.odds, status: l.status }))
+    }
+    for (const c of clever) matchLabels[c.matchId] = lab.matchLabel(c.matchId)
+    for (const m of nm) if (m.lostLeg.matchId != null) matchLabels[m.lostLeg.matchId] = lab.matchLabel(m.lostLeg.matchId)
+  }
   return {
     version: '1', range,
     dataAsOfMs: rangeSlips.reduce((m, s) => Math.max(m, s.createdAtMs), 0),
-    overview: computeOverview(rangeSlips, matches),
+    overview,
     breakdown: breakdownSlips(rangeSlips),
     iq, awards,
     bestTips: { single: tips.single.slice(0, 5), combo: tips.combo.slice(0, 5), clever, tragic: nm },
     rankMoves: moves,
     wildenroth: { all: rec('all'), I: rec('I'), II: rec('II') },
-    people,
+    people, slipLegs, matchLabels,
   }
 }
