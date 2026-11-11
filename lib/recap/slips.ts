@@ -96,6 +96,8 @@ export interface Slip {
   net: number
   isRisky: boolean
   isBonus: boolean
+  /** Storno-Grund bei status 'void': 'user_cancelled' (vom Nutzer storniert) o. Ä.; sonst null. */
+  voidReason: string | null
   legs: SlipLeg[]
   /** Spieltag, dem der Schein für alle Auswertungen zugeordnet wird: der früheste Recap-Spieltag
    *  seiner Legs — dieselbe Regel wie lib/awards.ts#computeAndPersistMatchdayAwards und
@@ -196,6 +198,7 @@ export function buildSlips(input: SlipBuildInput): { slips: Slip[]; mdIndex: Eff
       net: status === 'won' ? Number(b.payout ?? 0) - stake : status === 'lost' ? -stake : 0,
       isRisky: !!b.is_risky,
       isBonus: !!b.is_bonus,
+      voidReason: b.void_reason,
       legs: [toLeg(b)],
     })
     if (s) slips.push(s)
@@ -219,6 +222,7 @@ export function buildSlips(input: SlipBuildInput): { slips: Slip[]; mdIndex: Eff
       // combo_bets hat keine eigene is_risky-Spalte — jedes Leg trägt denselben Wert (lib/risky.ts).
       isRisky: legRows.some((l) => !!l.is_risky),
       isBonus: legRows.some((l) => !!l.is_bonus),
+      voidReason: c.void_reason ?? legRows.find((l) => l.void_reason)?.void_reason ?? null,
       legs: legRows.map(toLeg),
     })
     if (s) slips.push(s)
