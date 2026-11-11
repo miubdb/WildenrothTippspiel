@@ -10,9 +10,10 @@ import {
   isIqEligibleSlip, IQ_MIN_SLIPS, IQ_MIN_MATCHDAYS, IQ_WEIGHTS_DEFAULT, IQ_ALT_WEIGHTS, probSumAtLeast,
 } from '@/lib/recap/tipperIq'
 import { classifyStance, computeWildenrothRecords, computeOptimists } from '@/lib/recap/wildenrothStance'
-import { breakdownSlips, findNearMisses, longestStreaks, computeTrajectories, bestComebacks, findComboKillers, findOneGoalShort, mondayMorningStats, biggestNetLosers, validateSettleReproduction } from '@/lib/recap/hinrundeStats'
+import { breakdownSlips, findNearMisses, longestStreaks, computeTrajectories, bestComebacks, nightOwlStats, berlinHour, latestSlips, findIdenticalWins, winlessComboStreakers, findComboKillers, findOneGoalShort, mondayMorningStats, biggestNetLosers, validateSettleReproduction } from '@/lib/recap/hinrundeStats'
 import { canViewRecapReport, computeRangeReadiness, recapVisibility } from '@/lib/recap/availability'
 import { buildRecapReport } from '@/lib/recap/report'
+import { computeHalbzeitAwards } from '@/lib/recap/halbzeitAwards'
 
 let errors = 0
 let checks = 0
@@ -233,7 +234,7 @@ test('Neutrale Torwetten (Über/Unter, BTTS) sind KEINE Gegenwette', classifySta
   bet('l1', 101, { stake: 100, status: 'lost' }); bet('l2', 101, { stake: 50, status: 'lost' }); bet('w1', 101, { stake: 10, status: 'won', payout: 50 })
   bet('l1', 101, { stake: 100, status: 'lost', is_bonus: true })
   const nl = biggestNetLosers(buildSlips({ bets, combos, matches }).slips, new Set(['l2']))
-  test('Wildi-Vernichter: größter Nettoverlust, Bonus-Tipps und gelöschte Konten außen vor', nl[0].userId === 'l1' && nl[0].net === -100 && !nl.some((x) => x.userId === 'l2'))
+  test('Wildi-Vernichter: größter Nettoverlust, gelöschte Konten außen vor', nl[0].userId === 'l1' && nl[0].net === -200 && !nl.some((x) => x.userId === 'l2'))
 }
 {
   bets.length = 0; combos.length = 0
@@ -248,6 +249,55 @@ test('Neutrale Torwetten (Über/Unter, BTTS) sind KEINE Gegenwette', classifySta
 
 test('Zugriff: normales Mitglied sieht unveröffentlichten Bericht nie (bereit oder nicht)', !canViewRecapReport('hidden_not_ready', false, 15) && !canViewRecapReport('ready_unpublished', false, 16))
 test('Zugriff: Mitglied sieht veröffentlichten Bericht; Admin sieht Vorschau, aber erst ab einem fertigen Spieltag', canViewRecapReport('published', false, 16) && canViewRecapReport('ready_unpublished', true, 16) && canViewRecapReport('hidden_not_ready', true, 3) && !canViewRecapReport('hidden_not_ready', true, 0))
+
+test('berlinHour liefert Zahlen (kein NaN), Sommer-/Winterzeit', berlinHour(Date.parse('2026-09-07T22:30:00Z')) === 0 && berlinHour(Date.parse('2026-11-02T00:30:00Z')) === 1 && berlinHour(Date.parse('2026-09-07T03:59:00Z')) === 5)
+{
+  bets.length = 0; combos.length = 0
+  // 0:10, 1:00 (Stornos zählen), 5:59 Berlin → Nacht; 6:00 → nicht
+  for (const [t, st] of [['2026-09-06T22:10:00Z', 'lost'], ['2026-09-06T23:00:00Z', 'void'], ['2026-09-07T03:59:00Z', 'lost'], ['2026-09-07T04:00:00Z', 'lost']] as const) bet('nt', 101, { created_at: t, status: st, void_reason: st === 'void' ? 'user_cancelled' : null })
+  const o = nightOwlStats(buildSlips({ bets, combos, matches }).slips, new Set())[0]
+  test('Nachteule: 0:00–5:59 inkl. später stornierter Scheine; 6:00 zählt nicht', o.nightSlips === 3 && o.slips === 4)
+}
+
+{
+  bets.length = 0; combos.length = 0
+  addMatch(600, 6, 2); addMatch(601, 6, 3); addMatch(602, 6, 4)
+  // zwei Tipper mit identischer gewonnener 3er-Kombi, ein Dritter mit anderer; Einzelwetten dürfen nie als Zwillings-Treffer zählen
+  for (const u of ['t1', 't2']) combo(u, [{ matchId: 600, odds: 2, status: 'won' }, { matchId: 601, odds: 2, status: 'won' }, { matchId: 602, odds: 2, status: 'won' }], 10, 'won')
+  combo('t3', [{ matchId: 600, odds: 2, status: 'won' }, { matchId: 601, odds: 2, status: 'won' }], 10, 'won')
+  bet('t1', 600, { status: 'won', payout: 20 }); bet('t2', 600, { status: 'won', payout: 20 })
+  const sl = buildSlips({ bets, combos, matches }).slips
+  const iw = findIdenticalWins(sl, new Set())
+  test('Zwillings-Treffer: nur identische GEWONNENE Kombis bei ≥ 2 Tippern (Einzelwetten und andere Kombis zählen nicht)', iw.length === 1 && iw[0].legs === 3 && iw[0].users.length === 2)
+  test('Zwillings-Treffer: gelöschtes Konto zählt nicht mit', findIdenticalWins(sl, new Set(['t2'])).length === 0)
+}
+{
+  bets.length = 0; combos.length = 0
+  for (let i = 0; i < 10; i++) combo('fl', [{ matchId: 600, odds: 2, status: 'lost' }, { matchId: 601, odds: 2, status: 'won' }], 10, 'lost')
+  for (let i = 0; i < 12; i++) combo('ok', [{ matchId: 600, odds: 2, status: 'lost' }, { matchId: 601, odds: 2, status: 'won' }], 10, i === 0 ? 'won' : 'lost')
+  const sl = buildSlips({ bets, combos, matches }).slips
+  const f = winlessComboStreakers(sl, new Set())
+  test('Kombi-Flaute: ≥ 10 Kombis ohne einen Gewinn; ein einziger Gewinn nimmt aus der Wertung', f.length === 1 && f[0].userId === 'fl' && f[0].lost === 10)
+}
+{
+  bets.length = 0; combos.length = 0
+  // erster Anstoß 2026-09-02T13:00Z; Abgabe 9,877 s vorher (verloren) und 20 s vorher (gewonnen) und 5 s NACH Anstoß
+  bet('late', 600, { created_at: '2026-09-02T12:59:50.123Z', status: 'lost' })
+  bet('late', 600, { created_at: '2026-09-02T12:59:40.000Z', status: 'won', payout: 20 })
+  bet('late', 600, { created_at: '2026-09-02T13:00:05.000Z', status: 'lost' })
+  const l = latestSlips(buildSlips({ bets, combos, matches }).slips, new Set())
+  test('Spätester Schein: kürzester Abstand vor Anstoß (egal ob verloren), Abgabe nach Anstoß zählt nicht', l.length === 2 && Math.abs(l[0].leadSeconds - 9.877) < 1e-6 && l[0].status === 'lost')
+}
+{
+  // Gleichstand auf Platz 3 → alle Gleichplatzierten werden gezeigt; Wildi-Vernichter nutzt dieselbe Basis wie Wildi-Magnet (inkl. Bonus)
+  bets.length = 0; combos.length = 0
+  for (const u of ['a1', 'a2', 'a3', 'a4', 'a5']) for (let i = 0; i < 9; i++) bet(u, 600, { stake: 10, status: 'lost', created_at: `2026-09-0${(i % 3) + 1}T10:00:00Z` })
+  bet('a1', 600, { stake: 100, status: 'won', payout: 160, is_bonus: true })
+  const sl = buildSlips({ bets, combos, matches }).slips
+  const aw = computeHalbzeitAwards({ rangeSlips: sl, allSlips: sl, matches, iq: [], range: { from: 1, to: 15 }, excluded: new Set() })
+  const v = aw.find((x) => x.key === 'wildi_vernichter')
+  test('Wildi-Vernichter: Basis wie Wildi-Magnet inkl. Bonus (a1 −90+60 = −30, a2–a5 je −90 gleichauf und alle gezeigt)', !!v && v.entries.length === 4 && v.entries.every((e) => e.value === v.entries[0].value) && !v.entries.some((e) => e.userId === 'a1'))
+}
 
 // ── 8. Gesamtbericht, Datenschutz ─────────────────────────────────────────────────────────
 {

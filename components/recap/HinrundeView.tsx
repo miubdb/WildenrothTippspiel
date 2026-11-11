@@ -100,7 +100,7 @@ export function HinrundeView({ report, myId, previewTo }: { report: RecapReport;
           {r.bestTips.clever[0] && <div className="p-4"><div className="text-xs font-bold text-red-700 dark:text-red-300">🧩 KLÜGSTER TREFFER</div>
             <div className="flex items-center gap-2 mt-1">{av(r.bestTips.clever[0].userId)}<div><div className="font-bold text-gray-900 dark:text-gray-100">{nm(r.bestTips.clever[0].userId)} @{f2(r.bestTips.clever[0].odds)}</div><div className="text-xs text-gray-500">{r.matchLabels[r.bestTips.clever[0].matchId]} – nur {Math.round(r.bestTips.clever[0].crowdShare * 100)} % von {r.bestTips.clever[0].tippers} Tippern wählten das</div></div></div></div>}
           {r.bestTips.tragic[0] && <div className="p-4"><div className="text-xs font-bold text-red-700 dark:text-red-300">😭 TRAGISCHSTER SCHEIN</div>
-            <div className="flex items-center gap-2 mt-1">{av(r.bestTips.tragic[0].slip.userId)}<div><div className="font-bold text-gray-900 dark:text-gray-100">{nm(r.bestTips.tragic[0].slip.userId)} · {r.bestTips.tragic[0].legsTotal}er-Kombi, nur ein Tipp falsch</div><div className="text-xs text-gray-500">{f0(r.bestTips.tragic[0].potentialPayout)} Wildis verpasst (gedeckelt) · Spieltag {r.bestTips.tragic[0].slip.matchday}</div></div></div><SlipLegs legs={r.slipLegs} k={r.bestTips.tragic[0].slip.key} /></div>}
+            <div className="flex items-center gap-2 mt-1">{av(r.bestTips.tragic[0].slip.userId)}<div><div className="font-bold text-gray-900 dark:text-gray-100">{nm(r.bestTips.tragic[0].slip.userId)} · {r.bestTips.tragic[0].legsTotal}er-Kombi, nur ein Tipp falsch</div><div className="text-xs text-gray-500">{f0(r.bestTips.tragic[0].potentialNet)} Wildis Nettogewinn verpasst (Auszahlung {f0(r.bestTips.tragic[0].potentialPayout)}) · Spieltag {r.bestTips.tragic[0].slip.matchday}</div></div></div><SlipLegs legs={r.slipLegs} k={r.bestTips.tragic[0].slip.key} /></div>}
         </div>
       </Section>
 
@@ -150,12 +150,12 @@ export function HinrundeView({ report, myId, previewTo }: { report: RecapReport;
           <div>
             <div className="text-xs font-bold text-red-700 dark:text-red-300 mb-1">💥 KOMBI-KILLER</div>
             <p><b>{r.facts.comboKillers.singleBlockerCombos}</b> Kombis scheiterten an genau einem falschen Tipp – bei <b>{r.facts.comboKillers.wildenrothCombos}</b> davon war das ein Spiel mit Wildenroth I oder II.</p>
-            <ul className="mt-2 space-y-1">{r.facts.comboKillers.byMatch.map((k) => <li key={k.matchId} className="text-xs text-gray-600 dark:text-gray-300">· {r.matchLabels[k.matchId]}: {k.combos} Kombis von {k.users} Tippern ({f0(k.potentialPayout)} Wildis verpasst, gedeckelt)</li>)}</ul>
+            <ul className="mt-2 space-y-1">{r.facts.comboKillers.byMatch.map((k) => <li key={k.matchId} className="text-xs text-gray-600 dark:text-gray-300">· {r.matchLabels[k.matchId]}: {k.combos} Kombis von {k.users} Tippern ({f0(k.potentialNet)} Wildis Nettogewinn verpasst)</li>)}</ul>
           </div>
           <div>
             <div className="text-xs font-bold text-red-700 dark:text-red-300 mb-1">🥅 EIN TOR FEHLTE</div>
             <p><b>{r.facts.oneGoalShort.cases.length === 0 ? 0 : r.facts.oneGoalShort.cases.length}</b> von {r.facts.oneGoalShort.singleBlockerCombos} dieser Kombis wären mit einem einzigen zusätzlichen oder fehlenden Tor aufgegangen (berechnet für Spielausgang, Doppelte Chance, Handicap, Über/Unter, Beide treffen, Ergebnis). {r.facts.oneGoalShort.notComputable} Fälle (z. B. Torschützen) sind aus dem Endergebnis nicht berechenbar und bleiben außen vor.</p>
-            <ul className="mt-2 space-y-1">{r.facts.oneGoalShort.cases.map((c) => <li key={c.slip.key} className="text-xs text-gray-600 dark:text-gray-300">· {nm(c.slip.userId)}: {r.matchLabels[c.matchId]} ({c.actual}) – mit {c.saver} wären {f0(c.potentialPayout)} Wildis drin gewesen</li>)}</ul>
+            <ul className="mt-2 space-y-1">{r.facts.oneGoalShort.cases.map((c) => <li key={c.slip.key} className="text-xs text-gray-600 dark:text-gray-300">· {nm(c.slip.userId)}: {r.matchLabels[c.matchId]} ({c.actual}) – mit {c.saver} wären {f0(c.potentialNet)} Wildis Nettogewinn drin gewesen</li>)}</ul>
           </div>
         </div>
       </Section>
@@ -180,8 +180,9 @@ export function HinrundeView({ report, myId, previewTo }: { report: RecapReport;
 
 function AwardBlock({ a, nm, av, compact }: { a: AwardResult; nm: (id: string) => string; av: (id: string, s?: number) => React.ReactNode; compact?: boolean }) {
   const [w, ...restAll] = a.entries
-  const tied = restAll.filter((e) => e.value === w.value)
-  const rest = restAll.filter((e) => e.value !== w.value)
+  const keyOf = (e: AwardResult['entries'][number]) => e.rankKey ?? e.value
+  const tied = restAll.filter((e) => keyOf(e) === keyOf(w))
+  const rest = restAll.filter((e) => keyOf(e) !== keyOf(w))
   return (
     <div className="px-4 py-3">
       <div className="flex items-center gap-3">

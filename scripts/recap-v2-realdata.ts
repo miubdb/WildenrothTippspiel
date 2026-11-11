@@ -33,6 +33,6 @@ export function run(): number {
     const rho = 1 - (6 * ra.reduce((s, x, i) => s + (x - rb[i]) ** 2, 0)) / (n * (n * n - 1))
     console.log(v.name.padEnd(46), 'Top 6:', ids.slice(0, 6).map(nm).join(', '), '| Spearman', rho.toFixed(3))
   }
-  for (const a of rep.awards) console.log(`${a.icon} ${a.title}: ${a.entries.map((e) => `${nm(e.userId)} (${e.value})`).join(' | ')}`)
+  for (const a of rep.awards) console.log(`${a.icon} ${a.title}: ${a.entries.map((e) => `${nm(e.userId)} (${e.value}${process.env.RECAP_DETAIL && e.detail ? '; ' + e.detail : ''})`).join(' | ')}`)
   return 0
 }

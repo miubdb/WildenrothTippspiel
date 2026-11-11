@@ -221,7 +221,7 @@ export function longestStreaks(slips: Slip[], excluded: Set<string> = new Set())
 
 // ── Beinahe-Treffer ────────────────────────────────────────────────────────────────────────
 
-export interface NearMiss { slip: SlipRef; legsTotal: number; lostLegIndex: number; potentialPayout: number; lostLeg: { matchId: number | null; marketType: string; selection: string; odds: number } }
+export interface NearMiss { slip: SlipRef; legsTotal: number; lostLegIndex: number; potentialPayout: number; /** entgangener Nettogewinn = mögliche Auszahlung − Einsatz */ potentialNet: number; lostLeg: { matchId: number | null; marketType: string; selection: string; odds: number } }
 /** Verlorene Kombis (≥ 3 aktive Legs), bei denen genau EIN Leg verloren hat. Mögliche Auszahlung gedeckelt. */
 export function findNearMisses(slips: Slip[]): NearMiss[] {
   const out: NearMiss[] = []
@@ -231,9 +231,9 @@ export function findNearMisses(slips: Slip[]): NearMiss[] {
     const lost = act.filter((l) => l.status === 'lost')
     if (act.length < 3 || lost.length !== 1 || act.filter((l) => l.status === 'won').length !== act.length - 1) continue
     const l = lost[0]
-    out.push({ slip: ref(s), legsTotal: act.length, lostLegIndex: act.indexOf(l), potentialPayout: Math.min(s.stake * s.odds, payoutCap(s.isRisky)), lostLeg: { matchId: l.matchId, marketType: l.marketType, selection: l.selection, odds: l.odds } })
+    out.push({ slip: ref(s), legsTotal: act.length, lostLegIndex: act.indexOf(l), potentialPayout: Math.min(s.stake * s.odds, payoutCap(s.isRisky)), potentialNet: Math.min(s.stake * s.odds, payoutCap(s.isRisky)) - s.stake, lostLeg: { matchId: l.matchId, marketType: l.marketType, selection: l.selection, odds: l.odds } })
   }
-  return out.sort((a, b) => b.potentialPayout - a.potentialPayout)
+  return out.sort((a, b) => b.potentialNet - a.potentialNet)
 }
 
 // ── Bester Tipp ────────────────────────────────────────────────────────────────────────────
@@ -311,13 +311,15 @@ export function findCleverHits(allSlips: Slip[], rangeSlips: Slip[], excluded: S
 
 // ── Spaß-Statistiken ───────────────────────────────────────────────────────────────────────
 
-const berlinHour = (ms: number): number => Number(new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', hour: 'numeric', hour12: false }).format(new Date(ms))) % 24
+const berlinHourFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', hour: 'numeric', hour12: false })
+/** Stunde (0–23) in deutscher Zeit. Bewusst en-GB: de-DE liefert „01 Uhr" (→ NaN). */
+export const berlinHour = (ms: number): number => Number(berlinHourFmt.format(new Date(ms))) % 24
 
 export interface LeadTimeStat { userId: string; medianLeadSeconds: number; slips: number }
 export function leadTimeStats(slips: Slip[], excluded: Set<string>, minSlips = 10): LeadTimeStat[] {
   const by = new Map<string, number[]>()
   for (const s of slips) {
-    if (s.status === 'void' || s.isBonus || excluded.has(s.userId) || s.firstKickoffMs == null) continue
+    if (s.isBonus || excluded.has(s.userId) || s.firstKickoffMs == null) continue
     const lead = (s.firstKickoffMs - s.createdAtMs) / 1000
     if (lead <= 0) continue
     ;(by.get(s.userId) ?? by.set(s.userId, []).get(s.userId)!).push(lead)
@@ -332,10 +334,10 @@ export function leadTimeStats(slips: Slip[], excluded: Set<string>, minSlips = 1
 export function nightOwlStats(slips: Slip[], excluded: Set<string>): { userId: string; nightSlips: number; slips: number }[] {
   const by = new Map<string, { n: number; t: number }>()
   for (const s of slips) {
-    if (s.status === 'void' || excluded.has(s.userId)) continue
+    if (s.isBonus || excluded.has(s.userId)) continue
     const e = by.get(s.userId) ?? { n: 0, t: 0 }
     e.t++
-    if (berlinHour(s.createdAtMs) < 5) e.n++
+    if (berlinHour(s.createdAtMs) < 6) e.n++
     by.set(s.userId, e)
   }
   return [...by.entries()].map(([userId, e]) => ({ userId, nightSlips: e.n, slips: e.t })).sort((a, b) => b.nightSlips - a.nightSlips)
@@ -370,7 +372,7 @@ export function findBetTwins(slips: Slip[], excluded: Set<string>, minEvents = 2
   return out.sort((x, y) => y.jaccard - x.jaccard)
 }
 
-export interface CancelRegret { userId: string; slipKey: string; odds: number; stake: number; potentialPayout: number; matchday: number | null }
+export interface CancelRegret { userId: string; slipKey: string; odds: number; stake: number; /** mögliche Auszahlung inkl. Einsatz (gedeckelt) */ potentialPayout: number; /** entgangener Nettogewinn = Auszahlung − Einsatz */ potentialNet: number; matchday: number | null }
 /** Vom Nutzer stornierte Scheine, die ausgewertet GEWONNEN hätten (nur Märkte, die sich allein aus dem
  *  Endergebnis bestimmen lassen – Torschützen/Cup/Specials werden bewusst nicht geraten). */
 export function findCancelRegrets(slips: Slip[], matches: RecapMatchRow[], excluded: Set<string>): CancelRegret[] {
@@ -385,9 +387,9 @@ export function findCancelRegrets(slips: Slip[], matches: RecapMatchRow[], exclu
       if (!mt || mt.status !== 'finished' || mt.home_score == null || mt.away_score == null || !simple.has(l.marketType)) { allWon = false; break }
       if (settleBet(l.marketType, l.selection, mt.home_score, mt.away_score) !== 'won') { allWon = false; break }
     }
-    if (allWon) out.push({ userId: s.userId, slipKey: s.key, odds: s.odds, stake: s.stake, potentialPayout: Math.min(s.stake * s.odds, payoutCap(s.isRisky)), matchday: s.ownerMatchday })
+    if (allWon) out.push({ userId: s.userId, slipKey: s.key, odds: s.odds, stake: s.stake, potentialPayout: Math.min(s.stake * s.odds, payoutCap(s.isRisky)), potentialNet: Math.min(s.stake * s.odds, payoutCap(s.isRisky)) - s.stake, matchday: s.ownerMatchday })
   }
-  return out.sort((a, b) => b.potentialPayout - a.potentialPayout)
+  return out.sort((a, b) => b.potentialNet - a.potentialNet)
 }
 
 // ── Zusätzliche Fakten: Kombi-Killer, „Ein Tor fehlte", Montagmorgen, Verlierer ──────────────
@@ -412,7 +414,7 @@ export function validateSettleReproduction(slips: Slip[], matches: RecapMatchRow
   return out
 }
 
-export interface ComboKillerMatch { matchId: number; combos: number; users: number; potentialPayout: number; wildenroth: boolean }
+export interface ComboKillerMatch { matchId: number; combos: number; users: number; potentialPayout: number; potentialNet: number; wildenroth: boolean }
 export interface ComboKillers {
   /** Verlorene Kombis (≥ 2 aktive Legs), bei denen genau EIN Leg verloren hat und alle übrigen gewonnen haben. */
   singleBlockerCombos: number
@@ -423,7 +425,7 @@ export interface ComboKillers {
 export function findComboKillers(slips: Slip[], matches: RecapMatchRow[], excluded: Set<string> = new Set()): ComboKillers {
   const mt = new Map(matches.map((x) => [x.id, x]))
   const isW = (id: number) => { const m = mt.get(id); return !!m && [14, 40].some((t) => m.home_team_id === t || m.away_team_id === t) }
-  const by = new Map<number, { combos: number; users: Set<string>; pot: number }>()
+  const by = new Map<number, { combos: number; users: Set<string>; pot: number; net: number }>()
   let total = 0, w = 0
   for (const s of slips) {
     if (s.kind !== 'combo' || s.status !== 'lost' || excluded.has(s.userId)) continue
@@ -433,17 +435,18 @@ export function findComboKillers(slips: Slip[], matches: RecapMatchRow[], exclud
     if (act.filter((l) => l.status === 'won').length !== act.length - 1) continue
     total++
     if (isW(lost[0].matchId)) w++
-    const e = by.get(lost[0].matchId) ?? { combos: 0, users: new Set<string>(), pot: 0 }
-    e.combos++; e.users.add(s.userId); e.pot += Math.min(s.stake * s.odds, payoutCap(s.isRisky))
+    const e = by.get(lost[0].matchId) ?? { combos: 0, users: new Set<string>(), pot: 0, net: 0 }
+    const pay = Math.min(s.stake * s.odds, payoutCap(s.isRisky))
+    e.combos++; e.users.add(s.userId); e.pot += pay; e.net += pay - s.stake
     by.set(lost[0].matchId, e)
   }
   return {
     singleBlockerCombos: total, wildenrothCombos: w,
-    byMatch: [...by.entries()].map(([matchId, e]) => ({ matchId, combos: e.combos, users: e.users.size, potentialPayout: e.pot, wildenroth: isW(matchId) })).sort((a, b) => b.combos - a.combos || b.potentialPayout - a.potentialPayout),
+    byMatch: [...by.entries()].map(([matchId, e]) => ({ matchId, combos: e.combos, users: e.users.size, potentialPayout: e.pot, potentialNet: e.net, wildenroth: isW(matchId) })).sort((a, b) => b.combos - a.combos || b.potentialNet - a.potentialNet),
   }
 }
 
-export interface OneGoalShort { slip: SlipRef; matchId: number; marketType: string; selection: string; actual: string; /** was ein einzelnes Tor geändert hätte */ saver: string; potentialPayout: number }
+export interface OneGoalShort { slip: SlipRef; matchId: number; marketType: string; selection: string; actual: string; /** was ein einzelnes Tor geändert hätte */ saver: string; potentialPayout: number; potentialNet: number }
 export interface OneGoalShortResult {
   cases: OneGoalShort[]
   /** Verlorene Kombis mit genau einem falschen Leg (alle anderen richtig), egal ob berechenbar. */
@@ -470,18 +473,18 @@ export function findOneGoalShort(slips: Slip[], matches: RecapMatchRow[], exclud
     const variants: [number, number, string][] = [[h + 1, a, 'ein Heimtor mehr'], [h, a + 1, 'ein Gasttor mehr'], [h - 1, a, 'ein Heimtor weniger'], [h, a - 1, 'ein Gasttor weniger']]
     const hit = variants.find(([vh, va]) => vh >= 0 && va >= 0 && settleBet(l.marketType, l.selection, vh, va) === 'won')
     if (!hit) { res.computableButNotOneGoal++; continue }
-    res.cases.push({ slip: ref(s), matchId: m.id, marketType: l.marketType, selection: l.selection, actual: `${h}:${a}`, saver: hit[2], potentialPayout: Math.min(s.stake * s.odds, payoutCap(s.isRisky)) })
+    res.cases.push({ slip: ref(s), matchId: m.id, marketType: l.marketType, selection: l.selection, actual: `${h}:${a}`, saver: hit[2], potentialPayout: Math.min(s.stake * s.odds, payoutCap(s.isRisky)), potentialNet: Math.min(s.stake * s.odds, payoutCap(s.isRisky)) - s.stake })
   }
-  res.cases.sort((x, y) => y.potentialPayout - x.potentialPayout)
+  res.cases.sort((x, y) => y.potentialNet - x.potentialNet)
   return res
 }
 
-/** Scheine, abgegeben montags 06:00–11:59 deutscher Zeit (Europe/Berlin, inkl. Sommer-/Winterzeit). */
+/** Alle abgegebenen Scheine (auch später stornierte, Bonus ausgenommen), montags 06:00–11:59 deutscher Zeit (Europe/Berlin, inkl. Sommer-/Winterzeit). */
 export function mondayMorningStats(slips: Slip[], excluded: Set<string>): { userId: string; mondayMorningSlips: number; slips: number }[] {
   const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', weekday: 'short', hour: 'numeric', hour12: false })
   const by = new Map<string, { n: number; t: number }>()
   for (const s of slips) {
-    if (s.status === 'void' || excluded.has(s.userId)) continue
+    if (s.isBonus || excluded.has(s.userId)) continue
     const parts = Object.fromEntries(fmt.formatToParts(new Date(s.createdAtMs)).map((p) => [p.type, p.value]))
     const e = by.get(s.userId) ?? { n: 0, t: 0 }
     e.t++
@@ -491,14 +494,51 @@ export function mondayMorningStats(slips: Slip[], excluded: Set<string>): { user
   return [...by.entries()].map(([userId, e]) => ({ userId, mondayMorningSlips: e.n, slips: e.t })).sort((a, b) => b.mondayMorningSlips - a.mondayMorningSlips)
 }
 
-/** Größter tatsächlicher Nettoverlust aus abgerechneten Scheinen (Bonus-Tipps ausgenommen). */
+/** Größter tatsächlicher Nettoverlust aus abgerechneten Scheinen – inkl. Bonus-Tipps (echter Einsatz, echte Auszahlung). */
 export function biggestNetLosers(slips: Slip[], excluded: Set<string>): { userId: string; net: number; settled: number }[] {
   const by = new Map<string, { net: number; n: number }>()
   for (const s of slips) {
-    if (!isSettled(s) || s.isBonus || excluded.has(s.userId)) continue
+    if (!isSettled(s) || excluded.has(s.userId)) continue
     const e = by.get(s.userId) ?? { net: 0, n: 0 }
     e.net += s.net; e.n++
     by.set(s.userId, e)
   }
   return [...by.entries()].map(([userId, e]) => ({ userId, net: e.net, settled: e.n })).sort((a, b) => a.net - b.net)
+}
+
+export interface LatestSlip { userId: string; slipKey: string; leadSeconds: number; status: string; odds: number; matchday: number | null }
+/** Spätester Schein: kürzester Abstand zwischen Abgabe und erstem Anstoß, egal ob gewonnen, verloren oder später storniert
+ *  (aber vor Anstoß abgegeben). Bonus-Tipps ausgenommen. */
+export function latestSlips(slips: Slip[], excluded: Set<string>): LatestSlip[] {
+  return slips.filter((s) => !s.isBonus && !excluded.has(s.userId) && s.firstKickoffMs != null && s.firstKickoffMs > s.createdAtMs)
+    .map((s) => ({ userId: s.userId, slipKey: s.key, leadSeconds: ((s.firstKickoffMs as number) - s.createdAtMs) / 1000, status: s.status, odds: s.odds, matchday: s.ownerMatchday }))
+    .sort((a, b) => a.leadSeconds - b.leadSeconds)
+}
+
+export interface IdenticalWin { signature: string; legs: number; odds: number; users: { userId: string; slipKey: string; net: number }[] }
+/** Identische gewonnene Kombischeine (gleiche Menge aus Spiel+Markt+Auswahl, ≥ 2 Legs) bei ≥ 2 verschiedenen Tippern. */
+export function findIdenticalWins(slips: Slip[], excluded: Set<string>): IdenticalWin[] {
+  const g = new Map<string, IdenticalWin>()
+  for (const s of slips) {
+    if (s.kind !== 'combo' || s.status !== 'won' || s.isBonus || excluded.has(s.userId)) continue
+    const act = s.legs.filter((l) => l.status !== 'neutralized' && l.status !== 'void' && l.matchId != null)
+    if (act.length < 2) continue
+    const sig = act.map((l) => `${l.matchId}|${l.marketType}|${l.selection}`).sort().join(';')
+    const e = g.get(sig) ?? { signature: sig, legs: act.length, odds: s.odds, users: [] }
+    e.users.push({ userId: s.userId, slipKey: s.key, net: s.net })
+    g.set(sig, e)
+  }
+  return [...g.values()].filter((e) => new Set(e.users.map((u) => u.userId)).size >= 2).sort((a, b) => b.legs - a.legs || b.odds - a.odds)
+}
+
+/** Kombi-Flaute: Tipper mit vielen abgerechneten Kombis, aber KEINEM Kombi-Gewinn. */
+export function winlessComboStreakers(slips: Slip[], excluded: Set<string>, minCombos = 10): { userId: string; lost: number; stakeLost: number }[] {
+  const by = new Map<string, { won: number; lost: number; stake: number }>()
+  for (const s of slips) {
+    if (s.kind !== 'combo' || !isSettled(s) || s.isBonus || excluded.has(s.userId)) continue
+    const e = by.get(s.userId) ?? { won: 0, lost: 0, stake: 0 }
+    if (s.status === 'won') e.won++; else { e.lost++; e.stake += s.stake }
+    by.set(s.userId, e)
+  }
+  return [...by.entries()].filter(([, e]) => e.won === 0 && e.lost >= minCombos).map(([userId, e]) => ({ userId, lost: e.lost, stakeLost: e.stake })).sort((a, b) => b.lost - a.lost || b.stakeLost - a.stakeLost)
 }
