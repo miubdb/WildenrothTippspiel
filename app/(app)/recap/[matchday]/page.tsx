@@ -5,6 +5,7 @@ import { wildiLabel } from '@/components/WildiIcon'
 import { AwardRow } from '@/components/AwardRow'
 import { buildEffectiveMatchdayIndex, recapMatchdayOf, SEASON_START } from '@/lib/season'
 import type { Match } from '@/types'
+import { RecapTopNav } from '@/components/recap/RecapTopNav'
 
 export const revalidate = 300
 
@@ -210,6 +211,7 @@ export default async function RecapPage({
 
   return (
     <div className="px-4 py-4 space-y-4">
+      <RecapTopNav current="spieltag" />
       {/* Header */}
       <div className="bg-gradient-to-br from-red-700 to-red-900 text-white rounded-2xl px-5 py-5 shadow-sm">
         <h1 className="text-xl font-black">Spieltag {matchday} – Recap</h1>

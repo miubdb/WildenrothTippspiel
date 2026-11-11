@@ -4,7 +4,7 @@ import { SEASON_START } from '@/lib/season'
 import { plainSelectionLabel } from '@/lib/betDisplay'
 import { buildSlips, RECAP_SEASON, type RecapBetRow, type RecapComboRow, type RecapMatchRow } from '@/lib/recap/slips'
 import { buildRecapReport, type RecapReport } from '@/lib/recap/report'
-import { computeRangeReadiness, HINRUNDE, recapVisibility, type RangeReadiness, type RecapVisibility } from '@/lib/recap/availability'
+import { canViewRecapReport, computeRangeReadiness, HINRUNDE, recapVisibility, type RangeReadiness, type RecapVisibility } from '@/lib/recap/availability'
 
 /**
  * Lädt die Rohdaten für Recap-Auswertungen (Service-Role, weil Auswertungen über ALLE Tipper laufen) und
@@ -55,7 +55,7 @@ export async function loadHinrundeState(opts: { adminPreview: boolean }): Promis
   let completedUpTo = 0
   for (const m of readiness.matchdays) { if (m.complete) completedUpTo = m.matchday; else break }
   const isPublished = visibility === 'published'
-  const show = isPublished || (opts.adminPreview && completedUpTo > 0)
+  const show = canViewRecapReport(visibility, opts.adminPreview, completedUpTo)
   if (!show) return { readiness, published: isPublished, visibility, report: null, previewTo: null, completedUpTo, dataAsOfMs: 0 }
   const to = readiness.ready ? HINRUNDE.to : completedUpTo
   const { slips } = buildSlips({ bets: raw.bets, combos: raw.combos, matches: raw.matches })

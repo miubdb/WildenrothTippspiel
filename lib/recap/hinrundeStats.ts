@@ -389,3 +389,116 @@ export function findCancelRegrets(slips: Slip[], matches: RecapMatchRow[], exclu
   }
   return out.sort((a, b) => b.potentialPayout - a.potentialPayout)
 }
+
+// ── Zusätzliche Fakten: Kombi-Killer, „Ein Tor fehlte", Montagmorgen, Verlierer ──────────────
+
+/** Märkte, deren Ergebnis sich allein aus dem Endergebnis ableiten lässt (siehe lib/settleBet.ts). Vor der
+ *  Verwendung wird gegen die gespeicherten Leg-Status validiert (`validateSettleReproduction`). */
+export const SCORE_COMPUTABLE_MARKETS = new Set(['1x2', 'double_chance', 'btts', 'over_under_2_5', 'over_under_3_5', 'over_under_5_5', 'over_9_5', 'handicap', 'exact_score'])
+
+/** Reproduziert settleBet die in der Datenbank gespeicherten Leg-Status? Liefert Trefferzahlen je Markt –
+ *  nur Märkte mit 100 % Übereinstimmung dürfen für „Ein Tor fehlte" genutzt werden. */
+export function validateSettleReproduction(slips: Slip[], matches: RecapMatchRow[]): Record<string, { checked: number; mismatches: number }> {
+  const m = new Map(matches.map((x) => [x.id, x]))
+  const out: Record<string, { checked: number; mismatches: number }> = {}
+  for (const s of slips) for (const l of s.legs) {
+    if (!SCORE_COMPUTABLE_MARKETS.has(l.marketType) || (l.status !== 'won' && l.status !== 'lost') || l.matchId == null) continue
+    const mt = m.get(l.matchId)
+    if (!mt || mt.status !== 'finished' || mt.home_score == null || mt.away_score == null) continue
+    const e = out[l.marketType] ?? (out[l.marketType] = { checked: 0, mismatches: 0 })
+    e.checked++
+    if (settleBet(l.marketType, l.selection, mt.home_score, mt.away_score) !== l.status) e.mismatches++
+  }
+  return out
+}
+
+export interface ComboKillerMatch { matchId: number; combos: number; users: number; potentialPayout: number; wildenroth: boolean }
+export interface ComboKillers {
+  /** Verlorene Kombis (≥ 2 aktive Legs), bei denen genau EIN Leg verloren hat und alle übrigen gewonnen haben. */
+  singleBlockerCombos: number
+  byMatch: ComboKillerMatch[]
+  /** Davon Kombis, deren einziger falscher Tipp ein Spiel mit Wildenroth I oder II war. */
+  wildenrothCombos: number
+}
+export function findComboKillers(slips: Slip[], matches: RecapMatchRow[], excluded: Set<string> = new Set()): ComboKillers {
+  const mt = new Map(matches.map((x) => [x.id, x]))
+  const isW = (id: number) => { const m = mt.get(id); return !!m && [14, 40].some((t) => m.home_team_id === t || m.away_team_id === t) }
+  const by = new Map<number, { combos: number; users: Set<string>; pot: number }>()
+  let total = 0, w = 0
+  for (const s of slips) {
+    if (s.kind !== 'combo' || s.status !== 'lost' || excluded.has(s.userId)) continue
+    const act = s.legs.filter((l) => l.status !== 'neutralized' && l.status !== 'void')
+    const lost = act.filter((l) => l.status === 'lost')
+    if (act.length < 2 || lost.length !== 1 || lost[0].matchId == null) continue
+    if (act.filter((l) => l.status === 'won').length !== act.length - 1) continue
+    total++
+    if (isW(lost[0].matchId)) w++
+    const e = by.get(lost[0].matchId) ?? { combos: 0, users: new Set<string>(), pot: 0 }
+    e.combos++; e.users.add(s.userId); e.pot += Math.min(s.stake * s.odds, payoutCap(s.isRisky))
+    by.set(lost[0].matchId, e)
+  }
+  return {
+    singleBlockerCombos: total, wildenrothCombos: w,
+    byMatch: [...by.entries()].map(([matchId, e]) => ({ matchId, combos: e.combos, users: e.users.size, potentialPayout: e.pot, wildenroth: isW(matchId) })).sort((a, b) => b.combos - a.combos || b.potentialPayout - a.potentialPayout),
+  }
+}
+
+export interface OneGoalShort { slip: SlipRef; matchId: number; marketType: string; selection: string; actual: string; /** was ein einzelnes Tor geändert hätte */ saver: string; potentialPayout: number }
+export interface OneGoalShortResult {
+  cases: OneGoalShort[]
+  /** Verlorene Kombis mit genau einem falschen Leg (alle anderen richtig), egal ob berechenbar. */
+  singleBlockerCombos: number
+  /** Davon nicht aus dem Endergebnis berechenbar (Torschützen, Cup, Specials) – bewusst nicht geraten. */
+  notComputable: number
+  computableButNotOneGoal: number
+}
+/** „Ein Tor fehlte": einziger falscher Tipp einer sonst richtigen Kombi, den EIN zusätzliches oder fehlendes Tor
+ *  (±1 bei Heim oder Gast) gewonnen hätte. Nur bei berechenbaren Märkten und beendeten Spielen. */
+export function findOneGoalShort(slips: Slip[], matches: RecapMatchRow[], excluded: Set<string> = new Set()): OneGoalShortResult {
+  const mt = new Map(matches.map((x) => [x.id, x]))
+  const res: OneGoalShortResult = { cases: [], singleBlockerCombos: 0, notComputable: 0, computableButNotOneGoal: 0 }
+  for (const s of slips) {
+    if (s.kind !== 'combo' || s.status !== 'lost' || excluded.has(s.userId)) continue
+    const act = s.legs.filter((l) => l.status !== 'neutralized' && l.status !== 'void')
+    const lost = act.filter((l) => l.status === 'lost')
+    if (act.length < 2 || lost.length !== 1 || act.filter((l) => l.status === 'won').length !== act.length - 1) continue
+    res.singleBlockerCombos++
+    const l = lost[0]
+    const m = l.matchId != null ? mt.get(l.matchId) : undefined
+    if (!m || m.status !== 'finished' || m.home_score == null || m.away_score == null || !SCORE_COMPUTABLE_MARKETS.has(l.marketType)) { res.notComputable++; continue }
+    const h = m.home_score, a = m.away_score
+    const variants: [number, number, string][] = [[h + 1, a, 'ein Heimtor mehr'], [h, a + 1, 'ein Gasttor mehr'], [h - 1, a, 'ein Heimtor weniger'], [h, a - 1, 'ein Gasttor weniger']]
+    const hit = variants.find(([vh, va]) => vh >= 0 && va >= 0 && settleBet(l.marketType, l.selection, vh, va) === 'won')
+    if (!hit) { res.computableButNotOneGoal++; continue }
+    res.cases.push({ slip: ref(s), matchId: m.id, marketType: l.marketType, selection: l.selection, actual: `${h}:${a}`, saver: hit[2], potentialPayout: Math.min(s.stake * s.odds, payoutCap(s.isRisky)) })
+  }
+  res.cases.sort((x, y) => y.potentialPayout - x.potentialPayout)
+  return res
+}
+
+/** Scheine, abgegeben montags 06:00–11:59 deutscher Zeit (Europe/Berlin, inkl. Sommer-/Winterzeit). */
+export function mondayMorningStats(slips: Slip[], excluded: Set<string>): { userId: string; mondayMorningSlips: number; slips: number }[] {
+  const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', weekday: 'short', hour: 'numeric', hour12: false })
+  const by = new Map<string, { n: number; t: number }>()
+  for (const s of slips) {
+    if (s.status === 'void' || excluded.has(s.userId)) continue
+    const parts = Object.fromEntries(fmt.formatToParts(new Date(s.createdAtMs)).map((p) => [p.type, p.value]))
+    const e = by.get(s.userId) ?? { n: 0, t: 0 }
+    e.t++
+    if (parts.weekday === 'Mon' && Number(parts.hour) % 24 >= 6 && Number(parts.hour) % 24 < 12) e.n++
+    by.set(s.userId, e)
+  }
+  return [...by.entries()].map(([userId, e]) => ({ userId, mondayMorningSlips: e.n, slips: e.t })).sort((a, b) => b.mondayMorningSlips - a.mondayMorningSlips)
+}
+
+/** Größter tatsächlicher Nettoverlust aus abgerechneten Scheinen (Bonus-Tipps ausgenommen). */
+export function biggestNetLosers(slips: Slip[], excluded: Set<string>): { userId: string; net: number; settled: number }[] {
+  const by = new Map<string, { net: number; n: number }>()
+  for (const s of slips) {
+    if (!isSettled(s) || s.isBonus || excluded.has(s.userId)) continue
+    const e = by.get(s.userId) ?? { net: 0, n: 0 }
+    e.net += s.net; e.n++
+    by.set(s.userId, e)
+  }
+  return [...by.entries()].map(([userId, e]) => ({ userId, net: e.net, settled: e.n })).sort((a, b) => a.net - b.net)
+}

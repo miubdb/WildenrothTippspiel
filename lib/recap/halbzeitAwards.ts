@@ -1,9 +1,9 @@
 import { isSettled, type Slip, type RecapMatchRow } from '@/lib/recap/slips'
 import type { TipperIqResult } from '@/lib/recap/tipperIq'
-import { computeWildenrothRecords } from '@/lib/recap/wildenrothStance'
+import { computeOptimists, computeWildenrothRecords } from '@/lib/recap/wildenrothStance'
 import {
   bestComebacks, computeTrajectories, findBetTwins, findCancelRegrets, findCleverHits, findNearMisses,
-  lastMinuteWins, lateBloomers, leadTimeStats, longestStreaks, nightOwlStats, rateBestTips, type MatchdayRange,
+  lastMinuteWins, lateBloomers, mondayMorningStats, biggestNetLosers, leadTimeStats, longestStreaks, nightOwlStats, rateBestTips, type MatchdayRange,
 } from '@/lib/recap/hinrundeStats'
 
 /**
@@ -51,7 +51,7 @@ export function computeHalbzeitAwards(inp: AwardInput): AwardResult[] {
 
   // 1 Quotenflüsterer – bester Tipper nach Tipper-IQ (nur gewertete)
   const rated = iq.filter((r) => r.eligible && !excluded.has(r.userId))
-  add({ key: 'quotenfluesterer', title: 'Quotenflüsterer', icon: '🧠', kind: 'main', rule: 'Höchster Tipper-IQ (mind. 18 abgerechnete Scheine, 7 aktive Spieltage)',
+  add({ key: 'quotenfluesterer', title: 'Quotenflüsterer', icon: '🧠', kind: 'main', rule: 'Höchster Tipper-IQ (mind. 18 abgerechnete Scheine, 10 aktive Spieltage)',
     entries: top(rated, 3, (r) => ({ userId: r.userId, value: `IQ ${r.iq.toFixed(1).replace('.', ',')}`, detail: `${r.wonSlips} Treffer, ${r.expectedHits.toFixed(1).replace('.', ',')} erwartet` })) })
 
   // 2 Wildi-Magnet – höchstes Netto
@@ -137,6 +137,15 @@ export function computeHalbzeitAwards(inp: AwardInput): AwardResult[] {
   const tw = findBetTwins(slips, excluded)
   if (tw.length) out.push({ key: 'wett_zwillinge', title: 'Wett-Zwillinge', icon: '👯', kind: 'fun', rule: 'Paar mit den meisten identischen Tipps (gleiches Spiel, Markt, Auswahl; mind. 15 gemeinsame von je ≥ 20)',
     entries: [{ userId: tw[0].a, value: `${Math.round(tw[0].jaccard * 100)} % Übereinstimmung`, detail: `${tw[0].shared} identische Tipps` }, { userId: tw[0].b, value: `${Math.round(tw[0].jaccard * 100)} % Übereinstimmung`, detail: `${tw[0].shared} identische Tipps` }] })
+  const mon = mondayMorningStats(slips, excluded).filter((x) => x.mondayMorningSlips >= 4).sort((a, b) => b.mondayMorningSlips - a.mondayMorningSlips || b.mondayMorningSlips / b.slips - a.mondayMorningSlips / a.slips)
+  add({ key: 'montagmorgen_manager', title: 'Montagmorgen-Manager', icon: '☕', kind: 'fun', rule: 'Meiste Scheine, abgegeben montags 6:00–11:59 Uhr (Europe/Berlin; mind. 4)',
+    entries: top(mon, 3, (x) => ({ userId: x.userId, value: `${x.mondayMorningSlips} Montagmorgen-Scheine`, detail: `von ${x.slips}` })) })
+  const losers = biggestNetLosers(settled.filter((x) => !x.isBonus), excluded).filter((x) => x.net < 0)
+  add({ key: 'wildi_vernichter', title: 'Wildi-Vernichter', icon: '🔥', kind: 'fun', rule: 'Größter tatsächlicher Nettoverlust aus abgerechneten Scheinen (Auszahlung − Einsatz)',
+    entries: top(losers, 3, (x) => ({ userId: x.userId, value: wildi(x.net), detail: `${x.settled} abgerechnete Scheine` })) })
+  const opt = computeOptimists(settled, matches).filter((x) => x.lostWinTipMatches >= 3 && excluded.has(x.userId) === false)
+  add({ key: 'ewiger_optimist', title: 'Ewiger Optimist', icon: '🌈', kind: 'fun', rule: 'Meiste Wildenroth-Spiele (I + II), in denen jeder Siegtipp des Tippers danebenging; danach: wie oft er nach einem solchen Reinfall wieder auf einen Wildenroth-Sieg setzte (mind. 3)',
+    entries: top(opt, 3, (x) => ({ userId: x.userId, value: `${x.lostWinTipMatches} von ${x.winTipMatches} Siegtipp-Spielen verfehlt`, detail: `${x.backedAfterLoss}× danach erneut auf Wildenroth gesetzt` })) })
   const tragic = nm
   add({ key: 'tragischster_beinahe_gewinn', title: 'Tragischster Beinahe-Gewinn', icon: '😭', kind: 'fun', rule: 'Verlorene Kombi (≥ 3 Legs) mit nur einem falschen Tipp und der höchsten (gedeckelten) entgangenen Auszahlung',
     entries: top(tragic, 3, (m) => ({ userId: m.slip.userId, value: `${m.potentialPayout.toLocaleString('de-DE', { maximumFractionDigits: 0 })} Wildis verpasst`, detail: `${m.legsTotal} Legs, Quote ${m.slip.odds.toFixed(2).replace('.', ',')}, Spieltag ${m.slip.matchday}` })) })

@@ -1,7 +1,7 @@
 import type { Slip, RecapMatchRow } from '@/lib/recap/slips'
 import { computeTipperIqRanking, filterSlipsByMatchdays, type TipperIqResult } from '@/lib/recap/tipperIq'
 import {
-  biggestRankMoves, breakdownSlips, computeOverview, computeTrajectories, findCleverHits, findNearMisses, rateBestTips,
+  biggestRankMoves, breakdownSlips, findComboKillers, findOneGoalShort, validateSettleReproduction, type ComboKillers, type OneGoalShortResult, computeOverview, computeTrajectories, findCleverHits, findNearMisses, rateBestTips,
   type CleverHit, type HinrundeOverview, type MatchdayRange, type NearMiss, type RankMove, type RatedTip, type SlipBreakdown,
 } from '@/lib/recap/hinrundeStats'
 import { computeHalbzeitAwards, type AwardResult } from '@/lib/recap/halbzeitAwards'
@@ -27,6 +27,13 @@ export interface RecapReport {
   wildenroth: { all: WildenrothUserRecord[]; I: WildenrothUserRecord[]; II: WildenrothUserRecord[] }
   /** Namen/Avatare nur für die in Rankings/Awards genannten, nicht gelöschten Tipper. */
   people: Record<string, { name: string; avatarUrl: string | null }>
+  /** Zusätzliche Fakten (kein Award): Kombi-Killer-Spiele, „Ein Tor fehlte". */
+  facts: {
+    comboKillers: ComboKillers
+    oneGoalShort: OneGoalShortResult
+    /** Je Markt: Anzahl geprüfter Legs und Abweichungen zwischen settleBet und gespeichertem Status (muss 0 sein). */
+    settleValidation: Record<string, { checked: number; mismatches: number }>
+  }
   /** Lesbare Legs der in Highlights genannten Scheine (Schlüssel = Slip.key). */
   slipLegs: Record<string, { match: string; market: string; selection: string; odds: number; status: string }[]>
   /** Anzeigename je Spiel-ID für Klügster Treffer u. Ä. */
@@ -60,8 +67,6 @@ export function buildRecapReport(inp: ReportInput): RecapReport {
   const moves = biggestRankMoves(traj)
   for (const x of [...nm.map((m) => m.slip.userId), ...clever.map((c) => c.userId), moves.climb?.userId, moves.crash?.userId]) if (x) named.add(x)
   for (const w of rec('all')) if (w.win.matches > 0 || w.against.legs > 0) named.add(w.userId)
-  const people: RecapReport['people'] = {}
-  for (const p of profiles) if (named.has(p.id) && !p.deleted_at) people[p.id] = { name: p.display_name || p.username || 'Unbekannt', avatarUrl: p.avatar_url ?? null }
   const overview = computeOverview(rangeSlips, matches)
   const refKeys = new Set<string>()
   for (const t of [...tips.single.slice(0, 3), ...tips.combo.slice(0, 3)]) refKeys.add(t.slip.key)
@@ -77,6 +82,17 @@ export function buildRecapReport(inp: ReportInput): RecapReport {
     for (const c of clever) matchLabels[c.matchId] = lab.matchLabel(c.matchId)
     for (const m of nm) if (m.lostLeg.matchId != null) matchLabels[m.lostLeg.matchId] = lab.matchLabel(m.lostLeg.matchId)
   }
+  const comboKillers = findComboKillers(rangeSlips, matches, excluded)
+  comboKillers.byMatch = comboKillers.byMatch.slice(0, 5)
+  const oneGoalShort = findOneGoalShort(rangeSlips, matches, excluded)
+  oneGoalShort.cases = oneGoalShort.cases.slice(0, 5)
+  if (lab) {
+    for (const k of comboKillers.byMatch) matchLabels[k.matchId] = lab.matchLabel(k.matchId)
+    for (const c of oneGoalShort.cases) matchLabels[c.matchId] = lab.matchLabel(c.matchId)
+  }
+  for (const c of oneGoalShort.cases) named.add(c.slip.userId)
+  const peopleOut: RecapReport['people'] = {}
+  for (const p of profiles) if (named.has(p.id) && !p.deleted_at) peopleOut[p.id] = { name: p.display_name || p.username || 'Unbekannt', avatarUrl: p.avatar_url ?? null }
   return {
     version: '1', range,
     dataAsOfMs: rangeSlips.reduce((m, s) => Math.max(m, s.createdAtMs), 0),
@@ -86,6 +102,7 @@ export function buildRecapReport(inp: ReportInput): RecapReport {
     bestTips: { single: tips.single.slice(0, 5), combo: tips.combo.slice(0, 5), clever, tragic: nm },
     rankMoves: moves,
     wildenroth: { all: rec('all'), I: rec('I'), II: rec('II') },
-    people, slipLegs, matchLabels,
+    people: peopleOut, slipLegs, matchLabels,
+    facts: { comboKillers, oneGoalShort, settleValidation: validateSettleReproduction(rangeSlips, matches) },
   }
 }

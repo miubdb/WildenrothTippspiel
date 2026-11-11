@@ -20,7 +20,7 @@ export default async function HinrundeRecapPage() {
   const visibleToMembers = state.visibility === 'published'
 
   return (
-    <div className="space-y-4">
+    <div className="px-4 py-4 space-y-4">
       <Link href="/recap" className="text-sm font-semibold text-red-700 dark:text-red-300">← Alle Recaps</Link>
       <RecapTypeNav current="hinrunde" available={{ hinrunde: visibleToMembers || isAdmin }} />
       {isAdmin && <RecapPublishPanel recap="hinrunde" ready={state.readiness.ready} published={state.published} blockers={state.readiness.blockers} previewTo={state.previewTo} />}
