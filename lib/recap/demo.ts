@@ -3,10 +3,11 @@ import { decryptSnapshot } from '@/lib/recap/snapshot'
 import { simulateSpieltag } from '@/lib/recap/simulation'
 import { buildSlips, type Slip } from '@/lib/recap/slips'
 import { buildRecapReport, type RecapReport } from '@/lib/recap/report'
+import { MARKET_LABELS } from '@/lib/recap/marketLabels'
 import { buildPersonalTips, type PersonalTips } from '@/lib/recap/bestTips'
 import { filterSlipsByMatchdays } from '@/lib/recap/tipperIq'
 import { computeRangeReadiness } from '@/lib/recap/availability'
-import { CUP_MARKET_LABEL, plainSelectionLabel } from '@/lib/betDisplay'
+import { plainSelectionLabel } from '@/lib/betDisplay'
 
 /**
  * Isolierte Recap-Demo OHNE Datenbank (nur wenn `RECAP_FIXTURE_DEMO=1` gesetzt ist oder gar keine Supabase-Konfiguration
@@ -20,10 +21,6 @@ export const isFixtureDemoEnabled = (): boolean =>
   // separate Test-Deployment. Jede echte Umgebung (Production, Preview des Hauptprojekts) hat die Supabase-Variablen.
   || (!process.env.NEXT_PUBLIC_SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY)
 
-const MARKET_LABELS: Record<string, string> = {
-  '1x2': 'Spielausgang', double_chance: 'Doppelte Chance', handicap: 'Handicap', btts: 'Beide treffen', exact_score: 'Ergebnis',
-  over_under_3_5: 'Über/Unter 3,5', goalscorer: 'Torschütze', ...CUP_MARKET_LABEL,
-}
 
 type Memo = { report: RecapReport; slips: Slip[]; realReady: boolean; simReady: boolean; simulated: { matches: number; betRows: number }; profiles: { id: string; name: string }[]; labeler: Parameters<typeof buildPersonalTips>[3]; source: 'fixtures' | 'snapshot'; builtAt: string | null; dataAsOf: string | null }
 const memos = new Map<string, Memo>()
@@ -50,10 +47,11 @@ function load(keyHex?: string): Memo {
   const byId = new Map(sim.matches.map((m) => [m.id, m]))
   const labeler = {
     matchLabel: (id: number) => { const m = byId.get(id); return m ? `${fx.teams.get(m.home_team_id) ?? '?'} – ${fx.teams.get(m.away_team_id) ?? '?'}${m.competition_type === 'cup' ? ' (Pokal)' : ''}` : `Spiel #${id}` },
+    matchTeams: (id: number) => { const m = byId.get(id); return m ? { home: fx.teams.get(m.home_team_id) ?? '?', away: fx.teams.get(m.away_team_id) ?? '?' } : null },
     marketLabel: (m: string) => MARKET_LABELS[m] ?? m,
     selectionLabel: (market: string, sel: string) => plainSelectionLabel(market, sel, undefined, snap ? fx.players : FIXTURE_PLAYERS),
   }
-  const report = buildRecapReport({ allSlips: slips, matches: sim.matches, range: { from: 1, to: 16 }, profiles: fx.profiles, labeler })
+  const report = buildRecapReport({ allSlips: slips, matches: sim.matches, range: { from: 1, to: 16 }, profiles: fx.profiles, labeler, teamName: (id: number) => fx.teams.get(id) ?? '?' })
   const memo: Memo = { report, slips, realReady, simReady, simulated: { matches: sim.simulatedMatchIds.length, betRows: sim.simulatedBetRows }, profiles: fx.profiles.filter((p) => !p.deleted_at).map((p) => ({ id: p.id, name: p.display_name ?? p.username ?? '?' })), labeler, source: snap ? 'snapshot' : 'fixtures', builtAt: snap?.builtAt ?? null, dataAsOf: snap ? snap.bets.reduce((m, b) => (b.created_at > m ? b.created_at : m), '').slice(0, 10) : null }
   memos.set(mk, memo)
   return memo
@@ -61,7 +59,8 @@ function load(keyHex?: string): Memo {
 
 export function loadDemoState(meId: string, keyHex?: string): { report: RecapReport; personal: PersonalTips; meId: string; realReady: boolean; simReady: boolean; simulated: { matches: number; betRows: number }; profiles: { id: string; name: string }[]; slips: Slip[]; source: 'fixtures' | 'snapshot'; builtAt: string | null; dataAsOf: string | null } {
   const m = load(keyHex)
-  const me = m.profiles.some((p) => p.id === meId) ? meId : m.profiles[0].id
+  const topIq = m.report.iq.find((x) => x.eligible)?.userId
+  const me = m.profiles.some((p) => p.id === meId) ? meId : (topIq && m.profiles.some((p) => p.id === topIq) ? topIq : m.profiles[0].id)
   return { report: m.report, personal: buildPersonalTips(m.slips, filterSlipsByMatchdays(m.slips, 1, 16), me, m.labeler), meId: me, realReady: m.realReady, simReady: m.simReady, simulated: m.simulated, profiles: m.profiles, slips: m.slips, source: m.source, builtAt: m.builtAt, dataAsOf: m.dataAsOf }
 }
 

@@ -33,12 +33,14 @@ export interface AwardResult {
   bitterest?: { userId: string; slipKey: string; legs: number; odds: number; stake: number; missedNet: number; matchday: number | null }
   /** Zweite Perspektive im selben Award (Hall der Schande: Häufigkeit statt Gewinn). */
   second?: { title: string; question: string; entries: AwardEntry[] }
+  /** Startpunkt des Vergleichs (Senkrechtstarter: „Spieltag 6“ → bis zur Winterpause). */
+  period?: string
   /** true = erscheint im öffentlichen Winter-Recap; false = wird nur intern berechnet (Video, Feier, andere Recaps). */
   public?: boolean
 }
 
 /** Öffentliche Auswahl des Winter-Recaps in Anzeigereihenfolge. Alles andere bleibt intern verfügbar. */
-export const PUBLIC_AWARD_KEYS = ['wildi_magnet', 'hall_der_ehre', 'hall_der_schande', 'senkrechtstarter', 'einzelwetten_meister', 'aussenseiter_jaeger', 'kombi_pech'] as const
+export const PUBLIC_AWARD_KEYS = ['wildi_magnet', 'hall_der_ehre', 'hall_der_schande', 'senkrechtstarter', 'aussenseiter_jaeger', 'kombi_pech'] as const
 export const AWARD_QUESTIONS: Record<string, string> = {
   wildi_magnet: 'Wer hat mit seinen Wetten am meisten Wildis verdient?',
   hall_der_ehre: 'Wer hat die meisten Wildenroth-Spiele auf Sieg getippt – und nie gegen den Verein gewettet?',
@@ -117,7 +119,8 @@ export function computeHalbzeitAwards(inp: AwardInput): AwardResult[] {
   const early = Math.max(2, Math.ceil((range.to - range.from + 1) / 3))
   const lb = lateBloomers(traj, early)
   add({ key: 'senkrechtstarter', title: 'Senkrechtstarter', icon: '🚀', kind: 'main', rule: `Größte Rangverbesserung (kumulatives Netto) vom Ende von Spieltag ${traj.matchdays[Math.min(early, traj.matchdays.length) - 1] ?? '?'} bis zum Endstand`,
-    entries: top(lb, 3, (x) => ({ userId: x.userId, value: `Platz ${x.earlyRank} → ${x.finalRank}`, detail: `+${x.gain} Plätze` })) })
+    entries: top(lb, 3, (x) => ({ userId: x.userId, value: `Platz ${x.earlyRank} → ${x.finalRank}`, detail: `+${x.gain} Plätze` })),
+    period: `Spieltag ${traj.matchdays[Math.min(early, traj.matchdays.length) - 1] ?? '?'}` })
 
   // 6/7 Hall der Ehre / Schande
   const wr = computeWildenrothRecords(settled, matches, 'all')

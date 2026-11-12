@@ -1,9 +1,10 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import { SEASON_START } from '@/lib/season'
-import { CUP_MARKET_LABEL, plainSelectionLabel } from '@/lib/betDisplay'
+import { plainSelectionLabel } from '@/lib/betDisplay'
 import { simulateSpieltag } from '@/lib/recap/simulation'
 import { databaseKind, isSimulationAllowed, supabaseRef, type DatabaseKind } from '@/lib/recap/environmentGuard'
+import { MARKET_LABELS } from '@/lib/recap/marketLabels'
 import { buildPersonalTips, type PersonalTips } from '@/lib/recap/bestTips'
 import { filterSlipsByMatchdays } from '@/lib/recap/tipperIq'
 import { buildSlips, RECAP_SEASON, type RecapBetRow, type RecapComboRow, type RecapMatchRow } from '@/lib/recap/slips'
@@ -17,12 +18,6 @@ import { canViewRecapReport, computeRangeReadiness, HINRUNDE, recapVisibility, t
  * Alle Abfragen laufen über fetchAllRows (PostgREST-Limit 1000).
  */
 
-const MARKET_LABELS: Record<string, string> = {
-  '1x2': 'Spielausgang', double_chance: 'Doppelte Chance', handicap: 'Handicap', btts: 'Beide treffen', exact_score: 'Ergebnis',
-  over_under_2_5: 'Über/Unter 2,5', over_under_3_5: 'Über/Unter 3,5', over_under_5_5: 'Über/Unter 5,5', over_9_5: 'Über 9,5 Tore',
-  goalscorer: 'Torschütze', goalscorer_2plus: 'Torschütze 2+', matchday_special: 'Spieltags-Special',
-  ...CUP_MARKET_LABEL,
-}
 
 export interface RawRecapData { matches: RecapMatchRow[]; bets: RecapBetRow[]; combos: RecapComboRow[]; profiles: { id: string; display_name: string | null; username: string | null; avatar_url: string | null; deleted_at: string | null; is_admin: boolean | null }[]; teams: Map<number, string>; players: Record<number, string> }
 
@@ -87,11 +82,12 @@ export async function loadHinrundeState(opts: LoadOptions): Promise<RecapRangeSt
   const mById = new Map(raw.matches.map((m) => [m.id, m]))
   const labeler = {
     matchLabel: (id: number) => { const m = mById.get(id); return m ? `${teamName(m.home_team_id)} – ${teamName(m.away_team_id)}${m.competition_type === 'cup' ? ' (Pokal)' : ''}` : `Spiel #${id}` },
+    matchTeams: (id: number) => { const m = mById.get(id); return m ? { home: teamName(m.home_team_id), away: teamName(m.away_team_id) } : null },
     marketLabel: (m: string) => MARKET_LABELS[m] ?? m,
     selectionLabel: (market: string, sel: string) => plainSelectionLabel(market, sel, undefined, raw.players),
   }
   const range = { from: HINRUNDE.from, to }
-  const report = buildRecapReport({ allSlips: slips, matches: raw.matches, range, profiles: raw.profiles, labeler })
+  const report = buildRecapReport({ allSlips: slips, matches: raw.matches, range, profiles: raw.profiles, labeler, teamName })
   const personal = buildPersonalTips(slips, filterSlipsByMatchdays(slips, range.from, range.to), opts.viewerId, labeler)
   return { readiness, published: isPublished, visibility, report, personal, previewTo: readiness.ready ? null : to, completedUpTo, dataAsOfMs: report.dataAsOfMs, simulation, database }
 }

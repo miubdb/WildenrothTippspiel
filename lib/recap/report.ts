@@ -6,6 +6,7 @@ import {
 } from '@/lib/recap/hinrundeStats'
 import { buildCommunityBestTips, type CommunityBestTips, type Labeler, type TipCard } from '@/lib/recap/bestTips'
 import { computeHalbzeitAwards, type AwardResult } from '@/lib/recap/halbzeitAwards'
+import { computeTeamHighlights, pickKillerMatches, type TeamHighlights } from '@/lib/recap/teamHighlights'
 import { computeWildenrothRecords, type WildenrothUserRecord } from '@/lib/recap/wildenrothStance'
 
 /**
@@ -39,9 +40,15 @@ export interface RecapReport {
     settleValidation: Record<string, { checked: number; mismatches: number }>
   }
   /** Lesbare Legs der in Highlights genannten Scheine (Schlüssel = Slip.key). */
-  slipLegs: Record<string, { match: string; market: string; selection: string; odds: number; status: string }[]>
+  slipLegs: Record<string, { match: string; market: string; selection: string; odds: number; status: string; teams?: { home: string; away: string } }[]>
   /** Anzeigename je Spiel-ID für Klügster Treffer u. Ä. */
   matchLabels: Record<number, string>
+  /** Heim/Gast der in Highlights genannten Spiele (für Vereinslogos). */
+  matchTeams: Record<number, { home: string; away: string }>
+  /** Team-Highlights: meistgewettet, schlechtestes Team zum Wetten, Wildenroth I/II. */
+  teams: TeamHighlights
+  /** Kombi-Killer-Spiel (meiste gescheiterte Kombis) und teuerstes Spiel (meiste verpasste Gewinne). */
+  killers: { killer: ComboKillerMatch | null; priciest: ComboKillerMatch | null }
 }
 
 export interface ReportInput {
@@ -50,6 +57,8 @@ export interface ReportInput {
   range: MatchdayRange
   /** Beschriftungen (optional – ohne sie bleiben die Legs leer). */
   labeler?: Labeler
+  /** Teamname je ID (für Team-Highlights). */
+  teamName?: (id: number) => string
   profiles: { id: string; display_name: string | null; username: string | null; avatar_url?: string | null; deleted_at: string | null }[]
 }
 
@@ -80,7 +89,10 @@ export function buildRecapReport(inp: ReportInput): RecapReport {
     if (bs) slipLegs[bs.key] = bs.legs.filter((l) => l.status !== 'neutralized').map((l) => ({ match: l.matchId != null ? lab.matchLabel(l.matchId) : 'Spieltags-Special', market: lab.marketLabel(l.marketType), selection: lab.selectionLabel(l.marketType, l.selection), odds: l.odds, status: l.status }))
   }
   const matchLabels: RecapReport['matchLabels'] = {}
-  if (killers.byMatch[0]) matchLabels[killers.byMatch[0].matchId] = lab.matchLabel(killers.byMatch[0].matchId)
+  const km = pickKillerMatches(killers.byMatch)
+  for (const k of [km.killer, km.priciest]) if (k) matchLabels[k.matchId] = lab.matchLabel(k.matchId)
+  const matchTeams: RecapReport['matchTeams'] = {}
+  for (const id of Object.keys(matchLabels).map(Number)) { const t = lab.matchTeams?.(id); if (t) matchTeams[id] = t }
   for (const c of oneGoal.cases.slice(0, 2)) matchLabels[c.matchId] = lab.matchLabel(c.matchId)
 
   // Namen nur für sichtbar genannte, nicht gelöschte Tipper
@@ -107,7 +119,8 @@ export function buildRecapReport(inp: ReportInput): RecapReport {
     iq, awards, bestTips,
     rankMoves: moves,
     wildenroth: { all: rec('all'), I: rec('I'), II: rec('II') },
-    people, slipLegs, matchLabels,
+    people, slipLegs, matchLabels, matchTeams, killers: km,
+    teams: computeTeamHighlights(rangeSlips, matches, inp.teamName ?? ((id) => `Team ${id}`), excluded),
     facts: {
       comboKillers: { singleBlockerCombos: killers.singleBlockerCombos, wildenrothCombos: killers.wildenrothCombos, topMatch: killers.byMatch[0] ?? null },
       oneGoalShort: { total: oneGoal.cases.length, ofSingleBlockerCombos: oneGoal.singleBlockerCombos, notComputable: oneGoal.notComputable, examples: oneGoal.cases.slice(0, 2) },

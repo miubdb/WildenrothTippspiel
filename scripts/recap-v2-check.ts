@@ -356,7 +356,7 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
   test('Hall der Schande: größter Gewinn (rich, +200) und häufigste Gegenwetten (often, 4 Gegen-Tipps auf 4 Spiele) sind zwei Perspektiven', !!sh && sh.entries[0].userId === 'rich' && sh.second?.entries[0].userId === 'often' && /4 Gegen-Tipps/.test(sh.second.entries[0].value) && /4 verschiedene Spiele/.test(sh.second.entries[0].detail ?? ''))
   test('Hall der Schande: Häufigkeitsliste zeigt höchstens 3 Einträge', (sh?.second?.entries.length ?? 0) <= 3)
   const eh = aw.find((x) => x.key === 'hall_der_ehre')
-  test('Öffentliche Auswahl: nur 7 definierte Awards, Stehaufmännchen/Montagmorgen/Flaute bleiben intern', PUBLIC_AWARD_KEYS.length === 7 && !(PUBLIC_AWARD_KEYS as readonly string[]).some((k) => ['stehaufmaennchen', 'montagmorgen_manager', 'kombi_flaute', 'jackpot_koenig'].includes(k)) && aw.every((x) => x.public === (PUBLIC_AWARD_KEYS as readonly string[]).includes(x.key)) && eh === undefined)
+  test('Öffentliche Auswahl: nur 6 definierte Awards (Gegenwetten = zweite Perspektive der Schande), Stehaufmännchen/Montagmorgen/Flaute bleiben intern', PUBLIC_AWARD_KEYS.length === 6 && !(PUBLIC_AWARD_KEYS as readonly string[]).some((k) => ['stehaufmaennchen', 'montagmorgen_manager', 'kombi_flaute', 'jackpot_koenig'].includes(k)) && aw.every((x) => x.public === (PUBLIC_AWARD_KEYS as readonly string[]).includes(x.key)) && eh === undefined)
 }
 {
   // „Ein Tor fehlte": Gesamtzahl vollständig, Beispiele gekürzt
@@ -403,6 +403,9 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
   const simFx = simulateSpieltag(fx, 16)
   test('Fixtures: Spieltag 16 ist real NICHT bereit, nach Simulation bereit; Eingaben bleiben unverändert', !realFx.ready && computeRangeReadiness(simFx.matches, simFx.bets, 1, 16).ready && fx.bets.some((b) => b.status === 'pending'))
   test('Verschlüsselter Snapshot: ohne/mit falschem Schlüssel nicht lesbar; falscher Schlüssel → Fehler statt Musterdaten, kein Schlüssel → Musterdaten; kein Klartext im Chiffretext', decryptSnapshot(undefined) === null && decryptSnapshot('zz') === null && decryptSnapshot('ab'.repeat(32)) === null && (() => { try { loadDemoState('', 'ab'.repeat(32)); return false } catch (e) { return e instanceof SnapshotKeyError } })() && loadDemoState('', undefined).source === 'fixtures' && !JSON.stringify(SNAPSHOT_ENC).includes('display_name'))
+  const dm = loadDemoState('')
+  test('Team-Highlights: 3 meistgewettete Teams mit Namen, Wildenroth I/II, Kombi-Killer-Spiel mit Vereinsnamen für Logos', dm.report.teams.mostBet.length === 3 && dm.report.teams.mostBet.every((t) => t.name && t.slips > 0) && dm.report.teams.wildenroth.length >= 1 && (dm.report.killers.killer == null || !!dm.report.matchTeams[dm.report.killers.killer.matchId]))
+  test('Tipps tragen Heim/Gast für Vereinslogos; persönlicher Bereich liefert größten Gewinn, Beinahe-Treffer, Lieblings-Team', !!dm.report.bestTips.single?.legs[0]?.teams && (() => { const pp = loadDemoState(dm.meId).personal; return pp.biggestWin != null && pp.favoriteTeam != null })())
   const demo = loadDemoState('fx-u02')
   test('Demo-Bericht: Awards, IQ-Rangliste, gelöschtes Konto nicht genannt, persönlicher Tipp nur des gewählten Nutzers', demo.report.awards.some((a) => a.public) && demo.report.iq.some((x) => x.eligible) && !('fx-gone' in demo.report.people) && (!demo.personal.best || demo.personal.best.userId === 'fx-u02'))
   {
