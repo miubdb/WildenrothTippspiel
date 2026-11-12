@@ -211,7 +211,7 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
         <div className="rounded-2xl border-2 border-amber-500 bg-amber-100 dark:bg-amber-900/30 p-4 text-amber-950 dark:text-amber-100">
           <div className="text-sm font-black uppercase tracking-wide">🧪 Testvorschau – nicht echt</div>
           <p className="text-sm mt-1">Spieltag {r.range.to} ist hier <b>simuliert</b>: {simulation.matches} Spiele mit erfundenen Ergebnissen, {simulation.betRows} offene Wettzeilen mit erfundenem Ausgang. Alles läuft nur im Speicher dieser Seite – es wird nichts gespeichert, verändert oder freigegeben.</p>
-          <p className="text-xs mt-1 opacity-80">Datenquelle (nur lesend): Supabase-Projekt <code>{simulation.databaseRef || '?'}</code>.</p>
+          <p className="text-xs mt-1 opacity-80">{simulation.databaseRef === 'fixtures' ? 'Datenquelle: eingebaute synthetische Testdaten – keine Datenbank, keine echten Personen, keine echten Wetten.' : <>Datenquelle (nur lesend): Supabase-Projekt <code>{simulation.databaseRef || '?'}</code>.</>}</p>
         </div>
       )}
       {!simulation && previewTo && <div className="rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-100 text-xs font-semibold px-3 py-2">Admin-Zwischenstand – Daten nur bis Spieltag {previewTo}.</div>}

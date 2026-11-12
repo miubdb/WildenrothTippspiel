@@ -16,6 +16,8 @@ import { buildRecapReport } from '@/lib/recap/report'
 import { computeHalbzeitAwards, PUBLIC_AWARD_KEYS } from '@/lib/recap/halbzeitAwards'
 import { buildCommunityBestTips, buildPersonalTips } from '@/lib/recap/bestTips'
 import { isPreviewEnvironment, simulateSpieltag } from '@/lib/recap/simulation'
+import { buildFixtureData } from '@/lib/recap/fixtures'
+import { loadDemoState, isFixtureDemoEnabled } from '@/lib/recap/demo'
 
 let errors = 0
 let checks = 0
@@ -388,6 +390,18 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
   const prevOn = isPreviewEnvironment()
   env.VERCEL_ENV = saved.v; env.NODE_ENV = saved.n
   test('Simulation ist in Production nie aktiv (VERCEL_ENV=production sperrt, auch bei NODE_ENV=development), in Preview erlaubt', prodOff && prevOn)
+}
+
+{
+  // Isolierte Demo: synthetische Fixtures → dieselbe Pipeline, Spieltag 16 nur im Speicher simuliert
+  const fx = buildFixtureData()
+  test('Fixtures sind deterministisch und enthalten Pokalspiel, Pokal-Bonus-Tipps, annulliertes Spiel, gelöschtes Konto, offenen Spieltag 16', JSON.stringify(buildFixtureData().bets) === JSON.stringify(fx.bets) && fx.matches.some((m) => m.competition_type === 'cup') && fx.bets.some((b) => b.is_bonus) && fx.matches.some((m) => m.status === 'annulled') && fx.profiles.some((p) => p.deleted_at) && fx.bets.some((b) => b.status === 'pending'))
+  const realFx = computeRangeReadiness(fx.matches, fx.bets, 1, 16)
+  const simFx = simulateSpieltag(fx, 16)
+  test('Fixtures: Spieltag 16 ist real NICHT bereit, nach Simulation bereit; Eingaben bleiben unverändert', !realFx.ready && computeRangeReadiness(simFx.matches, simFx.bets, 1, 16).ready && fx.bets.some((b) => b.status === 'pending'))
+  const demo = loadDemoState('fx-u02')
+  test('Demo-Bericht: Awards, IQ-Rangliste, gelöschtes Konto nicht genannt, persönlicher Tipp nur des gewählten Nutzers', demo.report.awards.some((a) => a.public) && demo.report.iq.some((x) => x.eligible) && !('fx-gone' in demo.report.people) && (!demo.personal.best || demo.personal.best.userId === 'fx-u02'))
+  test('Demo-Route ist ohne RECAP_FIXTURE_DEMO=1 deaktiviert (Production bleibt 404)', !isFixtureDemoEnabled())
 }
 
 // ── 8. Gesamtbericht, Datenschutz ─────────────────────────────────────────────────────────
