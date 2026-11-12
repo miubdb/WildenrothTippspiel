@@ -82,14 +82,14 @@ export function computeSurveyDecisionInsights(rows: SurveyRow[]): SurveyDecision
   // This function only consumes already-validated, completed rows. The server
   // filters by survey_version and isActuallySubmitted before returning them.
   const answered = (id: string) => rows.filter((r) => typeof r.answers[id] === 'string')
-  const q30 = answered('q30')
+  const q30 = answered('q30_general')
   const q4 = answered('q4')
   const q9 = answered('q9')
   const q20 = answered('q20')
   const q21 = answered('q21_recap_frequency')
   const satisfactions = rows.map((r) => r.answers.q1).filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
-  const returning = rate(q30.filter((r) => Q30_YES.has(r.answers.q30 as string)).length, q30.length)
-  const leaving = rate(q30.filter((r) => Q30_NO.has(r.answers.q30 as string)).length, q30.length)
+  const returning = rate(q30.filter((r) => Q30_YES.has(r.answers.q30_general as string)).length, q30.length)
+  const leaving = rate(q30.filter((r) => Q30_NO.has(r.answers.q30_general as string)).length, q30.length)
   const feeExit = rate(q4.filter((r) => (r.answers.q4 as string).startsWith('Ich möchte kein Startgeld.')).length, q4.length)
   const pushProblems = rate(q20.filter((r) => Q20_PROBLEM.has(r.answers.q20 as string)).length, q20.length)
   const quotaProblems = rate(q9.filter((r) => ['Häufig', 'Sehr häufig'].includes(r.answers.q9 as string)).length, q9.length)
@@ -157,9 +157,9 @@ export function inSurveySegment(answers: Answers, segment: SurveySegment): boole
     case 'all': return true
     case 'satisfied_low': return typeof answers.q1 === 'number' && answers.q1 <= 6
     case 'satisfied_high': return typeof answers.q1 === 'number' && answers.q1 >= 9
-    case 'return_yes': return typeof answers.q30 === 'string' && Q30_YES.has(answers.q30)
-    case 'return_undecided': return answers.q30 === 'Ich bin noch unentschlossen'
-    case 'return_no': return typeof answers.q30 === 'string' && Q30_NO.has(answers.q30)
+    case 'return_yes': return typeof answers.q30_general === 'string' && Q30_YES.has(answers.q30_general)
+    case 'return_undecided': return answers.q30_general === 'Ich bin noch unentschlossen'
+    case 'return_no': return typeof answers.q30_general === 'string' && Q30_NO.has(answers.q30_general)
     case 'fee_exit': return typeof answers.q4 === 'string' && answers.q4.startsWith('Ich möchte kein Startgeld.')
     case 'fee_ok': return typeof answers.q4 === 'string' && !answers.q4.startsWith('Ich möchte kein Startgeld.') && !answers.q4.startsWith('Das kann ich erst entscheiden,')
     case 'risky_no': return answers.q12 === '0 – Risky-Wetten vollständig abschaffen'
