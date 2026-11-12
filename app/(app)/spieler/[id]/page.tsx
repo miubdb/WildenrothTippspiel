@@ -7,6 +7,8 @@ import { AvatarLightbox } from '@/components/AvatarLightbox'
 import { PlayerBetSummary, PlayerRealizedBalance, PlayerStatsTiles, BalanceHistoryChart } from '@/components/PlayerBetStatsCard'
 import { computeUserBetStats, computeBalanceHistory, STATS_CURRENT_SEASON } from '@/lib/betStats'
 import { PokalschrankAwardTile } from '@/components/PokalschrankAwardTile'
+import { WinterAwardsShelf } from '@/components/WinterAwardsShelf'
+import { loadVisibleWinterAwards, type WinterAwardsClient } from '@/lib/recap/winterAwardsStore'
 
 export const revalidate = 60
 
@@ -111,6 +113,8 @@ export default async function SpielerPage({
     .order('season', { ascending: false })
     .order('matchday', { ascending: false })
   const awards = awardsRaw ?? []
+  // Winter-Pokale (Hinrunde 2026/27): nur sichtbar, solange der Winter-Recap veröffentlicht ist – serverseitig entschieden.
+  const winterAwards = await loadVisibleWinterAwards(createAdminClient() as unknown as WinterAwardsClient, id)
 
   // Group awards by award_type
   const awardGroupMap = new Map<string, { icon: string; title: string; description: string; count: number; latestMatchday: number; latestSeason: string; latestValueText: string | null; instances: { matchday: number; season: string; valueText: string | null; refBetId: number | null; refComboId: number | null }[] }>()
@@ -227,8 +231,10 @@ export default async function SpielerPage({
             </p>
           </div>
         </div>
-        {groupedAwards.length === 0 ? (
+        {groupedAwards.length === 0 && winterAwards.length === 0 ? (
           <div className="px-4 py-4 text-center text-xs text-gray-400 dark:text-gray-500">Noch keine Auszeichnungen</div>
+        ) : groupedAwards.length === 0 ? (
+          null
         ) : (
           <div className="p-3 grid grid-cols-2 gap-2">
             {groupedAwards.map((a) => (
@@ -246,6 +252,7 @@ export default async function SpielerPage({
             ))}
           </div>
         )}
+        <WinterAwardsShelf awards={winterAwards} />
       </div>
     </div>
   )
