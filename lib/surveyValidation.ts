@@ -24,6 +24,13 @@ const FREETEXT_HARD_REJECT_LENGTH = FREETEXT_MAX_LENGTH * 10
  * (2) picking it clears every other selection, and picking anything else
  * drops it first, so the two states can never coexist.
  */
+/** True if selecting a mutually-exclusive answer would remove a previous choice. */
+export function wouldReplaceSurveySelection(q: QuestionDef, current: string[], opt: string): boolean {
+  if (current.includes(opt) || current.length === 0) return false
+  const exclusive = new Set(q.exclusiveOptions ?? [])
+  return exclusive.has(opt) || current.some((value) => exclusive.has(value))
+}
+
 export function toggleMultiOption(q: QuestionDef, current: string[], opt: string): string[] {
   const exclusive = new Set(q.exclusiveOptions ?? [])
   if (current.includes(opt)) {
@@ -118,6 +125,10 @@ export function stripHiddenAnswers(answers: Answers): Answers {
 export function normalizeLegacySurveyAnswers(raw: Answers): Answers {
   const migrated: Answers = { ...raw }
   const aliases: Record<string, Record<string, string>> = {
+    q4: {
+      'Beide Modelle wären für mich in Ordnung, solange das Startgeld angemessen ist.':
+        'Mir ist egal, ob die Teilnahme kostenlos ist oder ein angemessenes Startgeld kostet.',
+    },
     q27: {
       'Alle Kreisliga-Spiele (wie bisher)': 'Alle Spiele der Liga (wie bisher)',
       'Ist mir egal': 'Keine Meinung dazu',
@@ -135,6 +146,19 @@ export function normalizeLegacySurveyAnswers(raw: Answers): Answers {
     const v = migrated[id]
     if (typeof v === 'string' && aliasesForQuestion[v]) migrated[id] = aliasesForQuestion[v]
   }
+  if (Array.isArray(migrated.q26_markets)) {
+    const marketAliases: Record<string, string> = {
+      'Halbzeitergebnis': 'Wer führt zur Halbzeit? (Heim / Unentschieden / Gast)',
+      'Halbzeit/Endstand': 'Halbzeit & Endstand kombiniert (z. B. zur Pause X, am Ende Heimsieg)',
+      'Tore einer bestimmten Mannschaft': 'Tore eines Teams (z. B. Wildenroth I erzielt mindestens 2 Tore)',
+    }
+    migrated.q26_markets = migrated.q26_markets.map((value) => marketAliases[value] ?? value)
+  }
+  // An old free-participation-specific answer must NEVER be counted as an
+  // answer to the new general return-intent question. Keep it in the old
+  // database response until this user actively saves a revised survey;
+  // strip it only from the client-side draft.
+  delete migrated.q30
   // No longer offer speculative "Erlebnispreise"; preserve the rest of Q7.
   if (Array.isArray(migrated.q7)) {
     const valid = new Set(QUESTION_BY_ID.get('q7')?.options ?? [])
