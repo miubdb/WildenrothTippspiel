@@ -7,6 +7,7 @@ import {
 import { buildCommunityBestTips, type CommunityBestTips, type Labeler, type TipCard } from '@/lib/recap/bestTips'
 import { computeHalbzeitAwards, type AwardResult } from '@/lib/recap/halbzeitAwards'
 import { computeTeamHighlights, pickKillerMatches, type TeamHighlights } from '@/lib/recap/teamHighlights'
+import { computeCrowdVsBank, type CrowdVsBank } from '@/lib/recap/communityVsBank'
 import { computeWildenrothRecords, type WildenrothUserRecord } from '@/lib/recap/wildenrothStance'
 
 /**
@@ -47,6 +48,8 @@ export interface RecapReport {
   matchTeams: Record<number, { home: string; away: string }>
   /** Team-Highlights: meistgewettet, schlechtestes Team zum Wetten, Wildenroth I/II. */
   teams: TeamHighlights
+  /** „Bank vs. Community“: Mehrheit der Tipper vs. Quoten-Favorit beim Spielausgang. */
+  crowd: CrowdVsBank
   /** Kombi-Killer-Spiel (meiste gescheiterte Kombis) und teuerstes Spiel (meiste verpasste Gewinne). */
   killers: { killer: ComboKillerMatch | null; priciest: ComboKillerMatch | null }
 }
@@ -91,6 +94,8 @@ export function buildRecapReport(inp: ReportInput): RecapReport {
   const matchLabels: RecapReport['matchLabels'] = {}
   const km = pickKillerMatches(killers.byMatch)
   for (const k of [km.killer, km.priciest]) if (k) matchLabels[k.matchId] = lab.matchLabel(k.matchId)
+  const crowd = computeCrowdVsBank(rangeSlips, matches, excluded)
+  if (crowd.surprise) matchLabels[crowd.surprise.matchId] = lab.matchLabel(crowd.surprise.matchId)
   const matchTeams: RecapReport['matchTeams'] = {}
   for (const id of Object.keys(matchLabels).map(Number)) { const t = lab.matchTeams?.(id); if (t) matchTeams[id] = t }
   for (const c of oneGoal.cases.slice(0, 2)) matchLabels[c.matchId] = lab.matchLabel(c.matchId)
@@ -119,7 +124,7 @@ export function buildRecapReport(inp: ReportInput): RecapReport {
     iq, awards, bestTips,
     rankMoves: moves,
     wildenroth: { all: rec('all'), I: rec('I'), II: rec('II') },
-    people, slipLegs, matchLabels, matchTeams, killers: km,
+    people, slipLegs, matchLabels, matchTeams, killers: km, crowd,
     teams: computeTeamHighlights(rangeSlips, matches, inp.teamName ?? ((id) => `Team ${id}`), excluded),
     facts: {
       comboKillers: { singleBlockerCombos: killers.singleBlockerCombos, wildenrothCombos: killers.wildenrothCombos, topMatch: killers.byMatch[0] ?? null },

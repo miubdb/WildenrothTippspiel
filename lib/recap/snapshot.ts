@@ -21,6 +21,9 @@ export interface SnapshotData {
 }
 
 export function decryptSnapshot(keyHex: string | undefined | null): SnapshotData | null {
+  // Sicherheitsnetz: In jeder Umgebung mit Datenbank-Konfiguration (Production, Preview des Hauptprojekts) wird NIE ein Snapshot
+  // geladen – er ist nur für das separate, datenbankfreie Test-Deployment gedacht.
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_SERVICE_ROLE_KEY) return null
   if (!keyHex || !/^[0-9a-f]{64}$/i.test(keyHex)) return null
   try {
     const f = SNAPSHOT_ENC

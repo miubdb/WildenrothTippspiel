@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { logAdminAction } from '@/lib/auditLog'
 import { HINRUNDE } from '@/lib/recap/availability'
 import { loadReadinessOnly } from '@/lib/recap/loadRecap'
+import { RECAP_SEASON } from '@/lib/recap/slips'
 
 /**
  * Admin-Freigabe der Recaps. „Bereit" entscheidet allein die Datenlage (lib/recap/availability.ts),
@@ -32,6 +33,12 @@ export async function POST(request: NextRequest) {
   if (body.published) {
     const readiness = await loadReadinessOnly()
     if (!readiness.ready) return NextResponse.json({ error: 'Der Zeitraum ist noch nicht vollständig abgeschlossen.', blockers: readiness.blockers }, { status: 409 })
+    // Der Winter-Recap erscheint zusammen mit dem finalen Spieltags-Recap: dessen Pokale (user_awards des letzten Spieltags)
+    // müssen bereits erzeugt sein (passiert automatisch beim Abschluss des letzten Spiels, siehe lib/matchdayFinalize.ts).
+    const probe = createAdminClient()
+    const { count, error: probeErr } = await probe.from('user_awards').select('id', { count: 'exact', head: true }).eq('season', RECAP_SEASON).eq('matchday', HINRUNDE.to)
+    if (probeErr) return NextResponse.json({ error: 'Der Spieltags-Recap des letzten Spieltags konnte nicht geprüft werden.' }, { status: 500 })
+    if (!count) return NextResponse.json({ error: `Der Spieltags-Recap von Spieltag ${HINRUNDE.to} liegt noch nicht vor – der Winter-Recap wird zusammen mit ihm veröffentlicht.` }, { status: 409 })
   }
   const admin = createAdminClient()
   const { data: before } = await admin.from('app_settings').select('value').eq('key', key).maybeSingle()

@@ -20,7 +20,7 @@ const firstSentence = (s: string) => (s.match(/^.*?[.!?](?=\s+[A-ZÄÖÜ„"]|$)
 const CARD = 'rc-card relative rounded-2xl border border-[#cfe3f4] bg-white/90 shadow-sm dark:border-white/10 dark:bg-white/[0.06]'
 const MUTED = 'text-[#4d6a8a] dark:text-[#9db8d6]'
 const ACCENT = 'text-[#1565a8] dark:text-[#8fd3ff]'
-const CHIP = 'rounded-lg bg-[#e3f1fc] dark:bg-white/10'
+const CHIP = 'rounded-xl bg-[#e3f1fc] dark:bg-white/10'
 const DIVIDE = 'divide-y divide-[#e3eef8] dark:divide-white/10'
 
 const STYLE = `
@@ -158,20 +158,22 @@ function TipCardView({ c, label, person }: { c: TipCard; label: string; person?:
           <div className={`text-[10px] uppercase tracking-wide ${MUTED}`}>Wildis Gewinn</div>
         </div>
       </div>
-      {single && (
-        <div className={`${CHIP} mt-2.5 px-2.5 py-2`}>
-          <MatchRow leg={single} />
-          <div className={`mt-0.5 text-xs ${MUTED}`}>{single.market}: <b>{single.selection}</b></div>
-        </div>
-      )}
-      <p className={`mt-2 text-sm ${MUTED}`}>{firstSentence(c.why)}</p>
-      <div className={`mt-1.5 text-[11px] ${MUTED}`}>Quote {f2(c.odds)} · Einsatz {f0(c.stake)}{c.payout > 0 ? ` · Auszahlung ${f0(c.payout)}` : ''}</div>
-      {c.kind === 'combo' && (
-        <details className="mt-1.5">
-          <summary className={`cursor-pointer list-none text-xs font-semibold ${ACCENT}`}>▸ {c.legs.length} Tipps anzeigen</summary>
-          <div className="mt-1.5"><LegList legs={c.legs} /></div>
-        </details>
-      )}
+      <div className={`${CHIP} mt-2.5 px-3 py-2.5`}>
+        {single && (
+          <div>
+            <MatchRow leg={single} />
+            <div className={`mt-0.5 text-xs ${MUTED}`}>{single.market}: <b>{single.selection}</b></div>
+          </div>
+        )}
+        <p className={`${single ? 'mt-1.5 ' : ''}text-sm`}>{firstSentence(c.why)}</p>
+        <div className={`mt-1 text-[11px] ${MUTED}`}>Quote {f2(c.odds)} · Einsatz {f0(c.stake)}{c.payout > 0 ? ` · Auszahlung ${f0(c.payout)}` : ''}</div>
+        {c.kind === 'combo' && (
+          <details className="mt-1.5">
+            <summary className={`cursor-pointer list-none text-xs font-semibold ${ACCENT}`}>▸ {c.legs.length} Tipps anzeigen</summary>
+            <div className="mt-1.5"><LegList legs={c.legs} /></div>
+          </details>
+        )}
+      </div>
     </div>
   )
 }
@@ -310,8 +312,7 @@ function KillerMatchCard({ r, id, label, line }: { r: RecapReport; id: number; l
   return (
     <div className="px-4 py-3.5">
       <div className={`text-[11px] font-bold uppercase tracking-widest ${ACCENT}`}>{label}</div>
-      <div className={`${CHIP} mt-1.5 px-2.5 py-2`}><MatchRow leg={{ match: r.matchLabels[id] ?? `Spiel #${id}`, teams: r.matchTeams[id] }} /></div>
-      <p className="mt-1.5 text-sm">{line}</p>
+      <div className={`${CHIP} mt-1.5 px-3 py-2.5`}><MatchRow leg={{ match: r.matchLabels[id] ?? `Spiel #${id}`, teams: r.matchTeams[id] }} /><p className="mt-1.5 text-sm">{line}</p></div>
     </div>
   )
 }
@@ -327,19 +328,19 @@ function TeamHighlights({ r }: { r: RecapReport }) {
         {t.mostBet.length > 0 && (
           <div className="px-4 py-3.5">
             <div className={`text-[11px] font-bold uppercase tracking-widest ${ACCENT}`}>Meistgewettete Teams <span className="font-semibold normal-case tracking-normal opacity-70">· Wettscheine</span></div>
-            <ul className="mt-2 space-y-2">{t.mostBet.map((x, i) => (
+            <div className={`${CHIP} mt-1.5 px-3 py-2.5`}><ul className="space-y-2">{t.mostBet.map((x, i) => (
               <li key={x.teamId} className="flex items-center gap-2.5">
                 <span className={`w-4 text-center font-display text-lg font-bold ${MUTED}`}>{i + 1}</span>
                 <TeamLogo name={x.name} size="md" />
                 <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{x.name}</div><div className="mt-0.5 h-1.5 rounded-full bg-[#e3f1fc] dark:bg-white/10"><div className="h-full rounded-full bg-[#2a7fc4] dark:bg-[#8fd3ff]" style={{ width: `${Math.max(8, (x.slips / maxSlips) * 100)}%` }} /></div></div>
                 <span className={`font-display text-xl font-bold ${ACCENT}`}>{f0(x.slips)}</span>
-              </li>))}</ul>
+              </li>))}</ul></div>
           </div>
         )}
         {t.worstToBet && (
           <div className="px-4 py-3.5">
             <div className={`text-[11px] font-bold uppercase tracking-widest ${ACCENT}`}>Schlechtestes Team zum Wetten</div>
-            <div className="mt-1.5 flex items-center gap-3"><TeamLogo name={t.worstToBet.name} size="lg" /><div className="min-w-0"><div className="truncate font-bold">{t.worstToBet.name}</div><div className="flex items-baseline gap-1.5"><span className={`font-display text-4xl font-bold leading-none ${ACCENT}`}>{t.worstToBet.hit} von {t.worstToBet.tips}</span><span className={`text-sm ${MUTED}`}>Siegtipps gingen auf</span></div></div></div>
+            <div className={`${CHIP} mt-1.5 flex items-center gap-3 px-3 py-2.5`}><TeamLogo name={t.worstToBet.name} size="lg" /><div className="min-w-0"><div className="truncate font-bold">{t.worstToBet.name}</div><div className="flex items-baseline gap-1.5"><span className={`font-display text-4xl font-bold leading-none ${ACCENT}`}>{t.worstToBet.hit} von {t.worstToBet.tips}</span><span className={`text-sm ${MUTED}`}>Siegtipps gingen auf</span></div></div></div>
           </div>
         )}
         {k && <KillerMatchCard r={r} id={k.matchId} label={same ? 'Kombi-Killer & teuerstes Spiel' : 'Kombi-Killer-Spiel'} line={same ? `${k.combos} sonst richtige Kombis scheiterten hier – ${f0(k.potentialNet)} Wildis Gewinn entgangen.` : `${k.combos} sonst richtige Kombis scheiterten hier an genau diesem Tipp.`} />}
@@ -354,6 +355,38 @@ function TeamHighlights({ r }: { r: RecapReport }) {
                 <div className={`text-[10px] ${MUTED}`}>der {f0(w.winTips)} Siegtipps gingen auf</div>
                 {w.againstTips > 0 && <div className="mt-1 text-[11px]">Dagegen: {f0(w.againstTips)} Tipps, {Math.round((w.againstHit / w.againstTips) * 100)} % gingen auf</div>}
               </div>))}</div>
+          </div>
+        )}
+      </div>
+    </Section>
+  )
+}
+
+const OUT_LABEL = { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' } as const
+
+function CrowdVsBank({ r }: { r: RecapReport }) {
+  const c = r.crowd
+  if (c.matches < 10) return null
+  const pc = Math.round((c.communityRight / c.matches) * 100), pb = Math.round((c.bankRight / c.matches) * 100)
+  const lead = pc > pb ? 'Die Community-Mehrheit lag öfter richtig als die Bank.' : pc < pb ? 'Die Bank lag öfter richtig als die Community-Mehrheit.' : 'Community und Bank lagen gleich oft richtig.'
+  const sp = c.surprise
+  return (
+    <Section title="Bank vs. Community" sub="Wer lag beim Spielausgang öfter richtig?" icon="⚖️">
+      <div className="space-y-2 px-4 pb-4">
+        <div className="grid grid-cols-2 gap-2 text-center">
+          {([['Community-Mehrheit', pc, pc >= pb], ['Bank (Quoten-Favorit)', pb, pb > pc]] as const).map(([l, v, lead2]) => (
+            <div key={l} className={`${CHIP} px-2 py-2.5 ${lead2 ? 'ring-1 ring-[#8fd3ff]' : ''}`}>
+              <div className={`font-display text-4xl font-bold leading-none ${ACCENT}`}>{v} %</div>
+              <div className="mt-1 text-[11px] font-semibold leading-tight">{l}</div>
+            </div>
+          ))}
+        </div>
+        <p className="text-sm">{lead} <span className={MUTED}>Gezählt: {c.matches} Spiele mit mindestens {c.minTippers} Tippern.</span></p>
+        {sp && (
+          <div className={`${CHIP} px-3 py-2.5`}>
+            <div className={`text-[10px] font-bold uppercase tracking-widest ${ACCENT}`}>Größte Überraschung</div>
+            <div className="mt-1"><MatchRow leg={{ match: r.matchLabels[sp.matchId] ?? `Spiel #${sp.matchId}`, teams: r.matchTeams[sp.matchId] }} /></div>
+            <p className="mt-1 text-sm">{Math.round(sp.share * 100)} % tippten auf {OUT_LABEL[sp.majority]} – es endete {sp.score}.</p>
           </div>
         )}
       </div>
@@ -464,11 +497,11 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
           <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#bfe3fb]">Saison 2026/27 · Hinrunde</div>
           <h1 className="font-display mt-1 text-[3.4rem] font-bold uppercase leading-[0.95] tracking-wide">Winter-<wbr />Recap</h1>
           <Snowman className="absolute -top-1 right-0 h-[6.2rem] opacity-95" />
-          <div className="mt-5 grid grid-cols-3 divide-x divide-white/20 text-center">
-            {([[f0(o.activeTippers), 'Tipper', false], [f0(b.total - cancelled), 'Wettscheine', false], [f0(o.settledStake), 'Wildis gesetzt', true]] as const).map(([v, l, coin]) => (
-              <div key={l} className="px-1 py-1">
-                <div className="flex items-center justify-center gap-1">{coin && <WildiCoin size={22} />}<span className="font-display text-[2rem] font-bold leading-none">{v}</span></div>
-                <div className="mt-1 text-[10px] uppercase tracking-wide text-[#cfeaff]">{l}</div>
+          <div className="mt-5 grid grid-cols-3 border-t border-white/25 pt-3 text-center">
+            {([[f0(o.activeTippers), 'Tipper', false], [f0(b.total - cancelled), 'Wettscheine', false], [f0(o.settledStake), 'Wildis gesetzt', true]] as const).map(([v, l, coin], i) => (
+              <div key={l} className={`px-1.5 py-2 ${i > 0 ? 'border-l border-white/35' : ''}`}>
+                <div className="flex items-center justify-center gap-1">{coin && <WildiCoin size={22} />}<span className="font-display text-[2.1rem] font-bold leading-none">{v}</span></div>
+                <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#cfeaff]">{l}</div>
               </div>
             ))}
           </div>
@@ -490,6 +523,7 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
 
       <Awards r={r} />
       <TeamHighlights r={r} />
+      <CrowdVsBank r={r} />
 
       <details className={CARD}>
         <summary className={`cursor-pointer px-4 py-3 text-xs font-semibold ${MUTED}`}>Genaue Regeln</summary>

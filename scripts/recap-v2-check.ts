@@ -20,6 +20,7 @@ import { buildFixtureData } from '@/lib/recap/fixtures'
 import { databaseKind, isSimulationAllowed, supabaseRef, PRODUCTION_SUPABASE_REF, SANDBOX_SUPABASE_REF } from '@/lib/recap/environmentGuard'
 import { loadDemoState, isFixtureDemoEnabled, SnapshotKeyError } from '@/lib/recap/demo'
 import { decryptSnapshot } from '@/lib/recap/snapshot'
+import { computeCrowdVsBank } from '@/lib/recap/communityVsBank'
 import { SNAPSHOT_ENC } from '@/lib/recap/snapshot.enc'
 
 let errors = 0
@@ -430,6 +431,23 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
   const simFx = simulateSpieltag(fx, 16)
   test('Fixtures: Spieltag 16 ist real NICHT bereit, nach Simulation bereit; Eingaben bleiben unverändert', !realFx.ready && computeRangeReadiness(simFx.matches, simFx.bets, 1, 16).ready && fx.bets.some((b) => b.status === 'pending'))
   test('Verschlüsselter Snapshot: ohne/mit falschem Schlüssel nicht lesbar; falscher Schlüssel → Fehler statt Musterdaten, kein Schlüssel → Musterdaten; kein Klartext im Chiffretext', decryptSnapshot(undefined) === null && decryptSnapshot('zz') === null && decryptSnapshot('ab'.repeat(32)) === null && (() => { try { loadDemoState('', 'ab'.repeat(32)); return false } catch (e) { return e instanceof SnapshotKeyError } })() && loadDemoState('', undefined).source === 'fixtures' && !JSON.stringify(SNAPSHOT_ENC).includes('display_name'))
+  // Snapshot nie in Umgebungen mit Datenbank-Konfiguration (Production): selbst mit gültigem Schlüssel → null
+  test('Snapshot-Sperre: mit Supabase-Konfiguration wird kein Snapshot entschlüsselt', (() => {
+    const old = process.env.NEXT_PUBLIC_SUPABASE_URL
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.invalid'
+    try { return decryptSnapshot('ab'.repeat(32)) === null } finally { if (old === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL; else process.env.NEXT_PUBLIC_SUPABASE_URL = old }
+  })())
+  {
+    // „Bank vs. Community“: Mehrheit vs. Quoten-Favorit, nur Spiele mit genug Tippern und bekannten Quoten
+    const mk = (matchId: number, userId: string, sel: string, odds: number, k: number): Slip => ({ key: `cv${matchId}${userId}${k}`, kind: 'single', userId, createdAtMs: k, stake: 10, odds, status: 'lost', payout: null, net: -10, isRisky: false, isBonus: false, voidReason: null, legs: [{ betId: 7000 + k, matchId, marketType: '1x2', selection: sel, odds, status: 'lost', specialId: null, recapMatchday: 1 }], ownerMatchday: 1, firstKickoffMs: k })
+    const O: Record<string, number> = { home: 2, draw: 3.2, away: 4 }
+    const ms: any[] = [{ id: 1, matchday: 1, status: 'finished', home_score: 1, away_score: 0, home_team_id: 1, away_team_id: 2 }, { id: 2, matchday: 1, status: 'finished', home_score: 0, away_score: 2, home_team_id: 1, away_team_id: 2 }]
+    const sl: Slip[] = []; let k = 0
+    for (const id of [1, 2]) { for (let u = 0; u < 6; u++) sl.push(mk(id, `u${u}`, 'home', O.home, k++)); sl.push(mk(id, 'u6', 'draw', O.draw, k++)); sl.push(mk(id, 'u7', 'away', O.away, k++)) }
+    const cv = computeCrowdVsBank(sl, ms, new Set())
+    test('Bank vs. Community: Mehrheit und Quoten-Favorit werden gegen das Endergebnis gezählt, Überraschung = Mehrheit lag klar falsch', cv.matches === 2 && cv.communityRight === 1 && cv.bankRight === 1 && cv.surprise?.matchId === 2 && cv.surprise.majority === 'home' && cv.surprise.actual === 'away' && cv.surprise.score === '0:2' && Math.round(cv.surprise.share * 100) === 75)
+    test('Bank vs. Community: zu wenige Tipper (< 5) oder unbekannte Quoten → Spiel wird nicht gezählt', computeCrowdVsBank(sl.filter((x) => x.userId !== 'u7'), ms, new Set()).matches === 0 && computeCrowdVsBank(sl.slice(0, 4), ms, new Set()).matches === 0)
+  }
   const dm = loadDemoState('')
   test('Team-Highlights: 3 meistgewettete Teams mit Namen, Wildenroth I/II, Kombi-Killer-Spiel mit Vereinsnamen für Logos', dm.report.teams.mostBet.length === 3 && dm.report.teams.mostBet.every((t) => t.name && t.slips > 0) && dm.report.teams.wildenroth.length >= 1 && (dm.report.killers.killer == null || !!dm.report.matchTeams[dm.report.killers.killer.matchId]))
   test('Tipps tragen Heim/Gast für Vereinslogos; persönlicher Bereich liefert größten Gewinn, Beinahe-Treffer, Lieblings-Team', !!dm.report.bestTips.single?.legs[0]?.teams && (() => { const pp = loadDemoState(dm.meId).personal; return pp.biggestWin != null && pp.favoriteTeam != null })())
