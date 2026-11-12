@@ -19,6 +19,8 @@ import { isPreviewEnvironment, simulateSpieltag } from '@/lib/recap/simulation'
 import { buildFixtureData } from '@/lib/recap/fixtures'
 import { databaseKind, isSimulationAllowed, supabaseRef, PRODUCTION_SUPABASE_REF, SANDBOX_SUPABASE_REF } from '@/lib/recap/environmentGuard'
 import { loadDemoState, isFixtureDemoEnabled } from '@/lib/recap/demo'
+import { decryptSnapshot } from '@/lib/recap/snapshot'
+import { SNAPSHOT_ENC } from '@/lib/recap/snapshot.enc'
 
 let errors = 0
 let checks = 0
@@ -400,6 +402,7 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
   const realFx = computeRangeReadiness(fx.matches, fx.bets, 1, 16)
   const simFx = simulateSpieltag(fx, 16)
   test('Fixtures: Spieltag 16 ist real NICHT bereit, nach Simulation bereit; Eingaben bleiben unverändert', !realFx.ready && computeRangeReadiness(simFx.matches, simFx.bets, 1, 16).ready && fx.bets.some((b) => b.status === 'pending'))
+  test('Verschlüsselter Snapshot: ohne/mit falschem Schlüssel nicht lesbar (→ erfundene Fixtures), kein Klartext im Chiffretext', decryptSnapshot(undefined) === null && decryptSnapshot('zz') === null && decryptSnapshot('ab'.repeat(32)) === null && loadDemoState('', 'ab'.repeat(32)).source === 'fixtures' && !JSON.stringify(SNAPSHOT_ENC).includes('display_name'))
   const demo = loadDemoState('fx-u02')
   test('Demo-Bericht: Awards, IQ-Rangliste, gelöschtes Konto nicht genannt, persönlicher Tipp nur des gewählten Nutzers', demo.report.awards.some((a) => a.public) && demo.report.iq.some((x) => x.eligible) && !('fx-gone' in demo.report.people) && (!demo.personal.best || demo.personal.best.userId === 'fx-u02'))
   {

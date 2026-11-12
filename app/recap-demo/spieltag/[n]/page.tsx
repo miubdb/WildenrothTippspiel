@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { loadDemoState } from '@/lib/recap/demo'
+import { demoKey } from '@/lib/recap/demoKey'
 import { isSettled } from '@/lib/recap/slips'
 import { DemoNav } from '../../DemoNav'
 
@@ -12,7 +13,7 @@ export default async function DemoSpieltag({ params, searchParams }: { params: P
   const { me } = await searchParams
   const md = parseInt(n, 10)
   if (!(md >= 1 && md <= 16)) notFound()
-  const st = loadDemoState(me ?? '')
+  const st = loadDemoState(me ?? '', await demoKey())
   const name = new Map(st.profiles.map((p) => [p.id, p.name]))
   const by = new Map<string, number>()
   for (const s of st.slips) if (s.ownerMatchday === md && isSettled(s) && name.has(s.userId)) by.set(s.userId, (by.get(s.userId) ?? 0) + s.net)

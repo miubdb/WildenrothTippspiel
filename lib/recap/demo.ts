@@ -1,4 +1,5 @@
 import { buildFixtureData, FIXTURE_PLAYERS } from '@/lib/recap/fixtures'
+import { decryptSnapshot } from '@/lib/recap/snapshot'
 import { simulateSpieltag } from '@/lib/recap/simulation'
 import { buildSlips, type Slip } from '@/lib/recap/slips'
 import { buildRecapReport, type RecapReport } from '@/lib/recap/report'
@@ -24,11 +25,17 @@ const MARKET_LABELS: Record<string, string> = {
   over_under_3_5: 'Über/Unter 3,5', goalscorer: 'Torschütze', ...CUP_MARKET_LABEL,
 }
 
-let memo: { report: RecapReport; slips: Slip[]; realReady: boolean; simReady: boolean; simulated: { matches: number; betRows: number }; profiles: { id: string; name: string }[]; labeler: Parameters<typeof buildPersonalTips>[3] } | null = null
+type Memo = { report: RecapReport; slips: Slip[]; realReady: boolean; simReady: boolean; simulated: { matches: number; betRows: number }; profiles: { id: string; name: string }[]; labeler: Parameters<typeof buildPersonalTips>[3]; source: 'fixtures' | 'snapshot'; builtAt: string | null }
+const memos = new Map<string, Memo>()
 
-function load() {
-  if (memo) return memo
-  const fx = buildFixtureData()
+function load(keyHex?: string): Memo {
+  const snap = decryptSnapshot(keyHex)
+  const mk = snap ? 'snap:' + snap.builtAt : 'fx'
+  const hit = memos.get(mk)
+  if (hit) return hit
+  const fx = snap
+    ? { matches: snap.matches, bets: snap.bets, combos: snap.combos, profiles: snap.profiles.map((p) => ({ ...p, is_admin: null })), teams: new Map(snap.teams.map((t) => [t.id, t.name] as [number, string])), players: Object.fromEntries(snap.players.map((p) => [p.id, p.name])) as Record<number, string> }
+    : buildFixtureData()
   const realReady = computeRangeReadiness(fx.matches, fx.bets, 1, 16).ready
   const sim = simulateSpieltag(fx, 16)
   const simReady = computeRangeReadiness(sim.matches, sim.bets, 1, 16).ready
@@ -37,15 +44,16 @@ function load() {
   const labeler = {
     matchLabel: (id: number) => { const m = byId.get(id); return m ? `${fx.teams.get(m.home_team_id) ?? '?'} – ${fx.teams.get(m.away_team_id) ?? '?'}${m.competition_type === 'cup' ? ' (Pokal)' : ''}` : `Spiel #${id}` },
     marketLabel: (m: string) => MARKET_LABELS[m] ?? m,
-    selectionLabel: (market: string, sel: string) => plainSelectionLabel(market, sel, undefined, FIXTURE_PLAYERS),
+    selectionLabel: (market: string, sel: string) => plainSelectionLabel(market, sel, undefined, snap ? fx.players : FIXTURE_PLAYERS),
   }
   const report = buildRecapReport({ allSlips: slips, matches: sim.matches, range: { from: 1, to: 16 }, profiles: fx.profiles, labeler })
-  memo = { report, slips, realReady, simReady, simulated: { matches: sim.simulatedMatchIds.length, betRows: sim.simulatedBetRows }, profiles: fx.profiles.filter((p) => !p.deleted_at).map((p) => ({ id: p.id, name: p.display_name ?? p.username ?? '?' })), labeler }
+  const memo: Memo = { report, slips, realReady, simReady, simulated: { matches: sim.simulatedMatchIds.length, betRows: sim.simulatedBetRows }, profiles: fx.profiles.filter((p) => !p.deleted_at).map((p) => ({ id: p.id, name: p.display_name ?? p.username ?? '?' })), labeler, source: snap ? 'snapshot' : 'fixtures', builtAt: snap?.builtAt ?? null }
+  memos.set(mk, memo)
   return memo
 }
 
-export function loadDemoState(meId: string): { report: RecapReport; personal: PersonalTips; meId: string; realReady: boolean; simReady: boolean; simulated: { matches: number; betRows: number }; profiles: { id: string; name: string }[]; slips: Slip[] } {
-  const m = load()
+export function loadDemoState(meId: string, keyHex?: string): { report: RecapReport; personal: PersonalTips; meId: string; realReady: boolean; simReady: boolean; simulated: { matches: number; betRows: number }; profiles: { id: string; name: string }[]; slips: Slip[]; source: 'fixtures' | 'snapshot'; builtAt: string | null } {
+  const m = load(keyHex)
   const me = m.profiles.some((p) => p.id === meId) ? meId : m.profiles[0].id
-  return { report: m.report, personal: buildPersonalTips(m.slips, filterSlipsByMatchdays(m.slips, 1, 16), me, m.labeler), meId: me, realReady: m.realReady, simReady: m.simReady, simulated: m.simulated, profiles: m.profiles, slips: m.slips }
+  return { report: m.report, personal: buildPersonalTips(m.slips, filterSlipsByMatchdays(m.slips, 1, 16), me, m.labeler), meId: me, realReady: m.realReady, simReady: m.simReady, simulated: m.simulated, profiles: m.profiles, slips: m.slips, source: m.source, builtAt: m.builtAt }
 }

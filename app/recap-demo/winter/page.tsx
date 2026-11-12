@@ -1,4 +1,5 @@
 import { loadDemoState } from '@/lib/recap/demo'
+import { demoKey } from '@/lib/recap/demoKey'
 import { HinrundeView } from '@/components/recap/HinrundeView'
 import { DemoNav } from '../DemoNav'
 
@@ -6,7 +7,7 @@ export const dynamic = 'force-dynamic'
 
 export default async function DemoWinter({ searchParams }: { searchParams: Promise<{ me?: string }> }) {
   const { me } = await searchParams
-  const st = loadDemoState(me ?? '')
+  const st = loadDemoState(me ?? '', await demoKey())
   return (
     <div className="px-4 py-4 space-y-4">
       <DemoNav current="winter" me={st.meId} />
@@ -14,7 +15,7 @@ export default async function DemoWinter({ searchParams }: { searchParams: Promi
         Du testest als <b>{st.profiles.find((p) => p.id === st.meId)?.name}</b> · <a className="font-semibold text-red-700 dark:text-red-300" href={`/recap-demo?me=${st.meId}`}>Person wechseln</a>
         <br />Echte Bereitschaftsprüfung (ohne Simulation): {st.realReady ? 'bereit' : 'Spieltag 16 NICHT bereit'} · mit Simulation: {st.simReady ? 'bereit' : 'nicht bereit'}.
       </div>
-      <HinrundeView report={st.report} personal={st.personal} myId={st.meId} previewTo={null} simulation={{ matches: st.simulated.matches, betRows: st.simulated.betRows, databaseRef: 'fixtures' }} />
+      <HinrundeView report={st.report} personal={st.personal} myId={st.meId} previewTo={null} simulation={{ matches: st.simulated.matches, betRows: st.simulated.betRows, databaseRef: st.source === 'snapshot' ? 'snapshot' : 'fixtures' }} />
     </div>
   )
 }

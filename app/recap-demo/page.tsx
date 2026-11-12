@@ -1,11 +1,12 @@
 import Link from 'next/link'
 import { loadDemoState } from '@/lib/recap/demo'
+import { demoKey } from '@/lib/recap/demoKey'
 
 export const dynamic = 'force-dynamic'
 
 export default async function DemoHub({ searchParams }: { searchParams: Promise<{ me?: string }> }) {
   const { me } = await searchParams
-  const st = loadDemoState(me ?? '')
+  const st = loadDemoState(me ?? '', await demoKey())
   const q = `?me=${st.meId}`
   return (
     <div className="px-4 py-4 space-y-4">
