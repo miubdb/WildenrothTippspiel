@@ -364,35 +364,29 @@ function TeamHighlights({ r }: { r: RecapReport }) {
 function CrowdVsBank({ r, simulated }: { r: RecapReport; simulated: boolean }) {
   const k = r.bank
   if (k.slips === 0) return null
-  const c = r.crowd
   const pct = (n: number) => `${n >= 0 ? '+' : '−'}${Math.abs(n).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`
   const tone = (v: number) => (v >= 0 ? 'text-[#0f7a45] dark:text-[#6fe0a1]' : 'text-[#b3261e] dark:text-[#ff9a92]')
-  const tile = (label: string, value: string, unit: string, v: number, sub: string) => (
+  const tile = (label: string, value: string, unit: string, v: number) => (
     <div className={`${CHIP} flex flex-col items-center justify-center px-2 py-3 text-center`}>
       <div className="text-[10px] font-bold uppercase tracking-widest opacity-80">{label}</div>
       <div className={`mt-1 font-display text-[2rem] font-bold leading-none tabular-nums ${tone(v)}`}>{value}</div>
       <div className={`text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>{unit}</div>
-      <div className={`mt-1 text-[11px] leading-tight ${MUTED}`}>{sub}</div>
     </div>
   )
-  const verdict = k.net > 0 ? 'Unterm Strich hat sie die Bank geschlagen.' : k.net < 0 ? 'Unterm Strich hat die Bank gewonnen.' : 'Unterm Strich steht es unentschieden.'
   return (
-    <Section title="Bank vs. Community" sub="Wer hat in der Hinrunde unterm Strich gewonnen?" icon="⚖️">
+    <Section title="Bank vs. Community" icon="⚖️">
       <div className="space-y-2.5 px-4 pb-4">
-        {simulated && <p className="rounded-lg bg-amber-100 px-2.5 py-1.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">Vorschau: enthält den simulierten Spieltag {r.range.to} – nicht die echten Ergebnisse.</p>}
+        {simulated && <p className="rounded-lg bg-amber-100 px-2.5 py-1.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">🧪 Spieltag {r.range.to} simuliert – Werte nur zur Vorschau.</p>}
         <div className="grid grid-cols-2 gap-2.5">
-          {tile('Community-Gewinn', sgn(k.net), 'Wildis', k.net, 'Nettoergebnis aller Scheine')}
-          {tile('Rendite', pct(k.returnPct), 'auf die Einsätze', k.returnPct, 'Gewinn im Verhältnis zum Einsatz')}
+          {tile('Community-Gewinn', sgn(k.net), 'Wildis', k.net)}
+          {tile('Rendite', pct(k.returnPct), 'auf Einsätze', k.returnPct)}
         </div>
-        <p className="text-sm leading-snug">Die Community hat {f0(k.stake)} Wildis eingesetzt und {f0(k.payout)} Wildis ausgezahlt bekommen. {verdict}</p>
-        <p className={`text-xs leading-snug ${MUTED}`}>Grundlage: {f0(k.slips)} abgerechnete Wettscheine, Kombis zählen mit einem Einsatz und einer Auszahlung. Offene, stornierte und neutralisierte Tipps zählen nicht. Die Bank ist nur die rechnerische Gegenseite, kein echter Buchmacher.</p>
+        <p className={`text-sm leading-snug ${MUTED}`}>{f0(k.stake)} Wildis eingesetzt · {f0(k.payout)} Wildis ausgezahlt</p>
         <details>
-          <summary className={`cursor-pointer list-none text-xs font-semibold ${ACCENT}`}>▸ Mehr</summary>
+          <summary className={`cursor-pointer list-none text-xs font-semibold ${ACCENT}`}>▸ Aufteilung</summary>
           <div className={`${CHIP} mt-1.5 space-y-1.5 px-3 py-2.5 text-xs`}>
             <div className="flex justify-between gap-3"><span>Einzelwetten ({f0(k.single.slips)})</span><b className="tabular-nums">{sgn(k.single.net)} Wildis</b></div>
             <div className="flex justify-between gap-3"><span>Kombis ({f0(k.combo.slips)})</span><b className="tabular-nums">{sgn(k.combo.net)} Wildis</b></div>
-            <p className={`border-t border-[#cfe3f4] pt-1.5 dark:border-white/10 ${MUTED}`}>Effektive Auszahlungsquote: {k.payoutRatio.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}-fach – je eingesetztem Wildi kamen {k.payoutRatio.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis zurück (Gesamtauszahlung ÷ Gesamteinsatz, keine Wettquote).</p>
-            {c.matches >= 10 && <p className={MUTED}>Beim Spielausgang lag die Mehrheit der Tipper bei {Math.round((c.communityRight / c.matches) * 100)} % von {c.matches} Spielen richtig, der Quoten-Favorit bei {Math.round((c.bankRight / c.matches) * 100)} % (Spiele mit mindestens {c.minTippers} Tippern).</p>}
           </div>
         </details>
       </div>
