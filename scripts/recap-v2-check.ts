@@ -441,7 +441,7 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
     // „Bank vs. Community“: Mehrheit vs. Quoten-Favorit, nur Spiele mit genug Tippern und bekannten Quoten
     const mk = (matchId: number, userId: string, sel: string, odds: number, k: number): Slip => ({ key: `cv${matchId}${userId}${k}`, kind: 'single', userId, createdAtMs: k, stake: 10, odds, status: 'lost', payout: null, net: -10, isRisky: false, isBonus: false, voidReason: null, legs: [{ betId: 7000 + k, matchId, marketType: '1x2', selection: sel, odds, status: 'lost', specialId: null, recapMatchday: 1 }], ownerMatchday: 1, firstKickoffMs: k })
     const O: Record<string, number> = { home: 2, draw: 3.2, away: 4 }
-    const ms: RecapMatchRow[] = [{ id: 1, matchday: 1, status: 'finished', home_score: 1, away_score: 0, home_team_id: 1, away_team_id: 2 }, { id: 2, matchday: 1, status: 'finished', home_score: 0, away_score: 2, home_team_id: 1, away_team_id: 2 }]
+    const ms = [{ id: 1, matchday: 1, status: 'finished', home_score: 1, away_score: 0, home_team_id: 1, away_team_id: 2 }, { id: 2, matchday: 1, status: 'finished', home_score: 0, away_score: 2, home_team_id: 1, away_team_id: 2 }] as unknown as RecapMatchRow[]
     const sl: Slip[] = []; let k = 0
     for (const id of [1, 2]) { for (let u = 0; u < 6; u++) sl.push(mk(id, `u${u}`, 'home', O.home, k++)); sl.push(mk(id, 'u6', 'draw', O.draw, k++)); sl.push(mk(id, 'u7', 'away', O.away, k++)) }
     const cv = computeCrowdVsBank(sl, ms, new Set())
