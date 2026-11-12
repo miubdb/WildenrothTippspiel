@@ -41,6 +41,7 @@ const ACTION_LABEL: Record<AuditAction, string> = {
   checklist_confirmation: 'Spieltag-Cockpit bestätigt',
   match_annulment: 'Spiel annulliert (Nichtantritt)',
   match_official_score_confirmed: 'Offizielle Wertung bestätigt',
+  recap_publish: 'Recap-Freigabe geändert',
 }
 
 function fmt(v: unknown): string {
