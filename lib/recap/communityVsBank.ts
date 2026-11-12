@@ -58,3 +58,35 @@ export function computeCrowdVsBank(slips: Slip[], matches: RecapMatchRow[], excl
   }
   return { matches: n, communityRight: crowd, bankRight: bank, minTippers: CROWD_MIN_TIPPERS, surprise }
 }
+
+/**
+ * Wildi-Bilanz der Community gegen die „Bank“ – aus den tatsächlich abgerechneten Scheinen (gewonnen/verloren), also exakt
+ * derselben Basis wie die Kennzahl „Wildis gesetzt“ (`computeOverview`). Kombis zählen mit EINEM Einsatz und EINER Auszahlung
+ * (Slip-Ebene, nicht pro Leg); offene, stornierte und komplett neutralisierte Scheine sind nicht abgerechnet und zählen nicht;
+ * teil-neutralisierte Kombis zählen mit ihren tatsächlich abgerechneten Werten; Pokal-Bonus-Tipps zählen wie überall im Recap.
+ * Die Bank ist die rechnerische Gegenseite (−Community-Netto), kein echter Buchmacher mit Kontostand.
+ */
+export interface CommunityBank {
+  slips: number
+  stake: number
+  payout: number
+  /** Auszahlung − Einsatz der Community. */
+  net: number
+  /** Rechnerische Gegenseite: −net. */
+  bankNet: number
+  single: { slips: number; stake: number; payout: number; net: number }
+  combo: { slips: number; stake: number; payout: number; net: number }
+}
+
+export function computeCommunityBank(slips: Slip[]): CommunityBank {
+  const z = () => ({ slips: 0, stake: 0, payout: 0, net: 0 })
+  const single = z(), combo = z()
+  for (const s of slips) {
+    if (s.status !== 'won' && s.status !== 'lost') continue
+    const t = s.kind === 'combo' ? combo : single
+    const payout = s.status === 'won' ? (s.payout ?? s.stake + s.net) : 0
+    t.slips++; t.stake += s.stake; t.payout += payout; t.net += payout - s.stake
+  }
+  const stake = single.stake + combo.stake, payout = single.payout + combo.payout, net = payout - stake
+  return { slips: single.slips + combo.slips, stake, payout, net, bankNet: -net, single, combo }
+}

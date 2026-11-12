@@ -10,6 +10,9 @@ import { AvatarLightbox } from '@/components/AvatarLightbox'
 import { PlayerBetSummary, PlayerRealizedBalance, PlayerStatsTiles, BalanceHistoryChart } from '@/components/PlayerBetStatsCard'
 import { computeUserBetStats, computeBalanceHistory, STATS_CURRENT_SEASON, STATS_PREV_SEASON } from '@/lib/betStats'
 import { PokalschrankAwardTile } from '@/components/PokalschrankAwardTile'
+import { WinterAwardsShelf } from '@/components/WinterAwardsShelf'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { loadVisibleWinterAwards, type WinterAwardsClient } from '@/lib/recap/winterAwardsStore'
 
 export const revalidate = 60
 
@@ -66,6 +69,8 @@ export default async function ProfilPage() {
   ])
   if (!profile) redirect('/login')
   const awards = awardsRaw ?? []
+  // Winter-Pokale (Hinrunde 2026/27): nur sichtbar, solange der Winter-Recap veröffentlicht ist – serverseitig entschieden.
+  const winterAwards = await loadVisibleWinterAwards(createAdminClient() as unknown as WinterAwardsClient, user.id)
   const prevBets = prevBetsRaw ?? []
 
   // "Wettbilanz" = realisierte Bilanz aus abgeschlossenen Wettscheinen — NICHT
@@ -240,12 +245,12 @@ export default async function ProfilPage() {
                 </p>
               </div>
             </div>
-            {grouped.length === 0 ? (
+            {grouped.length === 0 && winterAwards.length === 0 ? (
               <div className="px-4 py-8 text-center">
                 <div className="text-3xl mb-2">🎯</div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Noch keine Awards — kämpf um deinen ersten!</div>
               </div>
-            ) : (
+            ) : grouped.length === 0 ? null : (
               <div className="p-3 grid grid-cols-2 gap-2">
                 {grouped.map((a) => (
                   <PokalschrankAwardTile
@@ -262,6 +267,7 @@ export default async function ProfilPage() {
                 ))}
               </div>
             )}
+            <WinterAwardsShelf awards={winterAwards} />
           </div>
         )
       })()}

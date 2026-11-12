@@ -362,33 +362,41 @@ function TeamHighlights({ r }: { r: RecapReport }) {
   )
 }
 
-const OUT_LABEL = { home: 'Heimsieg', draw: 'Unentschieden', away: 'Auswärtssieg' } as const
-
 function CrowdVsBank({ r }: { r: RecapReport }) {
+  const k = r.bank
+  if (k.slips === 0) return null
   const c = r.crowd
-  if (c.matches < 10) return null
-  const pc = Math.round((c.communityRight / c.matches) * 100), pb = Math.round((c.bankRight / c.matches) * 100)
-  const lead = pc > pb ? 'Die Community-Mehrheit lag öfter richtig als die Bank.' : pc < pb ? 'Die Bank lag öfter richtig als die Community-Mehrheit.' : 'Community und Bank lagen gleich oft richtig.'
-  const sp = c.surprise
+  const community = k.net, bank = k.bankNet
+  const tile = (label: string, v: number, sub: string) => (
+    <div className={`${CHIP} flex flex-col items-center justify-center px-2 py-3 text-center`}>
+      <div className="text-[10px] font-bold uppercase tracking-widest opacity-80">{label}</div>
+      <div className={`mt-1 font-display text-[2rem] font-bold leading-none tabular-nums ${v >= 0 ? 'text-[#0f7a45] dark:text-[#6fe0a1]' : 'text-[#b3261e] dark:text-[#ff9a92]'}`}>{sgn(v)}</div>
+      <div className={`text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>Wildis</div>
+      <div className={`mt-1 text-[11px] leading-tight ${MUTED}`}>{sub}</div>
+    </div>
+  )
+  const sentence = community < 0
+    ? `Die Community hat ${f0(k.stake)} Wildis gesetzt und ${f0(k.payout)} Wildis ausgezahlt bekommen – ${f0(-community)} Wildis weniger als eingesetzt. Dieser Betrag geht rechnerisch an die Bank.`
+    : community > 0
+      ? `Die Community hat ${f0(k.stake)} Wildis gesetzt und ${f0(k.payout)} Wildis ausgezahlt bekommen – ${f0(community)} Wildis mehr als eingesetzt. Diesen Betrag hat die Bank rechnerisch verloren.`
+      : `Die Community hat ${f0(k.stake)} Wildis gesetzt und genau so viel wieder ausgezahlt bekommen – die Bank steht bei ±0.`
   return (
-    <Section title="Bank vs. Community" sub="Wer lag beim Spielausgang öfter richtig?" icon="⚖️">
-      <div className="space-y-2 px-4 pb-4">
-        <div className="grid grid-cols-2 gap-2 text-center">
-          {([['Community-Mehrheit', pc, pc >= pb], ['Bank (Quoten-Favorit)', pb, pb > pc]] as const).map(([l, v, lead2]) => (
-            <div key={l} className={`${CHIP} px-2 py-2.5 ${lead2 ? 'ring-1 ring-[#8fd3ff]' : ''}`}>
-              <div className={`font-display text-4xl font-bold leading-none ${ACCENT}`}>{v} %</div>
-              <div className="mt-1 text-[11px] font-semibold leading-tight">{l}</div>
-            </div>
-          ))}
+    <Section title="Bank vs. Community" sub="Wer hat in der Hinrunde unterm Strich gewonnen?" icon="⚖️">
+      <div className="space-y-2.5 px-4 pb-4">
+        <div className="grid grid-cols-2 gap-2.5">
+          {tile('Community', community, community < 0 ? 'unterm Strich im Minus' : community > 0 ? 'unterm Strich im Plus' : 'ausgeglichen')}
+          {tile('Bank', bank, bank > 0 ? 'rechnerisch im Plus' : bank < 0 ? 'rechnerisch im Minus' : 'ausgeglichen')}
         </div>
-        <p className="text-sm">{lead} <span className={MUTED}>Gezählt: {c.matches} Spiele mit mindestens {c.minTippers} Tippern.</span></p>
-        {sp && (
-          <div className={`${CHIP} px-3 py-2.5`}>
-            <div className={`text-[10px] font-bold uppercase tracking-widest ${ACCENT}`}>Größte Überraschung</div>
-            <div className="mt-1"><MatchRow leg={{ match: r.matchLabels[sp.matchId] ?? `Spiel #${sp.matchId}`, teams: r.matchTeams[sp.matchId] }} /></div>
-            <p className="mt-1 text-sm">{Math.round(sp.share * 100)} % tippten auf {OUT_LABEL[sp.majority]} – es endete {sp.score}.</p>
+        <p className="text-sm leading-snug">{sentence}</p>
+        <p className={`text-xs leading-snug ${MUTED}`}>Grundlage: {f0(k.slips)} abgerechnete Wettscheine, Kombis zählen mit einem Einsatz und einer Auszahlung. Offene, stornierte und neutralisierte Tipps zählen nicht. Die Bank ist die rechnerische Gegenseite, kein echter Buchmacher mit Kontostand.</p>
+        <details>
+          <summary className={`cursor-pointer list-none text-xs font-semibold ${ACCENT}`}>▸ Mehr</summary>
+          <div className={`${CHIP} mt-1.5 space-y-1.5 px-3 py-2.5 text-xs`}>
+            <div className="flex justify-between gap-3"><span>Einzelwetten ({f0(k.single.slips)})</span><b className="tabular-nums">{sgn(k.single.net)} Wildis</b></div>
+            <div className="flex justify-between gap-3"><span>Kombis ({f0(k.combo.slips)})</span><b className="tabular-nums">{sgn(k.combo.net)} Wildis</b></div>
+            {c.matches >= 10 && <p className={`border-t border-[#cfe3f4] pt-1.5 dark:border-white/10 ${MUTED}`}>Beim Spielausgang lag die Mehrheit der Tipper bei {Math.round((c.communityRight / c.matches) * 100)} % von {c.matches} Spielen richtig, der Quoten-Favorit bei {Math.round((c.bankRight / c.matches) * 100)} % (Spiele mit mindestens {c.minTippers} Tippern).</p>}
           </div>
-        )}
+        </details>
       </div>
     </Section>
   )
@@ -497,10 +505,10 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
           <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#bfe3fb]">Saison 2026/27 · Hinrunde</div>
           <h1 className="font-display mt-1 text-[3.4rem] font-bold uppercase leading-[0.95] tracking-wide">Winter-<wbr />Recap</h1>
           <Snowman className="absolute -top-1 right-0 h-[6.2rem] opacity-95" />
-          <div className="mt-5 grid grid-cols-3 border-t border-white/25 pt-3 text-center">
-            {([[f0(o.activeTippers), 'Tipper', false], [f0(b.total - cancelled), 'Wettscheine', false], [f0(o.settledStake), 'Wildis gesetzt', true]] as const).map(([v, l, coin], i) => (
-              <div key={l} className={`px-1.5 py-2 ${i > 0 ? 'border-l border-white/35' : ''}`}>
-                <div className="flex items-center justify-center gap-1">{coin && <WildiCoin size={22} />}<span className="font-display text-[2.1rem] font-bold leading-none">{v}</span></div>
+          <div className="mt-5 grid grid-cols-2 gap-2.5 min-[480px]:grid-cols-3">
+            {([[f0(o.activeTippers), 'Tipper', false], [f0(b.total - cancelled), 'Wettscheine', false], [f0(o.settledStake), 'Wildis gesetzt', true]] as const).map(([v, l, coin]) => (
+              <div key={l} className={`flex min-w-0 flex-col items-center justify-center rounded-2xl px-3 py-3.5 text-center backdrop-blur-sm ${coin ? 'col-span-2 min-[480px]:col-span-1' : ''}`} style={{ backgroundColor: 'rgba(255,255,255,.13)' }}>
+                <div className="flex w-full items-center justify-center gap-1.5">{coin && <WildiCoin size={24} />}<span className="font-display whitespace-nowrap text-[clamp(1.45rem,8.2vw,2.15rem)] font-bold leading-none tabular-nums">{v}</span></div>
                 <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#cfeaff]">{l}</div>
               </div>
             ))}

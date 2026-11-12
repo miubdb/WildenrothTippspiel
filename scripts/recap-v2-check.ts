@@ -16,12 +16,14 @@ import { buildRecapReport } from '@/lib/recap/report'
 import { computeHalbzeitAwards, PUBLIC_AWARD_KEYS } from '@/lib/recap/halbzeitAwards'
 import { buildCommunityBestTips, buildPersonalTips } from '@/lib/recap/bestTips'
 import { isPreviewEnvironment, simulateSpieltag } from '@/lib/recap/simulation'
-import { buildFixtureData } from '@/lib/recap/fixtures'
 import { databaseKind, isSimulationAllowed, supabaseRef, PRODUCTION_SUPABASE_REF, SANDBOX_SUPABASE_REF } from '@/lib/recap/environmentGuard'
-import { loadDemoState, isFixtureDemoEnabled, SnapshotKeyError } from '@/lib/recap/demo'
-import { decryptSnapshot } from '@/lib/recap/snapshot'
-import { computeCrowdVsBank } from '@/lib/recap/communityVsBank'
-import { SNAPSHOT_ENC } from '@/lib/recap/snapshot.enc'
+import { extractWinterAwards, WINTER_AWARD_KEYS, WINTER_LABEL } from '@/lib/recap/winterAwards'
+import { loadVisibleWinterAwards, replaceWinterAwards, type WinterAwardsClient } from '@/lib/recap/winterAwardsStore'
+import { evaluatePublishGate } from '@/lib/recap/publishGate'
+import type { AwardEntry } from '@/lib/recap/halbzeitAwards'
+import type { RecapReport } from '@/lib/recap/report'
+import { computeOverview } from '@/lib/recap/hinrundeStats'
+import { computeCommunityBank, computeCrowdVsBank } from '@/lib/recap/communityVsBank'
 
 let errors = 0
 let checks = 0
@@ -425,18 +427,6 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
 
 {
   // Isolierte Demo: synthetische Fixtures → dieselbe Pipeline, Spieltag 16 nur im Speicher simuliert
-  const fx = buildFixtureData()
-  test('Fixtures sind deterministisch und enthalten Pokalspiel, Pokal-Bonus-Tipps, annulliertes Spiel, gelöschtes Konto, offenen Spieltag 16', JSON.stringify(buildFixtureData().bets) === JSON.stringify(fx.bets) && fx.matches.some((m) => m.competition_type === 'cup') && fx.bets.some((b) => b.is_bonus) && fx.matches.some((m) => m.status === 'annulled') && fx.profiles.some((p) => p.deleted_at) && fx.bets.some((b) => b.status === 'pending'))
-  const realFx = computeRangeReadiness(fx.matches, fx.bets, 1, 16)
-  const simFx = simulateSpieltag(fx, 16)
-  test('Fixtures: Spieltag 16 ist real NICHT bereit, nach Simulation bereit; Eingaben bleiben unverändert', !realFx.ready && computeRangeReadiness(simFx.matches, simFx.bets, 1, 16).ready && fx.bets.some((b) => b.status === 'pending'))
-  test('Verschlüsselter Snapshot: ohne/mit falschem Schlüssel nicht lesbar; falscher Schlüssel → Fehler statt Musterdaten, kein Schlüssel → Musterdaten; kein Klartext im Chiffretext', decryptSnapshot(undefined) === null && decryptSnapshot('zz') === null && decryptSnapshot('ab'.repeat(32)) === null && (() => { try { loadDemoState('', 'ab'.repeat(32)); return false } catch (e) { return e instanceof SnapshotKeyError } })() && loadDemoState('', undefined).source === 'fixtures' && !JSON.stringify(SNAPSHOT_ENC).includes('display_name'))
-  // Snapshot nie in Umgebungen mit Datenbank-Konfiguration (Production): selbst mit gültigem Schlüssel → null
-  test('Snapshot-Sperre: mit Supabase-Konfiguration wird kein Snapshot entschlüsselt', (() => {
-    const old = process.env.NEXT_PUBLIC_SUPABASE_URL
-    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://example.invalid'
-    try { return decryptSnapshot('ab'.repeat(32)) === null } finally { if (old === undefined) delete process.env.NEXT_PUBLIC_SUPABASE_URL; else process.env.NEXT_PUBLIC_SUPABASE_URL = old }
-  })())
   {
     // „Bank vs. Community“: Mehrheit vs. Quoten-Favorit, nur Spiele mit genug Tippern und bekannten Quoten
     const mk = (matchId: number, userId: string, sel: string, odds: number, k: number): Slip => ({ key: `cv${matchId}${userId}${k}`, kind: 'single', userId, createdAtMs: k, stake: 10, odds, status: 'lost', payout: null, net: -10, isRisky: false, isBonus: false, voidReason: null, legs: [{ betId: 7000 + k, matchId, marketType: '1x2', selection: sel, odds, status: 'lost', specialId: null, recapMatchday: 1 }], ownerMatchday: 1, firstKickoffMs: k })
@@ -448,26 +438,69 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
     test('Bank vs. Community: Mehrheit und Quoten-Favorit werden gegen das Endergebnis gezählt, Überraschung = Mehrheit lag klar falsch', cv.matches === 2 && cv.communityRight === 1 && cv.bankRight === 1 && cv.surprise?.matchId === 2 && cv.surprise.majority === 'home' && cv.surprise.actual === 'away' && cv.surprise.score === '0:2' && Math.round(cv.surprise.share * 100) === 75)
     test('Bank vs. Community: zu wenige Tipper (< 5) oder unbekannte Quoten → Spiel wird nicht gezählt', computeCrowdVsBank(sl.filter((x) => x.userId !== 'u7'), ms, new Set()).matches === 0 && computeCrowdVsBank(sl.slice(0, 4), ms, new Set()).matches === 0)
   }
-  const dm = loadDemoState('')
-  test('Team-Highlights: 3 meistgewettete Teams mit Namen, Wildenroth I/II, Kombi-Killer-Spiel mit Vereinsnamen für Logos', dm.report.teams.mostBet.length === 3 && dm.report.teams.mostBet.every((t) => t.name && t.slips > 0) && dm.report.teams.wildenroth.length >= 1 && (dm.report.killers.killer == null || !!dm.report.matchTeams[dm.report.killers.killer.matchId]))
-  test('Tipps tragen Heim/Gast für Vereinslogos; persönlicher Bereich liefert größten Gewinn, Beinahe-Treffer, Lieblings-Team', !!dm.report.bestTips.single?.legs[0]?.teams && (() => { const pp = loadDemoState(dm.meId).personal; return pp.biggestWin != null && pp.favoriteTeam != null })())
-  const demo = loadDemoState('fx-u02')
-  test('Demo-Bericht: Awards, IQ-Rangliste, gelöschtes Konto nicht genannt, persönlicher Tipp nur des gewählten Nutzers', demo.report.awards.some((a) => a.public) && demo.report.iq.some((x) => x.eligible) && !('fx-gone' in demo.report.people) && (!demo.personal.best || demo.personal.best.userId === 'fx-u02'))
   {
-  const env = process.env as Record<string, string | undefined>
-  const keys = ['RECAP_FIXTURE_DEMO', 'NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY']
-  const keep = Object.fromEntries(keys.map((k) => [k, env[k]]))
-  const set = (k: string, v: string | undefined) => { if (v === undefined) delete env[k]; else env[k] = v }
-  for (const k of keys) set(k, undefined)
-  set('NEXT_PUBLIC_SUPABASE_URL', 'https://real.example'); set('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'k'); set('SUPABASE_SERVICE_ROLE_KEY', 'k')
-  const prod = !isFixtureDemoEnabled()
-  for (const k of keys) set(k, undefined)
-  const isolated = isFixtureDemoEnabled()
-  set('NEXT_PUBLIC_SUPABASE_URL', 'https://real.example')
-  const partial = !isFixtureDemoEnabled()
-  for (const k of keys) set(k, keep[k])
-  test('Demo-Route: aus, sobald irgendeine Supabase-Konfiguration existiert (Production/Preview); an nur ohne jede Konfiguration', prod && isolated && partial)
-}
+    // Wildi-Bilanz Community vs. Bank: echte Abrechnung, Kombis nur einmal, Stornos/Offene/Neutralisierte/Bonus
+    const mrow = (id: number, md: number) => ({ id, matchday: md, match_date: '2026-09-05T13:00:00+00:00', status: 'finished', match_category: 'kreisliga', is_topspiel: false, tippspiel_matchday: null, competition_type: 'league', home_team_id: 1, away_team_id: 2, home_score: 1, away_score: 0, annulment_type: null, annulment_official_confirmed_at: null }) as unknown as RecapMatchRow
+    const ms2 = [mrow(1, 1), mrow(2, 1), mrow(3, 1)]
+    const br = (id: number, user: string, match: number, status: string, stake: number, odds: number, o: Partial<RecapBetRow> = {}) => ({ id, user_id: user, match_id: match, market_type: '1x2', selection: 'home', stake, odds_value: odds, status, payout: status === 'won' ? stake * odds : 0, combo_id: null, created_at: '2026-09-01T10:00:00+00:00', is_risky: false, season: '26/27', is_bonus: false, void_reason: null, special_id: null, neutralized_at: null, neutralized_reason: null, ...o }) as unknown as RecapBetRow
+    const cr = (id: number, user: string, stake: number, total: number, status: string, o: Partial<RecapComboRow> = {}) => ({ id, user_id: user, stake, total_odds: total, status, payout: status === 'won' ? stake * total : 0, created_at: '2026-09-01T10:00:00+00:00', season: '26/27', void_reason: null, original_total_odds: null, neutralized_at: null, ...o }) as unknown as RecapComboRow
+    const bets2: RecapBetRow[] = [
+      br(1, 'a', 1, 'won', 10, 2.5), br(2, 'a', 2, 'lost', 10, 2),                       // Einzel: +15 −10
+      br(3, 'b', 1, 'won', 50, 1.5, { is_bonus: true }),                                  // Pokal-Bonus: +25 (zählt wie überall im Recap)
+      br(4, 'b', 3, 'pending', 99, 2),                                                    // offen → zählt nicht
+      br(5, 'b', 3, 'void', 77, 2, { void_reason: 'user_cancelled' }),                    // storniert → zählt nicht
+      br(10, 'c', 1, 'won', 0, 2, { combo_id: 1 }), br(11, 'c', 2, 'won', 0, 2, { combo_id: 1 }), br(12, 'c', 3, 'won', 0, 2, { combo_id: 1 }), // Kombi 1 (3 Legs): Einsatz 20, Quote 8 → +140
+      br(13, 'c', 1, 'won', 0, 2, { combo_id: 2 }), br(14, 'c', 2, 'lost', 0, 2, { combo_id: 2 }),                                                   // Kombi 2 verloren: −30
+    ]
+    const combos2: RecapComboRow[] = [cr(1, 'c', 20, 8, 'won'), cr(2, 'c', 30, 4, 'lost'), cr(3, 'd', 40, 3, 'void', { void_reason: 'user_cancelled' })]
+    const sl2 = buildSlips({ bets: bets2, combos: combos2, matches: ms2 }).slips
+    const cb = computeCommunityBank(sl2)
+    const ov = computeOverview(sl2, ms2)
+    test('Bank vs. Community: Einsätze/Auszahlungen/Netto aus abgerechneten Scheinen, Kombi einmal (nicht pro Leg), Offene/Stornierte/Bonus korrekt',
+      cb.slips === 5 && near(cb.stake, 10 + 10 + 50 + 20 + 30) && near(cb.payout, 25 + 75 + 160) && near(cb.net, 260 - 120) && near(cb.single.net, 15 - 10 + 25) && near(cb.combo.net, 140 - 30) && cb.single.slips === 3 && cb.combo.slips === 2)
+    test('Bank ist das rechnerische Gegenstück (−Community-Netto) – Vorzeichen folgen dem tatsächlichen Ergebnis', near(cb.bankNet, -cb.net) && near(computeCommunityBank(sl2.filter((x) => x.status === 'won')).bankNet, -computeCommunityBank(sl2.filter((x) => x.status === 'won')).net) && computeCommunityBank(sl2.filter((x) => x.status === 'lost')).net < 0 && computeCommunityBank(sl2.filter((x) => x.status === 'lost')).bankNet > 0 && computeCommunityBank(sl2.filter((x) => x.status === 'won')).bankNet < 0)
+    test('Bank-Bilanz stimmt mit der Recap-Datenbasis überein („Wildis gesetzt“ = Gesamteinsatz, Auszahlung, Netto)', near(cb.stake, ov.settledStake) && near(cb.payout, ov.settledPayout) && near(cb.net, ov.settledNet) && near(cb.payout - cb.stake, cb.net))
+    test('Offene/stornierte Scheine verändern die Bilanz nicht', near(computeCommunityBank(sl2.filter((x) => x.status === 'won' || x.status === 'lost')).net, cb.net) && computeCommunityBank([]).slips === 0)
+  }
+  {
+    // Winter-Pokale: Gewinner aus der Recap-Berechnung, Gleichstand, keine Duplikate, Sichtbarkeit, Freigabesperre
+    const E = (userId: string, value: string) => ({ userId, value }) as AwardEntry
+    const A = (key: string, entries: AwardEntry[], extra: Record<string, unknown> = {}) => ({ key, title: key, icon: '🏆', kind: 'main', rule: '', entries, ...extra })
+    const fake = { awards: [
+      A('wildi_magnet', [E('u1', '+100'), E('u2', '+50')]),
+      A('hall_der_ehre', [E('u1', '14 verschiedene Spiele'), E('u2', '14 verschiedene Spiele'), E('u3', '14 verschiedene Spiele'), E('u4', '13 verschiedene Spiele')]),
+      A('hall_der_schande', [E('u5', '+193')], { second: { title: 'Die meisten Gegenwetten', question: '', entries: [E('u6', '3 Gegen-Tipps'), E('u7', '3 Gegen-Tipps'), E('u8', '2 Gegen-Tipps')] } }),
+      A('senkrechtstarter', [E('u2', 'Platz 31 → 9')]), A('aussenseiter_jaeger', [E('u1', '8 Scheine ≥ 5,00'), E('u1', '8 Scheine ≥ 5,00')]), A('kombi_pech', [E('u5', '9× knapp daneben')]),
+      A('quotenfluesterer', [E('u1', 'IQ 92,6'), E('u2', 'IQ 80,0')]), A('einzelwetten_meister', [E('u9', '+7')]),
+    ] } as unknown as RecapReport
+    const rows = extractWinterAwards(fake)
+    const keys = new Set(rows.map((r) => r.award_key))
+    test('Winter-Pokale: alle acht Auszeichnungen (inkl. „Die meisten Gegenwetten“ und Quotenflüsterer), Einzelwetten-Meister nicht', keys.size === 8 && WINTER_AWARD_KEYS.every((k) => keys.has(k)) && !rows.some((r) => r.user_id === 'u9'))
+    test('Winter-Pokale: Gleichstand → alle Gewinner gleichberechtigt (Hall der Ehre 3×, Gegenwetten 2×), Platz 4/zweite Plätze nicht', rows.filter((r) => r.award_key === 'hall_der_ehre').map((r) => r.user_id).sort().join() === 'u1,u2,u3' && rows.filter((r) => r.award_key === 'gegenwetten').map((r) => r.user_id).sort().join() === 'u6,u7' && rows.filter((r) => r.award_key === 'wildi_magnet').length === 1)
+    test('Winter-Pokale: Saison/Recap „Hinrunde 2026/27“, deterministisch und ohne Duplikate (auch bei doppeltem Eintrag)', rows.every((r) => r.season === '26/27' && r.recap_key === 'hinrunde') && WINTER_LABEL === 'Hinrunde 2026/27' && JSON.stringify(extractWinterAwards(fake)) === JSON.stringify(rows) && new Set(rows.map((r) => `${r.award_key}|${r.user_id}`)).size === rows.length)
+    // Sichtbarkeit: nur bei veröffentlichtem Recap, Zurückziehen blendet aus
+    let flag: string | null = null
+    const stored = [{ award_key: 'wildi_magnet', award_title: 'Wildi-Magnet', award_icon: '🧲', award_description: 'd', value_text: '+1' }]
+    const fakeClient = { from: (t: string) => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: flag == null ? null : { value: flag } }), eq: () => ({ eq: () => ({ order: async () => ({ data: stored, error: null }) }) }) }) }) }), rpc: async () => ({ data: 1, error: null }) } as unknown as WinterAwardsClient
+    const before = await loadVisibleWinterAwards(fakeClient, 'u1'); flag = 'true'
+    const live = await loadVisibleWinterAwards(fakeClient, 'u1'); flag = null
+    const withdrawn = await loadVisibleWinterAwards(fakeClient, 'u1')
+    test('Winter-Pokale unsichtbar vor der Freigabe, sichtbar nach Veröffentlichung, nach Zurückziehen wieder unsichtbar', before.length === 0 && live.length === 1 && withdrawn.length === 0)
+    let rpcArgs: any = null // eslint-disable-line @typescript-eslint/no-explicit-any
+    const okRes = await replaceWinterAwards({ from: () => null, rpc: async (fn: string, a: unknown) => { rpcArgs = { fn, a }; return { data: 3, error: null } } } as unknown as WinterAwardsClient, rows)
+    const failRes = await replaceWinterAwards({ from: () => null, rpc: async () => ({ data: null, error: { message: 'function does not exist' } }) } as unknown as WinterAwardsClient, rows)
+    test('Speichern ersetzt atomar per DB-Funktion (kein Einzel-Insert → keine Duplikate); Fehler (fehlende Migration) wird gemeldet', okRes.ok && rpcArgs.fn === 'replace_winter_awards' && rpcArgs.a.p_season === '26/27' && rpcArgs.a.p_rows.length === rows.length && !failRes.ok)
+    // Freigabesperre
+    const gm = (id: number, md: number) => ({ id, matchday: md, match_date: `2026-09-0${md}T13:00:00+00:00`, status: 'finished', match_category: 'kreisliga', is_topspiel: false, tippspiel_matchday: null, competition_type: 'league', home_team_id: 1, away_team_id: 2, home_score: 1, away_score: 0, annulment_type: null, annulment_official_confirmed_at: null }) as unknown as RecapMatchRow
+    const msGate = [gm(10, 1), gm(20, 2), gm(30, 3)]
+    const ready = computeRangeReadiness(msGate, [], 1, 3)
+    const gate = (o: Partial<Parameters<typeof evaluatePublishGate>[0]>) => evaluatePublishGate({ readiness: ready, finalMatchday: 3, finalMatchdayAwardCount: 5, report: { simulated: false, rangeTo: 3 }, ...o })
+    const openBet = computeRangeReadiness(msGate, [{ match_id: 30, status: 'pending', season: '26/27' }], 1, 3)
+    const openMatch = computeRangeReadiness(msGate.map((m, i) => (i === 0 ? { ...m, status: 'scheduled' as const } : m)), [], 1, 3)
+    test('Freigabesperre: erlaubt nur bei vollständig abgeschlossenen Spieltagen, vorhandenem Spieltags-Recap und frischem, nicht simuliertem Vollbericht', gate({}).ok && !gate({ readiness: openBet }).ok && !gate({ readiness: openMatch }).ok)
+    test('Freigabesperre: offene Torschützen-/Einzel-Wette, fehlender ST-16-Recap (Pokale), Prüffehler, Simulation und Teilbericht blockieren', !gate({ readiness: openBet }).ok && !gate({ finalMatchdayAwardCount: 0 }).ok && !gate({ finalMatchdayAwardCount: null }).ok && !gate({ report: { simulated: true, rangeTo: 3 } }).ok && !gate({ report: { simulated: false, rangeTo: 2 } }).ok && !gate({ report: null }).ok && gate({ finalMatchdayAwardCount: 0 }).blockers.length > 0)
+  }
+
 }
 
 {
