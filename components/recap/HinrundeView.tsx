@@ -246,7 +246,7 @@ function Winners({ r, winners }: { r: RecapReport; winners: AwardEntry[] }) {
   return (
     <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1">
       {winners.map((e) => (
-        <div key={e.userId} className="flex min-w-0 items-center gap-1.5"><Avatar name={nm(e.userId)} url={r.people[e.userId]?.avatarUrl ?? null} size={winners.length > 1 ? 24 : 28} /><span className="truncate font-bold">{nm(e.userId)}</span></div>
+        <div key={e.userId} className="flex min-w-0 items-center gap-1.5"><Avatar name={nm(e.userId)} url={r.people[e.userId]?.avatarUrl ?? null} size={winners.length > 1 ? 24 : 28} /><span className={`truncate font-bold ${winners.length > 1 ? 'text-sm' : ''}`}>{nm(e.userId)}</span></div>
       ))}
     </div>
   )
@@ -260,9 +260,9 @@ function AwardCard({ a, r, entries, title, icon, line, extra }: { a: AwardResult
   const bl = a.bitterest && a.key === 'kombi_pech' ? r.slipLegs[a.bitterest.slipKey] : undefined
   const more = !!(entries[0].detail || rest.length || a.bitterest)
   return (
-    <div className="px-4 py-3.5">
+    <div className="rounded-xl border border-[#d7e8f6] bg-[#eef6fd] px-3 py-3 dark:border-white/10 dark:bg-[#12315f]/45">
       <div className="flex items-start gap-3">
-        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-[#e3f1fc] text-xl dark:bg-white/10">{icon}</span>
+        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-white text-xl dark:bg-white/10">{icon}</span>
         <div className="min-w-0 flex-1">
           <div className={`text-[11px] font-bold uppercase tracking-widest ${ACCENT}`}>{title}{winners.length > 1 && <span className="ml-1.5 rounded bg-[#e3f1fc] px-1.5 py-0.5 text-[9px] tracking-wider dark:bg-white/10">Gleichstand</span>}</div>
           <Winners r={r} winners={winners} />
@@ -303,7 +303,7 @@ function Awards({ r }: { r: RecapReport }) {
     cards.push(<AwardCard key={k} a={a} r={r} entries={a.entries} title={a.title} icon={a.icon} line={line} />)
     if (k === 'hall_der_schande' && a.second && a.second.entries.length) cards.push(<AwardCard key="gegenwetten" a={a} r={r} entries={a.second.entries} title="Die meisten Gegenwetten" icon="🔁" line="Am häufigsten gegen Wildenroth gewettet – egal ob gewonnen oder verloren." />)
   }
-  return <Section title="Die Awards" sub="Gleichstand? Dann stehen alle Gewinner gleichwertig da." deco="snowcap"><div className={DIVIDE}>{cards}</div></Section>
+  return <Section title="Die Awards" sub="Gleichstand? Dann stehen alle Gewinner gleichwertig da." deco="snowcap"><div className="space-y-2 px-3 pb-3">{cards}</div></Section>
 }
 
 function KillerMatchCard({ r, id, label, line }: { r: RecapReport; id: number; label: string; line: string }) {
@@ -391,7 +391,6 @@ function IqSection({ r, myId }: { r: RecapReport; myId: string }) {
         <div>
           <h3 className="font-display text-xl font-bold leading-tight">Wer hat wirklich ein gutes Händchen beim Tippen?</h3>
           <p className="mt-1 text-sm leading-snug">Der Tipper-IQ bewertet, wie gut deine Tipps im Vergleich zu ihren Quoten abgeschnitten haben. Wer auch schwierige Wetten trifft und über mehrere Spieltage konstant gut tippt, erreicht einen höheren Wert.</p>
-          <p className={`mt-1 text-sm leading-snug ${MUTED}`}>Je höher dein IQ, desto besser deine Tipp-Leistung. Deinen persönlichen Wert findest du direkt darunter.</p>
         </div>
         <div className="flex items-start gap-2 rounded-xl border border-[#9fd0f2] bg-[#e3f1fc] px-3 py-2.5 text-sm font-semibold text-[#0b3a6b] dark:border-[#8fd3ff]/30 dark:bg-[#8fd3ff]/10 dark:text-[#cfeaff]">
           <span aria-hidden>ℹ️</span><span>Offizielle Wertung ab {IQ_MIN_SLIPS} abgerechneten Wettscheinen und {IQ_MIN_MATCHDAYS} aktiven Spieltagen.</span>
@@ -465,10 +464,10 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
           <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#bfe3fb]">Saison 2026/27 · Hinrunde</div>
           <h1 className="font-display mt-1 text-[3.4rem] font-bold uppercase leading-[0.95] tracking-wide">Winter-<wbr />Recap</h1>
           <Snowman className="absolute -top-1 right-0 h-[6.2rem] opacity-95" />
-          <div className="mt-5 grid grid-cols-3 gap-2 text-center">
+          <div className="mt-5 grid grid-cols-3 divide-x divide-white/20 text-center">
             {([[f0(o.activeTippers), 'Tipper', false], [f0(b.total - cancelled), 'Wettscheine', false], [f0(o.settledStake), 'Wildis gesetzt', true]] as const).map(([v, l, coin]) => (
-              <div key={l} className="rounded-2xl py-2.5 backdrop-blur-sm" style={{ backgroundColor: 'rgba(255,255,255,.13)' }}>
-                <div className="flex items-center justify-center gap-1">{coin && <WildiCoin size={22} />}<span className="font-display text-3xl font-bold leading-none">{v}</span></div>
+              <div key={l} className="px-1 py-1">
+                <div className="flex items-center justify-center gap-1">{coin && <WildiCoin size={22} />}<span className="font-display text-[2rem] font-bold leading-none">{v}</span></div>
                 <div className="mt-1 text-[10px] uppercase tracking-wide text-[#cfeaff]">{l}</div>
               </div>
             ))}
