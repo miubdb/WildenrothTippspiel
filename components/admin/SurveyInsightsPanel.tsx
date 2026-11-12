@@ -139,7 +139,7 @@ export function SurveyInsightsPanel({ participants }: { participants: InsightPar
       'WILDENROTH-TIPPSPIEL — WINTERUMFRAGE V2 · KURZBERICHT',
       'Segment: ' + selectedLabel + ' · Antworten: ' + selectedRows.length + ' von ' + submitted.length,
       'Zufriedenheit: ' + (insights.satisfactionAvg == null ? '—' : insights.satisfactionAvg.toFixed(1) + ' / 10'),
-      'Wiederteilnahme bei kostenlosem Spiel: ' + pct(insights.returning.pct) + ' (' + insights.returning.count + '/' + insights.returning.base + ')',
+      'Wiederteilnahme nächste Saison: ' + pct(insights.returning.pct) + ' (' + insights.returning.count + '/' + insights.returning.base + ')',
       'Ausstiegsrisiko durch Startgeld: ' + pct(insights.feeExit.pct) + ' (' + insights.feeExit.count + '/' + insights.feeExit.base + ')',
       'Push-Probleme: ' + pct(insights.pushProblems.pct) + ' (' + insights.pushProblems.count + '/' + insights.pushProblems.base + ')',
       'Häufig als unrealistisch empfundene Quoten: ' + pct(insights.quotaProblems.pct) + ' (' + insights.quotaProblems.count + '/' + insights.quotaProblems.base + ')',
@@ -197,7 +197,7 @@ export function SurveyInsightsPanel({ participants }: { participants: InsightPar
       </div>
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">
-        <TinyMetric label="Wieder dabei (kostenlos)" rate={insights.returning} note="Ja oder eher ja bei Q30" />
+        <TinyMetric label="Wieder dabei 2027/28" rate={insights.returning} note="Ja oder eher ja bei Q30" />
         <TinyMetric label="Würde bei Startgeld aussteigen" rate={insights.feeExit} note="Explizite Ablehnung bei Q4" />
         <TinyMetric label="Probleme mit Push" rate={insights.pushProblems} note="Vier konkrete Problemantworten" />
         <TinyMetric label="Quoten häufig unrealistisch" rate={insights.quotaProblems} note="Häufig oder sehr häufig bei Q9" />
