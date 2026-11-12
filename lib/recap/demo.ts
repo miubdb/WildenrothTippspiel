@@ -8,12 +8,16 @@ import { computeRangeReadiness } from '@/lib/recap/availability'
 import { CUP_MARKET_LABEL, plainSelectionLabel } from '@/lib/betDisplay'
 
 /**
- * Isolierte Recap-Demo OHNE Datenbank (nur wenn `RECAP_FIXTURE_DEMO=1` gesetzt ist – das ist nur im separaten
- * Vercel-Testprojekt der Fall; in Production bleibt die Route unsichtbar, 404). Nutzt dieselben Funktionen wie das
+ * Isolierte Recap-Demo OHNE Datenbank (nur wenn `RECAP_FIXTURE_DEMO=1` gesetzt ist oder gar keine Supabase-Konfiguration
+ * existiert – also nur im separaten Test-Deployment; in Production bleibt die Route unsichtbar, 404). Nutzt dieselben Funktionen wie das
  * echte Recap (buildSlips → buildRecapReport → HinrundeView) auf synthetischen Fixtures; Spieltag 16 wird mit
  * `simulateSpieltag` im Speicher „abgeschlossen".
  */
-export const isFixtureDemoEnabled = (): boolean => process.env.RECAP_FIXTURE_DEMO === '1'
+export const isFixtureDemoEnabled = (): boolean =>
+  process.env.RECAP_FIXTURE_DEMO === '1'
+  // Oder: ein Deployment OHNE jede Supabase-Konfiguration kann technisch keine echte Datenbank erreichen – das ist das
+  // separate Test-Deployment. Jede echte Umgebung (Production, Preview des Hauptprojekts) hat die Supabase-Variablen.
+  || (!process.env.NEXT_PUBLIC_SUPABASE_URL && !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && !process.env.SUPABASE_SERVICE_ROLE_KEY)
 
 const MARKET_LABELS: Record<string, string> = {
   '1x2': 'Spielausgang', double_chance: 'Doppelte Chance', handicap: 'Handicap', btts: 'Beide treffen', exact_score: 'Ergebnis',

@@ -401,7 +401,21 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
   test('Fixtures: Spieltag 16 ist real NICHT bereit, nach Simulation bereit; Eingaben bleiben unverändert', !realFx.ready && computeRangeReadiness(simFx.matches, simFx.bets, 1, 16).ready && fx.bets.some((b) => b.status === 'pending'))
   const demo = loadDemoState('fx-u02')
   test('Demo-Bericht: Awards, IQ-Rangliste, gelöschtes Konto nicht genannt, persönlicher Tipp nur des gewählten Nutzers', demo.report.awards.some((a) => a.public) && demo.report.iq.some((x) => x.eligible) && !('fx-gone' in demo.report.people) && (!demo.personal.best || demo.personal.best.userId === 'fx-u02'))
-  test('Demo-Route ist ohne RECAP_FIXTURE_DEMO=1 deaktiviert (Production bleibt 404)', !isFixtureDemoEnabled())
+  {
+  const env = process.env as Record<string, string | undefined>
+  const keys = ['RECAP_FIXTURE_DEMO', 'NEXT_PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY']
+  const keep = Object.fromEntries(keys.map((k) => [k, env[k]]))
+  const set = (k: string, v: string | undefined) => { if (v === undefined) delete env[k]; else env[k] = v }
+  for (const k of keys) set(k, undefined)
+  set('NEXT_PUBLIC_SUPABASE_URL', 'https://real.example'); set('NEXT_PUBLIC_SUPABASE_ANON_KEY', 'k'); set('SUPABASE_SERVICE_ROLE_KEY', 'k')
+  const prod = !isFixtureDemoEnabled()
+  for (const k of keys) set(k, undefined)
+  const isolated = isFixtureDemoEnabled()
+  set('NEXT_PUBLIC_SUPABASE_URL', 'https://real.example')
+  const partial = !isFixtureDemoEnabled()
+  for (const k of keys) set(k, keep[k])
+  test('Demo-Route: aus, sobald irgendeine Supabase-Konfiguration existiert (Production/Preview); an nur ohne jede Konfiguration', prod && isolated && partial)
+}
 }
 
 // ── 8. Gesamtbericht, Datenschutz ─────────────────────────────────────────────────────────

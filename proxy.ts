@@ -3,6 +3,11 @@ import { updateSession } from '@/lib/supabase/middleware'
 import { createServerClient } from '@supabase/ssr'
 
 export async function proxy(request: NextRequest) {
+  // Isolierte Recap-Demo (app/recap-demo): nur in einem Deployment OHNE Supabase-Konfiguration überspringen wir die Session-
+  // Prüfung – dort gibt es weder Datenbank noch Benutzer. Mit gesetzter Konfiguration (Production/Preview) greift diese
+  // Zeile nie, und kein anderer Pfad wird dadurch berührt.
+  if (request.nextUrl.pathname.startsWith('/recap-demo') && !process.env.NEXT_PUBLIC_SUPABASE_URL) return NextResponse.next()
+
   const { supabaseResponse, user } = await updateSession(request)
 
   const pathname = request.nextUrl.pathname
