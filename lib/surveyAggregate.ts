@@ -417,7 +417,7 @@ function computeZukunftCrossTab(rows: SurveyRow[]): ZukunftCrossTab {
     .filter((reason) => reason !== Q29_SATISFIED)
     .map((reason) => {
       const withReason = rows.filter((r) => Array.isArray(r.answers.q29) && (r.answers.q29 as string[]).includes(reason))
-      const distribution = singleChoiceStats(QUESTION_BY_ID.get('q30')!, withReason).options
+      const distribution = singleChoiceStats(QUESTION_BY_ID.get('q30_general')!, withReason).options
       return { reason, distribution, count: withReason.length }
     })
   const features = multiStats(QUESTION_BY_ID.get('q_features')!, rows)
@@ -426,7 +426,7 @@ function computeZukunftCrossTab(rows: SurveyRow[]): ZukunftCrossTab {
     q29,
     satisfiedPct: q29.respondents > 0 ? (satisfiedCount / q29.respondents) * 100 : 0,
     q30ByReason,
-    q30: singleChoiceStats(QUESTION_BY_ID.get('q30')!, rows),
+    q30: singleChoiceStats(QUESTION_BY_ID.get('q30_general')!, rows),
     features,
     featuresNonePct: features.respondents > 0 ? (noneCount / features.respondents) * 100 : 0,
   }
@@ -500,7 +500,7 @@ export function computeOverview(allRows: SurveyRow[], activeUserIds: Set<string>
   const submitted = submittedRows.length
   const activeUsers = activeUserIds.size
   const q1nums = submittedRows.map((r) => r.answers.q1).filter((n): n is number => typeof n === 'number')
-  const q30Answers = submittedRows.map((r) => r.answers.q30).filter((a): a is string => typeof a === 'string')
+  const q30Answers = submittedRows.map((r) => r.answers.q30_general).filter((a): a is string => typeof a === 'string')
   const q30Returning = q30Answers.filter((answer) => answer === 'Ja, auf jeden Fall' || answer === 'Eher ja').length
   return {
     activeUsers,
