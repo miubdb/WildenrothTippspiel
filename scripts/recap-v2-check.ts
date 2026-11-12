@@ -105,29 +105,29 @@ function userWith(userId: string, nSlips: number, nMds: number, hitEvery = 3): S
   }
   return arr
 }
-test('17 Scheine → noch nicht gewertet, kein Rang', (() => { const r = computeUserIq('a', userWith('a', 17, 10)); return !r.eligible && r.rank == null && (r.notRatedReason ?? '').includes('17') && (r.notRatedReason ?? '').includes('offizielle Rangliste') })())
-test('18 Scheine aber 9 Spieltage → noch nicht qualifiziert, IQ trotzdem berechnet', (() => { const r = computeUserIq('a', userWith('a', 18, 9)); return !r.eligible && r.iq > 0 && r.rank == null })())
-test('18 Scheine / 10 Spieltage → qualifiziert (keine Mindest-Trefferzahl)', computeUserIq('a', userWith('a', 18, 10, 1000)).eligible)
-test('Grenze steht in Konstanten: 18 Scheine / 10 Spieltage', IQ_MIN_SLIPS === 18 && IQ_MIN_MATCHDAYS === 10)
-test('Qualifikation hängt nur von Scheinen/Spieltagen ab, nicht von Person oder Trefferzahl', computeUserIq('zzz', userWith('zzz', 18, 10, 1)).eligible === computeUserIq('aaa', userWith('aaa', 18, 10, 1000)).eligible)
+test('14 Scheine → noch nicht gewertet, kein Rang', (() => { const r = computeUserIq('a', userWith('a', 14, 9)); return !r.eligible && r.rank == null && (r.notRatedReason ?? '').includes('14') && (r.notRatedReason ?? '').includes('offizielle Rangliste') })())
+test('15 Scheine aber 8 Spieltage → noch nicht qualifiziert, IQ trotzdem berechnet', (() => { const r = computeUserIq('a', userWith('a', 15, 8)); return !r.eligible && r.iq > 0 && r.rank == null })())
+test('15 Scheine / 9 Spieltage → qualifiziert (keine Mindest-Trefferzahl)', computeUserIq('a', userWith('a', 15, 9, 1000)).eligible)
+test('Grenze steht in Konstanten: 15 Scheine / 9 Spieltage', IQ_MIN_SLIPS === 15 && IQ_MIN_MATCHDAYS === 9)
+test('Qualifikation hängt nur von Scheinen/Spieltagen ab, nicht von Person oder Trefferzahl', computeUserIq('zzz', userWith('zzz', 15, 9, 1)).eligible === computeUserIq('aaa', userWith('aaa', 15, 9, 1000)).eligible)
 {
-  // Endgültige Entscheidung: 18 Scheine / 10 Spieltage bleiben – unabhängig vom Datenstand (z. B. nach Spieltag 16).
+  // Endgültige Entscheidung: 15 Scheine / 9 Spieltage gelten – unabhängig vom Datenstand (z. B. nach Spieltag 16).
   const extra = (uid: string, md: number, k: number): Slip => { const b = userWith(uid, 1, 1)[0]; return { ...b, key: `x${uid}${k}`, ownerMatchday: md, legs: b.legs.map((l) => ({ ...l, betId: 9000 + k, matchId: 9000 + k, recapMatchday: md })) } }
-  const late = [...userWith('late', 17, 15), extra('late', 16, 1)]
-  test('Nach Spieltag 16: 17 Scheine bis ST 15 → nicht gewertet; der 18. Schein in ST 16 qualifiziert, Grenzen unverändert', (() => {
+  const late = [...userWith('late', 14, 15), extra('late', 16, 1)]
+  test('Nach Spieltag 16: 14 Scheine bis ST 15 → nicht gewertet; der 15. Schein in ST 16 qualifiziert, Grenzen unverändert', (() => {
     const before = computeTipperIqRanking(filterSlipsByMatchdays(late, 1, 15)).find((r) => r.userId === 'late')!
     const after = computeTipperIqRanking(filterSlipsByMatchdays(late, 1, 16)).find((r) => r.userId === 'late')!
-    return !before.eligible && before.rank == null && before.iq > 0 && after.eligible && after.rank === 1 && IQ_MIN_SLIPS === 18 && IQ_MIN_MATCHDAYS === 10
+    return !before.eligible && before.rank == null && before.iq > 0 && after.eligible && after.rank === 1 && IQ_MIN_SLIPS === 15 && IQ_MIN_MATCHDAYS === 9
   })())
-  const md9 = [...userWith('md9', 20, 9), extra('md9', 16, 2)]
-  test('Nach Spieltag 16: 9 aktive Spieltage bis ST 15 → nicht gewertet; der 10. aktive Spieltag (ST 16) qualifiziert', (() => {
+  const md9 = [...userWith('md9', 20, 8), extra('md9', 16, 2)]
+  test('Nach Spieltag 16: 8 aktive Spieltage bis ST 15 → nicht gewertet; der 9. aktive Spieltag (ST 16) qualifiziert', (() => {
     const before = computeTipperIqRanking(filterSlipsByMatchdays(md9, 1, 15)).find((r) => r.userId === 'md9')!
     const after = computeTipperIqRanking(filterSlipsByMatchdays(md9, 1, 16)).find((r) => r.userId === 'md9')!
-    return !before.eligible && before.activeMatchdays === 9 && after.eligible && after.activeMatchdays === 10
+    return !before.eligible && before.activeMatchdays === 8 && after.eligible && after.activeMatchdays === 9
   })())
   // Quotenflüsterer nur aus offiziell Qualifizierten – auch wenn ein nicht Qualifizierter den höheren IQ hat.
-  const hot = userWith('hot', 17, 10, 1) // 17 Scheine, alle gewonnen → sehr hoher IQ, aber nicht gewertet
-  const solid = userWith('solid', 18, 10, 3)
+  const hot = userWith('hot', 14, 9, 1) // 14 Scheine, alle gewonnen → sehr hoher IQ, aber nicht gewertet
+  const solid = userWith('solid', 15, 9, 3)
   const rkQ = computeTipperIqRanking([...hot, ...solid])
   const repQ = buildRecapReport({ allSlips: [...hot, ...solid], matches: [], range: { from: 1, to: 16 }, profiles: [] })
   const qf = repQ.awards.find((a) => a.key === 'quotenfluesterer')

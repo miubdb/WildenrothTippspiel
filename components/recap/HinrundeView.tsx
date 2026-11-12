@@ -388,7 +388,11 @@ function IqSection({ r, myId }: { r: RecapReport; myId: string }) {
   return (
     <Section title="Tipper-IQ" sub="Wer tippt am klügsten – nicht nur am glücklichsten?" icon="🧠" deco="scarf">
       <div className="space-y-2.5 px-4 pb-3">
-        <p className="text-sm leading-snug"><b>Was ist der Tipper-IQ?</b> Er misst, wie klug du tippst: Wie oft hast du getroffen – verglichen damit, wie oft das bei diesen Quoten zu erwarten war? 50 Punkte = genau so viel wie erwartet, mehr = besser als der Zufall. Dein <b>persönlicher Wert</b> steht gleich darunter in „Deine Winterpause“.</p>
+        <div>
+          <h3 className="font-display text-xl font-bold leading-tight">Wer hat wirklich ein gutes Händchen beim Tippen?</h3>
+          <p className="mt-1 text-sm leading-snug">Der Tipper-IQ bewertet, wie gut deine Tipps im Vergleich zu ihren Quoten abgeschnitten haben. Wer auch schwierige Wetten trifft und über mehrere Spieltage konstant gut tippt, erreicht einen höheren Wert.</p>
+          <p className={`mt-1 text-sm leading-snug ${MUTED}`}>Je höher dein IQ, desto besser deine Tipp-Leistung. Deinen persönlichen Wert findest du direkt darunter.</p>
+        </div>
         <div className="flex items-start gap-2 rounded-xl border border-[#9fd0f2] bg-[#e3f1fc] px-3 py-2.5 text-sm font-semibold text-[#0b3a6b] dark:border-[#8fd3ff]/30 dark:bg-[#8fd3ff]/10 dark:text-[#cfeaff]">
           <span aria-hidden>ℹ️</span><span>Offizielle Wertung ab {IQ_MIN_SLIPS} abgerechneten Wettscheinen und {IQ_MIN_MATCHDAYS} aktiven Spieltagen.</span>
         </div>
@@ -418,7 +422,7 @@ function IqSection({ r, myId }: { r: RecapReport; myId: string }) {
       <details className="border-t border-[#e3eef8] dark:border-white/10">
         <summary className={`cursor-pointer px-4 py-3 text-xs font-semibold ${MUTED}`}>So wird der Tipper-IQ berechnet</summary>
         <div className={`space-y-2 px-4 pb-4 text-xs ${MUTED}`}>
-          <p>Jeder abgerechnete Wettschein hat eine Trefferchance aus der Quote. Der IQ vergleicht deine Treffer mit dem, was dafür zu erwarten wäre – exakt gegen den Zufall gerechnet. 50 Punkte = genau so viel getroffen wie erwartet. <i>Ein spielerischer Qualitätsindex, kein wissenschaftliches Maß.</i></p>
+          <p>Jeder abgerechnete Wettschein hat eine Trefferchance aus der Quote. Der IQ vergleicht deine Treffer mit dem, was dafür zu erwarten wäre – exakt gegen den Zufall gerechnet. <b>Die Skala geht von 0 bis 100:</b> 50 Punkte bedeuten, dass du genau so viel getroffen hast wie nach den Quoten zu erwarten war; mehr Punkte heißen besser, weniger heißen schlechter als erwartet. <i>Ein spielerischer Qualitätsindex, kein wissenschaftliches Maß.</i></p>
           <ul className="list-disc space-y-0.5 pl-5">
             <li><b>45 %</b> Trefferqualität über der Erwartung</li><li><b>20 %</b> Konstanz über die Spieltage</li>
             <li><b>20 %</b> Schwere Treffer (Quote ab 3,00 und 5,00)</li><li><b>15 %</b> Robustheit ohne den besten Spieltag</li>

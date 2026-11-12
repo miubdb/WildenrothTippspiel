@@ -46,8 +46,8 @@ import { isSettled, isExcludedBonus, modelProbability, type Slip } from '@/lib/r
  */
 
 export const IQ_VERSION = '1.0'
-export const IQ_MIN_SLIPS = 18
-export const IQ_MIN_MATCHDAYS = 10
+export const IQ_MIN_SLIPS = 15
+export const IQ_MIN_MATCHDAYS = 9
 export const IQ_DIFFICULT_ODDS = [3, 5] as const
 
 export interface IqWeights { hit: number; consistency: number; difficult: number; robust: number }

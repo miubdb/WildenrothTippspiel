@@ -21,7 +21,7 @@ Gemeinsame Basis: Saison 26/27, Wettschein = Einzelwette oder Kombi (Einsatz ein
 Zeitbezogene Awards zählen **alle abgegebenen Scheine** (auch später stornierte), weil das Abgabeverhalten gemessen wird; Bonus-Tipps sind ausgenommen. Leistungs-Awards zählen nur abgerechnete Scheine.
 
 ## Je Award: Regel · Top 3 (SQL = TS)
-1. **Quotenflüsterer** – höchster Tipper-IQ (≥ 18 abgerechnete Scheine **und** ≥ 10 aktive Spieltage). Xaver 92,6 · Nils 79,2 · Szymon7 78,4. *(Der IQ ist eine mehrstufige Statistik und wurde bewusst **nicht** per SQL nachgebaut; seine Rohgrößen – Gewinnscheine, Σ 1/Quote – stimmen mit der Vorab-Analyse überein: Xaver 11 Gewinnscheine, 4,54 erwartet.)*
+1. **Quotenflüsterer** – höchster Tipper-IQ (≥ 15 abgerechnete Scheine **und** ≥ 9 aktive Spieltage; Stand der Prüfung damals 18/10). Xaver 92,6 · Nils 79,2 · Szymon7 78,4. *(Der IQ ist eine mehrstufige Statistik und wurde bewusst **nicht** per SQL nachgebaut; seine Rohgrößen – Gewinnscheine, Σ 1/Quote – stimmen mit der Vorab-Analyse überein: Xaver 11 Gewinnscheine, 4,54 erwartet.)*
 2. **Wildi-Magnet** – höchstes Netto aller abgerechneten Scheine (inkl. Bonus): Szymon7 +14.420,81 · Bene Weigl +9.572 · Lorenz Schorer +8.191,30.
 3. **Jackpot-König** – bester Kombischein nach Gesamtwertung (Quote, Nettogewinn, Außenseiter-Anteil, Legs): Bene Weigl (181,87) · Szymon7 (11,10) · Michi Dischl (48,43). *Nach reinem Nettogewinn (SQL): Bene Weigl +9.043,50 · Michi Dischl +5.585 · Szymon7 +5.252,50 → siehe „Größter Kombi-Treffer".*
 4. **Einzelwetten-Profi** – Summe Netto aller Einzelwetten, ≥ 8 Einzelwetten: Lorenz Schorer +7.004 (17) · Jürgen +1.312,50 (18) · MariusGreyhound +675 (8).
