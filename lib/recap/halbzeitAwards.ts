@@ -1,5 +1,5 @@
 import { isSettled, isExcludedBonus, type Slip, type RecapMatchRow } from '@/lib/recap/slips'
-import type { TipperIqResult } from '@/lib/recap/tipperIq'
+import { IQ_MIN_MATCHDAYS, IQ_MIN_SLIPS, type TipperIqResult } from '@/lib/recap/tipperIq'
 import { computeOptimists, computeWildenrothRecords } from '@/lib/recap/wildenrothStance'
 import {
   bestComebacks, computeTrajectories, findBetTwins, findCancelRegrets, findCleverHits, findNearMisses,
@@ -83,7 +83,7 @@ export function computeHalbzeitAwards(inp: AwardInput): AwardResult[] {
 
   // 1 Quotenflüsterer – bester Tipper nach Tipper-IQ (nur gewertete)
   const rated = iq.filter((r) => r.eligible && !excluded.has(r.userId))
-  add({ key: 'quotenfluesterer', title: 'Quotenflüsterer', icon: '🧠', kind: 'main', rule: 'Höchster Tipper-IQ (mind. 18 abgerechnete Scheine, 10 aktive Spieltage)',
+  add({ key: 'quotenfluesterer', title: 'Quotenflüsterer', icon: '🧠', kind: 'main', rule: `Höchster Tipper-IQ unter den offiziell Gewerteten (mind. ${IQ_MIN_SLIPS} abgerechnete Wettscheine und ${IQ_MIN_MATCHDAYS} aktive Spieltage)`,
     entries: top(rated, 3, (r) => ({ userId: r.userId, value: `IQ ${r.iq.toFixed(1).replace('.', ',')}`, detail: `${r.wonSlips} Treffer, ${r.expectedHits.toFixed(1).replace('.', ',')} erwartet` })) })
 
   // 2 Wildi-Magnet – höchstes Netto

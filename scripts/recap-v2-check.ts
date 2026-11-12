@@ -6,7 +6,7 @@
  */
 import { buildSlips, INCLUDE_CUP_BONUS_SLIPS, isSettled, type RecapBetRow, type RecapComboRow, type RecapMatchRow, type Slip } from '@/lib/recap/slips'
 import {
-  computeOverlapWeights, computeTipperIqRanking, computeUserIq, exactZ, normalCdf, normalInv, scoreFromZ,
+  computeOverlapWeights, filterSlipsByMatchdays, computeTipperIqRanking, computeUserIq, exactZ, normalCdf, normalInv, scoreFromZ,
   isIqEligibleSlip, IQ_MIN_SLIPS, IQ_MIN_MATCHDAYS, IQ_WEIGHTS_DEFAULT, IQ_ALT_WEIGHTS, probSumAtLeast,
 } from '@/lib/recap/tipperIq'
 import { classifyStance, computeWildenrothRecords, computeOptimists } from '@/lib/recap/wildenrothStance'
@@ -110,6 +110,33 @@ test('18 Scheine aber 9 Spieltage → noch nicht qualifiziert, IQ trotzdem berec
 test('18 Scheine / 10 Spieltage → qualifiziert (keine Mindest-Trefferzahl)', computeUserIq('a', userWith('a', 18, 10, 1000)).eligible)
 test('Grenze steht in Konstanten: 18 Scheine / 10 Spieltage', IQ_MIN_SLIPS === 18 && IQ_MIN_MATCHDAYS === 10)
 test('Qualifikation hängt nur von Scheinen/Spieltagen ab, nicht von Person oder Trefferzahl', computeUserIq('zzz', userWith('zzz', 18, 10, 1)).eligible === computeUserIq('aaa', userWith('aaa', 18, 10, 1000)).eligible)
+{
+  // Endgültige Entscheidung: 18 Scheine / 10 Spieltage bleiben – unabhängig vom Datenstand (z. B. nach Spieltag 16).
+  const extra = (uid: string, md: number, k: number): Slip => { const b = userWith(uid, 1, 1)[0]; return { ...b, key: `x${uid}${k}`, ownerMatchday: md, legs: b.legs.map((l) => ({ ...l, betId: 9000 + k, matchId: 9000 + k, recapMatchday: md })) } }
+  const late = [...userWith('late', 17, 15), extra('late', 16, 1)]
+  test('Nach Spieltag 16: 17 Scheine bis ST 15 → nicht gewertet; der 18. Schein in ST 16 qualifiziert, Grenzen unverändert', (() => {
+    const before = computeTipperIqRanking(filterSlipsByMatchdays(late, 1, 15)).find((r) => r.userId === 'late')!
+    const after = computeTipperIqRanking(filterSlipsByMatchdays(late, 1, 16)).find((r) => r.userId === 'late')!
+    return !before.eligible && before.rank == null && before.iq > 0 && after.eligible && after.rank === 1 && IQ_MIN_SLIPS === 18 && IQ_MIN_MATCHDAYS === 10
+  })())
+  const md9 = [...userWith('md9', 20, 9), extra('md9', 16, 2)]
+  test('Nach Spieltag 16: 9 aktive Spieltage bis ST 15 → nicht gewertet; der 10. aktive Spieltag (ST 16) qualifiziert', (() => {
+    const before = computeTipperIqRanking(filterSlipsByMatchdays(md9, 1, 15)).find((r) => r.userId === 'md9')!
+    const after = computeTipperIqRanking(filterSlipsByMatchdays(md9, 1, 16)).find((r) => r.userId === 'md9')!
+    return !before.eligible && before.activeMatchdays === 9 && after.eligible && after.activeMatchdays === 10
+  })())
+  // Quotenflüsterer nur aus offiziell Qualifizierten – auch wenn ein nicht Qualifizierter den höheren IQ hat.
+  const hot = userWith('hot', 17, 10, 1) // 17 Scheine, alle gewonnen → sehr hoher IQ, aber nicht gewertet
+  const solid = userWith('solid', 18, 10, 3)
+  const rkQ = computeTipperIqRanking([...hot, ...solid])
+  const repQ = buildRecapReport({ allSlips: [...hot, ...solid], matches: [], range: { from: 1, to: 16 }, profiles: [] })
+  const qf = repQ.awards.find((a) => a.key === 'quotenfluesterer')
+  test('Quotenflüsterer: nur offiziell Qualifizierte – nicht gewerteter Tipper mit höherem IQ gewinnt nicht', rkQ.find((r) => r.userId === 'hot')!.iq > rkQ.find((r) => r.userId === 'solid')!.iq && !!qf && qf.entries.length === 1 && qf.entries[0].userId === 'solid' && !qf.entries.some((e) => e.userId === 'hot'))
+  test('Nicht gewertete sehen ihren Zwischenwert (IQ > 0) ohne Ranglistenplatz; Award-Regeltext nennt dieselben Grenzen wie die Konstanten', (() => {
+    const h = repQ.iq.find((r) => r.userId === 'hot')
+    return !!h && h.iq > 0 && !h.eligible && h.rank == null && repQ.iq.filter((r) => r.eligible).every((r) => r.rank != null) && !!qf && qf.rule.includes(String(IQ_MIN_SLIPS)) && qf.rule.includes(String(IQ_MIN_MATCHDAYS))
+  })())
+}
 test('Ranking vergibt Plätze nur an Gewertete, lückenlos ab 1', (() => { const rk = computeTipperIqRanking([...userWith('a', 30, 10, 2), ...userWith('b', 30, 10, 5), ...userWith('c', 5, 3)]); return rk.filter((r) => r.rank != null).map((r) => r.rank).join() === '1,2' && rk[2].userId === 'c' && rk[2].rank == null })())
 test('Besserer Tipper hat höheren IQ', (() => { const rk = computeTipperIqRanking([...userWith('a', 30, 10, 2), ...userWith('b', 30, 10, 5)]); return rk[0].userId === 'a' && rk[0].iq > rk[1].iq })())
 test('IQ stets in [0,100]', computeTipperIqRanking([...userWith('a', 40, 10, 1), ...userWith('b', 40, 10, 1000)]).every((r) => r.iq >= 0 && r.iq <= 100))
