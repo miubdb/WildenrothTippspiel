@@ -25,11 +25,18 @@ const MARKET_LABELS: Record<string, string> = {
   over_under_3_5: 'Über/Unter 3,5', goalscorer: 'Torschütze', ...CUP_MARKET_LABEL,
 }
 
-type Memo = { report: RecapReport; slips: Slip[]; realReady: boolean; simReady: boolean; simulated: { matches: number; betRows: number }; profiles: { id: string; name: string }[]; labeler: Parameters<typeof buildPersonalTips>[3]; source: 'fixtures' | 'snapshot'; builtAt: string | null }
+type Memo = { report: RecapReport; slips: Slip[]; realReady: boolean; simReady: boolean; simulated: { matches: number; betRows: number }; profiles: { id: string; name: string }[]; labeler: Parameters<typeof buildPersonalTips>[3]; source: 'fixtures' | 'snapshot'; builtAt: string | null; dataAsOf: string | null }
 const memos = new Map<string, Memo>()
 
+/** Es wurde ein Schlüssel übermittelt, der echte Snapshot ließ sich aber nicht entschlüsseln – dann NIE stillschweigend Musterdaten zeigen. */
+export class SnapshotKeyError extends Error {
+  constructor() { super('Der Schlüssel für die echten Wildenroth-Daten ist ungültig oder fehlt – der Snapshot konnte nicht entschlüsselt werden.'); this.name = 'SnapshotKeyError' }
+}
+
 function load(keyHex?: string): Memo {
+  const wantsReal = keyHex != null && keyHex !== ''
   const snap = decryptSnapshot(keyHex)
+  if (wantsReal && !snap) throw new SnapshotKeyError()
   const mk = snap ? 'snap:' + snap.builtAt : 'fx'
   const hit = memos.get(mk)
   if (hit) return hit
@@ -47,13 +54,16 @@ function load(keyHex?: string): Memo {
     selectionLabel: (market: string, sel: string) => plainSelectionLabel(market, sel, undefined, snap ? fx.players : FIXTURE_PLAYERS),
   }
   const report = buildRecapReport({ allSlips: slips, matches: sim.matches, range: { from: 1, to: 16 }, profiles: fx.profiles, labeler })
-  const memo: Memo = { report, slips, realReady, simReady, simulated: { matches: sim.simulatedMatchIds.length, betRows: sim.simulatedBetRows }, profiles: fx.profiles.filter((p) => !p.deleted_at).map((p) => ({ id: p.id, name: p.display_name ?? p.username ?? '?' })), labeler, source: snap ? 'snapshot' : 'fixtures', builtAt: snap?.builtAt ?? null }
+  const memo: Memo = { report, slips, realReady, simReady, simulated: { matches: sim.simulatedMatchIds.length, betRows: sim.simulatedBetRows }, profiles: fx.profiles.filter((p) => !p.deleted_at).map((p) => ({ id: p.id, name: p.display_name ?? p.username ?? '?' })), labeler, source: snap ? 'snapshot' : 'fixtures', builtAt: snap?.builtAt ?? null, dataAsOf: snap ? snap.bets.reduce((m, b) => (b.created_at > m ? b.created_at : m), '').slice(0, 10) : null }
   memos.set(mk, memo)
   return memo
 }
 
-export function loadDemoState(meId: string, keyHex?: string): { report: RecapReport; personal: PersonalTips; meId: string; realReady: boolean; simReady: boolean; simulated: { matches: number; betRows: number }; profiles: { id: string; name: string }[]; slips: Slip[]; source: 'fixtures' | 'snapshot'; builtAt: string | null } {
+export function loadDemoState(meId: string, keyHex?: string): { report: RecapReport; personal: PersonalTips; meId: string; realReady: boolean; simReady: boolean; simulated: { matches: number; betRows: number }; profiles: { id: string; name: string }[]; slips: Slip[]; source: 'fixtures' | 'snapshot'; builtAt: string | null; dataAsOf: string | null } {
   const m = load(keyHex)
   const me = m.profiles.some((p) => p.id === meId) ? meId : m.profiles[0].id
-  return { report: m.report, personal: buildPersonalTips(m.slips, filterSlipsByMatchdays(m.slips, 1, 16), me, m.labeler), meId: me, realReady: m.realReady, simReady: m.simReady, simulated: m.simulated, profiles: m.profiles, slips: m.slips, source: m.source, builtAt: m.builtAt }
+  return { report: m.report, personal: buildPersonalTips(m.slips, filterSlipsByMatchdays(m.slips, 1, 16), me, m.labeler), meId: me, realReady: m.realReady, simReady: m.simReady, simulated: m.simulated, profiles: m.profiles, slips: m.slips, source: m.source, builtAt: m.builtAt, dataAsOf: m.dataAsOf }
 }
+
+/** „11.11." aus einem ISO-Datum (YYYY-MM-DD). */
+export const germanDayMonth = (iso: string | null): string => iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}.` : '?'

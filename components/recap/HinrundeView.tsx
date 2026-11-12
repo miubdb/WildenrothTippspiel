@@ -240,7 +240,7 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
       {simulation && (
         <div className="rounded-2xl border-2 border-amber-500 bg-amber-100 p-3 text-sm text-amber-950 dark:bg-amber-900/40 dark:text-amber-100">
           <b>🧪 Testvorschau</b> – Spieltag {r.range.to} ist simuliert ({simulation.matches} Spiele, {simulation.betRows} Wettzeilen mit erfundenem Ausgang). Nichts wird gespeichert.
-          <div className="mt-0.5 text-xs opacity-80">{simulation.databaseRef === 'fixtures' ? 'Datenquelle: eingebaute Testdaten, keine Datenbank.' : simulation.databaseRef === 'snapshot' ? 'Datenquelle: schreibgeschützter Snapshot der echten Hinrunde (Spieltag 1–15), keine Datenbankverbindung.' : <>Datenquelle (nur lesend): Projekt <code>{simulation.databaseRef || '?'}</code></>}</div>
+          <div className="mt-0.5 text-xs opacity-80">{simulation.databaseRef === 'fixtures' ? 'Datenquelle: Musterdaten (erfundene Daten), keine Datenbank.' : simulation.databaseRef === 'snapshot' ? 'Datenquelle: Echte Wildenroth-Daten (schreibgeschützter Snapshot, Spieltag 1–15), keine Datenbankverbindung.' : <>Datenquelle (nur lesend): Projekt <code>{simulation.databaseRef || '?'}</code></>}</div>
         </div>
       )}
       {!simulation && previewTo && <div className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900 dark:bg-amber-900/30 dark:text-amber-100">Admin-Zwischenstand – Daten nur bis Spieltag {previewTo}.</div>}
