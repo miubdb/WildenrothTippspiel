@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { loadCompletedMatchdays, loadReadinessOnly } from '@/lib/recap/loadRecap'
 import { HINRUNDE, recapVisibility } from '@/lib/recap/availability'
 import { RecapTypeNav } from '@/components/recap/RecapTypeNav'
-import { isPreviewEnvironment } from '@/lib/recap/simulation'
+import { isSimulationAllowed } from '@/lib/recap/environmentGuard'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,7 +35,7 @@ export default async function RecapHubPage() {
           {vis !== 'published' && <div className="mt-2 inline-block rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-bold">Admin-Vorschau{vis === 'hidden_not_ready' ? ' · noch nicht bereit' : ' · nicht veröffentlicht'}</div>}
         </Link>
       )}
-      {isAdmin && isPreviewEnvironment() && (
+      {isAdmin && isSimulationAllowed() && (
         <Link href="/recap/hinrunde?test=sim16" className="block rounded-2xl border-2 border-dashed border-amber-500 bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-900 dark:text-amber-100">
           <b>🧪 Testvorschau (nur Vorschau-Umgebung)</b><br />Winter-Recap mit simuliertem Spieltag 16 öffnen – es wird nichts gespeichert.
         </Link>

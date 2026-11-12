@@ -5,23 +5,35 @@ import { PUBLIC_AWARD_KEYS } from '@/lib/recap/halbzeitAwards'
 import { explainIq, IQ_MIN_MATCHDAYS, IQ_MIN_SLIPS, type TipperIqResult } from '@/lib/recap/tipperIq'
 import { BestTipTabs } from '@/components/recap/BestTipTabs'
 
+/**
+ * Winter-Recap: eigenständiger Winter-Look (Dunkelblau · Eisblau · Weiß, dezente Schneeflocken) NUR innerhalb dieser
+ * Ansicht – der Rest der App behält sein Rot/Gold. Hell- und Dunkelmodus über die vorhandene `dark`-Klasse.
+ * Inhalt bewusst knapp: Titel, Gewinner, eine große Zahl, höchstens ein Satz – Details klappen auf.
+ */
+
 const f0 = (n: number) => n.toLocaleString('de-DE', { maximumFractionDigits: 0 })
 const f2 = (n: number) => n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const sgn = (n: number) => `${n >= 0 ? '+' : '−'}${f0(Math.abs(n))}`
-const card = 'bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden'
+
+// Palette: navy #0b1f44 · tief #050f26 · eis #8fd3ff · frost #e3f1fc · linie #cfe3f4
+const SNOW = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cg fill='none' stroke='%23fff' stroke-opacity='.32' stroke-width='1.2' stroke-linecap='round'%3E%3Cpath d='M32 22v16M24 30h16M26 24l12 12M38 24L26 36'/%3E%3Cpath d='M124 96v12M118 102h12M120 98l8 8M128 98l-8 8'/%3E%3Cpath d='M150 26v8M146 30h8'/%3E%3C/g%3E%3Cg fill='%23fff'%3E%3Ccircle cx='84' cy='44' r='1.7' fill-opacity='.4'/%3E%3Ccircle cx='160' cy='70' r='1.2' fill-opacity='.3'/%3E%3Ccircle cx='56' cy='128' r='1.5' fill-opacity='.35'/%3E%3Ccircle cx='150' cy='150' r='1.9' fill-opacity='.3'/%3E%3Ccircle cx='96' cy='168' r='1.1' fill-opacity='.3'/%3E%3C/g%3E%3C/svg%3E")`
+const CARD = 'rounded-2xl border border-[#cfe3f4] bg-white/90 shadow-sm dark:border-white/10 dark:bg-white/[0.06]'
+const MUTED = 'text-[#4d6a8a] dark:text-[#9db8d6]'
+const ACCENT = 'text-[#1565a8] dark:text-[#8fd3ff]'
+const CHIP = 'rounded-lg bg-[#e3f1fc] dark:bg-white/10'
 
 function Avatar({ name, url, size = 28 }: { name: string; url: string | null; size?: number }) {
   // eslint-disable-next-line @next/next/no-img-element
-  if (url) return <img src={url} alt="" width={size} height={size} className="rounded-full object-cover flex-shrink-0" style={{ width: size, height: size }} />
-  return <span className="rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-200 font-black flex items-center justify-center flex-shrink-0" style={{ width: size, height: size, fontSize: size * 0.42 }}>{name.slice(0, 1).toUpperCase()}</span>
+  if (url) return <img src={url} alt="" width={size} height={size} className="rounded-full object-cover flex-shrink-0 ring-2 ring-[#bfe3fb] dark:ring-white/20" style={{ width: size, height: size }} />
+  return <span className="rounded-full bg-[#d7ebfa] text-[#0b3a6b] dark:bg-[#12315f] dark:text-[#bfe3fb] font-black flex items-center justify-center flex-shrink-0 ring-2 ring-[#bfe3fb] dark:ring-white/20" style={{ width: size, height: size, fontSize: size * 0.42 }}>{name.slice(0, 1).toUpperCase()}</span>
 }
 
-function Section({ title, sub, children, accent }: { title: string; sub?: React.ReactNode; children: React.ReactNode; accent?: boolean }) {
+function Section({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
   return (
-    <section className={`${card} ${accent ? 'border-red-200 dark:border-red-900/60' : ''}`}>
-      <div className={`px-4 py-3 border-b ${accent ? 'bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-900/40' : 'border-gray-50 dark:border-gray-700'}`}>
-        <h2 className="font-bold text-gray-900 dark:text-gray-100">{title}</h2>
-        {sub && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{sub}</p>}
+    <section className={`${CARD} overflow-hidden`}>
+      <div className="px-4 pt-4 pb-2">
+        <h2 className="font-display text-2xl font-bold uppercase tracking-wide"><span className={`${ACCENT} mr-1.5`} aria-hidden>❄</span>{title}</h2>
+        {sub && <p className={`text-xs ${MUTED}`}>{sub}</p>}
       </div>
       {children}
     </section>
@@ -29,36 +41,92 @@ function Section({ title, sub, children, accent }: { title: string; sub?: React.
 }
 
 type Person = (id: string) => { name: string; avatarUrl: string | null }
+const firstSentence = (s: string) => (s.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? s)
 
 function TipCardView({ c, label, person, mine }: { c: TipCard; label: string; person?: Person; mine?: boolean }) {
   const p = person && !mine ? person(c.userId) : null
   return (
-    <div className="p-4">
-      <div className="text-[11px] font-bold uppercase tracking-wide text-red-700 dark:text-red-300">{label}</div>
-      <div className="flex items-center gap-2 mt-1.5 min-w-0">
-        {p && <Avatar name={p.name} url={p.avatarUrl} size={28} />}
-        <div className="min-w-0">
-          {p && <div className="font-bold text-gray-900 dark:text-gray-100 truncate">{p.name}</div>}
-          <div className="text-xs text-gray-500 dark:text-gray-400">{c.kind === 'combo' ? `${c.legs.length}er-Kombi` : 'Einzelwette'}{c.matchday != null ? ` · Spieltag ${c.matchday}` : ''}</div>
+    <div className="px-4 py-3.5">
+      <div className={`text-[11px] font-bold uppercase tracking-widest ${ACCENT}`}>{label}</div>
+      <div className="mt-1.5 flex items-end justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {p && <Avatar name={p.name} url={p.avatarUrl} />}
+          <div className="min-w-0">
+            {p && <div className="truncate font-bold leading-tight">{p.name}</div>}
+            <div className={`text-xs ${MUTED}`}>{c.kind === 'combo' ? `${c.legs.length}er-Kombi` : 'Einzelwette'}{c.matchday != null ? ` · ST ${c.matchday}` : ''}</div>
+          </div>
+        </div>
+        <div className="text-right leading-none">
+          <div className={`font-display text-4xl font-bold ${ACCENT}`}>{c.payout > 0 ? sgn(c.net) : '–'}</div>
+          <div className={`text-[10px] uppercase tracking-wide ${MUTED}`}>Wildis Gewinn</div>
         </div>
       </div>
-      {c.kind === 'single' && c.legs[0] && (
-        <div className="mt-2 text-sm text-gray-800 dark:text-gray-100"><span className="text-gray-500 dark:text-gray-400">{c.legs[0].match}</span><br /><b>{c.legs[0].market}: {c.legs[0].selection}</b></div>
-      )}
-      {c.kind === 'combo' && (
-        <details className="mt-2 group">
-          <summary className="cursor-pointer text-sm font-semibold text-red-700 dark:text-red-300 list-none">▸ {c.legs.length} Tipps anzeigen</summary>
-          <ul className="mt-1.5 space-y-1">{c.legs.map((l, i) => (
-            <li key={i} className={`text-xs ${l.highlight ? 'font-bold text-gray-900 dark:text-gray-50' : 'text-gray-600 dark:text-gray-300'}`}>· {l.match}: {l.market} – <b>{l.selection}</b> <span className="text-gray-400">@{f2(l.odds)}</span>{l.highlight ? ' ← der mutige Tipp' : ''}</li>
-          ))}</ul>
+      <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs">
+        <span className={`${CHIP} px-2 py-1`}>Quote <b>{f2(c.odds)}</b></span>
+        <span className={`${CHIP} px-2 py-1`}>Einsatz <b>{f0(c.stake)}</b></span>
+        {c.payout > 0 && <span className={`${CHIP} px-2 py-1`}>Auszahlung <b>{f0(c.payout)}</b></span>}
+      </div>
+      <p className={`mt-2 text-sm ${MUTED}`}>{firstSentence(c.why)}</p>
+      <details className="mt-1.5">
+        <summary className={`cursor-pointer list-none text-xs font-semibold ${ACCENT}`}>▸ {c.kind === 'combo' ? `${c.legs.length} Tipps anzeigen` : 'Spiel anzeigen'}</summary>
+        <ul className="mt-1.5 space-y-1">{c.legs.map((l, i) => (
+          <li key={i} className={`text-xs ${l.highlight ? 'font-bold' : MUTED}`}>· {l.match}: {l.market} – <b>{l.selection}</b> <span className="opacity-60">@{f2(l.odds)}</span>{l.highlight ? ' ← der mutige Tipp' : ''}</li>
+        ))}</ul>
+      </details>
+    </div>
+  )
+}
+
+const AWARD_LINE: Record<string, string> = {
+  wildi_magnet: 'Am meisten Wildis verdient.',
+  hall_der_ehre: 'Die meisten Wildenroth-Spiele auf Sieg getippt – nie dagegen.',
+  hall_der_schande: 'Am meisten mit Wetten gegen Wildenroth gewonnen.',
+  senkrechtstarter: 'In der Rangliste am weitesten nach oben geklettert.',
+  einzelwetten_meister: 'Am meisten mit Einzelwetten verdient.',
+  aussenseiter_jaeger: 'Am häufigsten schwierige Quoten getroffen.',
+  kombi_pech: 'Am häufigsten mit einem einzigen falschen Tipp gescheitert.',
+}
+
+function AwardCard({ a, r }: { a: AwardResult; r: RecapReport }) {
+  const nm = (id: string) => r.people[id]?.name ?? 'Unbekannt'
+  const av = (id: string, s = 22) => <Avatar name={nm(id)} url={r.people[id]?.avatarUrl ?? null} size={s} />
+  const [w, ...restAll] = a.entries
+  const keyOf = (e: AwardResult['entries'][number]) => e.rankKey ?? e.value
+  const tied = restAll.filter((e) => keyOf(e) === keyOf(w))
+  const rest = restAll.filter((e) => keyOf(e) !== keyOf(w))
+  const bl = a.bitterest ? r.slipLegs[a.bitterest.slipKey] : undefined
+  const top2 = a.second?.entries[0]
+  const hasMore = !!(w.detail || tied.length || rest.length || a.bitterest || (a.second && a.second.entries.length))
+  return (
+    <div className="px-4 py-3.5">
+      <div className="flex items-center gap-3">
+        <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-[#e3f1fc] text-2xl dark:bg-white/10">{a.icon}</span>
+        <div className="min-w-0 flex-1">
+          <div className={`text-[11px] font-bold uppercase tracking-widest ${ACCENT}`}>{a.title}</div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5">{av(w.userId)}<span className="truncate font-bold">{nm(w.userId)}</span></div>
+        </div>
+      </div>
+      <div className={`mt-1.5 font-display text-4xl font-bold leading-none ${ACCENT}`}>{w.value}</div>
+      <p className={`mt-1.5 text-sm ${MUTED}`}>{AWARD_LINE[a.key] ?? a.question}{tied.length > 0 && <span className="font-semibold text-[#b45309] dark:text-amber-300"> Gleichstand mit {tied.map((e) => nm(e.userId)).join(', ')}.</span>}</p>
+      {top2 && <p className="mt-1 text-sm">🔁 Die meisten Gegenwetten: <b>{nm(top2.userId)}</b> <span className={MUTED}>({top2.value})</span></p>}
+      {hasMore && (
+        <details className="mt-1.5">
+          <summary className={`cursor-pointer list-none text-xs font-semibold ${ACCENT}`}>▸ Mehr</summary>
+          <div className={`mt-1.5 space-y-1.5 text-xs ${MUTED}`}>
+            {w.detail && <p>{w.detail}</p>}
+            {rest.length > 0 && <p>Dahinter: {rest.map((e) => `${nm(e.userId)} (${e.value})`).join(' · ')}</p>}
+            {a.bitterest && (
+              <div className={`${CHIP} p-2`}>
+                <b>Bitterster Schein:</b> {nm(a.bitterest.userId)} – {a.bitterest.legs}er-Kombi @{f2(a.bitterest.odds)}, nur ein Tipp fehlte ({f0(a.bitterest.missedNet)} Wildis verpasst).
+                {bl && <ul className="mt-1 space-y-0.5">{bl.map((l, i) => <li key={i} className={l.status === 'lost' ? 'font-bold' : ''}>{l.status === 'lost' ? '✗' : '✓'} {l.match}: {l.selection}</li>)}</ul>}
+              </div>
+            )}
+            {a.second && a.second.entries.length > 0 && (
+              <ul className="space-y-1">{a.second.entries.map((e) => <li key={e.userId}><b>{nm(e.userId)}</b> – {e.value}{e.detail ? <span className="opacity-80"> · {e.detail}</span> : null}</li>)}</ul>
+            )}
+          </div>
         </details>
       )}
-      <div className="mt-3 grid grid-cols-4 gap-1.5 text-center">
-        {([['Quote', f2(c.odds)], ['Einsatz', f0(c.stake)], ['Auszahlung', c.payout > 0 ? f0(c.payout) : '–'], ['Netto', c.payout > 0 ? sgn(c.net) : '–']] as const).map(([l, v]) => (
-          <div key={l} className="rounded-lg bg-gray-50 dark:bg-gray-900/40 py-1.5"><div className="text-sm font-black text-gray-900 dark:text-gray-100">{v}</div><div className="text-[10px] text-gray-500 dark:text-gray-400">{l}</div></div>
-        ))}
-      </div>
-      <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">{c.why}</p>
     </div>
   )
 }
@@ -70,102 +138,64 @@ function IqSection({ r, myId }: { r: RecapReport; myId: string }) {
   const nm = (id: string) => r.people[id]?.name ?? 'Unbekannt'
   const missing = (x: TipperIqResult) => [x.slipsConsidered < IQ_MIN_SLIPS ? `${IQ_MIN_SLIPS - x.slipsConsidered} abgerechnete Wettscheine` : null, x.activeMatchdays < IQ_MIN_MATCHDAYS ? `${IQ_MIN_MATCHDAYS - x.activeMatchdays} aktive Spieltage` : null].filter(Boolean).join(' und ')
   const row = (x: TipperIqResult) => (
-    <details key={x.userId} className={x.userId === myId ? 'bg-red-50 dark:bg-red-900/10' : ''}>
-      <summary className="list-none cursor-pointer flex items-center gap-3 px-4 py-3">
-        <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0 ${x.rank === 1 ? 'bg-yellow-400 text-white' : x.rank === 2 ? 'bg-gray-300 text-gray-700' : x.rank === 3 ? 'bg-amber-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-300'}`}>{x.rank}</span>
-        <Avatar name={nm(x.userId)} url={r.people[x.userId]?.avatarUrl ?? null} size={28} />
-        <span className="flex-1 min-w-0">
-          <span className="flex flex-wrap items-center gap-x-1.5"><span className="truncate min-w-0 max-w-full text-sm font-semibold text-gray-900 dark:text-gray-100">{nm(x.userId)}</span>{x.userId === myId && <span className="text-[10px] bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded font-bold">Du</span>}{x.rank === 1 && <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">🧠 Quotenflüsterer</span>}</span>
-          <span className="block text-[11px] text-gray-500 dark:text-gray-400">{x.wonSlips} von {x.slipsConsidered} Scheinen gewonnen · {x.activeMatchdays} Spieltage</span>
+    <details key={x.userId} className={x.userId === myId ? 'bg-[#e3f1fc]/70 dark:bg-white/10' : ''}>
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-2.5">
+        <span className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-black ${x.rank === 1 ? 'bg-[#ffd54a] text-[#4a3500]' : x.rank === 2 ? 'bg-[#dfe7ee] text-[#33475b]' : x.rank === 3 ? 'bg-[#e8b98a] text-[#4a2a0b]' : 'bg-[#e3f1fc] text-[#33567a] dark:bg-white/10 dark:text-[#bfe3fb]'}`}>{x.rank}</span>
+        <Avatar name={nm(x.userId)} url={r.people[x.userId]?.avatarUrl ?? null} size={26} />
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-x-1.5"><span className="min-w-0 max-w-full truncate text-sm font-semibold">{nm(x.userId)}</span>{x.userId === myId && <span className="rounded bg-[#1565a8] px-1.5 py-0.5 text-[10px] font-bold text-white">Du</span>}{x.rank === 1 && <span className="text-[10px] font-bold text-[#b45309] dark:text-amber-300">🧠 Quotenflüsterer</span>}</span>
         </span>
-        <span className="text-xl font-black text-red-700 dark:text-red-300">{x.iq.toFixed(1).replace('.', ',')}</span>
+        <span className={`font-display text-2xl font-bold ${ACCENT}`}>{x.iq.toFixed(1).replace('.', ',')}</span>
       </summary>
-      <div className="px-4 pb-4 pl-[4.5rem] text-xs text-gray-600 dark:text-gray-300 space-y-1">
-        <div className="font-bold text-gray-800 dark:text-gray-100">Warum dieser IQ?</div>
-        <ul className="space-y-1">{explainIq(x).map((l) => <li key={l}>· {l}</li>)}</ul>
+      <div className={`px-4 pb-3 pl-[4.4rem] text-xs ${MUTED}`}>
+        <ul className="space-y-0.5">{explainIq(x).map((l) => <li key={l}>· {l}</li>)}</ul>
       </div>
     </details>
   )
-  const top = rated.slice(0, 10)
-  const rest = rated.slice(10)
-  const meInRest = me && rest.some((x) => x.userId === me.userId)
+  const top = rated.slice(0, 5)
+  const rest = rated.slice(5)
   return (
     <Section title="Tipper-IQ" sub="Wer tippt am klügsten – nicht nur am glücklichsten?">
-      <div className="px-4 pt-3 space-y-2">
-        <div className="rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900/40 px-3 py-2 text-sm font-semibold text-red-800 dark:text-red-200">
-          Für die offizielle Rangliste brauchst du mindestens {IQ_MIN_SLIPS} abgerechnete Wettscheine und {IQ_MIN_MATCHDAYS} aktive Spieltage.
+      <div className="space-y-2 px-4 pb-3">
+        <div className="rounded-xl border border-[#9fd0f2] bg-[#e3f1fc] px-3 py-2 text-sm font-semibold text-[#0b3a6b] dark:border-[#8fd3ff]/30 dark:bg-[#8fd3ff]/10 dark:text-[#cfeaff]">
+          Offizielle Rangliste: mindestens {IQ_MIN_SLIPS} abgerechnete Wettscheine und {IQ_MIN_MATCHDAYS} aktive Spieltage.
         </div>
-        <p className="text-sm text-gray-700 dark:text-gray-200">Der Tipper-IQ zeigt, wie gut du im Verhältnis zur Schwierigkeit deiner Wetten abschneidest. Nicht nur Gewinne zählen, sondern auch Konstanz, getroffene höhere Quoten – und ob du auch ohne deinen besten Spieltag noch gut dastehst.</p>
-        <p className="text-xs text-gray-500 dark:text-gray-400 italic">Ein spielerischer Qualitätsindex, kein wissenschaftliches Maß.</p>
+        <p className="text-sm">Der Tipper-IQ zeigt, wie gut du im Verhältnis zur Schwierigkeit deiner Wetten abschneidest – nicht nur, wie viel du gewinnst. <span className={`italic ${MUTED}`}>Ein spielerischer Qualitätsindex, kein wissenschaftliches Maß.</span></p>
         {me && !me.eligible && (
-          <div className="rounded-lg bg-gray-50 dark:bg-gray-900/40 p-3 text-sm text-gray-700 dark:text-gray-200">
-            <b>Dein Zwischenwert: {me.iq.toFixed(1).replace('.', ',')}</b> – noch ohne offiziellen Ranglistenplatz. Dir fehlen noch {missing(me)}.
-          </div>
+          <div className={`${CHIP} p-3 text-sm`}><b>Dein Zwischenwert: {me.iq.toFixed(1).replace('.', ',')}</b> – noch ohne Ranglistenplatz, dir fehlen {missing(me)}.</div>
         )}
       </div>
-      <div className="mt-2 divide-y divide-gray-50 dark:divide-gray-700 border-t border-gray-50 dark:border-gray-700">{top.map(row)}</div>
+      <div className="divide-y divide-[#e3eef8] border-t border-[#e3eef8] dark:divide-white/10 dark:border-white/10">{top.map(row)}</div>
       {rest.length > 0 && (
-        <details className="border-t border-gray-50 dark:border-gray-700" open={!!meInRest}>
-          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-red-700 dark:text-red-300">Alle {rated.length} gewerteten Tipper anzeigen</summary>
-          <div className="divide-y divide-gray-50 dark:divide-gray-700">{rest.map(row)}</div>
+        <details className="border-t border-[#e3eef8] dark:border-white/10" open={rest.some((x) => x.userId === myId)}>
+          <summary className={`cursor-pointer px-4 py-3 text-sm font-semibold ${ACCENT}`}>Alle {rated.length} Tipper anzeigen</summary>
+          <div className="divide-y divide-[#e3eef8] dark:divide-white/10">{rest.map(row)}</div>
         </details>
       )}
-      {unrated.length > 0 && <div className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 border-t border-gray-50 dark:border-gray-700">{unrated.length} Tipper sind noch nicht für die offizielle Rangliste qualifiziert.</div>}
-      <details className="border-t border-gray-50 dark:border-gray-700">
-        <summary className="cursor-pointer px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400">So wird der Tipper-IQ berechnet</summary>
-        <div className="px-4 pb-4 text-xs text-gray-600 dark:text-gray-300 space-y-2">
-          <p>Zu jedem abgerechneten Wettschein gehört eine Trefferchance aus der Quote (1 geteilt durch Quote). Der IQ vergleicht deine tatsächlichen Treffer mit dem, was nach diesen Chancen zu erwarten wäre – exakt gegen den Zufall gerechnet, damit wenige Glückstreffer allein nicht reichen. 50 Punkte heißen: genau so viel getroffen wie erwartet.</p>
-          <ul className="list-disc pl-5 space-y-1">
-            <li><b>45 %</b> Trefferqualität: wie weit du über der Erwartung liegst.</li>
-            <li><b>20 %</b> Konstanz: an wie vielen Spieltagen du mindestens so viel getroffen hast wie erwartet.</li>
-            <li><b>20 %</b> Schwere Treffer: Gewinnscheine mit Quote ab 3,00 und ab 5,00, je Spieltag einmal gezählt.</li>
-            <li><b>15 %</b> Robustheit: dieselbe Trefferqualität, aber ohne deinen besten Spieltag.</li>
+      <details className="border-t border-[#e3eef8] dark:border-white/10">
+        <summary className={`cursor-pointer px-4 py-3 text-xs font-semibold ${MUTED}`}>So wird der Tipper-IQ berechnet{unrated.length > 0 ? ` · ${unrated.length} Tipper noch ohne Wertung` : ''}</summary>
+        <div className={`space-y-2 px-4 pb-4 text-xs ${MUTED}`}>
+          <p>Jeder abgerechnete Wettschein hat eine Trefferchance aus der Quote. Der IQ vergleicht deine Treffer mit dem, was dafür zu erwarten wäre – exakt gegen den Zufall gerechnet. 50 Punkte = genau so viel getroffen wie erwartet.</p>
+          <ul className="list-disc space-y-0.5 pl-5">
+            <li><b>45 %</b> Trefferqualität über der Erwartung</li>
+            <li><b>20 %</b> Konstanz über die Spieltage</li>
+            <li><b>20 %</b> Schwere Treffer (Quote ab 3,00 und 5,00)</li>
+            <li><b>15 %</b> Robustheit ohne den besten Spieltag</li>
           </ul>
-          <p>Gleiche Tipps in mehreren Scheinen zählen nur anteilig. Stornierte und offene Scheine zählen nicht; Spieltags-Specials zählen nicht. Das Pokalspiel (inklusive der Pokal-Bonus-Tipps) zählt wie jedes andere Spiel.</p>
+          <p>Gleiche Tipps in mehreren Scheinen zählen anteilig. Stornierte und offene Scheine zählen nicht. Das Pokalspiel zählt mit allen Tipps, auch den Pokal-Bonus-Tipps.</p>
         </div>
       </details>
     </Section>
   )
 }
 
-function AwardCard({ a, r }: { a: AwardResult; r: RecapReport }) {
-  const nm = (id: string) => r.people[id]?.name ?? 'Unbekannt'
-  const av = (id: string, s = 24) => <Avatar name={nm(id)} url={r.people[id]?.avatarUrl ?? null} size={s} />
-  const [w, ...restAll] = a.entries
-  const keyOf = (e: AwardResult['entries'][number]) => e.rankKey ?? e.value
-  const tied = restAll.filter((e) => keyOf(e) === keyOf(w))
-  const rest = restAll.filter((e) => keyOf(e) !== keyOf(w))
-  const bl = a.bitterest ? r.slipLegs[a.bitterest.slipKey] : undefined
+function Big({ n, caption, sub, icon }: { n: string; caption: string; sub?: string; icon: string }) {
   return (
-    <div className="px-4 py-3.5">
-      <div className="flex items-start gap-3">
-        <span className="text-2xl leading-none mt-0.5">{a.icon}</span>
-        <div className="flex-1 min-w-0">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-red-700 dark:text-red-300">{a.title}</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400">{a.question}</div>
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1.5">{av(w.userId)}<span className="font-bold text-gray-900 dark:text-gray-100 truncate min-w-0 max-w-full">{nm(w.userId)}</span><span className="ml-auto text-sm font-black text-gray-900 dark:text-gray-100">{w.value}</span></div>
-          {w.detail && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{w.detail}</p>}
-          {tied.length > 0 && <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mt-1">Gleichstand mit {tied.map((e) => nm(e.userId)).join(' · ')}</p>}
-          {rest.length > 0 && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Dahinter: {rest.map((e) => `${nm(e.userId)} (${e.value})`).join(' · ')}</p>}
-          {a.bitterest && (
-            <div className="mt-2 rounded-lg bg-gray-50 dark:bg-gray-900/40 p-2.5 text-xs text-gray-700 dark:text-gray-200">
-              <b>Bitterster Schein der Hinrunde:</b> {nm(a.bitterest.userId)} – {a.bitterest.legs}er-Kombi @{f2(a.bitterest.odds)}, nur ein Tipp fehlte. Dabei sind {f0(a.bitterest.missedNet)} Wildis Nettogewinn verpasst worden.
-              {bl && <ul className="mt-1 space-y-0.5">{bl.map((l, i) => <li key={i} className={l.status === 'lost' ? 'font-bold' : ''}>{l.status === 'lost' ? '✗' : '✓'} {l.match}: {l.selection}</li>)}</ul>}
-            </div>
-          )}
-          {a.second && a.second.entries.length > 0 && (
-            <div className="mt-3 rounded-lg border border-red-100 dark:border-red-900/40 p-2.5">
-              <div className="text-[11px] font-bold uppercase tracking-wide text-red-700 dark:text-red-300">{a.second.title}</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{a.second.question}</div>
-              <ul className="space-y-1.5">{a.second.entries.map((e) => (
-                <li key={e.userId} className="text-sm">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">{av(e.userId, 20)}<span className="font-semibold text-gray-900 dark:text-gray-100 truncate min-w-0 max-w-full">{nm(e.userId)}</span><span className="ml-auto font-black text-gray-900 dark:text-gray-100">{e.value}</span></div>
-                  {e.detail && <div className="ml-7 text-[11px] text-gray-500 dark:text-gray-400">{e.detail}</div>}
-                </li>))}</ul>
-            </div>
-          )}
-        </div>
-      </div>
+    <div className={`${CARD} flex flex-col p-3.5`}>
+      <div className="text-xl leading-none" aria-hidden>{icon}</div>
+      <div className={`mt-2 font-display text-5xl font-bold leading-none ${ACCENT}`}>{n}</div>
+      <div className="mt-1 text-sm font-semibold leading-snug">{caption}</div>
+      {sub && <div className={`mt-0.5 text-xs ${MUTED}`}>{sub}</div>}
     </div>
   )
 }
@@ -185,20 +215,20 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
   const cancelled = b.cancelledByUser + b.voidNoReason + b.voidAdminUnavailable + b.voidOther + b.neutralized
 
   const community = (
-    <div className="divide-y divide-gray-50 dark:divide-gray-700">
+    <div className="divide-y divide-[#e3eef8] dark:divide-white/10">
       {bt.single && <TipCardView c={bt.single} label="🎯 Beste Einzelwette" person={person} />}
       {bt.combo && <TipCardView c={bt.combo} label="👑 Beste Kombi" person={person} />}
       {bt.bold && <TipCardView c={bt.bold} label="🧩 Mutigster Treffer" person={person} />}
-      {!bt.single && !bt.combo && !bt.bold && <p className="p-4 text-sm text-gray-500">Noch keine gewonnenen Scheine.</p>}
+      {!bt.single && !bt.combo && !bt.bold && <p className="p-4 text-sm">Noch keine gewonnenen Scheine.</p>}
     </div>
   )
   const mine = (
     <div>
       {!personal || !personal.best ? (
-        <p className="p-4 text-sm text-gray-600 dark:text-gray-300">{personal && personal.settledSlips > 0 ? 'Du hattest in dieser Hinrunde noch keinen gewonnenen Wettschein – die Rückrunde kommt bestimmt. 🍀' : 'Du hast in dieser Hinrunde keine abgerechneten Wettscheine.'}</p>
+        <p className="p-4 text-sm">{personal && personal.settledSlips > 0 ? 'Noch kein gewonnener Wettschein in der Hinrunde – die Rückrunde kommt bestimmt. 🍀' : 'Du hast in dieser Hinrunde keine abgerechneten Wettscheine.'}</p>
       ) : (
-        <div className="divide-y divide-gray-50 dark:divide-gray-700">
-          <TipCardView c={personal.best} label="⭐ Dein bester Tipp der Hinrunde" mine />
+        <div className="divide-y divide-[#e3eef8] dark:divide-white/10">
+          <TipCardView c={personal.best} label="⭐ Dein bester Tipp" mine />
           {personal.extras.map((e) => <TipCardView key={e.label} c={e.card} label={e.label} mine />)}
         </div>
       )}
@@ -206,67 +236,57 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
   )
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 rounded-3xl bg-gradient-to-b from-[#e2f0fb] via-[#f1f8fe] to-white p-3 text-[#0b1f44] dark:from-[#050f26] dark:via-[#081a3a] dark:to-[#0b2148] dark:text-[#eaf4ff]">
       {simulation && (
-        <div className="rounded-2xl border-2 border-amber-500 bg-amber-100 dark:bg-amber-900/30 p-4 text-amber-950 dark:text-amber-100">
-          <div className="text-sm font-black uppercase tracking-wide">🧪 Testvorschau – nicht echt</div>
-          <p className="text-sm mt-1">Spieltag {r.range.to} ist hier <b>simuliert</b>: {simulation.matches} Spiele mit erfundenen Ergebnissen, {simulation.betRows} offene Wettzeilen mit erfundenem Ausgang. Alles läuft nur im Speicher dieser Seite – es wird nichts gespeichert, verändert oder freigegeben.</p>
-          <p className="text-xs mt-1 opacity-80">{simulation.databaseRef === 'fixtures' ? 'Datenquelle: eingebaute synthetische Testdaten – keine Datenbank, keine echten Personen, keine echten Wetten.' : <>Datenquelle (nur lesend): Supabase-Projekt <code>{simulation.databaseRef || '?'}</code>.</>}</p>
+        <div className="rounded-2xl border-2 border-amber-500 bg-amber-100 p-3 text-sm text-amber-950 dark:bg-amber-900/40 dark:text-amber-100">
+          <b>🧪 Testvorschau</b> – Spieltag {r.range.to} ist simuliert ({simulation.matches} Spiele, {simulation.betRows} Wettzeilen mit erfundenem Ausgang). Nichts wird gespeichert.
+          <div className="mt-0.5 text-xs opacity-80">{simulation.databaseRef === 'fixtures' ? 'Datenquelle: eingebaute Testdaten, keine Datenbank.' : <>Datenquelle (nur lesend): Projekt <code>{simulation.databaseRef || '?'}</code></>}</div>
         </div>
       )}
-      {!simulation && previewTo && <div className="rounded-xl bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-100 text-xs font-semibold px-3 py-2">Admin-Zwischenstand – Daten nur bis Spieltag {previewTo}.</div>}
+      {!simulation && previewTo && <div className="rounded-xl bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-900 dark:bg-amber-900/30 dark:text-amber-100">Admin-Zwischenstand – Daten nur bis Spieltag {previewTo}.</div>}
 
-      {/* Hero + kompakte Gesamtstatistik */}
-      <div className="rounded-3xl bg-gradient-to-br from-red-700 via-red-600 to-amber-500 text-white p-5 shadow-lg">
-        <div className="text-xs font-bold uppercase tracking-widest text-red-100">Saison 2026/27</div>
-        <h1 className="text-3xl font-black leading-tight mt-1">Winter-Recap</h1>
-        <p className="text-sm text-red-50 mt-1">Die Hinrunde: Spieltag {r.range.from} bis {r.range.to}</p>
-        <div className="grid grid-cols-3 gap-2 mt-4 text-center">
-          <div className="rounded-xl bg-white/15 py-2"><div className="text-lg font-black">{f0(o.activeTippers)}</div><div className="text-[10px] uppercase text-red-100">Tipper</div></div>
-          <div className="rounded-xl bg-white/15 py-2"><div className="text-lg font-black">{f0(b.total - cancelled)}</div><div className="text-[10px] uppercase text-red-100">Wettscheine</div></div>
-          <div className="rounded-xl bg-white/15 py-2"><div className="text-lg font-black">{f0(o.settledStake)}</div><div className="text-[10px] uppercase text-red-100">Eingesetzt</div></div>
+      {/* Hero */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#0b2a5b] via-[#103a7a] to-[#2a7fc4] p-5 text-white shadow-lg" style={{ backgroundImage: `${SNOW}, linear-gradient(135deg,#0b2a5b 0%,#103a7a 55%,#2a7fc4 100%)` }}>
+        <div className="text-[11px] font-bold uppercase tracking-[0.25em] text-[#bfe3fb]">Saison 2026/27 · Hinrunde</div>
+        <h1 className="font-display mt-1 text-5xl font-bold uppercase leading-none tracking-wide">Winter-<wbr />Recap</h1>
+        <div className="mt-5 grid grid-cols-3 gap-2 text-center">
+          {([[f0(o.activeTippers), 'Tipper'], [f0(b.total - cancelled), 'Wettscheine'], [f0(o.settledStake), 'Wildis gesetzt']] as const).map(([v, l]) => (
+            <div key={l} className="rounded-2xl bg-white/12 py-2.5 backdrop-blur-sm" style={{ backgroundColor: 'rgba(255,255,255,.12)' }}>
+              <div className="font-display text-3xl font-bold leading-none">{v}</div>
+              <div className="mt-1 text-[10px] uppercase tracking-wide text-[#cfeaff]">{l}</div>
+            </div>
+          ))}
         </div>
-        <p className="text-xs text-red-50 mt-3">{f0(b.won)} gewonnen · {f0(b.lost)} verloren{b.open > 0 ? ` · ${f0(b.open)} offen` : ''} · {f0(o.settledPayout)} Wildis ausgezahlt · Trefferquote {(b.won / Math.max(1, b.won + b.lost) * 100).toFixed(1).replace('.', ',')} %</p>
       </div>
 
-      <Section title="Bester Tipp der Hinrunde" sub="Nicht nur nach Auszahlung bewertet: Quote, Gewinn und wie selten der Tipp gewählt wurde zählen gleichermaßen." accent>
+      {/* Zahlen & Geschichten */}
+      <div className="grid grid-cols-2 gap-3">
+        {f.comboKillers.singleBlockerCombos > 0 && <Big icon="💥" n={f0(f.comboKillers.singleBlockerCombos)} caption="Kombis an genau einem Tipp gescheitert" sub={`${f0(f.comboKillers.wildenrothCombos)}× war Wildenroth der Killer`} />}
+        {f.oneGoalShort.total > 0 && <Big icon="🥅" n={f0(f.oneGoalShort.total)} caption="Kombis, die ein einziges Tor gerettet hätte" sub={`von ${f0(f.oneGoalShort.ofSingleBlockerCombos)} knapp Gescheiterten`} />}
+        {f.lastMinute && <div className="col-span-2"><Big icon="⏱️" n={`${f0(f.lastMinute.leadSeconds)} Sek.`} caption={`${nm(f.lastMinute.card.userId)}: abgegeben vor Anpfiff – und gewonnen`} sub={`Quote ${f2(f.lastMinute.card.odds)} · ${sgn(f.lastMinute.card.net)} Wildis`} /></div>}
+      </div>
+      {f.comboKillers.topMatch && (
+        <details className={`${CARD} px-4 py-2.5`}>
+          <summary className={`cursor-pointer list-none text-xs font-semibold ${ACCENT}`}>▸ Das teuerste Spiel der Hinrunde</summary>
+          <p className="mt-1 text-sm"><b>{r.matchLabels[f.comboKillers.topMatch.matchId]}</b> zerstörte {f0(f.comboKillers.topMatch.combos)} sonst richtige Kombis.{f.oneGoalShort.examples[0] && <> Beispiel „ein Tor fehlte“: {r.matchLabels[f.oneGoalShort.examples[0].matchId]} ({f.oneGoalShort.examples[0].actual}).</>}</p>
+        </details>
+      )}
+
+      <Section title="Bester Tipp" sub="Nicht nur nach Auszahlung bewertet.">
         <BestTipTabs community={community} mine={mine} />
+      </Section>
+
+      <Section title="Die Awards">
+        <div className="divide-y divide-[#e3eef8] dark:divide-white/10">{awards.map((a) => <AwardCard key={a.key} a={a} r={r} />)}</div>
       </Section>
 
       <IqSection r={r} myId={myId} />
 
-      <Section title="Die Awards" sub="Die wichtigsten Auszeichnungen der Hinrunde.">
-        <div className="divide-y divide-gray-50 dark:divide-gray-700">{awards.map((a) => <AwardCard key={a.key} a={a} r={r} />)}</div>
-      </Section>
-
-      <Section title="Fun Facts" sub="Ein paar Kuriositäten – mehr gibt es zur Weihnachtsfeier. 🎄">
-        <div className="p-4 space-y-4 text-sm text-gray-800 dark:text-gray-100">
-          {f.comboKillers.singleBlockerCombos > 0 && (
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-wide text-red-700 dark:text-red-300">💥 Kombi-Killer</div>
-              <p className="mt-0.5"><b>{f0(f.comboKillers.singleBlockerCombos)}</b> Kombis scheiterten an genau einem Tipp – bei <b>{f0(f.comboKillers.wildenrothCombos)}</b> davon war es ein Spiel mit Wildenroth I oder II.{f.comboKillers.topMatch && <> Das teuerste Spiel: <b>{r.matchLabels[f.comboKillers.topMatch.matchId]}</b> – es zerstörte {f0(f.comboKillers.topMatch.combos)} sonst richtige Kombis.</>}</p>
-            </div>
-          )}
-          {f.oneGoalShort.total > 0 && (
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-wide text-red-700 dark:text-red-300">🥅 Ein Tor fehlte</div>
-              <p className="mt-0.5">Bei <b>{f0(f.oneGoalShort.total)}</b> dieser Kombis hätte ein einziges Tor mehr oder weniger gereicht.{f.oneGoalShort.examples[0] && <> Beispiel: <b>{r.matchLabels[f.oneGoalShort.examples[0].matchId]}</b> ({f.oneGoalShort.examples[0].actual}) – {nm(f.oneGoalShort.examples[0].slip.userId)} hätte mit {f.oneGoalShort.examples[0].saver} {f0(f.oneGoalShort.examples[0].potentialNet)} Wildis Nettogewinn geholt.</>}</p>
-            </div>
-          )}
-          {f.lastMinute && (
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-wide text-red-700 dark:text-red-300">⏱️ Last-Minute-Treffer</div>
-              <p className="mt-0.5"><b>{nm(f.lastMinute.card.userId)}</b> gab den Schein {Math.round(f.lastMinute.leadSeconds)} Sekunden vor Anpfiff ab – Quote {f2(f.lastMinute.card.odds)}, {sgn(f.lastMinute.card.net)} Wildis Gewinn. {f.lastMinute.card.legs[0] ? <span className="text-gray-500 dark:text-gray-400">({f.lastMinute.card.legs[0].match}: {f.lastMinute.card.legs[0].selection})</span> : null}</p>
-            </div>
-          )}
-        </div>
-      </Section>
-
-      <details className={`${card}`}>
-        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-gray-600 dark:text-gray-300">So wurde gezählt – genaue Regeln</summary>
-        <div className="px-4 pb-4 space-y-2 text-xs text-gray-600 dark:text-gray-300">
-          <p>Gezählt werden alle abgerechneten Wettscheine der Spieltage {r.range.from}–{r.range.to} (Einzelwette = ein Schein, Kombi = ein Schein mit einmal gezähltem Einsatz). Stornierte und offene Scheine zählen nicht, Legs mit auf Quote 1,00 neutralisierten Spielen werden ignoriert. Das Pokalspiel zählt vollständig mit, auch die Pokal-Bonus-Tipps. Gelöschte Konten werden nicht genannt.</p>
-          <ul className="space-y-1.5">{awards.map((a) => <li key={a.key}><b>{a.title}:</b> {a.rule}{a.second ? ` Zweite Wertung „${a.second.title}": Anzahl aller Gegen-Tipps (Gegen-Legs), danach Zahl verschiedener Spiele.` : ''}</li>)}</ul>
+      <details className={`${CARD}`}>
+        <summary className={`cursor-pointer px-4 py-3 text-xs font-semibold ${MUTED}`}>Genaue Regeln</summary>
+        <div className={`space-y-1.5 px-4 pb-4 text-xs ${MUTED}`}>
+          <p>Gezählt werden alle abgerechneten Wettscheine der Spieltage {r.range.from}–{r.range.to}; Kombi-Einsätze einmal. Stornierte und offene Scheine zählen nicht, neutralisierte Legs werden ignoriert. Das Pokalspiel zählt vollständig. Gelöschte Konten werden nicht genannt.</p>
+          <ul className="space-y-1">{awards.map((a) => <li key={a.key}><b>{a.title}:</b> {a.rule}</li>)}</ul>
         </div>
       </details>
     </div>

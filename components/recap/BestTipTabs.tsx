@@ -8,11 +8,11 @@ export function BestTipTabs({ community, mine }: { community: React.ReactNode; m
   const [tab, setTab] = useState<'community' | 'mine'>('community')
   const btn = (id: 'community' | 'mine', label: string) => (
     <button type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
-      className={`flex-1 rounded-lg py-2 text-sm font-bold transition-colors ${tab === id ? 'bg-white dark:bg-gray-700 text-red-700 dark:text-red-300 shadow-sm' : 'text-gray-600 dark:text-gray-300'}`}>{label}</button>
+      className={`flex-1 rounded-lg py-2 text-sm font-bold transition-colors ${tab === id ? 'bg-white text-[#1565a8] shadow-sm dark:bg-[#12315f] dark:text-[#8fd3ff]' : 'text-[#4d6a8a] dark:text-[#9db8d6]'}`}>{label}</button>
   )
   return (
     <div>
-      <div role="tablist" aria-label="Beste Tipps" className="mx-4 mt-3 flex rounded-xl bg-gray-100 dark:bg-gray-900/60 p-1 gap-1">
+      <div role="tablist" aria-label="Beste Tipps" className="mx-4 mt-2 flex gap-1 rounded-xl bg-[#e3f1fc] p-1 dark:bg-white/10">
         {btn('community', 'Community')}{btn('mine', 'Mein bester Tipp')}
       </div>
       <div role="tabpanel">{tab === 'community' ? community : mine}</div>

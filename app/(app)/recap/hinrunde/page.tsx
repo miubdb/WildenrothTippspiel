@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { loadHinrundeState } from '@/lib/recap/loadRecap'
 import { HINRUNDE } from '@/lib/recap/availability'
-import { isPreviewEnvironment } from '@/lib/recap/simulation'
+import { isSimulationAllowed } from '@/lib/recap/environmentGuard'
 import { RecapTypeNav } from '@/components/recap/RecapTypeNav'
 import { RecapPublishPanel } from '@/components/recap/RecapPublishPanel'
 import { HinrundeView } from '@/components/recap/HinrundeView'
@@ -18,7 +18,7 @@ export default async function HinrundeRecapPage({ searchParams }: { searchParams
   if (!user) redirect('/login')
   const { data: me } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
   const isAdmin = !!me?.is_admin
-  const previewEnv = isPreviewEnvironment()
+  const previewEnv = isSimulationAllowed()
   const wantsSim = test === 'sim16'
   const state = await loadHinrundeState({ adminPreview: isAdmin, viewerId: user.id, simulate: wantsSim })
   const visibleToMembers = state.visibility === 'published' && !state.simulation
@@ -29,7 +29,7 @@ export default async function HinrundeRecapPage({ searchParams }: { searchParams
       <RecapTypeNav current="hinrunde" available={{ hinrunde: visibleToMembers || isAdmin }} />
       {isAdmin && (
         <RecapPublishPanel recap="hinrunde" ready={state.simulation ? state.simulation.realReadiness.ready : state.readiness.ready} published={state.simulation ? false : state.published}
-          blockers={(state.simulation ? state.simulation.realReadiness : state.readiness).blockers} previewTo={state.previewTo} simulation={!!state.simulation} />
+          blockers={(state.simulation ? state.simulation.realReadiness : state.readiness).blockers} previewTo={state.previewTo} simulation={!!state.simulation} database={state.database} vercelEnv={process.env.VERCEL_ENV} />
       )}
       {isAdmin && previewEnv && (
         <div className="text-xs">

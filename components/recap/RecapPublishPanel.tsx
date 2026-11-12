@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-export function RecapPublishPanel({ recap, ready, published, blockers, previewTo, simulation }: { recap: string; ready: boolean; published: boolean; blockers: string[]; previewTo: number | null; simulation?: boolean }) {
+export function RecapPublishPanel({ recap, ready, published, blockers, previewTo, simulation, database, vercelEnv }: { recap: string; ready: boolean; published: boolean; blockers: string[]; previewTo: number | null; simulation?: boolean; database?: { ref: string | null; kind: 'production' | 'sandbox' | 'other' | 'none' }; vercelEnv?: string }) {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -19,6 +19,15 @@ export function RecapPublishPanel({ recap, ready, published, blockers, previewTo
   return (
     <div className="rounded-2xl border-2 border-dashed border-amber-400 bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-900 dark:text-amber-100">
       <div className="font-bold mb-1">Admin-Ansicht</div>
+      {database && (
+        <p className={`mb-2 rounded-lg px-2 py-1 text-xs font-semibold ${database.kind === 'production' && vercelEnv !== 'production' ? 'bg-red-600 text-white' : database.kind === 'production' ? 'bg-amber-200 dark:bg-amber-800/50' : 'bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100'}`}>
+          {database.kind === 'production' && vercelEnv !== 'production'
+            ? `⚠️ Diese Vorschau ist mit der PRODUKTIVEN Datenbank verbunden (${database.ref}). Nichts ausprobieren, was Daten schreibt.`
+            : database.kind === 'production' ? `Umgebung: Production · Datenbank ${database.ref}`
+              : database.kind === 'sandbox' ? `Umgebung: ${vercelEnv ?? '?'} · Datenbank: Sandbox (${database.ref}) – nicht produktiv`
+                : `Umgebung: ${vercelEnv ?? '?'} · Datenbank: ${database.ref ?? 'keine'} (weder Production noch bekannte Sandbox)`}
+        </p>
+      )}
       {simulation ? <p>Testvorschau aktiv – hier wird <b>nichts</b> gespeichert und nichts freigegeben. Echter Status: {ready ? 'bereit' : 'noch nicht bereit'}.</p>
         : published ? <p>Dieser Recap ist <b>veröffentlicht</b> und für alle sichtbar.</p>
         : ready ? <p>Alle Spieltage sind abgeschlossen und abgerechnet. Der Recap ist <b>bereit</b>, aber noch nur für Admins sichtbar.</p>

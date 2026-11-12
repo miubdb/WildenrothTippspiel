@@ -17,6 +17,7 @@ import { computeHalbzeitAwards, PUBLIC_AWARD_KEYS } from '@/lib/recap/halbzeitAw
 import { buildCommunityBestTips, buildPersonalTips } from '@/lib/recap/bestTips'
 import { isPreviewEnvironment, simulateSpieltag } from '@/lib/recap/simulation'
 import { buildFixtureData } from '@/lib/recap/fixtures'
+import { databaseKind, isSimulationAllowed, supabaseRef, PRODUCTION_SUPABASE_REF, SANDBOX_SUPABASE_REF } from '@/lib/recap/environmentGuard'
 import { loadDemoState, isFixtureDemoEnabled } from '@/lib/recap/demo'
 
 let errors = 0
@@ -416,6 +417,23 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
   for (const k of keys) set(k, keep[k])
   test('Demo-Route: aus, sobald irgendeine Supabase-Konfiguration existiert (Production/Preview); an nur ohne jede Konfiguration', prod && isolated && partial)
 }
+}
+
+{
+  const env = process.env as Record<string, string | undefined>
+  const keys = ['VERCEL_ENV', 'NODE_ENV', 'NEXT_PUBLIC_SUPABASE_URL']
+  const keep = Object.fromEntries(keys.map((k) => [k, env[k]]))
+  const set = (k: string, v: string | undefined) => { if (v === undefined) delete env[k]; else env[k] = v }
+  const run = (vercel: string | undefined, ref: string | null) => { set('VERCEL_ENV', vercel); set('NODE_ENV', 'production'); set('NEXT_PUBLIC_SUPABASE_URL', ref ? `https://${ref}.supabase.co` : undefined); return isSimulationAllowed() }
+  const sandboxPreview = run('preview', SANDBOX_SUPABASE_REF)
+  const prodDbPreview = run('preview', PRODUCTION_SUPABASE_REF)
+  const sandboxProd = run('production', SANDBOX_SUPABASE_REF)
+  const prodDbProd = run('production', PRODUCTION_SUPABASE_REF)
+  set('NEXT_PUBLIC_SUPABASE_URL', `https://${SANDBOX_SUPABASE_REF}.supabase.co`)
+  const kinds = [databaseKind(supabaseRef()), databaseKind(PRODUCTION_SUPABASE_REF), databaseKind('abc'), databaseKind(null)]
+  for (const k of keys) set(k, keep[k])
+  test('Simulation nur in Vorschau UND auf nicht-produktiver Datenbank (Sandbox ja; produktive DB in Preview nein; Production nie)', sandboxPreview && !prodDbPreview && !sandboxProd && !prodDbProd)
+  test('Datenbank-Erkennung: Sandbox, Production, andere, keine – ohne Schlüssel, nur Projektkennung', kinds.join() === 'sandbox,production,other,none')
 }
 
 // ── 8. Gesamtbericht, Datenschutz ─────────────────────────────────────────────────────────
