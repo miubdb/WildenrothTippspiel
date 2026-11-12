@@ -1,7 +1,10 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchAllRows } from '@/lib/supabase/paginatedSelect'
 import { SEASON_START } from '@/lib/season'
-import { plainSelectionLabel } from '@/lib/betDisplay'
+import { CUP_MARKET_LABEL, plainSelectionLabel } from '@/lib/betDisplay'
+import { isPreviewEnvironment, simulateSpieltag } from '@/lib/recap/simulation'
+import { buildPersonalTips, type PersonalTips } from '@/lib/recap/bestTips'
+import { filterSlipsByMatchdays } from '@/lib/recap/tipperIq'
 import { buildSlips, RECAP_SEASON, type RecapBetRow, type RecapComboRow, type RecapMatchRow } from '@/lib/recap/slips'
 import { buildRecapReport, type RecapReport } from '@/lib/recap/report'
 import { canViewRecapReport, computeRangeReadiness, HINRUNDE, recapVisibility, type RangeReadiness, type RecapVisibility } from '@/lib/recap/availability'
@@ -17,6 +20,7 @@ const MARKET_LABELS: Record<string, string> = {
   '1x2': 'Spielausgang', double_chance: 'Doppelte Chance', handicap: 'Handicap', btts: 'Beide treffen', exact_score: 'Ergebnis',
   over_under_2_5: 'Über/Unter 2,5', over_under_3_5: 'Über/Unter 3,5', over_under_5_5: 'Über/Unter 5,5', over_9_5: 'Über 9,5 Tore',
   goalscorer: 'Torschütze', goalscorer_2plus: 'Torschütze 2+', matchday_special: 'Spieltags-Special',
+  ...CUP_MARKET_LABEL,
 }
 
 export interface RawRecapData { matches: RecapMatchRow[]; bets: RecapBetRow[]; combos: RecapComboRow[]; profiles: { id: string; display_name: string | null; username: string | null; avatar_url: string | null; deleted_at: string | null; is_admin: boolean | null }[]; teams: Map<number, string>; players: Record<number, string> }
@@ -40,36 +44,52 @@ export interface RecapRangeState {
   visibility: RecapVisibility
   /** Bericht über den Zeitraum; bei nicht bereitem Zeitraum nur für die Admin-Vorschau (bis `previewTo`). */
   report: RecapReport | null
+  /** Persönlicher Rückblick – NUR für den anfragenden Nutzer berechnet, nie Teil des gemeinsamen Berichts. */
+  personal: PersonalTips | null
   previewTo: number | null
   /** Letzter vollständig abgeschlossener Spieltag innerhalb des Zeitraums (für Fortschrittsanzeige). */
   completedUpTo: number
   dataAsOfMs: number
+  /** Gesetzt, wenn die Testsimulation aktiv ist (Preview-Umgebung, Admin, ?test=sim16). */
+  simulation: { matchdays: number[]; matches: number; betRows: number; realReadiness: RangeReadiness; databaseRef: string } | null
 }
 
-export async function loadHinrundeState(opts: { adminPreview: boolean }): Promise<RecapRangeState> {
-  const raw = await loadRawRecapData()
+export interface LoadOptions { adminPreview: boolean; viewerId: string; simulate?: boolean }
+
+export async function loadHinrundeState(opts: LoadOptions): Promise<RecapRangeState> {
+  let raw = await loadRawRecapData()
   const admin = createAdminClient()
   const { data: setting } = await admin.from('app_settings').select('value').eq('key', HINRUNDE.settingKey).maybeSingle()
+  // Die Simulation gilt nur in Preview/Entwicklung, nur für Admins, nur auf ausdrückliche Anfrage – nie in Production.
+  const simulate = !!opts.simulate && opts.adminPreview && isPreviewEnvironment()
+  const realReadiness = computeRangeReadiness(raw.matches, raw.bets, HINRUNDE.from, HINRUNDE.to)
+  let simulation: RecapRangeState['simulation'] = null
+  if (simulate) {
+    const sim = simulateSpieltag(raw, HINRUNDE.to)
+    raw = { ...raw, matches: sim.matches, bets: sim.bets, combos: sim.combos }
+    simulation = { matchdays: [HINRUNDE.to], matches: sim.simulatedMatchIds.length, betRows: sim.simulatedBetRows, realReadiness, databaseRef: (process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').replace(/^https?:\/\//, '').split('.')[0] }
+  }
   const readiness = computeRangeReadiness(raw.matches, raw.bets, HINRUNDE.from, HINRUNDE.to)
-  const visibility = recapVisibility(readiness.ready, setting?.value ?? null)
+  // Veröffentlichung wird in der Simulation NIE berücksichtigt (die echte Freigabe gilt nur für echte Daten).
+  const visibility = simulate ? (readiness.ready ? 'ready_unpublished' as const : 'hidden_not_ready' as const) : recapVisibility(readiness.ready, setting?.value ?? null)
   let completedUpTo = 0
   for (const m of readiness.matchdays) { if (m.complete) completedUpTo = m.matchday; else break }
   const isPublished = visibility === 'published'
   const show = canViewRecapReport(visibility, opts.adminPreview, completedUpTo)
-  if (!show) return { readiness, published: isPublished, visibility, report: null, previewTo: null, completedUpTo, dataAsOfMs: 0 }
+  if (!show) return { readiness, published: isPublished, visibility, report: null, personal: null, previewTo: null, completedUpTo, dataAsOfMs: 0, simulation }
   const to = readiness.ready ? HINRUNDE.to : completedUpTo
   const { slips } = buildSlips({ bets: raw.bets, combos: raw.combos, matches: raw.matches })
   const teamName = (id: number) => raw.teams.get(id) ?? '?'
   const mById = new Map(raw.matches.map((m) => [m.id, m]))
-  const report = buildRecapReport({
-    allSlips: slips, matches: raw.matches, range: { from: HINRUNDE.from, to }, profiles: raw.profiles,
-    labeler: {
-      matchLabel: (id) => { const m = mById.get(id); return m ? `${teamName(m.home_team_id)} – ${teamName(m.away_team_id)}` : `Spiel #${id}` },
-      marketLabel: (m) => MARKET_LABELS[m] ?? m,
-      selectionLabel: (market, sel) => plainSelectionLabel(market, sel, undefined, raw.players),
-    },
-  })
-  return { readiness, published: isPublished, visibility, report, previewTo: readiness.ready ? null : to, completedUpTo, dataAsOfMs: report.dataAsOfMs }
+  const labeler = {
+    matchLabel: (id: number) => { const m = mById.get(id); return m ? `${teamName(m.home_team_id)} – ${teamName(m.away_team_id)}${m.competition_type === 'cup' ? ' (Pokal)' : ''}` : `Spiel #${id}` },
+    marketLabel: (m: string) => MARKET_LABELS[m] ?? m,
+    selectionLabel: (market: string, sel: string) => plainSelectionLabel(market, sel, undefined, raw.players),
+  }
+  const range = { from: HINRUNDE.from, to }
+  const report = buildRecapReport({ allSlips: slips, matches: raw.matches, range, profiles: raw.profiles, labeler })
+  const personal = buildPersonalTips(slips, filterSlipsByMatchdays(slips, range.from, range.to), opts.viewerId, labeler)
+  return { readiness, published: isPublished, visibility, report, personal, previewTo: readiness.ready ? null : to, completedUpTo, dataAsOfMs: report.dataAsOfMs, simulation }
 }
 
 export async function loadCompletedMatchdays(): Promise<number[]> {

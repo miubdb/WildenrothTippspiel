@@ -21,6 +21,15 @@ export const RECAP_SEASON = '26/27'
 
 /** Hausmargen des Quotenmodells (lib/odds.ts HOUSE_MARGIN, lib/goalscorer.ts HOUSE_MARGIN).
  *  Dort: odds = 1 / (prob × (1 + margin)) — also ist prob = 1 / (odds × (1 + margin)). */
+/**
+ * Pokal-Bonus-Scheine (`bets.is_bonus`) gehören ausschließlich zum Pokalspiel (Spiel 573, Wildenroth – Geiselbullach,
+ * siehe CUP_BONUS_MATCH_ID in app/api/bets/place/route.ts). Sie haben echten Einsatz und echte Auszahlung. Seit dem
+ * Auftrag „Pokalspiel vollständig berücksichtigen" zählen sie in ALLEN Recap-Auswertungen mit (IQ, Netto, Rekorde, beste
+ * Tipps). Auf `false` setzen, um sie überall wieder auszuschließen.
+ */
+export const INCLUDE_CUP_BONUS_SLIPS = true
+export const isExcludedBonus = (s: { isBonus: boolean }): boolean => !INCLUDE_CUP_BONUS_SLIPS && s.isBonus
+
 export const MARGIN_MAIN_MARKETS = 0.12
 export const MARGIN_GOALSCORER = 0.15
 

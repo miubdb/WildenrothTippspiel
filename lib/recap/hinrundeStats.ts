@@ -1,6 +1,6 @@
 import { settleBet } from '@/lib/settleBet'
 import { payoutCap } from '@/lib/payout'
-import { isSettled, type Slip, type RecapMatchRow } from '@/lib/recap/slips'
+import { isSettled, isExcludedBonus, type Slip, type RecapMatchRow } from '@/lib/recap/slips'
 
 /**
  * Recap V2 — Kennzahlen und Geschichten über mehrere Spieltage (Hinrunde, später Rückrunde/
@@ -201,7 +201,7 @@ export interface Streak { userId: string; length: number; fromMs: number; toMs: 
 /** Längste Gewinn-/Verlustserie je Tipper über abgerechnete Scheine in zeitlicher Reihenfolge der Platzierung. */
 export function longestStreaks(slips: Slip[], excluded: Set<string> = new Set()): { win: Streak[]; loss: Streak[] } {
   const by = new Map<string, Slip[]>()
-  for (const s of slips.filter(isSettled)) if (!excluded.has(s.userId) && !s.isBonus) (by.get(s.userId) ?? by.set(s.userId, []).get(s.userId)!).push(s)
+  for (const s of slips.filter(isSettled)) if (!excluded.has(s.userId) && !isExcludedBonus(s)) (by.get(s.userId) ?? by.set(s.userId, []).get(s.userId)!).push(s)
   const win: Streak[] = [], loss: Streak[] = []
   for (const [u, arr] of by) {
     // Reihenfolge nach Anstoß des ersten Spiels (Ergebnis-Reihenfolge), Platzierungszeit als Fallback.
@@ -271,7 +271,7 @@ const percentile = (values: number[], v: number): number => {
  *  Außenseiter-Faktor (1 − Anteil der Tipper, die dasselbe tippten). Kombis zusätzlich Anzahl Legs. */
 export function rateBestTips(allSlips: Slip[], rangeSlips: Slip[], excluded: Set<string> = new Set()): { single: RatedTip[]; combo: RatedTip[] } {
   const crowd = computeCrowdShares(allSlips)
-  const cand = rangeSlips.filter((s) => s.status === 'won' && !s.isBonus && !excluded.has(s.userId) && !s.legs.some((l) => l.marketType === 'matchday_special'))
+  const cand = rangeSlips.filter((s) => s.status === 'won' && !isExcludedBonus(s) && !excluded.has(s.userId) && !s.legs.some((l) => l.marketType === 'matchday_special'))
   const rarityOf = (s: Slip): number | null => {
     const rs = s.legs.filter((l) => l.matchId != null && l.status !== 'neutralized').map((l) => crowd.share(l.matchId as number, l.marketType, l.selection)).filter((x): x is number => x != null)
     return rs.length ? rs.reduce((a, r) => a + (1 - r), 0) / rs.length : null
@@ -297,7 +297,7 @@ export function findCleverHits(allSlips: Slip[], rangeSlips: Slip[], excluded: S
   const crowd = computeCrowdShares(allSlips)
   const out: CleverHit[] = []
   for (const s of rangeSlips) {
-    if (s.status !== 'won' || s.isBonus || excluded.has(s.userId)) continue
+    if (s.status !== 'won' || isExcludedBonus(s) || excluded.has(s.userId)) continue
     for (const l of s.legs) {
       if (l.matchId == null || l.status !== 'won' || l.odds < 2) continue
       const sh = crowd.share(l.matchId, l.marketType, l.selection)
@@ -319,7 +319,7 @@ export interface LeadTimeStat { userId: string; medianLeadSeconds: number; slips
 export function leadTimeStats(slips: Slip[], excluded: Set<string>, minSlips = 10): LeadTimeStat[] {
   const by = new Map<string, number[]>()
   for (const s of slips) {
-    if (s.isBonus || excluded.has(s.userId) || s.firstKickoffMs == null) continue
+    if (isExcludedBonus(s) || excluded.has(s.userId) || s.firstKickoffMs == null) continue
     const lead = (s.firstKickoffMs - s.createdAtMs) / 1000
     if (lead <= 0) continue
     ;(by.get(s.userId) ?? by.set(s.userId, []).get(s.userId)!).push(lead)
@@ -334,7 +334,7 @@ export function leadTimeStats(slips: Slip[], excluded: Set<string>, minSlips = 1
 export function nightOwlStats(slips: Slip[], excluded: Set<string>): { userId: string; nightSlips: number; slips: number }[] {
   const by = new Map<string, { n: number; t: number }>()
   for (const s of slips) {
-    if (s.isBonus || excluded.has(s.userId)) continue
+    if (isExcludedBonus(s) || excluded.has(s.userId)) continue
     const e = by.get(s.userId) ?? { n: 0, t: 0 }
     e.t++
     if (berlinHour(s.createdAtMs) < 6) e.n++
@@ -345,7 +345,7 @@ export function nightOwlStats(slips: Slip[], excluded: Set<string>): { userId: s
 
 export interface LastMinuteWin { userId: string; slipKey: string; leadSeconds: number; odds: number; net: number; matchday: number | null }
 export function lastMinuteWins(slips: Slip[], excluded: Set<string>): LastMinuteWin[] {
-  return slips.filter((s) => s.status === 'won' && !s.isBonus && !excluded.has(s.userId) && s.firstKickoffMs != null && s.firstKickoffMs > s.createdAtMs)
+  return slips.filter((s) => s.status === 'won' && !isExcludedBonus(s) && !excluded.has(s.userId) && s.firstKickoffMs != null && s.firstKickoffMs > s.createdAtMs)
     .map((s) => ({ userId: s.userId, slipKey: s.key, leadSeconds: ((s.firstKickoffMs as number) - s.createdAtMs) / 1000, odds: s.odds, net: s.net, matchday: s.ownerMatchday }))
     .sort((a, b) => a.leadSeconds - b.leadSeconds)
 }
@@ -380,7 +380,7 @@ export function findCancelRegrets(slips: Slip[], matches: RecapMatchRow[], exclu
   const simple = new Set(['1x2', 'double_chance', 'btts', 'over_under_2_5', 'over_under_3_5', 'over_under_5_5', 'over_9_5', 'handicap', 'exact_score'])
   const out: CancelRegret[] = []
   for (const s of slips) {
-    if (s.status !== 'void' || s.voidReason !== 'user_cancelled' || excluded.has(s.userId) || s.isBonus) continue
+    if (s.status !== 'void' || s.voidReason !== 'user_cancelled' || excluded.has(s.userId) || isExcludedBonus(s)) continue
     let allWon = s.legs.length > 0
     for (const l of s.legs) {
       const mt = l.matchId != null ? m.get(l.matchId) : undefined
@@ -484,7 +484,7 @@ export function mondayMorningStats(slips: Slip[], excluded: Set<string>): { user
   const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Berlin', weekday: 'short', hour: 'numeric', hour12: false })
   const by = new Map<string, { n: number; t: number }>()
   for (const s of slips) {
-    if (s.isBonus || excluded.has(s.userId)) continue
+    if (isExcludedBonus(s) || excluded.has(s.userId)) continue
     const parts = Object.fromEntries(fmt.formatToParts(new Date(s.createdAtMs)).map((p) => [p.type, p.value]))
     const e = by.get(s.userId) ?? { n: 0, t: 0 }
     e.t++
@@ -510,7 +510,7 @@ export interface LatestSlip { userId: string; slipKey: string; leadSeconds: numb
 /** Spätester Schein: kürzester Abstand zwischen Abgabe und erstem Anstoß, egal ob gewonnen, verloren oder später storniert
  *  (aber vor Anstoß abgegeben). Bonus-Tipps ausgenommen. */
 export function latestSlips(slips: Slip[], excluded: Set<string>): LatestSlip[] {
-  return slips.filter((s) => !s.isBonus && !excluded.has(s.userId) && s.firstKickoffMs != null && s.firstKickoffMs > s.createdAtMs)
+  return slips.filter((s) => !isExcludedBonus(s) && !excluded.has(s.userId) && s.firstKickoffMs != null && s.firstKickoffMs > s.createdAtMs)
     .map((s) => ({ userId: s.userId, slipKey: s.key, leadSeconds: ((s.firstKickoffMs as number) - s.createdAtMs) / 1000, status: s.status, odds: s.odds, matchday: s.ownerMatchday }))
     .sort((a, b) => a.leadSeconds - b.leadSeconds)
 }
@@ -520,7 +520,7 @@ export interface IdenticalWin { signature: string; legs: number; odds: number; u
 export function findIdenticalWins(slips: Slip[], excluded: Set<string>): IdenticalWin[] {
   const g = new Map<string, IdenticalWin>()
   for (const s of slips) {
-    if (s.kind !== 'combo' || s.status !== 'won' || s.isBonus || excluded.has(s.userId)) continue
+    if (s.kind !== 'combo' || s.status !== 'won' || isExcludedBonus(s) || excluded.has(s.userId)) continue
     const act = s.legs.filter((l) => l.status !== 'neutralized' && l.status !== 'void' && l.matchId != null)
     if (act.length < 2) continue
     const sig = act.map((l) => `${l.matchId}|${l.marketType}|${l.selection}`).sort().join(';')
@@ -535,7 +535,7 @@ export function findIdenticalWins(slips: Slip[], excluded: Set<string>): Identic
 export function winlessComboStreakers(slips: Slip[], excluded: Set<string>, minCombos = 10): { userId: string; lost: number; stakeLost: number }[] {
   const by = new Map<string, { won: number; lost: number; stake: number }>()
   for (const s of slips) {
-    if (s.kind !== 'combo' || !isSettled(s) || s.isBonus || excluded.has(s.userId)) continue
+    if (s.kind !== 'combo' || !isSettled(s) || isExcludedBonus(s) || excluded.has(s.userId)) continue
     const e = by.get(s.userId) ?? { won: 0, lost: 0, stake: 0 }
     if (s.status === 'won') e.won++; else { e.lost++; e.stake += s.stake }
     by.set(s.userId, e)

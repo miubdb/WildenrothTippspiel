@@ -5,7 +5,7 @@ import Link from 'next/link'
 export type RecapTypeId = 'spieltag' | 'hinrunde'
 const TYPES: { id: RecapTypeId; label: string; href: string }[] = [
   { id: 'spieltag', label: 'Spieltag', href: '/recap' },
-  { id: 'hinrunde', label: 'Hinrunde', href: '/recap/hinrunde' },
+  { id: 'hinrunde', label: 'Winter-Recap', href: '/recap/hinrunde' },
 ]
 
 export function RecapTypeNav({ current, available }: { current: RecapTypeId; available: Partial<Record<RecapTypeId, boolean>> }) {

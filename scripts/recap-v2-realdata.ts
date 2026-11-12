@@ -33,6 +33,12 @@ export function run(): number {
     const rho = 1 - (6 * ra.reduce((s, x, i) => s + (x - rb[i]) ** 2, 0)) / (n * (n * n - 1))
     console.log(v.name.padEnd(46), 'Top 6:', ids.slice(0, 6).map(nm).join(', '), '| Spearman', rho.toFixed(3))
   }
+  console.log('--- ÖFFENTLICH ---')
+  for (const a of rep.awards.filter((x) => x.public)) { console.log(`${a.icon} ${a.title}: ${a.entries.map((e) => `${nm(e.userId)} (${e.value})`).join(' | ')}`); if (a.second) console.log(`   ↳ ${a.second.title}: ${a.second.entries.map((e) => `${nm(e.userId)} (${e.value}; ${e.detail})`).join(' | ')}`); if (a.bitterest) console.log(`   ↳ bitterster Schein: ${nm(a.bitterest.userId)} ${a.bitterest.legs}er @${a.bitterest.odds} verpasst ${a.bitterest.missedNet.toFixed(0)}`) }
+  const bt = rep.bestTips
+  for (const [l, c] of [['Beste Einzelwette', bt.single], ['Beste Kombi', bt.combo], ['Mutigster Treffer', bt.bold]] as const) if (c) console.log(`🏅 ${l}: ${nm(c.userId)} ST${c.matchday} Q${c.odds} Einsatz ${c.stake} Auszahlung ${c.payout.toFixed(0)} Netto ${c.net.toFixed(0)} | ${c.legs.map((x) => `${x.match}: ${x.selection}`).join(' + ')} | ${c.why}`)
+  console.log('FAKTEN', JSON.stringify({ killers: rep.facts.comboKillers.singleBlockerCombos, killersW: rep.facts.comboKillers.wildenrothCombos, top: rep.facts.comboKillers.topMatch?.combos, oneGoal: rep.facts.oneGoalShort.total, of: rep.facts.oneGoalShort.ofSingleBlockerCombos, lm: rep.facts.lastMinute && `${nm(rep.facts.lastMinute.card.userId)} ${rep.facts.lastMinute.leadSeconds.toFixed(0)}s Q${rep.facts.lastMinute.card.odds}` }))
+  console.log('--- INTERN (alle) ---')
   for (const a of rep.awards) console.log(`${a.icon} ${a.title}: ${a.entries.map((e) => `${nm(e.userId)} (${e.value}${process.env.RECAP_DETAIL && e.detail ? '; ' + e.detail : ''})`).join(' | ')}`)
   return 0
 }

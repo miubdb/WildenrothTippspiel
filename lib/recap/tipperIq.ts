@@ -1,4 +1,4 @@
-import { isSettled, modelProbability, type Slip } from '@/lib/recap/slips'
+import { isSettled, isExcludedBonus, modelProbability, type Slip } from '@/lib/recap/slips'
 
 /**
  * Tipper-IQ V1.0 — „ein spielerischer Qualitätsindex, kein wissenschaftliches Maß".
@@ -127,7 +127,7 @@ export const scoreFromZ = (z: number): number => 100 * normalCdf(z / 2)
  *  Spieltag bekannt. Stornierte/offene/neutralisierte Scheine fallen über den Status heraus. */
 export function isIqEligibleSlip(s: Slip, opts: Pick<IqOptions, 'excludePartiallyNeutralized'> = {}): boolean {
   if (!isSettled(s)) return false
-  if (s.isBonus) return false
+  if (isExcludedBonus(s)) return false
   if (s.ownerMatchday == null) return false
   if (s.legs.some((l) => l.marketType === 'matchday_special')) return false
   const active = s.legs.filter((l) => l.status !== 'neutralized' && l.status !== 'void')

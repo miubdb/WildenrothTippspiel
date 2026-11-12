@@ -1,4 +1,4 @@
-import { isSettled, type Slip, type RecapMatchRow } from '@/lib/recap/slips'
+import { isSettled, isExcludedBonus, type Slip, type RecapMatchRow } from '@/lib/recap/slips'
 import type { TipperIqResult } from '@/lib/recap/tipperIq'
 import { computeOptimists, computeWildenrothRecords } from '@/lib/recap/wildenrothStance'
 import {
@@ -27,6 +27,26 @@ export interface AwardResult {
   rule: string
   /** Gewinner zuerst, danach bis zu zwei Plätze dahinter. */
   entries: AwardEntry[]
+  /** Normale Leitfrage in Alltagssprache (steht in der Oberfläche statt der technischen `rule`). */
+  question?: string
+  /** Kombi-Pech: der bitterste einzelne Schein (nur ein Tipp fehlte, höchster entgangener Nettogewinn). */
+  bitterest?: { userId: string; slipKey: string; legs: number; odds: number; stake: number; missedNet: number; matchday: number | null }
+  /** Zweite Perspektive im selben Award (Hall der Schande: Häufigkeit statt Gewinn). */
+  second?: { title: string; question: string; entries: AwardEntry[] }
+  /** true = erscheint im öffentlichen Winter-Recap; false = wird nur intern berechnet (Video, Feier, andere Recaps). */
+  public?: boolean
+}
+
+/** Öffentliche Auswahl des Winter-Recaps in Anzeigereihenfolge. Alles andere bleibt intern verfügbar. */
+export const PUBLIC_AWARD_KEYS = ['wildi_magnet', 'hall_der_ehre', 'hall_der_schande', 'senkrechtstarter', 'einzelwetten_meister', 'aussenseiter_jaeger', 'kombi_pech'] as const
+export const AWARD_QUESTIONS: Record<string, string> = {
+  wildi_magnet: 'Wer hat mit seinen Wetten am meisten Wildis verdient?',
+  hall_der_ehre: 'Wer hat die meisten Wildenroth-Spiele auf Sieg getippt – und nie gegen den Verein gewettet?',
+  hall_der_schande: 'Wer hat mit Wetten gegen Wildenroth am meisten gewonnen?',
+  senkrechtstarter: 'Wer ist in der Rangliste am stärksten nach oben geklettert?',
+  einzelwetten_meister: 'Wer hat mit Einzelwetten am meisten verdient?',
+  aussenseiter_jaeger: 'Wer hat am häufigsten schwierige Quoten (5,00 und höher) getroffen?',
+  kombi_pech: 'Wen hat es mit Kombis am häufigsten um einen einzigen Tipp erwischt?',
 }
 
 const wildi = (n: number) => `${n >= 0 ? '+' : '−'}${Math.abs(n).toLocaleString('de-DE', { maximumFractionDigits: 0 })} Wildis`
@@ -80,13 +100,15 @@ export function computeHalbzeitAwards(inp: AwardInput): AwardResult[] {
   const singleNet = new Map<string, { n: number; net: number }>()
   for (const s of settled.filter((x) => x.kind === 'single')) { const e = singleNet.get(s.userId) ?? { n: 0, net: 0 }; e.n++; e.net += s.net; singleNet.set(s.userId, e) }
   const sk = [...singleNet.entries()].filter(([, e]) => e.n >= 8 && e.net > 0).sort((a, b) => b[1].net - a[1].net)
-  add({ key: 'einzelwetten_profi', title: 'Einzelwetten-Profi', icon: '🎯', kind: 'main', rule: 'Höchstes GESAMT-Netto aus allen abgerechneten Einzelwetten zusammen (Summe, nicht ein einzelner Schein; mind. 8 Einzelwetten)',
-    entries: top(sk, 3, ([userId, e]) => ({ userId, value: wildi(e.net), detail: `Summe aus ${e.n} Einzelwetten` })) })
-  const bigSingles = settled.filter((x) => x.kind === 'single' && x.status === 'won' && !x.isBonus && !x.legs.some((l) => l.marketType === 'matchday_special')).sort((a, b) => b.net - a.net)
+  const bigSingles0 = settled.filter((x) => x.kind === 'single' && x.status === 'won' && !isExcludedBonus(x) && !x.legs.some((l) => l.marketType === 'matchday_special'))
+  const bestSingleOf = (u: string) => bigSingles0.filter((x) => x.userId === u).sort((a, b) => b.net - a.net)[0]
+  add({ key: 'einzelwetten_meister', title: 'Einzelwetten-Meister', icon: '🎯', kind: 'main', rule: 'Höchstes GESAMT-Netto aus allen abgerechneten Einzelwetten zusammen (Summe, nicht ein einzelner Schein; mind. 8 Einzelwetten). Der beste einzelne Schein des Siegers steht als Zusatz dabei; der größte Einzelwetten-Treffer der Community wird separat berechnet.',
+    entries: top(sk, 3, ([userId, e]) => { const b = bestSingleOf(userId); return { userId, value: wildi(e.net), detail: `aus ${e.n} Einzelwetten${b ? ` · bester Schein ${wildi(b.net)} (Quote ${b.odds.toFixed(2).replace('.', ',')})` : ''}` } }) })
+  const bigSingles = settled.filter((x) => x.kind === 'single' && x.status === 'won' && !isExcludedBonus(x) && !x.legs.some((l) => l.marketType === 'matchday_special')).sort((a, b) => b.net - a.net)
   add({ key: 'groesster_einzeltreffer', title: 'Größter Einzelwetten-Treffer', icon: '💎', kind: 'fun', rule: 'Höchster Nettogewinn EINES gewonnenen Einzelwettscheins (Auszahlung − Einsatz)',
     entries: top(bigSingles, 3, (x) => ({ userId: x.userId, value: wildi(x.net), detail: `Quote ${x.odds.toFixed(2).replace('.', ',')} · Einsatz ${n0(x.stake)} · Spieltag ${x.ownerMatchday}` })) })
 
-  const bigCombos = settled.filter((x) => x.kind === 'combo' && x.status === 'won' && !x.isBonus && !x.legs.some((l) => l.marketType === 'matchday_special')).sort((a, b) => b.net - a.net)
+  const bigCombos = settled.filter((x) => x.kind === 'combo' && x.status === 'won' && !isExcludedBonus(x) && !x.legs.some((l) => l.marketType === 'matchday_special')).sort((a, b) => b.net - a.net)
   add({ key: 'groesster_kombitreffer', title: 'Größter Kombi-Treffer', icon: '🏆', kind: 'fun', rule: 'Höchster Nettogewinn EINES gewonnenen Kombischeins (Auszahlung − Einsatz). Der Jackpot-König bewertet dagegen die Gesamtleistung eines Kombischeins und kann davon abweichen.',
     entries: top(bigCombos, 3, (x) => ({ userId: x.userId, value: wildi(x.net), detail: `${x.legs.length} Legs · Quote ${x.odds.toFixed(2).replace('.', ',')} · Einsatz ${n0(x.stake)} · Spieltag ${x.ownerMatchday}` })) })
 
@@ -104,18 +126,22 @@ export function computeHalbzeitAwards(inp: AwardInput): AwardResult[] {
   const loyal = [...wr.values()].filter((r) => r.win.matches >= 5 && r.against.legs === 0)
     .sort((a, b) => b.win.matches - a.win.matches || b.win.legsHit - a.win.legsHit)
   add({ key: 'hall_der_ehre', title: 'Hall der Ehre', icon: '💚', kind: 'main', rule: 'Meiste VERSCHIEDENE Wildenroth-Spiele (I + II) mit mind. einem Siegtipp (Einzelwette oder Kombi-Leg), ohne je eine Gegenwette; wiederholte gleiche Tipps zählen nicht mehrfach (mind. 5 Spiele). Die Zahl aller Siegtipps steht daneben.',
-    entries: top(loyal, 3, (r) => ({ userId: r.userId, rankKey: `${r.win.matches}|${r.win.legsHit}`, value: `${r.win.matches} Spiele mit Siegtipp`, detail: `${r.win.legs} Siegtipps insgesamt · ${r.win.legsHit} davon aufgegangen · von ${wMatchIds.size} Wildenroth-Spielen mit Tipps · ${r.supportive.legs} weitere Pro-Tipps (z. B. Torschützen)` })) })
+    entries: top(loyal, 3, (r) => ({ userId: r.userId, rankKey: `${r.win.matches}|${r.win.legsHit}`, value: `${r.win.matches} verschiedene Spiele`, detail: `auf Sieg getippt (insgesamt ${r.win.legs} Siegtipps, ${r.win.legsHit} davon aufgegangen) · von ${wMatchIds.size} Wildenroth-Spielen · dazu ${r.supportive.legs} weitere Pro-Tipps wie Torschützen` })) })
   const traitors = [...wr.values()].filter((r) => r.against.legsHit >= 1 && r.againstBalance > 0).sort((a, b) => b.againstBalance - a.againstBalance)
   add({ key: 'hall_der_schande', title: 'Hall der Schande', icon: '😈', kind: 'main', rule: 'Höchster Gesamtsaldo aus Wetten GEGEN Wildenroth I/II (Gegner-Sieg, Doppelte Chance ohne Wildenroth-Sieg, Gegner-Handicap, Ergebnis mit Gegner-Sieg), inkl. erfolgloser Gegenwetten; mind. ein aufgegangener Gegen-Tipp. Unentschieden und neutrale Torwetten zählen nicht. Kombi-Anteile sind rechnerisch zugeordnet.',
-    entries: top(traitors, 3, (r) => ({ userId: r.userId, value: wildi(r.againstBalance), detail: `direkt (Einzelwetten) ${wildi(r.against.directNet)} · rechnerisch aus Kombis zugeordnet ${wildi(r.against.attributedComboNet)} · ${r.against.legsHit}/${r.against.legs} Gegen-Tipps aufgegangen` })) })
+    entries: top(traitors, 3, (r) => ({ userId: r.userId, value: wildi(r.againstBalance), detail: `direkt (Einzelwetten) ${wildi(r.against.directNet)} · rechnerisch aus Kombis zugeordnet ${wildi(r.against.attributedComboNet)} · ${r.against.legsHit} von ${r.against.legs} Gegen-Tipps aufgegangen` })),
+    second: { title: 'Die meisten Gegenwetten', question: 'Wer hat am häufigsten gegen Wildenroth gewettet?',
+      entries: [...wr.values()].filter((r) => r.against.legs > 0).sort((a, b) => b.against.legs - a.against.legs || b.against.matches - a.against.matches || b.againstBalance - a.againstBalance).slice(0, 3).map((r) => ({ userId: r.userId, rankKey: `${r.against.legs}|${r.against.matches}`, value: `${r.against.legs} Gegen-Tipps`, detail: `auf ${r.against.matches} verschiedene Spiele · ${r.against.legsHit} aufgegangen · Saldo ${wildi(r.againstBalance)} (direkt ${wildi(r.against.directNet)}, aus Kombis zugeordnet ${wildi(r.against.attributedComboNet)})` })) } })
 
   // 8 Kombi-Fluch – meiste „nur ein Tipp falsch"-Kombis (≥ 3 Legs)
   const nm = findNearMisses(slips)
   const curse = new Map<string, { n: number; potential: number }>()
   for (const m of nm) { const e = curse.get(m.slip.userId) ?? { n: 0, potential: 0 }; e.n++; e.potential += m.potentialNet; curse.set(m.slip.userId, e) }
   const cl = [...curse.entries()].filter(([, e]) => e.n >= 3).sort((a, b) => b[1].n - a[1].n || b[1].potential - a[1].potential)
-  add({ key: 'kombi_fluch', title: 'Kombi-Fluch', icon: '💔', kind: 'main', rule: 'Meiste verlorene Kombis (≥ 3 Legs), bei denen genau EIN Tipp gefehlt hat und alle anderen aufgingen (mind. 3) – „knapp gescheitert"',
-    entries: top(cl, 3, ([userId, e]) => ({ userId, value: `${e.n}× knapp daneben`, detail: `entgangener Nettogewinn zusammen ${n0(e.potential)} Wildis (Auszahlung gedeckelt, abzüglich Einsatz)` })) })
+  const bitter = nm.filter((m) => !excluded.has(m.slip.userId))[0]
+  add({ key: 'kombi_pech', title: 'Kombi-Pech', icon: '💔', kind: 'main', rule: 'Meiste verlorene Kombis (≥ 3 Legs), bei denen genau EIN Tipp gefehlt hat und alle anderen aufgingen (mind. 3). Zusatz: der bitterste einzelne Schein (höchster entgangener Nettogewinn). Die „Kombi-Flaute" (Kombis ohne einen Gewinn) wird intern separat berechnet.',
+    entries: top(cl, 3, ([userId, e]) => ({ userId, value: `${e.n}× knapp daneben`, detail: `dabei ${n0(e.potential)} Wildis Nettogewinn verpasst` })),
+    bitterest: bitter ? { userId: bitter.slip.userId, slipKey: bitter.slip.key, legs: bitter.legsTotal, odds: bitter.slip.odds, stake: bitter.slip.stake, missedNet: bitter.potentialNet, matchday: bitter.slip.matchday } : undefined })
   const flaute = winlessComboStreakers(settled, excluded)
   add({ key: 'kombi_flaute', title: 'Kombi-Flaute', icon: '🥶', kind: 'fun', rule: 'Meiste verlorene Kombis OHNE einen einzigen Kombi-Gewinn (mind. 10 abgerechnete Kombis) – eigenständig vom Kombi-Fluch: dort zählt das knappe Scheitern, hier die Dauerflaute',
     entries: top(flaute, 3, (x) => ({ userId: x.userId, value: `${x.lost} Kombis, 0 gewonnen`, detail: `${n0(x.stakeLost)} Wildis Kombi-Einsatz verloren` })) })
@@ -177,6 +203,7 @@ export function computeHalbzeitAwards(inp: AwardInput): AwardResult[] {
   const tragic = nm
   add({ key: 'tragischster_beinahe_gewinn', title: 'Tragischster Beinahe-Gewinn', icon: '😭', kind: 'fun', rule: 'Verlorene Kombi (≥ 3 Legs) mit nur einem falschen Tipp und dem höchsten entgangenen NETTOgewinn (gedeckelte Auszahlung − Einsatz)',
     entries: top(tragic, 3, (m) => ({ userId: m.slip.userId, value: `${n0(m.potentialNet)} Wildis Nettogewinn verpasst`, detail: `${m.legsTotal} Legs · Einsatz ${n0(m.slip.stake)} · Quote ${m.slip.odds.toFixed(2).replace('.', ',')} · mögliche Auszahlung ${n0(m.potentialPayout)} · Spieltag ${m.slip.matchday}` })) })
+  for (const a of out) { a.public = (PUBLIC_AWARD_KEYS as readonly string[]).includes(a.key); a.question = AWARD_QUESTIONS[a.key] }
   return out
 }
 

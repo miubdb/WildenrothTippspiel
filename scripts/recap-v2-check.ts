@@ -4,7 +4,7 @@
  * Gegen echte Produktivdaten läuft dieselbe Logik über die Analyse im Recap-Bericht
  * (docs/recap-v2.md beschreibt die Gegenprobe).
  */
-import { buildSlips, isSettled, type RecapBetRow, type RecapComboRow, type RecapMatchRow, type Slip } from '@/lib/recap/slips'
+import { buildSlips, INCLUDE_CUP_BONUS_SLIPS, isSettled, type RecapBetRow, type RecapComboRow, type RecapMatchRow, type Slip } from '@/lib/recap/slips'
 import {
   computeOverlapWeights, computeTipperIqRanking, computeUserIq, exactZ, normalCdf, normalInv, scoreFromZ,
   isIqEligibleSlip, IQ_MIN_SLIPS, IQ_MIN_MATCHDAYS, IQ_WEIGHTS_DEFAULT, IQ_ALT_WEIGHTS, probSumAtLeast,
@@ -13,7 +13,9 @@ import { classifyStance, computeWildenrothRecords, computeOptimists } from '@/li
 import { breakdownSlips, findNearMisses, longestStreaks, computeTrajectories, bestComebacks, nightOwlStats, berlinHour, latestSlips, findIdenticalWins, winlessComboStreakers, findComboKillers, findOneGoalShort, mondayMorningStats, biggestNetLosers, validateSettleReproduction } from '@/lib/recap/hinrundeStats'
 import { canViewRecapReport, computeRangeReadiness, recapVisibility } from '@/lib/recap/availability'
 import { buildRecapReport } from '@/lib/recap/report'
-import { computeHalbzeitAwards } from '@/lib/recap/halbzeitAwards'
+import { computeHalbzeitAwards, PUBLIC_AWARD_KEYS } from '@/lib/recap/halbzeitAwards'
+import { buildCommunityBestTips, buildPersonalTips } from '@/lib/recap/bestTips'
+import { isPreviewEnvironment, simulateSpieltag } from '@/lib/recap/simulation'
 
 let errors = 0
 let checks = 0
@@ -114,7 +116,8 @@ test('Determinismus: zweimal gerechnet identisch', JSON.stringify(computeTipperI
   const neutralOnly = { ...base[2], key: 'neut', legs: [{ ...base[2].legs[0], status: 'neutralized' as const }] }
   const pending = { ...base[3], key: 'pend', status: 'pending' as const }
   const voided = { ...base[4], key: 'void', status: 'void' as const }
-  test('Bonus, Spieltags-Special, rein neutralisierte, offene und stornierte Scheine zählen nicht', [bonus, special, neutralOnly, pending, voided].every((s) => !isIqEligibleSlip(s)))
+  test('Spieltags-Special, rein neutralisierte, offene und stornierte Scheine zählen nicht', [special, neutralOnly, pending, voided].every((s) => !isIqEligibleSlip(s)))
+  test('Pokal-Bonus-Schein (is_bonus) zählt seit der Pokal-Entscheidung wie jeder andere abgerechnete Schein', INCLUDE_CUP_BONUS_SLIPS && isIqEligibleSlip(bonus))
   test('Verlorene reguläre Wette zählt', isIqEligibleSlip(base[1]) )
   test('Teil-neutralisierte Kombi (Rest aktiv) zählt standardmäßig', isIqEligibleSlip({ ...base[5], legs: [base[5].legs[0], { ...base[5].legs[0], status: 'neutralized' }] }))
   test('…lässt sich für den Sensitivitätstest ausschließen', !isIqEligibleSlip({ ...base[5], legs: [base[5].legs[0], { ...base[5].legs[0], status: 'neutralized' }] }, { excludePartiallyNeutralized: true }))
@@ -297,6 +300,94 @@ test('berlinHour liefert Zahlen (kein NaN), Sommer-/Winterzeit', berlinHour(Date
   const aw = computeHalbzeitAwards({ rangeSlips: sl, allSlips: sl, matches, iq: [], range: { from: 1, to: 15 }, excluded: new Set() })
   const v = aw.find((x) => x.key === 'wildi_vernichter')
   test('Wildi-Vernichter: Basis wie Wildi-Magnet inkl. Bonus (a1 −90+60 = −30, a2–a5 je −90 gleichauf und alle gezeigt)', !!v && v.entries.length === 4 && v.entries.every((e) => e.value === v.entries[0].value) && !v.entries.some((e) => e.userId === 'a1'))
+}
+
+// ── 10. Winter-Recap: Pokal, persönliche Tipps, Beste Tipps, Schande-Perspektiven, Fakten, Simulation ──────────
+const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: string) => m, selectionLabel: (_m: string, sel: string) => sel }
+{
+  bets.length = 0; combos.length = 0
+  const cup = addMatch(700, 7, 9, { competition_type: 'cup', home_team_id: 14, away_team_id: 9, home_score: 1, away_score: 4 })
+  const lg = addMatch(701, 7, 10)
+  bet('p1', cup, { market_type: 'cup_early_goal', selection: 'yes', odds_value: 1.7, stake: 50, status: 'won', payout: 85 })
+  bet('p2', cup, { market_type: 'cup_ht_more_goals', selection: 'h2', odds_value: 1.8, stake: 100, status: 'lost', is_bonus: true })
+  combo('p3', [{ matchId: cup, odds: 6.5, status: 'lost', market: 'cup_comeback_advance', selection: 'yes' }, { matchId: lg, odds: 2, status: 'won' }], 10, 'lost')
+  const sl = buildSlips({ bets, combos, matches }).slips
+  test('Pokalspiel (competition_type cup) wird dem Recap-Spieltag zugeordnet und fällt nicht heraus', sl.length === 3 && sl.every((x) => x.ownerMatchday === 7))
+  test('Pokal-Bonus-Schein zählt in Netto und IQ-Eignung wie jeder andere abgerechnete Schein', sl.filter((x) => x.isBonus).length === 1 && isIqEligibleSlip(sl.find((x) => x.isBonus) as Slip) && sl.find((x) => x.isBonus)?.net === -100)
+  test('Pokal-Zusatzmärkte (cup_*) sind regulär bewertbar, kein Special-Ausschluss', sl.every((x) => isIqEligibleSlip(x)))
+  const rec = computeWildenrothRecords(sl, matches, 'I').get('p1')
+  test('Pokal-Zusatzmärkte sind für Hall der Ehre/Schande neutral (weder Sieg- noch Gegentipp)', !rec || (rec.win.legs === 0 && rec.against.legs === 0))
+}
+{
+  bets.length = 0; combos.length = 0
+  const m1 = addMatch(710, 3, 3), m2 = addMatch(711, 3, 4), m3 = addMatch(712, 3, 5)
+  bet('me', m1, { odds_value: 4, stake: 10, status: 'won', payout: 40 })
+  combo('me', [{ matchId: m1, odds: 2, status: 'won' }, { matchId: m2, odds: 3, status: 'won' }, { matchId: m3, odds: 2, status: 'won' }], 20, 'won')
+  combo('me', [{ matchId: m1, odds: 2, status: 'won' }, { matchId: m2, odds: 2, status: 'won' }, { matchId: m3, odds: 9, status: 'lost' }], 20, 'lost')
+  bet('other', m2, { odds_value: 50, stake: 10, status: 'won', payout: 500, selection: 'away' })
+  bet('none', m3, { status: 'lost' })
+  const all = buildSlips({ bets, combos, matches }).slips
+  const pt = buildPersonalTips(all, all, 'me', labeler)
+  const keys = [pt.best, ...pt.extras.map((e) => e.card)].filter(Boolean).map((c) => (c as { userId: string }).userId)
+  test('Mein bester Tipp: nur eigene Scheine, nie die eines anderen Tippers (auch wenn dessen Schein besser ist)', !!pt.best && keys.every((u) => u === 'me'))
+  test('Mein bester Tipp: keine doppelten Karten, knappster verpasster Gewinn separat ausgewiesen', new Set([pt.best?.slipKey, ...pt.extras.map((e) => e.card.slipKey)]).size === 1 + pt.extras.length && pt.extras.some((e) => e.label.includes('verpasst')))
+  const none = buildPersonalTips(all, all, 'none', labeler)
+  test('Mein bester Tipp: ohne gewonnenen Schein keine erzwungene Karte', none.best === null && none.extras.length === 0 && none.settledSlips === 1 && none.wonSlips === 0)
+  test('Persönliche Auswertung eines Nutzers ohne Scheine ist leer, nicht fehlerhaft', buildPersonalTips(all, all, 'ghost', labeler).best === null)
+  const bt = buildCommunityBestTips(all, all, new Set(), labeler)
+  test('Beste Tipps: mutigster Treffer wiederholt nie den Schein der besten Einzelwette/Kombi', !bt.bold || (bt.bold.slipKey !== bt.single?.slipKey && bt.bold.slipKey !== bt.combo?.slipKey))
+  test('Beste Tipps: Karte enthält Einsatz, Auszahlung und Netto korrekt (Netto = Auszahlung − Einsatz)', !!bt.single && Math.abs(bt.single.net - (bt.single.payout - bt.single.stake)) < 1e-9)
+}
+{
+  // Hall der Schande: Häufigkeit und Gewinn sind zwei Perspektiven desselben Awards
+  bets.length = 0; combos.length = 0
+  const mw = [addMatch(720, 4, 3, { home_team_id: 14, away_team_id: 9, home_score: 0, away_score: 2 }), addMatch(721, 4, 4, { home_team_id: 14, away_team_id: 8, home_score: 0, away_score: 1 }), addMatch(722, 4, 5, { home_team_id: 14, away_team_id: 7, home_score: 3, away_score: 0 }), addMatch(723, 4, 6, { home_team_id: 40, away_team_id: 6, home_score: 0, away_score: 1 })]
+  for (const id of mw) bet('often', id, { selection: 'away', odds_value: 1.2, stake: 10, status: id === 722 ? 'lost' : 'won', payout: id === 722 ? 0 : 12 })
+  bet('rich', mw[0], { selection: 'away', odds_value: 3, stake: 100, status: 'won', payout: 300 })
+  bet('loyal', mw[0], { selection: 'home', status: 'lost' })
+  const sl = buildSlips({ bets, combos, matches }).slips
+  const aw = computeHalbzeitAwards({ rangeSlips: sl, allSlips: sl, matches, iq: [], range: { from: 1, to: 15 }, excluded: new Set() })
+  const sh = aw.find((x) => x.key === 'hall_der_schande')
+  test('Hall der Schande: größter Gewinn (rich, +200) und häufigste Gegenwetten (often, 4 Gegen-Tipps auf 4 Spiele) sind zwei Perspektiven', !!sh && sh.entries[0].userId === 'rich' && sh.second?.entries[0].userId === 'often' && /4 Gegen-Tipps/.test(sh.second.entries[0].value) && /4 verschiedene Spiele/.test(sh.second.entries[0].detail ?? ''))
+  test('Hall der Schande: Häufigkeitsliste zeigt höchstens 3 Einträge', (sh?.second?.entries.length ?? 0) <= 3)
+  const eh = aw.find((x) => x.key === 'hall_der_ehre')
+  test('Öffentliche Auswahl: nur 7 definierte Awards, Stehaufmännchen/Montagmorgen/Flaute bleiben intern', PUBLIC_AWARD_KEYS.length === 7 && !(PUBLIC_AWARD_KEYS as readonly string[]).some((k) => ['stehaufmaennchen', 'montagmorgen_manager', 'kombi_flaute', 'jackpot_koenig'].includes(k)) && aw.every((x) => x.public === (PUBLIC_AWARD_KEYS as readonly string[]).includes(x.key)) && eh === undefined)
+}
+{
+  // „Ein Tor fehlte": Gesamtzahl vollständig, Beispiele gekürzt
+  bets.length = 0; combos.length = 0
+  const a = addMatch(730, 5, 3, { home_score: 1, away_score: 1 }), b = addMatch(731, 5, 4, { home_score: 2, away_score: 0 })
+  for (let i = 0; i < 6; i++) combo(`u${i}`, [{ matchId: a, odds: 2, status: 'lost', selection: 'home' }, { matchId: b, odds: 2, status: 'won' }], 10, 'lost')
+  const sl = buildSlips({ bets, combos, matches }).slips
+  const rep = buildRecapReport({ allSlips: sl, matches, range: { from: 1, to: 16 }, profiles: [] })
+  test('Ein Tor fehlte: Gesamtzahl bleibt vollständig (6), angezeigt werden nur 2 Beispiele', rep.facts.oneGoalShort.total === 6 && rep.facts.oneGoalShort.examples.length === 2 && rep.facts.comboKillers.singleBlockerCombos === 6)
+}
+{
+  // Simulation: ändert nichts an den Eingaben, schließt Spieltag 16 nur im Speicher ab; reguläre Prüfung bleibt streng
+  matches.length = 0; bets.length = 0; combos.length = 0
+  const fin = addMatch(800, 15, 1)
+  const sc = [addMatch(801, 16, 20, { status: 'scheduled', home_score: null, away_score: null }), addMatch(802, 16, 21, { status: 'scheduled', home_score: null, away_score: null })]
+  bet('s1', fin, { status: 'won', payout: 20 }); bet('s1', sc[0], { status: 'pending', payout: null }); bet('s2', sc[1], { status: 'pending', payout: null, market_type: 'goalscorer', selection: '5' })
+  combo('s3', [{ matchId: sc[0], odds: 2, status: 'won' }, { matchId: sc[1], odds: 2, status: 'won' }], 10, 'lost')
+  for (const b of bets.filter((x) => x.match_id != null && sc.includes(x.match_id))) b.status = 'pending'
+  combos[combos.length - 1].status = 'pending'; combos[combos.length - 1].payout = null
+  const before = JSON.stringify({ matches, bets, combos })
+  const real = computeRangeReadiness(matches, bets, 15, 16)
+  const sim = simulateSpieltag({ matches, bets, combos }, 16)
+  test('Simulation verändert die Eingabedaten nicht (reine Funktion, keine Schreibzugriffe)', JSON.stringify({ matches, bets, combos }) === before)
+  test('Reguläre Bereitschaft bleibt streng: ohne Simulation ist Spieltag 16 NICHT bereit', !real.ready)
+  const simReady = computeRangeReadiness(sim.matches, sim.bets, 15, 16)
+  test('Mit Simulation sind alle Spiele beendet, keine Wette offen → dieselbe Prüfung meldet „bereit"', simReady.ready && sim.bets.every((x) => x.status !== 'pending') && sim.combos.every((x) => x.status !== 'pending') && sim.simulatedMatchIds.length === 2)
+  test('Simulation ist deterministisch (gleiche Testwerte bei jedem Aufruf)', JSON.stringify(simulateSpieltag({ matches, bets, combos }, 16)) === JSON.stringify(sim))
+  test('Simulierte Auszahlungen sind konsistent (gewonnen → Einsatz × Quote, verloren → 0)', sim.bets.filter((x) => x.combo_id == null && x.match_id != null && sc.includes(x.match_id)).every((x) => (x.status === 'won' ? Math.abs((x.payout ?? 0) - Number(x.stake) * Number(x.odds_value)) < 1e-6 : x.payout === 0)))
+  const saved = { v: process.env.VERCEL_ENV, n: process.env.NODE_ENV }
+  const env = process.env as Record<string, string | undefined>
+  env.VERCEL_ENV = 'production'; env.NODE_ENV = 'development'
+  const prodOff = !isPreviewEnvironment()
+  env.VERCEL_ENV = 'preview'
+  const prevOn = isPreviewEnvironment()
+  env.VERCEL_ENV = saved.v; env.NODE_ENV = saved.n
+  test('Simulation ist in Production nie aktiv (VERCEL_ENV=production sperrt, auch bei NODE_ENV=development), in Preview erlaubt', prodOff && prevOn)
 }
 
 // ── 8. Gesamtbericht, Datenschutz ─────────────────────────────────────────────────────────
