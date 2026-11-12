@@ -30,8 +30,10 @@ const STYLE = `
 .rc-snowcap::before{content:"";position:absolute;left:10px;right:10px;top:-5px;height:9px;border-radius:9px 9px 6px 6px;background:linear-gradient(#fff,#f1f8ff);box-shadow:0 1px 2px rgba(11,31,68,.18)}
 .dark .rc-snowcap::before{background:linear-gradient(#f4faff,#dcecfa);box-shadow:0 1px 3px rgba(0,0,0,.4)}
 .rc-star{animation:rc-twinkle 3.6s ease-in-out infinite}
+@keyframes rc-bob{0%{transform:translateY(0) rotate(-3deg)}100%{transform:translateY(-3px) rotate(3deg)}}
+.rc-bob{animation:rc-bob 4.6s ease-in-out infinite alternate;transform-origin:50% 80%}
 details>summary::-webkit-details-marker{display:none}
-@media (prefers-reduced-motion:reduce){.rc-flake,.rc-star{animation:none}.rc-flake{opacity:.6;top:var(--y,20%)}}
+@media (prefers-reduced-motion:reduce){.rc-flake,.rc-star,.rc-bob{animation:none}.rc-flake{opacity:.6;top:var(--y,20%)}}
 `
 const FLAKES = Array.from({ length: 18 }, (_, i) => ({ left: (i * 37 + 7) % 100, size: i % 3 === 0 ? 9 + ((i * 5) % 8) : 6 + (i % 4), d: 9 + ((i * 3) % 8), s: -((i * 1.7) % 12), dx: ((i % 2) * 2 - 1) * (10 + (i % 4) * 6), y: (i * 13) % 80, ch: i % 3 === 0 ? '❄' : '•', op: 0.35 + ((i * 7) % 5) / 10 }))
 
@@ -58,17 +60,34 @@ function Snowman({ className = '' }: { className?: string }) {
   )
 }
 
-/** Wildi-Coin mit kleiner Weihnachtsmütze. */
-function WildiCoin({ size = 30 }: { size?: number }) {
+export type CoinDeco = 'hat' | 'snowcap' | 'scarf'
+
+/** Wildi-Coin (vorhandenes Design) mit winterlicher Dekoration: Weihnachtsmütze, Schneehaube oder Schal. */
+function WildiCoin({ size = 30, deco = 'hat', bob = false, className = '' }: { size?: number; deco?: CoinDeco; bob?: boolean; className?: string }) {
   return (
-    <span className="relative inline-block flex-shrink-0" style={{ width: size, height: size }} aria-hidden>
+    <span className={`relative inline-block flex-shrink-0 ${bob ? 'rc-bob' : ''} ${className}`} style={{ width: size, height: size }} aria-hidden>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/wildi-coin.png" alt="" width={size} height={size} className="h-full w-full object-contain" />
-      <svg viewBox="0 0 40 30" className="absolute" style={{ width: size * 0.72, left: -size * 0.12, top: -size * 0.34, transform: 'rotate(-18deg)' }}>
-        <path d="M3 26 Q6 6 28 4 Q22 14 36 22 Q38 26 34 27 Z" fill="#d7263d" />
-        <rect x="1.5" y="22.5" width="35" height="6" rx="3" fill="#fff" />
-        <circle cx="29" cy="5" r="4" fill="#fff" />
-      </svg>
+      <img src="/wildi-coin.png" alt="" width={size} height={size} className="h-full w-full object-contain drop-shadow-sm" />
+      {deco === 'hat' && (
+        <svg viewBox="0 0 40 30" className="absolute" style={{ width: size * 0.72, left: -size * 0.12, top: -size * 0.34, transform: 'rotate(-18deg)' }}>
+          <path d="M3 26 Q6 6 28 4 Q22 14 36 22 Q38 26 34 27 Z" fill="#d7263d" />
+          <rect x="1.5" y="22.5" width="35" height="6" rx="3" fill="#fff" />
+          <circle cx="29" cy="5" r="4" fill="#fff" />
+        </svg>
+      )}
+      {deco === 'snowcap' && (
+        <svg viewBox="0 0 40 20" className="absolute" style={{ width: size * 0.86, left: size * 0.07, top: -size * 0.22 }}>
+          <path d="M3 17 Q5 3 20 2 Q35 3 37 17 Q33 12 29 17 Q25 11 21 17 Q17 11 13 17 Q9 12 3 17Z" fill="#fff" stroke="#bcd9ee" strokeWidth="0.8" />
+          <circle cx="12" cy="8" r="1" fill="#cfe3f4" /><circle cx="26" cy="7" r="1.2" fill="#cfe3f4" />
+        </svg>
+      )}
+      {deco === 'scarf' && (
+        <svg viewBox="0 0 40 46" className="absolute" style={{ width: size * 0.92, left: size * 0.04, top: size * 0.52 }}>
+          <path d="M2 4 Q20 16 38 4 L37 12 Q20 24 3 12Z" fill="#2a7fc4" />
+          <path d="M9 8.5 L8.5 15.5 M17 11 L16.6 18 M25 11 L25.2 18 M32 8.5 L32.6 15.5" stroke="#e3f1fc" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M27 17 L35 15 L37 33 L29 35Z" fill="#2a7fc4" /><path d="M28.2 25 L36.2 23" stroke="#e3f1fc" strokeWidth="1.6" /><path d="M29 32 L37 30" stroke="#e3f1fc" strokeWidth="1.6" />
+        </svg>
+      )}
     </span>
   )
 }
@@ -79,10 +98,11 @@ function Avatar({ name, url, size = 28 }: { name: string; url: string | null; si
   return <span className="rounded-full bg-[#d7ebfa] text-[#0b3a6b] dark:bg-[#12315f] dark:text-[#bfe3fb] font-black flex items-center justify-center flex-shrink-0 ring-2 ring-[#bfe3fb] dark:ring-white/20" style={{ width: size, height: size, fontSize: size * 0.42 }}>{name.slice(0, 1).toUpperCase()}</span>
 }
 
-function Section({ title, sub, icon = '❄', children }: { title: string; sub?: string; icon?: string; children: React.ReactNode }) {
+function Section({ title, sub, icon = '❄', deco, children }: { title: string; sub?: string; icon?: string; deco?: CoinDeco; children: React.ReactNode }) {
   return (
     <section className={`${CARD} rc-snowcap mt-1 pt-0.5`}>
-      <div className="px-4 pt-3.5 pb-1.5">
+      <div className={`px-4 pt-3.5 pb-1.5 ${deco ? 'pr-[4.2rem]' : ''}`}>
+        {deco && <div className="pointer-events-none absolute right-3.5 top-4"><WildiCoin deco={deco} size={38} bob /></div>}
         <h2 className="font-display text-[1.6rem] font-bold uppercase leading-tight tracking-wide"><span className={`${ACCENT} mr-1.5`} aria-hidden>{icon}</span>{title}</h2>
         {sub && <p className={`text-xs ${MUTED}`}>{sub}</p>}
       </div>
@@ -283,7 +303,7 @@ function Awards({ r }: { r: RecapReport }) {
     cards.push(<AwardCard key={k} a={a} r={r} entries={a.entries} title={a.title} icon={a.icon} line={line} />)
     if (k === 'hall_der_schande' && a.second && a.second.entries.length) cards.push(<AwardCard key="gegenwetten" a={a} r={r} entries={a.second.entries} title="Die meisten Gegenwetten" icon="🔁" line="Am häufigsten gegen Wildenroth gewettet – egal ob gewonnen oder verloren." />)
   }
-  return <Section title="Die Awards" sub="Gleichstand? Dann stehen alle Gewinner gleichwertig da."><div className={DIVIDE}>{cards}</div></Section>
+  return <Section title="Die Awards" sub="Gleichstand? Dann stehen alle Gewinner gleichwertig da." deco="snowcap"><div className={DIVIDE}>{cards}</div></Section>
 }
 
 function KillerMatchCard({ r, id, label, line }: { r: RecapReport; id: number; label: string; line: string }) {
@@ -302,7 +322,7 @@ function TeamHighlights({ r }: { r: RecapReport }) {
   const k = r.killers.killer, pr = r.killers.priciest
   const same = !!(k && pr && k.matchId === pr.matchId)
   return (
-    <Section title="Team-Highlights" icon="🏔️">
+    <Section title="Team-Highlights" icon="🏔️" deco="scarf">
       <div className={DIVIDE}>
         {t.mostBet.length > 0 && (
           <div className="px-4 py-3.5">
@@ -366,8 +386,9 @@ function IqSection({ r, myId }: { r: RecapReport; myId: string }) {
   const rest = rated.slice(5)
   const bar = (v: number, of: number) => <span className="mt-0.5 block h-1.5 rounded-full bg-white/70 dark:bg-white/10"><span className="block h-full rounded-full bg-[#2a7fc4] dark:bg-[#8fd3ff]" style={{ width: `${Math.min(100, (v / of) * 100)}%` }} /></span>
   return (
-    <Section title="Tipper-IQ" sub="Wer tippt am klügsten – nicht nur am glücklichsten?" icon="🧠">
+    <Section title="Tipper-IQ" sub="Wer tippt am klügsten – nicht nur am glücklichsten?" icon="🧠" deco="scarf">
       <div className="space-y-2.5 px-4 pb-3">
+        <p className="text-sm leading-snug"><b>Was ist der Tipper-IQ?</b> Er misst, wie klug du tippst: Wie oft hast du getroffen – verglichen damit, wie oft das bei diesen Quoten zu erwarten war? 50 Punkte = genau so viel wie erwartet, mehr = besser als der Zufall. Dein <b>persönlicher Wert</b> steht gleich darunter in „Deine Winterpause“.</p>
         <div className="flex items-start gap-2 rounded-xl border border-[#9fd0f2] bg-[#e3f1fc] px-3 py-2.5 text-sm font-semibold text-[#0b3a6b] dark:border-[#8fd3ff]/30 dark:bg-[#8fd3ff]/10 dark:text-[#cfeaff]">
           <span aria-hidden>ℹ️</span><span>Offizielle Wertung ab {IQ_MIN_SLIPS} abgerechneten Wettscheinen und {IQ_MIN_MATCHDAYS} aktiven Spieltagen.</span>
         </div>
@@ -451,9 +472,11 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
         </div>
       </div>
 
+      <IqSection r={r} myId={myId} />
+
       <Personal r={r} personal={personal} myId={myId} />
 
-      <Section title="Die besten Tipps der Hinrunde" sub="Für alle gleich – nicht nur nach Auszahlung bewertet." icon="🏆">
+      <Section title="Die besten Tipps der Hinrunde" sub="Für alle gleich – nicht nur nach Auszahlung bewertet." icon="🏆" deco="hat">
         <div className={DIVIDE}>
           {bt.single && <TipCardView c={bt.single} label="🎯 Beste Einzelwette" person={person} />}
           {bt.combo && <TipCardView c={bt.combo} label="👑 Beste Kombi" person={person} />}
@@ -464,7 +487,6 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
 
       <Awards r={r} />
       <TeamHighlights r={r} />
-      <IqSection r={r} myId={myId} />
 
       <details className={CARD}>
         <summary className={`cursor-pointer px-4 py-3 text-xs font-semibold ${MUTED}`}>Genaue Regeln</summary>
@@ -473,6 +495,11 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
           <ul className="space-y-1">{awardsForRules.map((a) => <li key={a.key}><b>{a.title}:</b> {a.rule}</li>)}</ul>
         </div>
       </details>
+
+      <div className="flex flex-col items-center gap-1.5 pb-2 pt-1" aria-hidden>
+        <div className="flex items-end gap-4"><WildiCoin deco="snowcap" size={34} bob /><WildiCoin deco="hat" size={40} bob className="-mb-0.5" /><WildiCoin deco="scarf" size={34} bob /></div>
+        <div className={`font-display text-sm uppercase tracking-[0.25em] ${MUTED}`}>Schöne Winterpause!</div>
+      </div>
     </div>
   )
 }
