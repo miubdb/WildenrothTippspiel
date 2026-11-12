@@ -352,7 +352,7 @@ export const SURVEY_SECTIONS: SectionDef[] = [
           Q4_WOULD_LEAVE,
           'Ich würde lieber kostenlos weiterspielen, wäre bei einem angemessenen Startgeld aber trotzdem dabei.',
           'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.',
-          'Beide Modelle wären für mich in Ordnung, solange das Startgeld angemessen ist.',
+          'Mir ist egal, ob die Teilnahme kostenlos ist oder ein angemessenes Startgeld kostet.',
           Q4_UNDECIDED,
         ],
       },
@@ -397,7 +397,9 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         text: 'Welche zusätzlichen Wettmärkte würdest du dir wünschen?',
         helpText: 'Wähle bis zu drei Märkte. Die Vorschläge werden nur umgesetzt, wenn die Ergebnisse zuverlässig verfügbar sind.',
         options: [
-          'Halbzeitergebnis', 'Halbzeit/Endstand', 'Tore einer bestimmten Mannschaft',
+          'Wer führt zur Halbzeit? (Heim / Unentschieden / Gast)',
+          'Halbzeit & Endstand kombiniert (z. B. zur Pause X, am Ende Heimsieg)',
+          'Tore eines Teams (z. B. Wildenroth I erzielt mindestens 2 Tore)',
           'Keine zusätzlichen Wettmärkte nötig', 'Kann ich nicht beurteilen',
         ],
         exclusiveOptions: ['Keine zusätzlichen Wettmärkte nötig', 'Kann ich nicht beurteilen'],
@@ -455,7 +457,6 @@ export const SURVEY_SECTIONS: SectionDef[] = [
           Q29_SATISFIED,
           Q29_OTHER,
         ],
-        exclusiveOptions: [Q29_SATISFIED],
       },
       {
         id: 'q29_text', type: 'freetext', required: false,
@@ -627,9 +628,8 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         visible: (a) => typeof a.q19 === 'string' && Q19_FOLLOWUP_TRIGGERS.includes(a.q19),
       },
       {
-        id: 'q30', type: 'single', required: true,
-        text: 'Angenommen, das Wildenroth-Wettspiel bleibt auch in der Saison 2027/28 kostenlos: Würdest du wieder teilnehmen?',
-        helpText: 'Ob ein mögliches Startgeld deine Entscheidung beeinflusst, hast du bereits im Abschnitt „Startgeld & Preise“ angegeben.',
+        id: 'q30_general', type: 'single', required: true,
+        text: 'Möchtest du in der Saison 2027/28 wieder beim Wildenroth-Wettspiel dabei sein?',
         options: ['Ja, auf jeden Fall', 'Eher ja', 'Ich bin noch unentschlossen', 'Eher nein', 'Nein, voraussichtlich nicht'],
       },
       {

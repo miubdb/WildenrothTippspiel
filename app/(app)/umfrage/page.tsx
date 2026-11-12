@@ -6,7 +6,7 @@ import {
   SURVEY_SECTIONS, visibleQuestionsForSection, isSurveyComplete, isRequired,
   type Answers, type QuestionDef,
 } from '@/lib/survey'
-import { toggleMultiOption, stripHiddenAnswers, normalizeLegacySurveyAnswers } from '@/lib/surveyValidation'
+import { toggleMultiOption, stripHiddenAnswers, normalizeLegacySurveyAnswers, wouldReplaceSurveySelection } from '@/lib/surveyValidation'
 import { questionPages, pageComplete } from '@/lib/surveyPresentation'
 
 type LoadState = 'loading' | 'ready' | 'error'
@@ -258,13 +258,13 @@ export default function UmfragePage() {
             Was macht Spaß, was nervt – und was sollten wir zur nächsten Saison verbessern?
           </p>
           <div className="mt-4 flex flex-wrap gap-2 text-[12px] font-medium text-gray-700 dark:text-gray-200">
-            <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">Ca. 15 Minuten</span>
+            <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">Ca. 10–15 Minuten</span>
             <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">7 Themen</span>
             <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">Zwischenspeichern möglich</span>
           </div>
         </div>
         <p className="px-1 text-[12px] leading-5 text-gray-500 dark:text-gray-400">
-          Die Umfrage ist nicht anonym: Administratoren können deine Antworten deinem Benutzerkonto zuordnen.
+          Wir werten deine Antworten aus, um das Tippspiel zu verbessern – nicht, um einzelne Spieler zu beurteilen. Admins können sie zwar deinem Benutzerkonto zuordnen, aber Kritik ist ausdrücklich willkommen. Also sei einfach ehrlich! 😉
         </p>
         <button
           type="button"
@@ -521,9 +521,15 @@ function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: strin
   const exclusive = new Set(q.exclusiveOptions ?? [])
   const concreteSelectedCount = selected.filter((o) => !exclusive.has(o)).length
   const [activeGroup, setActiveGroup] = useState(q.optionGroups?.[0]?.label ?? '')
+  const [pendingReplace, setPendingReplace] = useState<string | null>(null)
   const activeGroupIndex = q.optionGroups?.findIndex((group) => group.label === activeGroup) ?? 0
 
   function toggle(opt: string) {
+    if (wouldReplaceSurveySelection(q, selected, opt)) {
+      setPendingReplace(opt)
+      return
+    }
+    setPendingReplace(null)
     onChange(toggleMultiOption(q, selected, opt))
   }
 
@@ -551,6 +557,19 @@ function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: strin
             ? `${concreteSelectedCount} von ${q.maxSelect} Ideen ausgewählt`
             : `Bis zu ${q.maxSelect} auswählen`}
         </p>
+      )}
+      {pendingReplace && (
+        <div role="alert" className="mb-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-[13px] leading-5 text-amber-950 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+          <p><strong>Auswahl ersetzen?</strong> „{pendingReplace}“ schließt deine bisherige Auswahl aus. Deine bisher gewählten Antworten würden entfernt.</p>
+          <div className="mt-3 flex gap-2">
+            <button type="button" onClick={() => setPendingReplace(null)}
+              className="min-h-[42px] flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 font-semibold text-amber-950 dark:border-amber-700 dark:bg-gray-800 dark:text-amber-100">Behalten</button>
+            <button type="button" onClick={() => {
+              onChange(toggleMultiOption(q, selected, pendingReplace))
+              setPendingReplace(null)
+            }} className="min-h-[42px] flex-1 rounded-lg bg-amber-800 px-3 py-2 font-bold text-white dark:bg-amber-600">Ersetzen</button>
+          </div>
+        </div>
       )}
       {q.optionGroups && q.optionGroups.length > 0 ? (
         <div>

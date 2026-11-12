@@ -12,7 +12,7 @@ import {
   isSectionComplete, isSurveyComplete, type Answers,
 } from '@/lib/survey'
 import {
-  toggleMultiOption, isValidMultiSelection, isValidAnswerValue, validateIncomingAnswers, stripHiddenAnswers, normalizeLegacySurveyAnswers, nextSubmittedAt,
+  toggleMultiOption, wouldReplaceSurveySelection, isValidMultiSelection, isValidAnswerValue, validateIncomingAnswers, stripHiddenAnswers, normalizeLegacySurveyAnswers, nextSubmittedAt,
 } from '@/lib/surveyValidation'
 import { isActuallySubmitted, computeOverview, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
 import { computeSurveyDecisionInsights, inSurveySegment } from '@/lib/surveyInsights'
@@ -143,7 +143,7 @@ export function run(): number {
   check('Q8 hat fünf Antwortoptionen', q('q8').options!.length === 5)
   check('Q29 hat 13 Antworten', q('q29').options!.length === 13)
   check('Feature-Auswahl hat 14 Ideen plus eine exklusive Nein-Option', q('q_features').options!.length === 15 && q('q_features').maxSelect === 5)
-  check('Q30 benennt den kostenlosen Fall', q('q30').text.includes('kostenlos'))
+  check('Wiederteilnahme wird ohne Voraussetzung zur Kostenlosigkeit abgefragt', q('q30_general').text.includes('2027/28') && !q('q30_general').text.includes('kostenlos'))
   check('Die drei allgemeinen einklappbaren Freitexte bleiben freiwillig und sichtbar',
     ['q_technical_feedback', 'q26', 'q_features_text'].every((id) => !isRequired(q(id), {}) && isQuestionVisible(q(id), {})))
   check('Taschengeld-Freitext wird nur bei Abschaffung eingeblendet und bleibt freiwillig',
@@ -153,10 +153,23 @@ export function run(): number {
   check('Q31 bleibt sichtbar', isQuestionVisible(q('q31'), {}))
   check('Preisfrage enthält keine Erlebnispreise', !q('q7').options!.some(x => x.includes('Erlebnispreise')))
   check('Startgeld-Info kündigt keine Einführung an', q('q4').infoText!.includes('nicht beschlossen'))
+  check('Startgeld-Neutraloption klar von Vorliebe für kostenlose Teilnahme getrennt',
+    q('q4').options!.some(o => o.startsWith('Mir ist egal, ob die Teilnahme kostenlos')))
+  check('Drei neue Wettmarktoptionen erklären ihre Beispiele direkt',
+    q('q26_markets').options!.slice(0, 3).every(o => o.includes('(')))
   check('Neue Wettmärkte strukturiert vor freiwilligem Verzicht',
     ALL_QUESTIONS.findIndex(x => x.id === 'q26_markets') < ALL_QUESTIONS.findIndex(x => x.id === 'q25') &&
     isRequired(q('q26_markets'), {}) && !isRequired(q('q25'), {}))
   check('Wettmarkt Freitext bleibt freiwillig', !isRequired(q('q26'), {}))
+  check('Alte Halbzeit- und Teamtore-Bezeichnungen werden übernommen',
+    JSON.stringify(normalizeLegacySurveyAnswers({q26_markets:['Halbzeitergebnis', 'Halbzeit/Endstand', 'Tore einer bestimmten Mannschaft']}).q26_markets) ===
+    JSON.stringify(q('q26_markets').options!.slice(0, 3)))
+  check('Alte Q30-Antwort wird nicht als neue allgemeine Rückkehrabsicht interpretiert',
+    normalizeLegacySurveyAnswers({q30:'Ja, auf jeden Fall'}).q30 === undefined &&
+    !isSurveyComplete({q30:'Ja, auf jeden Fall'}))
+  check('Alte neutrale Startgeldantwort wird migriert',
+    normalizeLegacySurveyAnswers({q4:'Beide Modelle wären für mich in Ordnung, solange das Startgeld angemessen ist.'}).q4 ===
+    q('q4').options![3])
   check('Nachvollziehbarkeit startet mit positiver Antwort', q('q_comprehensibility').options?.[0] === 'Für mich ist alles ausreichend nachvollziehbar')
   check('Wettanzahl normal und Risky stehen auf derselben Seite',
     SURVEY_SECTIONS.some(s => questionPages(visibleQuestionsForSection(s, {})).some(p => p.some(x => x.id === 'q11') && p.some(x => x.id === 'q12'))))
@@ -261,7 +274,7 @@ export function run(): number {
     const sel7Excl = toggleMultiOption(q7, sel7, 'Mir ist die Art der Preise egal')
     check('Q7: "Mir ist die Art der Preise egal" trotz 2 bereits gewählter Optionen wählbar', sel7Excl.length === 1 && sel7Excl[0] === 'Mir ist die Art der Preise egal')
 
-    // Q29: "Sonstiges" zählt gegen das Limit von 3, Zufriedenheits-Option ist exklusiv.
+    // Q29: Gründe können miteinander kombiniert werden, max. drei statt stiller Löschung.
     const q29 = q('q29')
     let sel29 = toggleMultiOption(q29, [], 'Ich vergesse, rechtzeitig zu wetten')
     sel29 = toggleMultiOption(q29, sel29, 'Mir fehlt manchmal die Zeit')
@@ -269,8 +282,12 @@ export function run(): number {
     check('Q29: "Sonstiges" zählt gegen das Limit von 3', sel29.length === 3)
     const sel29Blocked = toggleMultiOption(q29, sel29, 'Zu wenig Wildis')
     check('Q29: 4. Option (nach "Sonstiges") blockiert', sel29Blocked.length === 3)
-    const sel29Excl = toggleMultiOption(q29, sel29, 'Ich wette bereits so häufig, wie ich möchte.')
-    check('Q29: exklusive Zufriedenheits-Option trotz Maximum wählbar', sel29Excl.length === 1)
+    const afterFull = toggleMultiOption(q29, sel29, 'Ich wette bereits so häufig, wie ich möchte.')
+    check('Q29: volle Auswahl wird nicht still durch andere Antwort ersetzt', afterFull.length === 3 && afterFull.includes('Ich vergesse, rechtzeitig zu wetten'))
+    const mixedReasons = toggleMultiOption(q29, ['Ich habe zu wenig Wildis'], 'Ich wette bereits so häufig, wie ich möchte.')
+    check('Q29: Wenig Wildis und gewünschte Wetthäufigkeit können zugleich gelten', mixedReasons.length === 2 && mixedReasons.includes('Ich habe zu wenig Wildis'))
+    check('Q29: keine Rückfrage nötig, da keine exklusive Antwort', !wouldReplaceSurveySelection(q29, ['Ich habe zu wenig Wildis'], 'Ich wette bereits so häufig, wie ich möchte.'))
+    check('Echte exklusive Optionen erfordern Bestätigung vor Verdrängen', wouldReplaceSurveySelection(q25, ['1X2 / Spielausgang'], 'Auf keinen – ich möchte alle behalten'))
 
     // Feature-Frage: "Keine" jederzeit klickbar, auch bei 5 gewählten Features;
     // Feature-Freitext bleibt unabhängig davon immer sichtbar (separate Frage, kein visible()).
@@ -342,7 +359,7 @@ export function run(): number {
       q20: 'Ich nutze sie und finde sie hilfreich', q22: 'WhatsApp und App-Push',
       q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.',
       q29: ['Ich wette bereits so häufig, wie ich möchte.'],
-      q30: 'Ja, auf jeden Fall', q_features: ['Keine dieser Funktionen interessiert mich'],
+      q30_general: 'Ja, auf jeden Fall', q_features: ['Keine dieser Funktionen interessiert mich'],
     }
     check('Testvorlage "complete" ist tatsächlich vollständig', isSurveyComplete(complete), 'Testdaten-Fehler, nicht Produktionscode')
 
@@ -367,7 +384,7 @@ export function run(): number {
     const rowStaleFlag: SurveyRow = { user_id: 'u2', answers: incompleteAfterEdit, started_at: earlier, submitted_at: earlier, updated_at: now }
     const rowNotSubmitted: SurveyRow = { user_id: 'u3', answers: complete, started_at: earlier, submitted_at: null, updated_at: now }
     const rowNotReturning: SurveyRow = {
-      ...rowOk, user_id: 'u4', answers: { ...complete, q30: 'Eher nein' },
+      ...rowOk, user_id: 'u4', answers: { ...complete, q30_general: 'Eher nein' },
     }
     const renewedOverview = computeOverview([rowOk, rowNotReturning], new Set(['u1', 'u4']))
     check('Q30-Teilnahmeabsicht zählt Textoptionen statt einen ungültigen Durchschnitt',
@@ -528,15 +545,15 @@ export function run(): number {
       ({ user_id: id, answers, started_at: date, updated_at: date, submitted_at: date })
     // Intentionally partial, as the pure insight function receives only already-validated rows.
     const rows: SurveyRow[] = [
-      make('r1', { q1: 8, q30: 'Ja, auf jeden Fall', q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.', q9: 'Häufig', q20: 'Ich nutze sie, bekomme aber zu viele Benachrichtigungen', q21_recap_frequency: 'Ich lese eigentlich jeden Recap.', q_features: ['Cashout'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
-      make('r2', { q1: 8, q30: 'Eher ja', q4: 'Ich würde lieber kostenlos weiterspielen, wäre bei einem angemessenen Startgeld aber trotzdem dabei.', q5: '20 €', q9: 'Nie', q20: 'Ich habe sie bewusst deaktiviert bzw. möchte keine', q21_recap_frequency: 'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt.', q_features: ['Cashout'], q29: ['Ich wette bewusst nur, wenn ich eine gute Gelegenheit sehe'] }),
-      make('r3', { q1: 8, q30: 'Eher nein', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: '10 €', q9: 'Sehr häufig', q20: 'Ich habe sie aktiviert, aber sie kommen nicht zuverlässig an', q21_recap_frequency: 'Ich lese die meisten Recaps, aber nicht alle.', q_features: ['Individuelle Push-Einstellungen'], q29: ['Ich habe zu wenig Wildis'] }),
-      make('r4', { q1: 8, q30: 'Ich bin noch unentschlossen', q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q21_recap_frequency: 'Ich kenne die Recaps, lese sie aber nicht.', q_features: ['Keine dieser Funktionen interessiert mich'], q29: ['Ich wette bereits so häufig, wie ich möchte.'] }),
-      make('r5', { q1: 8, q30: 'Ja, auf jeden Fall', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: '15 €', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q_features: ['Cashout'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
-      make('r6', { q1: 8, q30: 'Ja, auf jeden Fall', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: 'Kann ich noch nicht beurteilen', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q_features: ['Spiele favorisieren'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
+      make('r1', { q1: 8, q30_general: 'Ja, auf jeden Fall', q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.', q9: 'Häufig', q20: 'Ich nutze sie, bekomme aber zu viele Benachrichtigungen', q21_recap_frequency: 'Ich lese eigentlich jeden Recap.', q_features: ['Cashout'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
+      make('r2', { q1: 8, q30_general: 'Eher ja', q4: 'Ich würde lieber kostenlos weiterspielen, wäre bei einem angemessenen Startgeld aber trotzdem dabei.', q5: '20 €', q9: 'Nie', q20: 'Ich habe sie bewusst deaktiviert bzw. möchte keine', q21_recap_frequency: 'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt.', q_features: ['Cashout'], q29: ['Ich wette bewusst nur, wenn ich eine gute Gelegenheit sehe'] }),
+      make('r3', { q1: 8, q30_general: 'Eher nein', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: '10 €', q9: 'Sehr häufig', q20: 'Ich habe sie aktiviert, aber sie kommen nicht zuverlässig an', q21_recap_frequency: 'Ich lese die meisten Recaps, aber nicht alle.', q_features: ['Individuelle Push-Einstellungen'], q29: ['Ich habe zu wenig Wildis'] }),
+      make('r4', { q1: 8, q30_general: 'Ich bin noch unentschlossen', q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q21_recap_frequency: 'Ich kenne die Recaps, lese sie aber nicht.', q_features: ['Keine dieser Funktionen interessiert mich'], q29: ['Ich wette bereits so häufig, wie ich möchte.'] }),
+      make('r5', { q1: 8, q30_general: 'Ja, auf jeden Fall', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: '15 €', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q_features: ['Cashout'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
+      make('r6', { q1: 8, q30_general: 'Ja, auf jeden Fall', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: 'Kann ich noch nicht beurteilen', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q_features: ['Spiele favorisieren'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
     ]
     const summary = computeSurveyDecisionInsights(rows)
-    check('Q30: 4 von 6 wollen bei kostenloser Teilnahme wieder dabei sein', summary.returning.count === 4 && summary.returning.base === 6)
+    check('Q30: 4 von 6 wollen allgemein wieder teilnehmen', summary.returning.count === 4 && summary.returning.base === 6)
     check('Q4: 2 von 6 würden bei Startgeld aussteigen', summary.feeExit.count === 2 && summary.feeExit.base === 6)
     check('Q20: bewusst deaktivierte Pushs zählen nicht als technisches Problem', summary.pushProblems.count === 2 && summary.pushProblems.base === 6)
     check('Q21: 2 von 4 Antwortenden lesen die meisten Recaps', summary.recapReaders.count === 2 && summary.recapReaders.base === 4)
@@ -563,9 +580,9 @@ export function run(): number {
     check('Unpassende Konten werden nie als Betreiber angenommen',
       findSurveyOperatorId([{ id: 'fake', username: 'miubdb', is_admin: false }]) === null)
     const rows = [
-      { user_id: 'operator', answers: { q30: 'Eher nein' } },
-      { user_id: 'another-admin', answers: { q30: 'Eher ja' } },
-      { user_id: 'player', answers: { q30: 'Ja, auf jeden Fall' } },
+      { user_id: 'operator', answers: { q30_general: 'Eher nein' } },
+      { user_id: 'another-admin', answers: { q30_general: 'Eher ja' } },
+      { user_id: 'player', answers: { q30_general: 'Ja, auf jeden Fall' } },
     ]
     const community = withoutSurveyOperator(rows, operatorId!)
     check('Community entfernt genau die Antwort des Betreibers',
