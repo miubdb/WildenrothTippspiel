@@ -148,6 +148,7 @@ const Q25_MARKET_OPTIONS = [
 const Q25_NONE = 'Auf keinen – ich möchte alle behalten'
 const Q25_CANT_JUDGE = 'Kann ich nicht beurteilen'
 
+const Q29_SATISFIED = 'Ich wette bereits so häufig, wie ich möchte.'
 const Q10_CUSTOM = 'Anderer Betrag'
 const Q15_ABOLISH = '0 Wildis (abschaffen)'
 const Q29_OTHER = 'Sonstiges'
