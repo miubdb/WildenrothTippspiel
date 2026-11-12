@@ -72,6 +72,8 @@ export function buildFixtureData(): FixtureData {
   }
   const MK: [string, string[]][] = [['1x2', ['home', 'draw', 'away']], ['double_chance', ['1x', 'x2', '12']], ['btts', ['yes', 'no']], ['over_under_3_5', ['over_3.5', 'under_3.5']], ['handicap', ['home_minus_1_5']], ['exact_score', ['1:0', '2:1', '1:1', '0:1', '2:0']], ['goalscorer', ['1', '2', '3', '4', '5', '6', '7', '8']]]
   const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)]
+  /** Fisher-Yates statt sort(() => r() - 0.5): letzteres ist je nach JS-Engine-Version unterschiedlich und würde die Testdaten verändern. */
+  const shuffle = <T,>(a: T[]): T[] => { const b = [...a]; for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [b[i], b[j]] = [b[j], b[i]] } return b }
   const mkLeg = (m: RecapMatchRow) => {
     const [mt, sels] = pick(MK)
     const sel = pick(sels)
@@ -92,6 +94,7 @@ export function buildFixtureData(): FixtureData {
   const combos: RecapComboRow[] = []
   let bid = 5000, cid = 900
   for (const pr of profiles) {
+    if (pr.id === 'fx-u11') continue // Vereinstreue-Persona bekommt nur gezielte Wildenroth-Siegtipps (unten), nie eine Gegenwette
     const act = pr.id === 'fx-gone' ? 0.5 : 0.55 + r() * 0.4
     for (let md = 1; md <= 16; md++) {
       if (r() > act) continue
@@ -102,7 +105,7 @@ export function buildFixtureData(): FixtureData {
         const cancelled = r() < 0.06
         const isCombo = r() < 0.65
         const stake = pick([10, 20, 25, 50, 100, 200])
-        const legsM = isCombo ? [...ms].sort(() => r() - 0.5).slice(0, 2 + Math.floor(r() * 3)) : [pick(ms)]
+        const legsM = isCombo ? shuffle(ms).slice(0, 2 + Math.floor(r() * 3)) : [pick(ms)]
         const legs = legsM.map((m) => mkLeg(m))
         // Ausgang deterministisch aus dem Ergebnis (Torschützen: Zufall mit Wahrscheinlichkeit ≈ 1/Quote)
         const real = legs.map((l) => legWon(l.m, l.mt, l.sel, l.p))
@@ -135,6 +138,18 @@ export function buildFixtureData(): FixtureData {
   const fin = matches.filter((m) => m.status === 'finished' && m.competition_type === 'league' && m.id !== byMd.get(13)![3].id)
   addWin('fx-u09', fin[20], 6.8, 50, 40)
   fin.slice(30, 34).forEach((m, i) => addWin('fx-u10', m, 5.2 + i * 0.7, 20 + i * 10, 3600 * (6 + i)))
+  // Vereinstreue: fx-u11 setzt auf mindestens 7 Wildenroth-Spiele auf Sieg und nie dagegen; fx-u12 wettet mehrfach gegen den Verein
+  const wMatches = matches.filter((m) => m.status === 'finished' && m.competition_type === 'league' && (m.home_team_id === 14 || m.away_team_id === 14) && m.id !== byMd.get(13)![3].id)
+  wMatches.slice(0, 8).forEach((m, i) => {
+    const winSide = m.home_team_id === 14 ? 'home' : 'away'
+    const w = winSide === 'home' ? m.home_score! > m.away_score! : m.away_score! > m.home_score!
+    bets.push({ id: ++bid, user_id: 'fx-u11', match_id: m.id, market_type: '1x2', selection: winSide, stake: 20 + i, odds_value: 1.6, status: w ? 'won' : 'lost', payout: w ? cappedPayout(20 + i, 1.6, false) : 0, combo_id: null, created_at: new Date(new Date(m.match_date).getTime() - 5 * 3600_000).toISOString(), is_risky: false, season: '26/27', is_bonus: false, void_reason: null, special_id: null })
+  })
+  wMatches.slice(8, 12).forEach((m) => {
+    const against = m.home_team_id === 14 ? 'away' : 'home'
+    const w = against === 'home' ? m.home_score! > m.away_score! : m.away_score! > m.home_score!
+    bets.push({ id: ++bid, user_id: 'fx-u12', match_id: m.id, market_type: '1x2', selection: against, stake: 40, odds_value: 3.4, status: w ? 'won' : 'lost', payout: w ? cappedPayout(40, 3.4, false) : 0, combo_id: null, created_at: new Date(new Date(m.match_date).getTime() - 7 * 3600_000).toISOString(), is_risky: false, season: '26/27', is_bonus: false, void_reason: null, special_id: null })
+  })
   // Annulliertes Spiel + neutralisiertes Leg (Quote 1,00, Kombi bleibt aktiv)
   const ann = byMd.get(13)![3]
   ann.status = 'annulled'; ann.home_score = null; ann.away_score = null
