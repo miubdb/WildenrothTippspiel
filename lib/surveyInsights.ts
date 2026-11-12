@@ -120,7 +120,7 @@ export function computeSurveyDecisionInsights(rows: SurveyRow[]): SurveyDecision
       suggestions.push({ title: 'Push-Benachrichtigungen verbessern', reason: pushProblems.count + ' von ' + pushProblems.base + ' melden ein konkretes Problem mit Push.', base: pushProblems.base })
     }
     if (leaving.pct != null && leaving.pct >= 20 && leaving.count >= 3) {
-      suggestions.push({ title: 'Teilnehmerbindung verstehen', reason: leaving.count + ' von ' + leaving.base + ' planen selbst bei kostenloser Teilnahme eher nicht oder nicht mehr mitzumachen.', base: leaving.base })
+      suggestions.push({ title: 'Teilnehmerbindung verstehen', reason: leaving.count + ' von ' + leaving.base + ' planen in der nächsten Saison eher nicht oder nicht mehr mitzumachen.', base: leaving.base })
     }
     if (topObstacles[0]?.count >= 3 && (topObstacles[0].pct ?? 0) >= 30) {
       suggestions.push({ title: 'Häufigstes Hindernis untersuchen', reason: topObstacles[0].label + ' (' + topObstacles[0].count + ' von ' + topObstacles[0].base + ').', base: topObstacles[0].base })
