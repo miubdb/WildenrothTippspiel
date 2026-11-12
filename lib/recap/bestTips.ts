@@ -45,7 +45,8 @@ function card(s: Slip, lab: Labeler, why: string, highlightLegBetId?: number): T
 function whySingle(s: Slip, share: number | null, tippers: number, lab: Labeler): string {
   const l = s.legs[0]
   const rare = share != null && tippers >= 5 ? ` Nur ${Math.round(share * 100)} % der ${tippers} Tipper auf diesem Spiel wählten das.` : ''
-  return `Quote ${d2(s.odds)} – ${lab.selectionLabel(l.marketType, l.selection)} ist selten aufgegangen.${rare} Aus ${d0(s.stake)} Einsatz wurden ${d0(s.net + s.stake)} Wildis.`
+  const lead = s.odds >= 3 ? `Quote ${d2(s.odds)} – „${lab.selectionLabel(l.marketType, l.selection)}" geht selten auf.` : `Quote ${d2(s.odds)} – „${lab.selectionLabel(l.marketType, l.selection)}" ging auf.`
+  return `${lead}${rare} Aus ${d0(s.stake)} Einsatz wurden ${d0(s.net + s.stake)} Wildis.`
 }
 function whyCombo(s: Slip): string {
   const n = s.legs.filter((l) => l.status !== 'neutralized').length
