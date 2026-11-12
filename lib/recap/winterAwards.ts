@@ -1,4 +1,4 @@
-import type { AwardEntry, AwardResult } from '@/lib/recap/halbzeitAwards'
+import { sameScore, type AwardEntry, type AwardResult } from '@/lib/recap/halbzeitAwards'
 import type { RecapReport } from '@/lib/recap/report'
 
 /**
@@ -24,8 +24,8 @@ const DESCRIPTION: Record<WinterAwardKey, string> = {
   quotenfluesterer: 'Höchster Tipper-IQ der Hinrunde',
 }
 
-/** Alle Gewinner eines Awards: Einträge mit derselben angezeigten Zahl wie Platz 1 (Gleichstand = gleichberechtigt). */
-export const winnersOf = (entries: AwardEntry[]): AwardEntry[] => (entries.length ? entries.filter((e) => e.value === entries[0].value) : [])
+/** Alle Gewinner eines Awards: Einträge mit demselben fachlichen Rangwert (`score`) wie Platz 1 – nie anhand gerundeter Anzeigetexte. */
+export const winnersOf = (entries: AwardEntry[]): AwardEntry[] => (entries.length ? entries.filter((e) => sameScore(e, entries[0])) : [])
 
 export interface WinterAwardRow {
   season: string

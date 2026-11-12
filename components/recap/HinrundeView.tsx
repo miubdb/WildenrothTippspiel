@@ -4,6 +4,7 @@ import type { AwardEntry, AwardResult } from '@/lib/recap/halbzeitAwards'
 import { PUBLIC_AWARD_KEYS } from '@/lib/recap/halbzeitAwards'
 import { explainIq, IQ_MIN_MATCHDAYS, IQ_MIN_SLIPS, type TipperIqResult } from '@/lib/recap/tipperIq'
 import { TeamLogo } from '@/components/TeamLogo'
+import { winnersOf } from '@/lib/recap/winterAwards'
 
 /**
  * Winter-Recap: eigenständiger Winter-Look (Dunkelblau · Eisblau · Weiß, dezenter Schnee) NUR innerhalb dieser Ansicht –
@@ -240,8 +241,6 @@ function splitValue(v: string): { big: string; unit: string } {
   return m ? { big: m[1], unit: m[2] ?? '' } : { big: v, unit: '' }
 }
 
-/** Gleichstand: alle Einträge, die dieselbe ANGEZEIGTE Zahl wie der erste haben, sind gleichwertige Gewinner. */
-const winnersOf = (entries: AwardEntry[]) => entries.filter((e) => e.value === entries[0].value)
 
 function Winners({ r, winners }: { r: RecapReport; winners: AwardEntry[] }) {
   const nm = (id: string) => r.people[id]?.name ?? 'Unbekannt'
@@ -257,7 +256,7 @@ function Winners({ r, winners }: { r: RecapReport; winners: AwardEntry[] }) {
 function AwardCard({ a, r, entries, title, icon, line, extra }: { a: AwardResult; r: RecapReport; entries: AwardEntry[]; title: string; icon: string; line: string; extra?: React.ReactNode }) {
   const nm = (id: string) => r.people[id]?.name ?? 'Unbekannt'
   const winners = winnersOf(entries)
-  const rest = entries.filter((e) => e.value !== entries[0].value)
+  const rest = entries.slice(winners.length)
   const { big, unit } = splitValue(entries[0].value)
   const bl = a.bitterest && a.key === 'kombi_pech' ? r.slipLegs[a.bitterest.slipKey] : undefined
   const more = !!(entries[0].detail || rest.length || a.bitterest)
@@ -362,39 +361,38 @@ function TeamHighlights({ r }: { r: RecapReport }) {
   )
 }
 
-function CrowdVsBank({ r }: { r: RecapReport }) {
+function CrowdVsBank({ r, simulated }: { r: RecapReport; simulated: boolean }) {
   const k = r.bank
   if (k.slips === 0) return null
   const c = r.crowd
-  const community = k.net, bank = k.bankNet
-  const tile = (label: string, v: number, sub: string) => (
+  const pct = (n: number) => `${n >= 0 ? '+' : '−'}${Math.abs(n).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} %`
+  const tone = (v: number) => (v >= 0 ? 'text-[#0f7a45] dark:text-[#6fe0a1]' : 'text-[#b3261e] dark:text-[#ff9a92]')
+  const tile = (label: string, value: string, unit: string, v: number, sub: string) => (
     <div className={`${CHIP} flex flex-col items-center justify-center px-2 py-3 text-center`}>
       <div className="text-[10px] font-bold uppercase tracking-widest opacity-80">{label}</div>
-      <div className={`mt-1 font-display text-[2rem] font-bold leading-none tabular-nums ${v >= 0 ? 'text-[#0f7a45] dark:text-[#6fe0a1]' : 'text-[#b3261e] dark:text-[#ff9a92]'}`}>{sgn(v)}</div>
-      <div className={`text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>Wildis</div>
+      <div className={`mt-1 font-display text-[2rem] font-bold leading-none tabular-nums ${tone(v)}`}>{value}</div>
+      <div className={`text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>{unit}</div>
       <div className={`mt-1 text-[11px] leading-tight ${MUTED}`}>{sub}</div>
     </div>
   )
-  const sentence = community < 0
-    ? `Die Community hat ${f0(k.stake)} Wildis gesetzt und ${f0(k.payout)} Wildis ausgezahlt bekommen – ${f0(-community)} Wildis weniger als eingesetzt. Dieser Betrag geht rechnerisch an die Bank.`
-    : community > 0
-      ? `Die Community hat ${f0(k.stake)} Wildis gesetzt und ${f0(k.payout)} Wildis ausgezahlt bekommen – ${f0(community)} Wildis mehr als eingesetzt. Diesen Betrag hat die Bank rechnerisch verloren.`
-      : `Die Community hat ${f0(k.stake)} Wildis gesetzt und genau so viel wieder ausgezahlt bekommen – die Bank steht bei ±0.`
+  const verdict = k.net > 0 ? 'Unterm Strich hat sie die Bank geschlagen.' : k.net < 0 ? 'Unterm Strich hat die Bank gewonnen.' : 'Unterm Strich steht es unentschieden.'
   return (
     <Section title="Bank vs. Community" sub="Wer hat in der Hinrunde unterm Strich gewonnen?" icon="⚖️">
       <div className="space-y-2.5 px-4 pb-4">
+        {simulated && <p className="rounded-lg bg-amber-100 px-2.5 py-1.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">Vorschau: enthält den simulierten Spieltag {r.range.to} – nicht die echten Ergebnisse.</p>}
         <div className="grid grid-cols-2 gap-2.5">
-          {tile('Community', community, community < 0 ? 'unterm Strich im Minus' : community > 0 ? 'unterm Strich im Plus' : 'ausgeglichen')}
-          {tile('Bank', bank, bank > 0 ? 'rechnerisch im Plus' : bank < 0 ? 'rechnerisch im Minus' : 'ausgeglichen')}
+          {tile('Community-Gewinn', sgn(k.net), 'Wildis', k.net, 'Nettoergebnis aller Scheine')}
+          {tile('Rendite', pct(k.returnPct), 'auf die Einsätze', k.returnPct, 'Gewinn im Verhältnis zum Einsatz')}
         </div>
-        <p className="text-sm leading-snug">{sentence}</p>
-        <p className={`text-xs leading-snug ${MUTED}`}>Grundlage: {f0(k.slips)} abgerechnete Wettscheine, Kombis zählen mit einem Einsatz und einer Auszahlung. Offene, stornierte und neutralisierte Tipps zählen nicht. Die Bank ist die rechnerische Gegenseite, kein echter Buchmacher mit Kontostand.</p>
+        <p className="text-sm leading-snug">Die Community hat {f0(k.stake)} Wildis eingesetzt und {f0(k.payout)} Wildis ausgezahlt bekommen. {verdict}</p>
+        <p className={`text-xs leading-snug ${MUTED}`}>Grundlage: {f0(k.slips)} abgerechnete Wettscheine, Kombis zählen mit einem Einsatz und einer Auszahlung. Offene, stornierte und neutralisierte Tipps zählen nicht. Die Bank ist nur die rechnerische Gegenseite, kein echter Buchmacher.</p>
         <details>
           <summary className={`cursor-pointer list-none text-xs font-semibold ${ACCENT}`}>▸ Mehr</summary>
           <div className={`${CHIP} mt-1.5 space-y-1.5 px-3 py-2.5 text-xs`}>
             <div className="flex justify-between gap-3"><span>Einzelwetten ({f0(k.single.slips)})</span><b className="tabular-nums">{sgn(k.single.net)} Wildis</b></div>
             <div className="flex justify-between gap-3"><span>Kombis ({f0(k.combo.slips)})</span><b className="tabular-nums">{sgn(k.combo.net)} Wildis</b></div>
-            {c.matches >= 10 && <p className={`border-t border-[#cfe3f4] pt-1.5 dark:border-white/10 ${MUTED}`}>Beim Spielausgang lag die Mehrheit der Tipper bei {Math.round((c.communityRight / c.matches) * 100)} % von {c.matches} Spielen richtig, der Quoten-Favorit bei {Math.round((c.bankRight / c.matches) * 100)} % (Spiele mit mindestens {c.minTippers} Tippern).</p>}
+            <p className={`border-t border-[#cfe3f4] pt-1.5 dark:border-white/10 ${MUTED}`}>Effektive Auszahlungsquote: {k.payoutRatio.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}-fach – je eingesetztem Wildi kamen {k.payoutRatio.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Wildis zurück (Gesamtauszahlung ÷ Gesamteinsatz, keine Wettquote).</p>
+            {c.matches >= 10 && <p className={MUTED}>Beim Spielausgang lag die Mehrheit der Tipper bei {Math.round((c.communityRight / c.matches) * 100)} % von {c.matches} Spielen richtig, der Quoten-Favorit bei {Math.round((c.bankRight / c.matches) * 100)} % (Spiele mit mindestens {c.minTippers} Tippern).</p>}
           </div>
         </details>
       </div>
@@ -531,7 +529,7 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
 
       <Awards r={r} />
       <TeamHighlights r={r} />
-      <CrowdVsBank r={r} />
+      <CrowdVsBank r={r} simulated={!!simulation} />
 
       <details className={CARD}>
         <summary className={`cursor-pointer px-4 py-3 text-xs font-semibold ${MUTED}`}>Genaue Regeln</summary>

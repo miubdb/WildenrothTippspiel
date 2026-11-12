@@ -72,8 +72,12 @@ export interface CommunityBank {
   payout: number
   /** Auszahlung − Einsatz der Community. */
   net: number
-  /** Rechnerische Gegenseite: −net. */
+  /** Rechnerische Gegenseite: −net (wird nicht mehr extra angezeigt). */
   bankNet: number
+  /** Rendite in Prozent: (Auszahlung − Einsatz) / Einsatz × 100 (0 bei Einsatz 0). */
+  returnPct: number
+  /** Effektive Auszahlungsquote: Auszahlung / Einsatz – NICHT mit Wettquoten zu verwechseln (0 bei Einsatz 0). */
+  payoutRatio: number
   single: { slips: number; stake: number; payout: number; net: number }
   combo: { slips: number; stake: number; payout: number; net: number }
 }
@@ -88,5 +92,5 @@ export function computeCommunityBank(slips: Slip[]): CommunityBank {
     t.slips++; t.stake += s.stake; t.payout += payout; t.net += payout - s.stake
   }
   const stake = single.stake + combo.stake, payout = single.payout + combo.payout, net = payout - stake
-  return { slips: single.slips + combo.slips, stake, payout, net, bankNet: -net, single, combo }
+  return { slips: single.slips + combo.slips, stake, payout, net, bankNet: -net, returnPct: stake > 0 ? (net / stake) * 100 : 0, payoutRatio: stake > 0 ? payout / stake : 0, single, combo }
 }

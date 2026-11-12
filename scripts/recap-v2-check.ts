@@ -20,7 +20,7 @@ import { databaseKind, isSimulationAllowed, supabaseRef, PRODUCTION_SUPABASE_REF
 import { extractWinterAwards, WINTER_AWARD_KEYS, WINTER_LABEL } from '@/lib/recap/winterAwards'
 import { loadVisibleWinterAwards, replaceWinterAwards, type WinterAwardsClient } from '@/lib/recap/winterAwardsStore'
 import { evaluatePublishGate } from '@/lib/recap/publishGate'
-import type { AwardEntry } from '@/lib/recap/halbzeitAwards'
+import { cents, type AwardEntry } from '@/lib/recap/halbzeitAwards'
 import type { RecapReport } from '@/lib/recap/report'
 import { computeOverview } from '@/lib/recap/hinrundeStats'
 import { computeCommunityBank, computeCrowdVsBank } from '@/lib/recap/communityVsBank'
@@ -460,6 +460,8 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
       cb.slips === 5 && near(cb.stake, 10 + 10 + 50 + 20 + 30) && near(cb.payout, 25 + 75 + 160) && near(cb.net, 260 - 120) && near(cb.single.net, 15 - 10 + 25) && near(cb.combo.net, 140 - 30) && cb.single.slips === 3 && cb.combo.slips === 2)
     test('Bank ist das rechnerische Gegenstück (−Community-Netto) – Vorzeichen folgen dem tatsächlichen Ergebnis', near(cb.bankNet, -cb.net) && near(computeCommunityBank(sl2.filter((x) => x.status === 'won')).bankNet, -computeCommunityBank(sl2.filter((x) => x.status === 'won')).net) && computeCommunityBank(sl2.filter((x) => x.status === 'lost')).net < 0 && computeCommunityBank(sl2.filter((x) => x.status === 'lost')).bankNet > 0 && computeCommunityBank(sl2.filter((x) => x.status === 'won')).bankNet < 0)
     test('Bank-Bilanz stimmt mit der Recap-Datenbasis überein („Wildis gesetzt“ = Gesamteinsatz, Auszahlung, Netto)', near(cb.stake, ov.settledStake) && near(cb.payout, ov.settledPayout) && near(cb.net, ov.settledNet) && near(cb.payout - cb.stake, cb.net))
+    test('Rendite = (Auszahlung − Einsatz) / Einsatz × 100 und Auszahlungsquote = Auszahlung / Einsatz (Beispiel 100 → 154,5: +54,5 %, 1,545-fach)', (() => { const ex = computeCommunityBank([{ ...sl2[0], status: 'won', kind: 'single', stake: 100, payout: 154.5, net: 54.5 } as Slip]); return near(ex.returnPct, 54.5) && near(ex.payoutRatio, 1.545) })())
+    test('Rendite: Bilanz im Minus → negative Rendite, Einsatz 0 → 0 (kein Teilen durch 0); Werte folgen den abgerechneten Scheinen dieses Stands', (() => { const neg = computeCommunityBank(sl2.filter((x) => x.status === 'lost')); return neg.returnPct < 0 && near(neg.returnPct, (neg.net / neg.stake) * 100) && computeCommunityBank([]).returnPct === 0 && computeCommunityBank([]).payoutRatio === 0 && near(cb.returnPct, (cb.net / cb.stake) * 100) && near(cb.payoutRatio, cb.payout / cb.stake) })())
     test('Offene/stornierte Scheine verändern die Bilanz nicht', near(computeCommunityBank(sl2.filter((x) => x.status === 'won' || x.status === 'lost')).net, cb.net) && computeCommunityBank([]).slips === 0)
   }
   {
@@ -478,6 +480,33 @@ const labeler = { matchLabel: (id: number) => `Spiel ${id}`, marketLabel: (m: st
     test('Winter-Pokale: alle acht Auszeichnungen (inkl. „Die meisten Gegenwetten“ und Quotenflüsterer), Einzelwetten-Meister nicht', keys.size === 8 && WINTER_AWARD_KEYS.every((k) => keys.has(k)) && !rows.some((r) => r.user_id === 'u9'))
     test('Winter-Pokale: Gleichstand → alle Gewinner gleichberechtigt (Hall der Ehre 3×, Gegenwetten 2×), Platz 4/zweite Plätze nicht', rows.filter((r) => r.award_key === 'hall_der_ehre').map((r) => r.user_id).sort().join() === 'u1,u2,u3' && rows.filter((r) => r.award_key === 'gegenwetten').map((r) => r.user_id).sort().join() === 'u6,u7' && rows.filter((r) => r.award_key === 'wildi_magnet').length === 1)
     test('Winter-Pokale: Saison/Recap „Hinrunde 2026/27“, deterministisch und ohne Duplikate (auch bei doppeltem Eintrag)', rows.every((r) => r.season === '26/27' && r.recap_key === 'hinrunde') && WINTER_LABEL === 'Hinrunde 2026/27' && JSON.stringify(extractWinterAwards(fake)) === JSON.stringify(rows) && new Set(rows.map((r) => `${r.award_key}|${r.user_id}`)).size === rows.length)
+    {
+      // Gleichstand nach dem tatsächlichen fachlichen Rangwert (score) – nicht nach dem gerundeten Anzeigetext
+      const S = (userId: string, value: string, score: number) => ({ userId, value, score }) as AwardEntry
+      const fk = { awards: [
+        A('quotenfluesterer', [S('q2', 'IQ 76,2', 76.24), S('q1', 'IQ 76,2', 76.19)]),                                   // gleicher Text, verschiedene IQ → KEIN Gleichstand
+        A('wildi_magnet', [S('m1', '+14.421 Wildis', 14421.4), S('m2', '+14.421 Wildis', 14421.2)]),                     // gleicher Text, verschiedene Nettos → KEIN Gleichstand
+        A('hall_der_schande', [S('s1', '+100 Wildis', cents(100.1 + 0.2)), S('s2', '+100 Wildis', cents(100.3)), S('s3', '+100 Wildis', 99.9)], { second: { title: 'Die meisten Gegenwetten', question: '', entries: [S('g1', '3 Gegen-Tipps', 3), S('g2', '3 Gegen-Tipps', 3), S('g3', '2 Gegen-Tipps', 2)] } }), // Float-Rauschen = Gleichstand
+        A('senkrechtstarter', [S('r1', 'Platz 31 → 9', 22), S('r2', 'Platz 40 → 18', 22), S('r3', 'Platz 25 → 4', 21)]),   // verschiedene Start/Ende, gleiche gewonnene Plätze → Gleichstand
+        A('hall_der_ehre', [S('e1', '14 verschiedene Spiele', 14), S('e2', '14 verschiedene Spiele', 14), S('e3', '13 verschiedene Spiele', 13)]),
+        A('aussenseiter_jaeger', [S('a1', '8 Scheine ≥ 5,00', 8), S('a2', '8 Scheine ≥ 5,00', 8), S('a3', '7 Scheine ≥ 5,00', 7)]),
+        A('kombi_pech', [S('k1', '9× knapp daneben', 9), S('k2', '9× knapp daneben', 9)]),
+      ] } as unknown as RecapReport
+      const who = (key: string) => extractWinterAwards(fk).filter((x) => x.award_key === key).map((x) => x.user_id).sort().join()
+      test('Gleichstand Quotenflüsterer: tatsächlicher IQ, nicht der gerundete Text (76,24 vs. 76,19 → nur ein Gewinner)', who('quotenfluesterer') === 'q2')
+      test('Gleichstand Wildi-Magnet: tatsächliches Netto (gleicher gerundeter Text, verschiedene Beträge → nur ein Gewinner)', who('wildi_magnet') === 'm1')
+      test('Gleichstand Hall der Schande: Netto auf Cent genau (Gleitkomma-Rauschen 100,1+0,2 = 100,3 → Gleichstand, 99,9 nicht)', who('hall_der_schande') === 's1,s2')
+      test('Gleichstand Senkrechtstarter: gewonnene Plätze (31→9 und 40→18 sind beide +22 → beide Gewinner, +21 nicht)', who('senkrechtstarter') === 'r1,r2')
+      test('Gleichstand Hall der Ehre / Gegenwetten / Außenseiter-Jäger / Kombi-Pech: tatsächliche Anzahl', who('hall_der_ehre') === 'e1,e2' && who('gegenwetten') === 'g1,g2' && who('aussenseiter_jaeger') === 'a1,a2' && who('kombi_pech') === 'k1,k2')
+      // Gesamte Pipeline (computeHalbzeitAwards → Winter-Pokale): echte Tipps mit exakt gleichem Netto und gleicher Anzahl
+      const hs = (user: string, i: number, status: 'won' | 'lost', odds: number, stake: number): Slip => ({ key: `ht${user}${i}`, kind: 'single', userId: user, createdAtMs: i, stake, odds, status, payout: status === 'won' ? stake * odds : null, net: status === 'won' ? stake * odds - stake : -stake, isRisky: false, isBonus: false, voidReason: null, legs: [{ betId: 8000 + i + user.charCodeAt(0) * 100, matchId: 9000 + i, marketType: '1x2', selection: 'home', odds, status, specialId: null, recapMatchday: 1 + (i % 10) }], ownerMatchday: 1 + (i % 10), firstKickoffMs: i + 1 })
+      const tie: Slip[] = []
+      for (const u of ['x', 'y']) for (let i = 0; i < 3; i++) tie.push(hs(u, i, 'won', 6, 10))           // 3 Gewinne @6,0 → +150 netto, 3 Scheine ≥ 5,00
+      for (let i = 0; i < 2; i++) tie.push(hs('z', i, 'won', 6, 10))                                       // nur 2 → weder Magnet noch Jäger
+      const rep2 = buildRecapReport({ allSlips: tie, matches: [], range: { from: 1, to: 10 }, profiles: [] })
+      const w2 = extractWinterAwards(rep2)
+      test('Pipeline: gleiches Netto und gleiche Anzahl → Wildi-Magnet und Außenseiter-Jäger zeichnen beide gleichwertig aus (x und y), nicht z', w2.filter((x) => x.award_key === 'wildi_magnet').map((x) => x.user_id).sort().join() === 'x,y' && w2.filter((x) => x.award_key === 'aussenseiter_jaeger').map((x) => x.user_id).sort().join() === 'x,y')
+    }
     // Sichtbarkeit: nur bei veröffentlichtem Recap, Zurückziehen blendet aus
     let flag: string | null = null
     const stored = [{ award_key: 'wildi_magnet', award_title: 'Wildi-Magnet', award_icon: '🧲', award_description: 'd', value_text: '+1' }]
