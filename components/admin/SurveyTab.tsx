@@ -197,7 +197,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <Metric label="Teilnahmequote" value={fmtPct(overview.participationRatePct)} />
             <Metric label="Ø Zufriedenheit" value={fmtNum(overview.avgQ1, 1)} />
-            <Metric label="Wieder dabei (kostenlos)" value={overview.returningPct == null ? '—' : fmtPct(overview.returningPct)} />
+            <Metric label="Wieder dabei 2027/28" value={overview.returningPct == null ? '—' : fmtPct(overview.returningPct)} />
           </div>
           <p className="text-[13px] text-gray-600">{overview.submitted} abgegeben · {overview.started} begonnen · {overview.activeUsers} aktive Nutzer</p>
           {overview.startedNotSubmitted > 0 && (
@@ -674,7 +674,7 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
             <OptionBars options={zukunft.q29.options} pctKey="pctOfRespondents" />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Teilnahme 2027/28 bei kostenlosem Wettspiel (Q30)</div>
+            <div className="font-semibold text-gray-600 mb-1">Teilnahme 2027/28 (allgemeine Absicht)</div>
             <OptionBars options={zukunft.q30.options} pctKey="pct" />
           </div>
           <div>
