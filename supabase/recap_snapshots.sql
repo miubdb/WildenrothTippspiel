@@ -40,6 +40,7 @@ before update or delete on public.recap_snapshots
 for each row execute function public.prevent_recap_snapshot_mutation();
 
 revoke all on function public.prevent_recap_snapshot_mutation() from public, anon, authenticated;
+grant execute on function public.prevent_recap_snapshot_mutation() to service_role;
 
 -- Atomic publication: first writer establishes the immutable snapshot;
 -- subsequent calls ALWAYS reuse its award_rows. Replacing winter awards and
@@ -62,7 +63,7 @@ declare
   v_awards jsonb;
   v_rows integer;
 begin
-  if p_season <> '26/27' or p_recap <> 'hinrunde' then
+  if p_season is distinct from '26/27' or p_recap is distinct from 'hinrunde' then
     raise exception 'Unsupported winter recap';
   end if;
 
@@ -70,12 +71,12 @@ begin
   -- A withdrawn/re-published snapshot never accepts a replacement payload.
   if p_report is not null and p_personal is not null and p_readiness is not null and p_awards is not null then
     if jsonb_typeof(p_report) <> 'object'
-       or p_report #>> '{version}' <> '1'
-       or p_report #>> '{range,from}' <> '1'
-       or p_report #>> '{range,to}' <> '16'
+       or p_report #>> '{version}' is distinct from '1'
+       or p_report #>> '{range,from}' is distinct from '1'
+       or p_report #>> '{range,to}' is distinct from '16'
        or jsonb_typeof(p_personal) <> 'object'
        or jsonb_typeof(p_readiness) <> 'object'
-       or p_readiness ->> 'ready' <> 'true'
+       or p_readiness ->> 'ready' is distinct from 'true'
        or jsonb_typeof(p_awards) <> 'array'
     then
       raise exception 'Incomplete or non-final winter recap payload';
