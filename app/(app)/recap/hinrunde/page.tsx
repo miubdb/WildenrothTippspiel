@@ -38,6 +38,11 @@ export default async function HinrundeRecapPage({ searchParams }: { searchParams
             : <Link href="/recap/hinrunde?test=sim16" className="font-semibold text-red-700 dark:text-red-300">🧪 Testvorschau öffnen: Spieltag {HINRUNDE.to} simuliert (nur Vorschau-Umgebung, schreibt nichts)</Link>}
         </div>
       )}
+      {state.published && state.report && (
+        <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+          📌 Dieser Winter-Rückblick zeigt den festen Stand bei Veröffentlichung. Spätere Nachholspiele ändern diese Auswertung nicht.
+        </p>
+      )}
       {state.report ? (
         <HinrundeView report={state.report} personal={state.personal} myId={user.id} previewTo={state.previewTo} simulation={state.simulation} />
       ) : (
