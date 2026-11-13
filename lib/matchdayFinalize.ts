@@ -78,13 +78,15 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
   const mIds = matchdayMatches.map((m) => m.id)
   if (mIds.length === 0) return
 
-  const { data: pendingBetsRaw, error: pendingError } = await admin
+  const { data: pendingBetsRaw, count: pendingBetCount, error: pendingError } = await admin
     .from('bets')
-    .select('match_id, special_id, market_type, status')
+    .select('match_id, special_id, market_type, status', { count: 'exact' })
     .in('match_id', mIds)
     .eq('status', 'pending')
-  if (pendingError || pendingBetsRaw == null) {
-    console.error('Could not verify pending bets before matchday finalization:', pendingError)
+  if (pendingError || pendingBetsRaw == null || pendingBetCount !== pendingBetsRaw.length) {
+    // Supabase may truncate result rows at its server-side max_rows limit.
+    // Never treat an incomplete pending-bet sample as "all bets settled".
+    console.error('Could not verify *all* pending bets before matchday finalization:', pendingError, { pendingBetCount, loaded: pendingBetsRaw?.length })
     return // fail closed: never pay or notify on incomplete data
   }
   const pendingBets = pendingBetsRaw as CompletionPendingBet[]
