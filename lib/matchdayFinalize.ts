@@ -3,6 +3,7 @@ import { sendPushToAll } from '@/lib/push'
 import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, recapMatchdayOf, SEASON_START } from '@/lib/season'
 import { computeAndPersistMatchdayAwards } from '@/lib/awards'
 import { settleActiveMatchdaySpecials } from '@/lib/matchdaySpecials'
+import { canFinalizeMatchday, type CompletionPendingBet, type CompletionSpecial } from '@/lib/matchdayFinishReadiness'
 import type { Match } from '@/types'
 const CURRENT_SEASON = '26/27'
 const INACTIVITY_PENALTY = 50
@@ -65,30 +66,55 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
   const matchdayMatches = seasonMatchesForMd.filter((m) => recapMatchdayOf(m, mdIndex) === matchday)
   const displayMatchdayMatches = seasonMatchesForMd.filter((m) => effectiveMatchdayOf(m, mdIndex) === matchday)
 
-  // A finally annulled match (Nichtantritt, status='annulled' — see
-  // lib/matchAnnulment.ts) never reaches 'finished' and never will — treated
-  // the same as 'postponed' here: excluded from "must be finished", so it can
-  // never block this Spieltag's recap/awards/pocket-money/penalty forever.
-  const nonPostponedInMatchday = matchdayMatches.filter((m) => m.status !== 'postponed' && m.status !== 'annulled')
-  const allFinished = nonPostponedInMatchday.length > 0 && nonPostponedInMatchday.every((m) => m.status === 'finished')
-  if (!allFinished) return
-
+  // "Verschoben" excludes this game's kickoff AND its still-pending bets
+  // from the CURRENT Spieltag's completion gate. Those bets remain untouched
+  // and will settle normally on the makeup date (or follow the separate
+  // neutralisation process if the game is ultimately cancelled).
+  //
+  // We must not simply count ALL pending bets for this matchday: that would
+  // silently keep Recap, Awards, Inaktivitätsstrafe and Taschengeld blocked
+  // for weeks after the other matches have all finished. Conversely, pending
+  // bets on a non-postponed match (especially goalscorer tips) still block.
   const mIds = matchdayMatches.map((m) => m.id)
   if (mIds.length === 0) return
 
-  // "All non-postponed matches finished" is not the same as "this Spieltag is
-  // truly done" — bets (including goalscorer bets, which resolve on their own
-  // timeline) may still be pending. Gate everything below on the bets, not
-  // just the matches, so we never announce "Spieltag X abgeschlossen" while a
-  // stake on it is still open.
-  const { count: stillPendingCount } = await admin
+  const { data: pendingBetsRaw, count: pendingBetCount, error: pendingError } = await admin
     .from('bets')
-    .select('id', { count: 'exact', head: true })
+    .select('match_id, special_id, market_type, status', { count: 'exact' })
     .in('match_id', mIds)
     .eq('status', 'pending')
-  const spieltagTrulyDone = !stillPendingCount
-  if (!spieltagTrulyDone) return
+  if (pendingError || pendingBetsRaw == null || pendingBetCount !== pendingBetsRaw.length) {
+    // Supabase may truncate result rows at its server-side max_rows limit.
+    // Never treat an incomplete pending-bet sample as "all bets settled".
+    console.error('Could not verify *all* pending bets before matchday finalization:', pendingError, { pendingBetCount, loaded: pendingBetsRaw?.length })
+    return // fail closed: never pay or notify on incomplete data
+  }
+  const pendingBets = pendingBetsRaw as CompletionPendingBet[]
 
+  // A Special's representative_match_id is just a technical anchor. Load
+  // real included_match_ids before deciding whether its pending bet blocks
+  // the current Spieltag. Unknown/deleted special = blocking, not ignored.
+  const specialIds = [...new Set(pendingBets.filter((b) => b.market_type === 'matchday_special')
+    .map((b) => b.special_id).filter((id): id is number => id != null))]
+  let pendingSpecials: CompletionSpecial[] = []
+  if (specialIds.length) {
+    const { data: specialsRaw, error: specialsError } = await admin
+      .from('matchday_specials')
+      .select('id, included_match_ids')
+      .in('id', specialIds)
+    if (specialsError || specialsRaw == null) {
+      console.error('Could not verify pending specials before matchday finalization:', specialsError)
+      return
+    }
+    pendingSpecials = specialsRaw as CompletionSpecial[]
+  }
+
+  if (!canFinalizeMatchday(matchdayMatches, pendingBets, seasonMatchesForMd, pendingSpecials)) return
+
+  // Awards reflect all bets currently settled on this Spieltag. If the
+  // postponed match later finishes while it still belongs to this recap
+  // matchday, a later call recalculates the awards; dedup locks prevent a
+  // second recap notification, inactivity fee or pocket-money credit.
   try {
     await computeAndPersistMatchdayAwards(admin, CURRENT_SEASON, matchday, mIds)
   } catch (e) { console.error('Award persistence failed:', e) }
