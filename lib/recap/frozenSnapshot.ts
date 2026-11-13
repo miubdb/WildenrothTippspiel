@@ -37,6 +37,19 @@ export function validFrozenWinterRecap(value: unknown): value is FrozenWinterRec
     && !Array.isArray(s.personal_by_user)
 }
 
+/** Only the requesting user's private cards leave the server. */
+export function frozenViewForUser(snapshot: FrozenWinterRecap, viewerId: string): {
+  report: RecapReport
+  personal: PersonalTips | null
+  readiness: RangeReadiness
+} {
+  return {
+    report: snapshot.report,
+    personal: snapshot.personal_by_user[viewerId] ?? null,
+    readiness: snapshot.readiness,
+  }
+}
+
 export async function loadFrozenWinterRecap(admin: SupabaseClient): Promise<FrozenWinterRecap | null> {
   const { data, error } = await admin.from('recap_snapshots')
     .select('season, recap_key, report, personal_by_user, readiness, created_at')
