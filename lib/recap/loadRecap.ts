@@ -10,7 +10,7 @@ import { filterSlipsByMatchdays } from '@/lib/recap/tipperIq'
 import { buildSlips, RECAP_SEASON, type RecapBetRow, type RecapComboRow, type RecapMatchRow } from '@/lib/recap/slips'
 import { buildRecapReport, type RecapReport } from '@/lib/recap/report'
 import { canViewRecapReport, computeRangeReadiness, HINRUNDE, recapVisibility, type RangeReadiness, type RecapVisibility } from '@/lib/recap/availability'
-import { loadFrozenWinterRecap, type WinterRecapCandidate } from '@/lib/recap/frozenSnapshot'
+import { loadFrozenWinterRecap, frozenViewForUser, type WinterRecapCandidate } from '@/lib/recap/frozenSnapshot'
 import { extractWinterAwards } from '@/lib/recap/winterAwards'
 import type { CompletionSpecial } from '@/lib/matchdayFinishReadiness'
 
@@ -105,14 +105,15 @@ export async function loadHinrundeState(opts: LoadOptions): Promise<RecapRangeSt
   if (!simulate) {
     const snapshot = await loadFrozenWinterRecap(admin)
     if (snapshot) {
+      const frozenView = frozenViewForUser(snapshot, opts.viewerId)
       const visibility: RecapVisibility = setting?.value === 'true' ? 'published' : 'ready_unpublished'
       const published = visibility === 'published'
       const show = canViewRecapReport(visibility, opts.adminPreview, HINRUNDE.to)
       return {
         readiness: snapshot.readiness, published, visibility,
-        report: show ? snapshot.report : null,
+        report: show ? frozenView.report : null,
         // NEVER send the whole private personal_by_user table to the client.
-        personal: show ? snapshot.personal_by_user[opts.viewerId] ?? null : null,
+        personal: show ? frozenView.personal : null,
         previewTo: null, completedUpTo: HINRUNDE.to,
         dataAsOfMs: show ? snapshot.report.dataAsOfMs : 0,
         simulation: null, database,
