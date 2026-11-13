@@ -237,7 +237,7 @@ test('Neutrale Torwetten (Über/Unter, BTTS) sind KEINE Gegenwette', classifySta
     !computeRangeReadiness(ms, suspendedBets, 1, 3).ready)
   test('Offene Torschützen-Wette auf regulär beendetem Spiel blockiert weiterhin',
     !computeRangeReadiness(ms3, [...suspendedBets, { match_id: 30, status: 'pending', season: '26/27', market_type: 'goalscorer', special_id: null }], 1, 3).ready)
-  const specialPending = { match_id: 31, status: 'pending', season: '26/27', market_type: 'matchday_special', special_id: 77 }
+  const specialPending = { match_id: 31, status: 'pending' as const, season: '26/27', market_type: 'matchday_special', special_id: 77 }
   test('Special mit verschobenem included match wird zurückgestellt, nicht als offene Wette gewertet',
     computeRangeReadiness(ms3, [specialPending], 1, 3, '26/27', [{ id: 77, included_match_ids: [30,31] }]).ready)
   test('Special nur mit beendeten included matches blockiert – auch wenn der technische Anker verschoben wurde',
