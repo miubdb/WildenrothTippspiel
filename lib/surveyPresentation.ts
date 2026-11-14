@@ -70,6 +70,10 @@ export function questionPages(questions: QuestionDef[]): QuestionDef[][] {
   if (questions.length === 0) return [[]]
 
   const KEEP_TOGETHER: Record<string, string> = {
+    // Technical problems belong to the "Bedienung & Verständlichkeit"
+    // screen, not the following "Was macht Spaß?" screen.
+    q_comprehensibility: 'q_technical_feedback',
+    q_motivation: 'q_motivation_text',
     q11: 'q12', // normal + Risky bet counts
     q27: 'q28', // Wildenroth I + II league coverage
     q_features: 'q_features_text', // feature choices + optional own idea
