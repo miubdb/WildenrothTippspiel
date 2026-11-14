@@ -1,4 +1,4 @@
-import { isRequired, type Answers, type QuestionDef } from './survey'
+import { isRequired, QUESTION_BY_ID, type Answers, type QuestionDef } from './survey'
 
 /**
  * Mobile-first visual budget, not a fixed number of questions per screen.
@@ -69,20 +69,45 @@ export function estimateQuestionHeight(question: QuestionDef): number {
 export function questionPages(questions: QuestionDef[]): QuestionDef[][] {
   if (questions.length === 0) return [[]]
 
-  const KEEP_TOGETHER: Record<string, string> = {
-    // Technical problems belong to the "Bedienung & Verständlichkeit"
-    // screen, not the following "Was macht Spaß?" screen.
-    q_comprehensibility: 'q_technical_feedback',
-    q_motivation: 'q_motivation_text',
-    q11: 'q12', // normal + Risky bet counts
-    q27: 'q28', // Wildenroth I + II league coverage
-    q_features: 'q_features_text', // feature choices + optional own idea
+  // Reserve the space for conditional follow-ups even before their trigger
+  // is selected. Otherwise answering a question repaginates the wizard and
+  // can move its own card (and newly visible follow-up) onto the next page.
+  // Hidden placeholders affect the page budget ONLY and are never rendered.
+  const FOLLOWUP_GROUPS: Record<string, string[]> = {
+    q_comprehensibility: ['q_technical_feedback'],
+    q_motivation: ['q_motivation_text'],
+    q9: ['q9_text'],
+    q10: ['q10_amount'],
+    q11: ['q12'], // counts for normal and Risky
+    q15: ['q15_zero', 'q15_zero_text'],
+    q25: ['q25_text'],
+    q27: ['q28'], // Wildenroth I + II
+    q29: ['q29_text'],
+    q_features: ['q_features_text'],
+    q20: ['q20_text'],
+    q21_recap_frequency: ['q21_recap_channel'],
+    q23: ['q23_text'],
+    q19: ['q19_text'],
   }
+  const visibleIds = new Set(questions.map((q) => q.id))
   const groups: QuestionDef[][] = []
   for (let i = 0; i < questions.length; i++) {
-    const nextId = KEEP_TOGETHER[questions[i].id]
-    const hasPair = i + 1 < questions.length && questions[i + 1].id === nextId
-    groups.push(hasPair ? [questions[i], questions[++i]] : [questions[i]])
+    const q = questions[i]
+    const additional = FOLLOWUP_GROUPS[q.id]
+    if (!additional) {
+      groups.push([q])
+      continue
+    }
+    const group = [q]
+    for (const id of additional) {
+      if (questions[i + 1]?.id === id) {
+        group.push(questions[++i])
+      } else if (!visibleIds.has(id)) {
+        const placeholder = QUESTION_BY_ID.get(id)
+        if (placeholder) group.push(placeholder)
+      }
+    }
+    groups.push(group)
   }
 
   type Candidate = { cost: number; pages: QuestionDef[][] }
@@ -128,6 +153,8 @@ export function questionPages(questions: QuestionDef[]): QuestionDef[][] {
     best[start] = choice
   }
   return best[0]!.pages
+    .map((page) => page.filter((q) => visibleIds.has(q.id)))
+    .filter((page) => page.length > 0)
 }
 
 function answered(q: QuestionDef, value: Answers[string]): boolean {
