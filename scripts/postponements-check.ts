@@ -3,6 +3,7 @@ import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
 import { computeMatchdayParticipation, type ActivityLeg } from '@/lib/bettingActivityStats'
 import { buildSlips, type RecapBetRow, type RecapComboRow, type RecapMatchRow } from '@/lib/recap/slips'
 import { evaluateSlips } from '@/lib/risky'
+import { countPlacedSlots } from '@/components/navBetState'
 import type { Match } from '@/types'
 
 let total=0,failed=0
@@ -50,6 +51,9 @@ export function run():number {
   check('Kombi bleibt pending bis Nachholspiel entschieden ist',old?.status==='pending'&&old?.net===0)
   check('19er Schein gehört ausschließlich ST19',sl.find(x=>x.key==='s3')?.ownerMatchday===19)
   check('Nachholspiel behält März-Anstoß; historischer Wettspieltag davon unabhängig',new Date(march[0].match_date).getUTCFullYear()===2027&&bets[0].placed_matchday===16)
+  check('Nav-Badge zählt nur die Scheine des originalen Spieltags',
+    (()=>{ const slots=countPlacedSlots([{is_risky:false,is_bonus:false}],[
+      {is_risky:true,status:'pending'}]); return slots.normal===1&&slots.risky===1 })())
   check('Risky-Budget: 2 Normalscheine erlaubt',evaluateSlips([{id:'a',odds:2},{id:'b',odds:3}]).valid)
   check('Risky-Budget: 3 Scheine ohne Quote >20 verboten',!evaluateSlips([{id:'a',odds:2},{id:'b',odds:3},{id:'c',odds:19}]).valid)
   check('Risky-Budget: 3 Scheine mit Quote >20 erlaubt',evaluateSlips([{id:'a',odds:2},{id:'b',odds:3},{id:'c',odds:21}]).valid)

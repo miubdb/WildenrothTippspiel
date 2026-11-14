@@ -704,10 +704,13 @@ export default async function LeaderboardPage({
       // one query for this Spieltag's own matches, not per-award.
       const recapMatchNameMap = new Map<number, string>()
       {
+        // Include delayed games from the ORIGINAL betting round in recap
+        // details, even if the fixture is physically shown in a later round.
+        const namedMatchIds = [...new Set([...mdMatchIdArr, ...recapBets.map(b => b.match_id).filter((x): x is number => x != null)])]
         const { data: recapMatchRows } = await supabase
           .from('matches')
           .select('id, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
-          .in('id', mdMatchIdArr)
+          .in('id', namedMatchIds)
         for (const m of recapMatchRows ?? []) {
           const ht = Array.isArray(m.home_team) ? m.home_team[0] : m.home_team
           const at = Array.isArray(m.away_team) ? m.away_team[0] : m.away_team

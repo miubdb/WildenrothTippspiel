@@ -173,14 +173,15 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
     // round, never at the new March round. User-cancelled slips (void) do not.
     const mdMatchIds = displayMatchdayMatches.map((m) => m.id)
     if (mdMatchIds.length > 0) {
-      const { data: activeBetRows, error: activityError } = await admin
+      const { data: activeBetRows, count: activeBetCount, error: activityError } = await admin
         .from('bets')
-        .select('user_id')
+        .select('user_id', { count: 'exact' })
         .eq('season', CURRENT_SEASON)
         .eq('placed_matchday', matchday)
         .neq('status', 'void')
-      if (activityError || activeBetRows == null) {
-        console.error('Cannot verify penalty eligibility; no penalties charged:', activityError)
+      if (activityError || activeBetRows == null || activeBetCount !== activeBetRows.length) {
+        console.error('Incomplete penalty-eligibility data; no penalties charged:',
+          { activityError, count: activeBetCount, loaded: activeBetRows?.length })
         return
       }
       const activeUserIds = new Set(activeBetRows.map((b) => b.user_id as string))

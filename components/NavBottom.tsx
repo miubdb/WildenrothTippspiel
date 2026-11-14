@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { BottomNav } from '@/components/BottomNav'
 import { activeTippMatchday, countPlacedSlots, type NavBetState } from '@/components/navBetState'
 import { SEASON_START } from '@/lib/season'
+import { occupiesBettingSlot } from '@/lib/slipLifecycle'
 import { fetchAllRowsParallel } from '@/app/_lib/fetchAllRowsParallel'
 
 /**
@@ -19,11 +20,15 @@ export async function NavBottom({ userId }: { userId: string }) {
       .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
       .order('id').range(from, to))
     const active = activeTippMatchday(seasonMatches as never)
-    if (active.matchday != null && active.matchIds.length > 0) {
-      const { data: rows, error: betsError } = await supabase.from('bets').select('combo_id, is_risky, is_bonus').eq('user_id', userId).in('match_id', active.matchIds).neq('status', 'void')
+    if (active.matchday != null) {
+      const { data: rows, error: betsError } = await supabase.from('bets')
+        .select('combo_id, is_risky, is_bonus, status')
+        .eq('user_id', userId)
+        .eq('placed_matchday', active.matchday)
+        .neq('status', 'void')
       if (betsError) throw new Error(betsError.message)
       const betRows = rows ?? []
-      const singleBets = betRows.filter((b) => b.combo_id == null)
+      const singleBets = betRows.filter((b) => b.combo_id == null && occupiesBettingSlot(b.status))
       // Je Kombi nur EINE Zeile: is_risky teilen sich alle Legs einer Kombi (siehe Doku oben),
       // der Platz-Status kommt dagegen NICHT aus dieser Zeile, sondern unten aus combo_bets.status.
       const comboIsRisky = new Map<number, boolean | null>()
