@@ -454,7 +454,7 @@ export default function UmfragePage() {
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100">
           <WildiIcon size={22} />
-          <span>Schließ die Umfrage ab – vielleicht gibt’s ja auch eine kleine Überraschung 😉</span>
+          <span>Bleib dran: Wer die Umfrage abschließt, darf sich auf ein kleines Dankeschön freuen.</span>
         </div>
         <button type="button" onClick={() => setPaused(false)}
           className="min-h-[48px] w-full rounded-xl bg-red-700 px-4 py-3 text-sm font-bold text-white hover:bg-red-800">
@@ -556,11 +556,6 @@ export default function UmfragePage() {
             })}
           </nav>
         )}
-      </div>
-
-      <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100">
-        <WildiIcon size={22} />
-        <span>Deine Meinung zählt! Und vielleicht gibt’s für die abgeschlossene Umfrage ja auch eine kleine Überraschung 😉</span>
       </div>
 
       {submittedAt && (
