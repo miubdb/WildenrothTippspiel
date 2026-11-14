@@ -40,3 +40,10 @@
 - Sind alle verspäteten Torschützen-/Special-/Kombi-Abrechnungswege vom Aufruf `finalizeMatchdayIfDone` erfasst? Werden alte Awards ohne doppelten Push/−50/+10 aktualisiert?
 - Muss ein **veröffentlichter/frozen** Winter-Recap bewusst unverändert bleiben, selbst wenn eine offene November-Kombi im März entschieden wird?
 - Prüfe RLS/Auth, `finalize_bet_placement`-RPC-Abuse, Advisory-Lock-Race, refund-before-insert-Race, doppelte Payouts, `void`/neutralized, fehlende Fremdschlüssel, Hand-Edits an Spielterminen und DB-Migrations-Rollback.
+
+## Durchgeführte Sandbox-Tests (14.11.2026)
+- Wildenroth Redesign Sandbox: Migration vollständig ausgeführt, 2.141 Wettpositionen und 493 Kombis erfolgreich zurückgefüllt, 0 fehlende Owner und 0 Kombi-/Leg-Widersprüche.
+- `finalize_bet_placement`: Einzelwette mit korrektem `placed_matchday` gespeichert; konkurrierender Aufruf mit altem `expected_count` sauber als `SLOT_COUNT_CHANGED` abgelehnt; Kombi mit konsistentem Owner gespeichert.
+- Test-Insertions liefen innerhalb einer SQL-Transaktion mit `ROLLBACK`. Anschließende Counts unverändert: 2.141 Wettpositionen und 493 Kombis.
+- Privilegien geprüft: `service_role` kann die RPC ausführen; `anon` und `authenticated` nicht.
+- Sandbox und CI ersetzen keinen realen End-to-End-UI-Test mit angemeldetem Testnutzer und **keinen Production-Backfill**.

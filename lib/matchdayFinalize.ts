@@ -161,56 +161,54 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
     )
   }
 
-  // Dedup via push_reminders so this only runs once even if multiple matches
-  // settle simultaneously. Season is part of the dedupe key — matchday
-  // numbers reset every season.
-  const { error: penaltyDedupError } = await admin
-    .from('push_reminders')
-    .insert({ type: 'inactivity_fee', matchday, season: CURRENT_SEASON })
-  if (!penaltyDedupError) {
-    // Activity is an immutable property of the PLACED slip, not the fixture's
-    // CURRENT kickoff grouping. Pending postponed wagers count at the ORIGINAL
-    // round, never at the new March round. User-cancelled slips (void) do not.
-    const mdMatchIds = displayMatchdayMatches.map((m) => m.id)
-    if (mdMatchIds.length > 0) {
-      const { data: activeBetRows, count: activeBetCount, error: activityError } = await admin
-        .from('bets')
+  // Participation eligibility is verified BEFORE claiming the irreversible
+  // one-per-round dedup marker. A transient/truncated SELECT must never mark
+  // the penalty as processed (or suppress the independent pocket-money credit).
+  const mdMatchIds = displayMatchdayMatches.map((m) => m.id)
+  if (mdMatchIds.length > 0) {
+    const [
+      { data: activeBetRows, count: activeBetCount, error: activityError },
+      { data: allProfiles, error: profileError },
+    ] = await Promise.all([
+      admin.from('bets')
         .select('user_id', { count: 'exact' })
         .eq('season', CURRENT_SEASON)
         .eq('placed_matchday', matchday)
-        .neq('status', 'void')
-      if (activityError || activeBetRows == null || activeBetCount !== activeBetRows.length) {
-        console.error('Incomplete penalty-eligibility data; no penalties charged:',
-          { activityError, count: activeBetCount, loaded: activeBetRows?.length })
-        return
-      }
-      const activeUserIds = new Set(activeBetRows.map((b) => b.user_id as string))
-
-      // Only users actually allowed to bet this season can be "inactive" —
-      // ineligible users are hard-blocked from placing any bet at all (see
-      // app/api/bets/place/route.ts NOT_ELIGIBLE), so penalizing them here
-      // would charge people for a season they were never allowed to play.
-      const { data: allProfiles } = await admin
-        .from('profiles')
+        .neq('status', 'void'),
+      admin.from('profiles')
         .select('id, created_at')
-        .or('eligible_for_current_season.eq.true,is_admin.eq.true')
+        .or('eligible_for_current_season.eq.true,is_admin.eq.true'),
+    ])
+    if (activityError || activeBetRows == null || activeBetCount !== activeBetRows.length ||
+        profileError || allProfiles == null) {
+      console.error('Inactivity eligibility could not be verified; no penalty lock or debit created',
+        { activityError, profileError, count: activeBetCount, loaded: activeBetRows?.length })
+    } else {
+      const activeUserIds = new Set(activeBetRows.map((b) => b.user_id as string))
+      // Someone who joined after the last eligible kickoff never had an
+      // opportunity to participate in this round and cannot be penalized.
+      const latestKickoff = Math.max(...displayMatchdayMatches.map((m) => new Date(m.match_date).getTime()))
+      const eligibleForPenalty = allProfiles
+        .filter((p) => !activeUserIds.has(p.id))
+        .filter((p) => new Date(p.created_at).getTime() <= latestKickoff)
 
-      // Someone who registered after every one of this Spieltag's matches had
-      // already kicked off had zero opportunity to place a bet on it — every
-      // market was closed before they existed. Charging them the same as a
-      // member who simply chose not to bet would penalize an impossibility,
-      // not inactivity (observed: a user who signed up minutes after the last
-      // kickoff, well before this settlement ran, still got the full −50).
-      const latestKickoff = displayMatchdayMatches.length > 0
-        ? Math.max(...displayMatchdayMatches.map((m) => new Date(m.match_date).getTime()))
-        : null
-
-      await Promise.allSettled(
-        (allProfiles ?? [])
-          .filter((p) => !activeUserIds.has(p.id))
-          .filter((p) => latestKickoff == null || new Date(p.created_at).getTime() <= latestKickoff)
-          .map((p) => admin.rpc('apply_penalty', { p_user_id: p.id, p_amount: INACTIVITY_PENALTY }))
-      )
+      const { error: penaltyDedupError } = await admin
+        .from('push_reminders')
+        .insert({ type: 'inactivity_fee', matchday, season: CURRENT_SEASON })
+      if (!penaltyDedupError) {
+        const outcomes = await Promise.allSettled(eligibleForPenalty.map(async (p) => {
+          const { error } = await admin.rpc('apply_penalty',
+            { p_user_id: p.id, p_amount: INACTIVITY_PENALTY })
+          if (error) throw error
+        }))
+        const failures = outcomes.filter((outcome) => outcome.status === 'rejected')
+        if (failures.length > 0) {
+          // Do NOT retry here: the dedup marker protects against duplicate
+          // debits. Individual failures need audited manual reconciliation.
+          console.error('Some inactivity debits failed; manual reconciliation required',
+            { matchday, failures: failures.length })
+        }
+      }
     }
   }
 
@@ -219,23 +217,28 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
   // keeping them separate means one can't silently swallow the other if the
   // penalty block was already recorded for this Spieltag (e.g. by an earlier
   // deploy) while this one hadn't run yet.
-  const { error: pocketMoneyDedupError } = await admin
-    .from('push_reminders')
-    .insert({ type: 'pocket_money', matchday, season: CURRENT_SEASON })
-  if (!pocketMoneyDedupError) {
-    // Everyone allowed to play this season, whether they bet or not — a
-    // player sitting at 0 Wildis is exactly who this is for. Ineligible
-    // accounts are excluded for the same reason they're excluded from the
-    // penalty: they were never able to take part.
-    const { data: payoutProfiles } = await admin
-      .from('profiles')
-      .select('id')
-      .or('eligible_for_current_season.eq.true,is_admin.eq.true')
-
-    await Promise.allSettled(
-      (payoutProfiles ?? []).map((p) =>
-        admin.rpc('increment_balance', { p_user_id: p.id, p_amount: POCKET_MONEY_PER_MATCHDAY })
-      )
-    )
+  const { data: payoutProfiles, error: payoutProfilesError } = await admin
+    .from('profiles')
+    .select('id')
+    .or('eligible_for_current_season.eq.true,is_admin.eq.true')
+  if (payoutProfilesError || payoutProfiles == null) {
+    console.error('Pocket-money recipients could not be verified; no payout lock created',
+      payoutProfilesError)
+  } else {
+    const { error: pocketMoneyDedupError } = await admin
+      .from('push_reminders')
+      .insert({ type: 'pocket_money', matchday, season: CURRENT_SEASON })
+    if (!pocketMoneyDedupError) {
+      const outcomes = await Promise.allSettled(payoutProfiles.map(async (p) => {
+        const { error } = await admin.rpc('increment_balance',
+          { p_user_id: p.id, p_amount: POCKET_MONEY_PER_MATCHDAY })
+        if (error) throw error
+      }))
+      const failures = outcomes.filter((outcome) => outcome.status === 'rejected')
+      if (failures.length > 0) {
+        console.error('Some pocket-money credits failed; manual reconciliation required',
+          { matchday, failures: failures.length })
+      }
+    }
   }
 }
