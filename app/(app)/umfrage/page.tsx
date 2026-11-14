@@ -46,6 +46,8 @@ export default function UmfragePage() {
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null)
   const [justSubmitted, setJustSubmitted] = useState(false)
+  const [paused, setPaused] = useState(false)
+  const [pauseSaving, setPauseSaving] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Reopening a saved V2 answer may require new questions to be answered.
   // Never auto-write the migrated draft on GET (which could silently reset
@@ -74,6 +76,7 @@ export default function UmfragePage() {
         setSurveyMode(data.surveyMode ?? 'hidden')
         if (data.response) {
           const resumedAnswers = normalizeLegacySurveyAnswers(data.response.answers ?? {})
+          answersRef.current = resumedAnswers
           setAnswers(resumedAnswers)
           setSubmittedAt(isSurveyComplete(resumedAnswers) ? data.response.submitted_at ?? null : null)
           setStarted(true)
@@ -133,7 +136,7 @@ export default function UmfragePage() {
   // submission. A unique session id per mount makes resumed visits additive;
   // periodic cumulative reports are idempotent on the server.
   useEffect(() => {
-    const tracking = loadState === 'ready' && started && surveyMode !== 'hidden' && !submittedAt && !justSubmitted
+    const tracking = loadState === 'ready' && started && !paused && surveyMode !== 'hidden' && !submittedAt && !justSubmitted
     if (!tracking) return
 
     const sessionId = crypto.randomUUID()
@@ -217,7 +220,7 @@ export default function UmfragePage() {
       void send(true)
       flushActiveTimeRef.current = async () => {}
     }
-  }, [loadState, started, surveyMode, submittedAt, justSubmitted])
+  }, [loadState, started, paused, surveyMode, submittedAt, justSubmitted])
 
   // React navigation does not change the pathname, so the app's global
   // ScrollToTopOnNavigate never runs. Reset AFTER the next question page has
@@ -253,7 +256,9 @@ export default function UmfragePage() {
     // from the ACTIVE in-memory state too, not just from what eventually
     // gets persisted, so the UI never shows (or silently keeps) a stale
     // value for a question that no longer applies.
-    setAnswers((a) => stripHiddenAnswers({ ...a, [id]: value }))
+    const nextAnswers = stripHiddenAnswers({ ...answersRef.current, [id]: value })
+    answersRef.current = nextAnswers
+    setAnswers(nextAnswers)
   }
 
   function handleStart() {
@@ -300,6 +305,18 @@ export default function UmfragePage() {
       setSectionIdx((i) => i - 1)
       setPageIdx(questionPages(visibleQuestionsForSection(previousSection, answers)).length - 1)
     }
+  }
+
+  async function saveAndPause() {
+    if (pauseSaving) return
+    setPauseSaving(true)
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    await flushActiveTimeRef.current()
+    // Saving is explicitly acknowledged only after the server confirms
+    // the full answer set. Automatic background saves remain unchanged.
+    const result = await save('save')
+    if (result.ok) setPaused(true)
+    setPauseSaving(false)
   }
 
   async function handleSubmit() {
@@ -354,6 +371,29 @@ export default function UmfragePage() {
             Zurück zur Hilfe
           </Link>
         </div>
+      </div>
+    )
+  }
+
+  if (paused) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-4 px-4 py-6">
+        <div role="status" className="rounded-2xl border border-green-200 bg-green-50 px-5 py-6 text-center dark:border-green-800 dark:bg-green-950/30">
+          <div className="mb-2 text-3xl" aria-hidden="true">✅</div>
+          <h1 className="text-xl font-bold text-green-900 dark:text-green-200">Zwischenstand gespeichert!</h1>
+          <p className="mt-2 text-sm leading-6 text-green-800 dark:text-green-300">
+            Du kannst jederzeit weitermachen, auch wenn du die App jetzt schließt.
+            Deine Umfrage ist damit noch nicht abgeschickt.
+          </p>
+        </div>
+        <button type="button" onClick={() => setPaused(false)}
+          className="min-h-[48px] w-full rounded-xl bg-red-700 px-4 py-3 text-sm font-bold text-white hover:bg-red-800">
+          Umfrage fortsetzen
+        </button>
+        <Link href="/anleitung"
+          className="flex min-h-[48px] items-center justify-center rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100">
+          Zurück zur Hilfe
+        </Link>
       </div>
     )
   }
@@ -470,12 +510,14 @@ export default function UmfragePage() {
         </p>
       )}
 
-      <button
-        onClick={() => save('save')}
-        className="w-full text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 py-1"
+      <button type="button" onClick={saveAndPause} disabled={pauseSaving}
+        className="min-h-[48px] w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-800 transition-colors hover:border-red-500 hover:bg-red-50 disabled:opacity-60 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
       >
-        Zwischenspeichern
+        {pauseSaving ? 'Speichert…' : 'Speichern & später fortsetzen'}
       </button>
+      <p className="text-center text-[12px] text-gray-500 dark:text-gray-400">
+        Deine Antworten werden auch beim Ausfüllen automatisch gespeichert.
+      </p>
     </div>
   )
 }
@@ -661,10 +703,10 @@ function MultiChoiceInput({ q, value, onChange }: { q: QuestionDef; value: strin
 
   return (
     <div>
-      {q.maxSelect && (
+      {(q.maxSelect != null || q.id === 'q_features') && (
         <p className="mb-2 text-[12px] font-semibold text-gray-600 dark:text-gray-300">
           {q.id === 'q_features'
-            ? `${concreteSelectedCount} von ${q.maxSelect} Ideen ausgewählt`
+            ? `${concreteSelectedCount} Ideen ausgewählt · beliebig viele möglich`
             : `Bis zu ${q.maxSelect} auswählen`}
         </p>
       )}
