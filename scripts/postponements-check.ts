@@ -54,7 +54,7 @@ export function run():number {
   check('Risky-Budget: 3 Scheine ohne Quote >20 verboten',!evaluateSlips([{id:'a',odds:2},{id:'b',odds:3},{id:'c',odds:19}]).valid)
   check('Risky-Budget: 3 Scheine mit Quote >20 erlaubt',evaluateSlips([{id:'a',odds:2},{id:'b',odds:3},{id:'c',odds:21}]).valid)
   // The fixture calendar is still free to show the rescheduled actual kickoff.
-  check('Matchday-index is still available for physical fixture layout',effectiveMatchdayOf(march[4] as Match,idx)===19)
+  check('Matchday-index is still available for physical fixture layout',effectiveMatchdayOf(matches[4],idx)===19)
   console.log(`${total-failed}/${total} assertions passed`)
   return failed
 }

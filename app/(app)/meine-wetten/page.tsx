@@ -166,7 +166,7 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
       // Spieltag-Special: match_id ist nur ein technischer Anker, der Spieltag steht am Special selbst
       const md = l.market_type === 'matchday_special' && l.special_id != null
         ? specialsById[l.special_id]?.matchday ?? null
-        : (placedMdByBetId.get(l.id) ?? (() => { const m = l.match?.id != null ? matchById.get(l.match.id) : undefined; return m ? legMatchdayOf(m, mdIndex) : null })())
+        : (placedMdByBetId.get(Number(l.id)) ?? (() => { const m = l.match?.id != null ? matchById.get(l.match.id) : undefined; return m ? legMatchdayOf(m, mdIndex) : null })())
       legMatchdays[`leg-${l.id}`] = md
       return md
     })
