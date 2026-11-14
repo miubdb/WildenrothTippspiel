@@ -9,7 +9,7 @@
  */
 import {
   SURVEY_SECTIONS, ALL_QUESTIONS, QUESTION_BY_ID, isRequired, isQuestionVisible, visibleQuestionsForSection,
-  isSectionComplete, isSurveyComplete, type Answers,
+  isSectionComplete, isSurveyComplete, surveyProgress, type Answers,
 } from '@/lib/survey'
 import {
   toggleMultiOption, wouldReplaceSurveySelection, isValidMultiSelection, isValidAnswerValue, validateIncomingAnswers, stripHiddenAnswers, normalizeLegacySurveyAnswers, nextSubmittedAt,
@@ -47,6 +47,15 @@ export function run(): number {
     check('keine doppelten Frage-IDs', new Set(ids).size === ids.length)
     const perSection = SURVEY_SECTIONS.map((s) => s.questions.length)
     check('Felder pro Bereich: 6,14,4,8,2,7,5', perSection.join(',') === '6,14,4,8,2,7,5', perSection.join(','))
+  }
+
+  console.log('\n1b. Fortschritt misst beantwortete Pflichtfragen statt besuchte Seiten')
+  {
+    const empty = surveyProgress({})
+    const oneAnswer = surveyProgress({ q1: 10 })
+    check('Ohne Antworten: 0 %', empty.percent === 0 && empty.answered === 0 && empty.total > 0)
+    check('Eine beantwortete Pflichtfrage erhöht Fortschritt', oneAnswer.answered === 1 && oneAnswer.percent > empty.percent)
+    check('Bedingte Pflichtfragen werden mitgezählt', surveyProgress({ q12: '2 Risky-Wetten' }).total > empty.total)
   }
 
   console.log('\n2. Maximal 28 Pflichtfelder (bei der Antwortkombination, die am meisten Pflichtfragen freischaltet)')
