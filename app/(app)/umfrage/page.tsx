@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   SURVEY_SECTIONS, visibleQuestionsForSection, isSurveyComplete, isRequired,
@@ -8,6 +8,7 @@ import {
 } from '@/lib/survey'
 import { toggleMultiOption, stripHiddenAnswers, normalizeLegacySurveyAnswers, wouldReplaceSurveySelection } from '@/lib/surveyValidation'
 import { questionPages, pageComplete } from '@/lib/surveyPresentation'
+import { advanceSurveyActivity, freshActivityClock, noteSurveyInteraction, resumeSurveyActivity, SURVEY_HEARTBEAT_MS } from '@/lib/surveyActivity'
 
 type LoadState = 'loading' | 'ready' | 'error'
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -61,6 +62,10 @@ export default function UmfragePage() {
   // landing after a newer one, not just goNext()'s "cancel the pending timer"
   // trick, which only covers one specific overlap case.
   const saveChain = useRef<Promise<unknown>>(Promise.resolve())
+  // This method belongs to the currently-active browser-tab session.
+  // It is independent of answer autosaving and remains best-effort if
+  // the user closes their tab while a request is in flight.
+  const flushActiveTimeRef = useRef<() => Promise<void>>(async () => {})
 
   useEffect(() => {
     fetch('/api/survey')
@@ -124,6 +129,120 @@ export default function UmfragePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [answers, started])
 
+  // Track ACTIVE survey time only, not elapsed time between first visit and
+  // submission. A unique session id per mount makes resumed visits additive;
+  // periodic cumulative reports are idempotent on the server.
+  useEffect(() => {
+    const tracking = loadState === 'ready' && started && surveyMode !== 'hidden' && !submittedAt && !justSubmitted
+    if (!tracking) return
+
+    const sessionId = crypto.randomUUID()
+    let visible = document.visibilityState === 'visible' && document.hasFocus()
+    let clock = freshActivityClock(performance.now())
+    let lastSentMs = 0
+
+    const tick = () => {
+      clock = advanceSurveyActivity(clock, performance.now(), visible)
+    }
+    const send = async (leaving = false): Promise<void> => {
+      const activeMs = Math.floor(clock.activeMs / 1000) * 1000
+      if (activeMs <= lastSentMs) return
+      const previous = lastSentMs
+      lastSentMs = activeMs
+      const body = JSON.stringify({ sessionId, activeMs })
+      if (leaving && navigator.sendBeacon) {
+        const accepted = navigator.sendBeacon('/api/survey/activity', new Blob([body], { type: 'application/json' }))
+        if (accepted) return
+      }
+      try {
+        const response = await fetch('/api/survey/activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          keepalive: leaving,
+          body,
+        })
+        if (!response.ok) lastSentMs = Math.min(previous, lastSentMs)
+      } catch {
+        lastSentMs = Math.min(previous, lastSentMs)
+      }
+    }
+    const interact = () => {
+      if (visible) clock = noteSurveyInteraction(clock, performance.now(), true)
+    }
+    const hide = () => {
+      tick()
+      visible = false
+      void send(true)
+    }
+    const resume = () => {
+      visible = document.visibilityState === 'visible'
+      clock = resumeSurveyActivity(clock, performance.now())
+    }
+    const visibility = () => {
+      if (document.visibilityState === 'hidden') hide()
+      else resume()
+    }
+    const focus = () => resume()
+    const blur = () => hide()
+    const pageHide = () => hide()
+    const heartbeat = window.setInterval(() => {
+      tick()
+      if (visible) void send()
+    }, SURVEY_HEARTBEAT_MS)
+
+    window.addEventListener('pointerdown', interact, { passive: true })
+    window.addEventListener('keydown', interact)
+    window.addEventListener('scroll', interact, { passive: true, capture: true })
+    window.addEventListener('touchstart', interact, { passive: true })
+    window.addEventListener('focus', focus)
+    window.addEventListener('blur', blur)
+    window.addEventListener('pagehide', pageHide)
+    document.addEventListener('visibilitychange', visibility)
+    flushActiveTimeRef.current = async () => { tick(); await send() }
+
+    return () => {
+      window.clearInterval(heartbeat)
+      window.removeEventListener('pointerdown', interact)
+      window.removeEventListener('keydown', interact)
+      window.removeEventListener('scroll', interact, true)
+      window.removeEventListener('touchstart', interact)
+      window.removeEventListener('focus', focus)
+      window.removeEventListener('blur', blur)
+      window.removeEventListener('pagehide', pageHide)
+      document.removeEventListener('visibilitychange', visibility)
+      tick()
+      void send(true)
+      flushActiveTimeRef.current = async () => {}
+    }
+  }, [loadState, started, surveyMode, submittedAt, justSubmitted])
+
+  // React navigation does not change the pathname, so the app's global
+  // ScrollToTopOnNavigate never runs. Reset AFTER the next question page has
+  // committed, rather than before setPageIdx/setSectionIdx takes effect.
+  // iOS Safari/PWA can scroll either #app-main or the window; do both, and
+  // reinforce after layout/paint to beat browser scroll anchoring.
+  useLayoutEffect(() => {
+    if (!started || loadState !== 'ready') return
+    const reset = () => {
+      const container = document.getElementById('app-main')
+      if (container) {
+        container.scrollTop = 0
+        container.scrollTo({ top: 0, behavior: 'instant' })
+      }
+      document.documentElement.scrollTop = 0
+      document.body.scrollTop = 0
+      window.scrollTo({ top: 0, behavior: 'instant' })
+    }
+    reset()
+    let second = 0
+    const first = requestAnimationFrame(() => {
+      reset()
+      second = requestAnimationFrame(reset)
+    })
+    return () => { cancelAnimationFrame(first); cancelAnimationFrame(second) }
+  }, [loadState, started, sectionIdx, pageIdx, justSubmitted])
+
   function setAnswer(id: string, value: Answers[string]) {
     saveEnabled.current = true
     // stripHiddenAnswers runs on every change (not just at save time) — a
@@ -138,19 +257,6 @@ export default function UmfragePage() {
   function handleStart() {
     saveEnabled.current = true
     setStarted(true)
-  }
-
-  // The app's actual scroll container is <main id="app-main"> (overflow-y-auto),
-  // not necessarily window/document — on some engines a flex child with
-  // overflow-y-auto doesn't get a bounded height and the window scrolls
-  // instead. Reset every possible scroll container (same set as
-  // components/ScrollToTopOnNavigate.tsx) so whichever one actually scrolled
-  // snaps back to the top when moving between sections.
-  function scrollToTop() {
-    document.getElementById('app-main')?.scrollTo({ top: 0, behavior: 'smooth' })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-    document.documentElement.scrollTop = 0
-    document.body.scrollTop = 0
   }
 
   async function goNext() {
@@ -174,16 +280,17 @@ export default function UmfragePage() {
     // succeeded; on failure the user stays put with their answers intact
     // and sees a retry affordance (see saveError below).
     if (!result.ok) return
+    void flushActiveTimeRef.current()
     if (currentBlock + 1 < blocks.length) {
       setPageIdx(currentBlock + 1)
     } else if (sectionIdx < SURVEY_SECTIONS.length - 1) {
       setSectionIdx((i) => i + 1)
       setPageIdx(0)
     }
-    scrollToTop()
   }
 
   function goBack() {
+    void flushActiveTimeRef.current()
     if (pageIdx > 0) {
       setPageIdx((i) => i - 1)
     } else if (sectionIdx > 0) {
@@ -191,12 +298,13 @@ export default function UmfragePage() {
       setSectionIdx((i) => i - 1)
       setPageIdx(questionPages(visibleQuestionsForSection(previousSection, answers)).length - 1)
     }
-    scrollToTop()
   }
 
   async function handleSubmit() {
     if (!isSurveyComplete(answers)) return
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    // Record the last active seconds BEFORE submission stops the timer.
+    await flushActiveTimeRef.current()
     const result = await save('submit')
     // submittedAt is already set by save() itself from the server's
     // response — a successful `submit` always comes back with it set
@@ -264,7 +372,7 @@ export default function UmfragePage() {
           </div>
         </div>
         <p className="px-1 text-[12px] leading-5 text-gray-500 dark:text-gray-400">
-          Wir werten deine Antworten aus, um das Tippspiel zu verbessern – nicht, um einzelne Spieler zu beurteilen. Admins können sie zwar deinem Benutzerkonto zuordnen, aber Kritik ist ausdrücklich willkommen. Also sei einfach ehrlich! 😉
+          Wir werten deine Antworten aus, um das Tippspiel zu verbessern – nicht, um einzelne Spieler zu beurteilen. Admins können sie zwar deinem Benutzerkonto zuordnen, aber Kritik ist ausdrücklich willkommen. Also sei einfach ehrlich! 😉 Die Bearbeitungszeit messen wir nur während der aktiven Nutzung; Pausen und geschlossene Tabs zählen nicht.
         </p>
         <button
           type="button"
