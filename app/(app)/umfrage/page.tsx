@@ -383,7 +383,7 @@ export default function UmfragePage() {
           <h1 className="text-xl font-bold text-green-900 dark:text-green-200">Zwischenstand gespeichert!</h1>
           <p className="mt-2 text-sm leading-6 text-green-800 dark:text-green-300">
             Du kannst jederzeit weitermachen, auch wenn du die App jetzt schließt.
-            Deine Umfrage ist damit noch nicht abgeschickt.
+            {submittedAt ? 'Deine bereits abgegebene Umfrage bleibt gespeichert. Du kannst weitere Änderungen später fortsetzen.' : 'Deine Umfrage ist damit noch nicht abgeschickt.'}
           </p>
         </div>
         <button type="button" onClick={() => setPaused(false)}
