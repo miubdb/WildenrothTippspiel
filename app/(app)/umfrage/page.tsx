@@ -289,7 +289,7 @@ export default function UmfragePage() {
     if (targetPage < 0 || targetPage >= targetPages.length) return
     if (targetSection === sectionIdx && targetPage === pageIdx) {
       setNavigationOpen(false)
-      if (questionId) document.getElementById(`question-${questionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      if (questionId) document.getElementById(`survey-question-${questionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       return
     }
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
@@ -309,7 +309,7 @@ export default function UmfragePage() {
     scrollToQuestionRef.current = null
     // The existing iOS scroll-reset effect runs over two paint frames.
     // Jump to the requested question after that reset settles.
-    const timer = window.setTimeout(() => document.getElementById(`question-${questionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 180)
+    const timer = window.setTimeout(() => document.getElementById(`survey-question-${questionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 180)
     return () => window.clearTimeout(timer)
   }, [sectionIdx, pageIdx])
 
@@ -542,7 +542,9 @@ export default function UmfragePage() {
 
       <div className="space-y-3">
         {currentQuestions.map((q) => (
-          <QuestionCard key={q.id} q={q} answers={answers} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} />
+          <div key={q.id} id={`survey-question-${q.id}`} className="scroll-mt-4">
+            <QuestionCard q={q} answers={answers} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} />
+          </div>
         ))}
       </div>
 
