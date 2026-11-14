@@ -215,6 +215,77 @@ end;
 $fn$;
 REVOKE ALL ON FUNCTION public.book_matchday_round(text,text,integer,uuid[],numeric) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.book_matchday_round(text,text,integer,uuid[],numeric) TO service_role;
+
+-- ───────────────────────── Atomare Abrechnung / Stornierung (Status + Guthaben in EINER Transaktion) ─────────────────────────
+-- Vorher: Status per UPDATE (Compare-and-Set), danach separat increment_balance. Scheiterte die Gutschrift, blieb die Wette
+-- "won" ohne Auszahlung und wurde nie wieder angefasst. Jetzt: Zeile sperren, Status prüfen, umstellen UND gutschreiben – oder gar
+-- nichts. Rückgabe false = bereits entschieden (idempotent, kein zweites Mal gutschreiben).
+CREATE OR REPLACE FUNCTION public.settle_bet(p_bet_id integer, p_status text, p_payout numeric)
+ RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+declare v_user uuid; v_combo integer; v_cur text; v_pay numeric;
+begin
+  if p_status not in ('won', 'lost') then raise exception 'INVALID_STATUS'; end if;
+  if p_status = 'won' and (p_payout is null or p_payout < 0) then raise exception 'INVALID_PAYOUT'; end if;
+  select user_id, combo_id, status into v_user, v_combo, v_cur from public.bets where id = p_bet_id for update;
+  if not found or v_cur <> 'pending' then return false; end if;
+  v_pay := case when p_status = 'won' then coalesce(p_payout, 0) else 0 end;
+  update public.bets set status = p_status, payout = v_pay where id = p_bet_id;
+  -- Combo legs never pay on their own: the combo parent pays (settle_combo).
+  if p_status = 'won' and v_combo is null and v_pay > 0 then perform public.increment_balance(v_user, v_pay); end if;
+  return true;
+end;
+$fn$;
+
+CREATE OR REPLACE FUNCTION public.settle_combo(p_combo_id integer, p_status text, p_payout numeric)
+ RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+declare v_user uuid; v_cur text; v_pay numeric;
+begin
+  if p_status not in ('won', 'lost') then raise exception 'INVALID_STATUS'; end if;
+  if p_status = 'won' and (p_payout is null or p_payout < 0) then raise exception 'INVALID_PAYOUT'; end if;
+  select user_id, status into v_user, v_cur from public.combo_bets where id = p_combo_id for update;
+  if not found or v_cur <> 'pending' then return false; end if;
+  v_pay := case when p_status = 'won' then coalesce(p_payout, 0) else 0 end;
+  update public.combo_bets set status = p_status, payout = v_pay where id = p_combo_id;
+  if p_status = 'won' and v_pay > 0 then perform public.increment_balance(v_user, v_pay); end if;
+  return true;
+end;
+$fn$;
+
+-- Storno/Void + Rückerstattung des Einsatzes atomar. Gibt den erstatteten Betrag zurück, NULL wenn nichts (mehr) stornierbar war.
+CREATE OR REPLACE FUNCTION public.void_slip_refund(p_kind text, p_id integer, p_reason text, p_user_id uuid DEFAULT NULL, p_all_legs boolean DEFAULT false)
+ RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $fn$
+declare v_user uuid; v_stake numeric; v_cur text; v_combo integer;
+begin
+  if p_reason not in ('user_cancelled', 'admin_special_voided', 'admin_goalscorer_unavailable') then raise exception 'INVALID_REASON'; end if;
+  if p_kind = 'single' then
+    select user_id, stake, status, combo_id into v_user, v_stake, v_cur, v_combo from public.bets where id = p_id for update;
+    if not found or v_cur <> 'pending' or v_combo is not null then return null; end if;
+    if p_user_id is not null and v_user <> p_user_id then return null; end if;
+    update public.bets set status = 'void', void_reason = p_reason where id = p_id;
+  elsif p_kind = 'combo' then
+    select user_id, stake, status into v_user, v_stake, v_cur from public.combo_bets where id = p_id for update;
+    if not found or v_cur <> 'pending' then return null; end if;
+    if p_user_id is not null and v_user <> p_user_id then return null; end if;
+    update public.bets set status = 'void', void_reason = p_reason
+      where combo_id = p_id and (case when p_all_legs then status <> 'void' else status in ('pending', 'neutralized') end);
+    update public.combo_bets set status = 'void', void_reason = p_reason where id = p_id;
+  else
+    raise exception 'INVALID_KIND';
+  end if;
+  if coalesce(v_stake, 0) > 0 then perform public.increment_balance(v_user, v_stake); end if;
+  return coalesce(v_stake, 0);
+end;
+$fn$;
+
+REVOKE ALL ON FUNCTION public.settle_bet(integer,text,numeric) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.settle_combo(integer,text,numeric) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.void_slip_refund(text,integer,text,uuid,boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.settle_bet(integer,text,numeric) TO service_role;
+GRANT EXECUTE ON FUNCTION public.settle_combo(integer,text,numeric) TO service_role;
+GRANT EXECUTE ON FUNCTION public.void_slip_refund(text,integer,text,uuid,boolean) TO service_role;
 COMMIT;
 -- Verification:
 -- SELECT placed_matchday, count(*) FROM bets WHERE match_id IN (260,323) GROUP BY 1;

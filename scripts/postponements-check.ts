@@ -80,6 +80,26 @@ export function run():number {
   check('nav/tipps: Platzanzeige ist saison-gescopt',/slipSeasonForMatchday\(active\.matchday\)/.test(src('components/NavBottom.tsx'))&&/slipSeasonForMatchday\(currentMatchday\)/.test(src('app/(app)/tipps/page.tsx')))
   const sql=src('supabase/immutable_placed_matchday_2026.sql')
   check('SQL: placed_matchday NOT NULL + Trigger-Sicherheitsnetz + saisonbewusste RPC + atomare Rundenbuchung vorhanden',/alter column placed_matchday set not null/i.test(sql)&&/bets_fill_placed_matchday/.test(sql)&&/SEASON_MISSING/.test(sql)&&/function public\.book_matchday_round/i.test(sql))
+  // ---- Settlement atomicity guards: status flip + credit must never be two separate statements again ----
+  const settleSrc=src('app/api/admin/settle/route.ts')
+  const scorersSrc=src('app/api/admin/goalscorers/scorers/route.ts')
+  const specialsSrc=src('lib/matchdaySpecials.ts')
+  for (const [name,code] of [['settle',settleSrc],['scorers',scorersSrc],['matchdaySpecials',specialsSrc]] as const) {
+    check(`${name}: Auszahlung nur über atomare RPCs (kein increment_balance, keine direkten Status-Updates auf bets/combo_bets)`,
+      !/rpc\('increment_balance'/.test(code)&&!/from\('(bets|combo_bets)'\)\s*\.update\(\{ status: (won|result|'won'|'lost')/.test(code)&&/settle(Single|Combo)\(/.test(code))
+  }
+  check('settle: Wiederholungslauf (Recovery) für bereits finished Spiele mit identischem Ergebnis',/isRecoveryRun/.test(settleSrc)&&/existingMatch\.home_score === homeScore/.test(settleSrc))
+  check('settle: kein Frühabbruch bei 0 offenen Wetten (Spieltagsabschluss läuft immer)',!/settled: 0 \}\)/.test(settleSrc))
+  check('settle/scorers/specials: hängende Kombis werden selbstheilend nachgeprüft',[settleSrc,scorersSrc,specialsSrc].every(c=>/findStuckComboIds/.test(c)))
+  check('specials: Special wird bei Teilfehlern NICHT als settled markiert (Retry möglich)',/left active for retry/.test(specialsSrc))
+  for (const f of ['app/api/admin/matchday-specials/[id]/void/route.ts','app/api/admin/goalscorers/cancel-player/route.ts','app/api/bets/cancel/route.ts']) {
+    const c=src(f)
+    check(`${f}: Void + Erstattung atomar (void_slip_refund), kein separates increment_balance`,/voidSlipWithRefund\(/.test(c)&&!/rpc\('increment_balance'/.test(c))
+  }
+  const settlementLib=src('lib/settlement.ts')
+  check('lib/settlement: RPC-Fehler → "error" (Zeile bleibt pending), true → applied, false → skipped',/'error'/.test(settlementLib)&&/'applied'/.test(settlementLib)&&/'skipped'/.test(settlementLib))
+  const sqlAll=src('supabase/immutable_placed_matchday_2026.sql')
+  check('SQL: settle_bet/settle_combo/void_slip_refund sperren die Zeile (FOR UPDATE), prüfen pending, nur service_role',/for update/i.test(sqlAll)&&/function public\.settle_bet/i.test(sqlAll)&&/function public\.void_slip_refund/i.test(sqlAll)&&/GRANT EXECUTE ON FUNCTION public\.settle_combo/i.test(sqlAll))
   console.log(`${total-failed}/${total} assertions passed`)
   return failed
 }

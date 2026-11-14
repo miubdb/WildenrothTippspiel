@@ -179,5 +179,61 @@ ok('Retry nach behobenem Fehler bucht genau einmal (+10 je Empfänger)', r3.book
 const bad1 = await throws(() => book('pocket_money', 999, [U(1)], 10)); const bad2 = await throws(() => book('hack', 16, [U(1)], 10)); const bad3 = await throws(() => book('pocket_money', 17, [U(1)], -5))
 ok('Ungültiger Spieltag (Test 999), unbekannter Typ und negativer Betrag werden abgewiesen', !!bad1 && !!bad2 && !!bad3)
 
+// ---------- Atomare Abrechnung / Storno (settle_bet, settle_combo, void_slip_refund) ----------
+const asSvc = async (fn) => { await db.exec('set role service_role'); try { return await fn() } finally { await db.exec('reset role') } }
+const st = async (t, id) => (await val(db, `select status, payout from ${t} where id=$1`, [id]))[0]
+await db.exec(`update profiles set balance = 1000`)
+await db.exec(`insert into bets (id, user_id, match_id, market_type, selection, stake, odds_value, status, season, placed_matchday) values
+  (201,'${U(1)}',351,'1x2','home',10,2,'pending','26/27',16),(202,'${U(1)}',351,'1x2','home',10,2,'pending','26/27',16),
+  (203,'${U(2)}',351,'1x2','home',10,2,'pending','26/27',16)`)
+const s1 = await asSvc(() => q1(db, `select public.settle_bet(201,'won',20)`))
+ok('settle_bet: Status won + Gutschrift 20 in einer Transaktion', s1 === true && (await bal(U(1))) === 1020 && (await st('bets', 201)).status === 'won')
+const s2 = await asSvc(() => q1(db, `select public.settle_bet(201,'won',20)`))
+ok('settle_bet doppelt (Wiederholung/Race): false, KEINE zweite Gutschrift', s2 === false && (await bal(U(1))) === 1020)
+const s2b = await asSvc(() => q1(db, `select public.settle_bet(201,'lost',0)`))
+ok('settle_bet kann eine bereits gewonnene Wette nicht überschreiben', s2b === false && (await st('bets', 201)).status === 'won')
+// Fehlerinjektion: Gutschrift scheitert -> Status MUSS pending bleiben, Retry zahlt genau einmal
+await db.exec(`create function fail_for_u2() returns trigger language plpgsql as $f$ begin if new.id = '${U(2)}' then raise exception 'credit boom'; end if; return new; end $f$; create trigger t_fail2 before update on profiles for each row execute function fail_for_u2();`)
+const f1 = await throws(() => asSvc(() => q1(db, `select public.settle_bet(203,'won',20)`)))
+ok('Fehlgeschlagene Gutschrift rollt den Statuswechsel zurück: Wette bleibt pending, Guthaben unverändert', !!f1 && (await st('bets', 203)).status === 'pending' && (await bal(U(2))) === 1000)
+await db.exec('drop trigger t_fail2 on profiles')
+const f2 = await asSvc(() => q1(db, `select public.settle_bet(203,'won',20)`))
+ok('Retry nach behobenem Fehler zahlt genau einmal (+20)', f2 === true && (await bal(U(2))) === 1020)
+const lost = await asSvc(() => q1(db, `select public.settle_bet(202,'lost',0)`))
+ok('Verlorene Wette: kein Guthaben, payout 0', lost === true && (await bal(U(1))) === 1020 && Number((await st('bets', 202)).payout) === 0)
+// Kombi: Legs zahlen nie selbst, nur der Parent
+await db.exec(`insert into combo_bets (id, user_id, stake, total_odds, status, season, placed_matchday) values (301,'${U(4)}',10,4,'pending','26/27',16);
+  insert into bets (id, user_id, match_id, market_type, selection, odds_value, status, combo_id, season, placed_matchday) values (211,'${U(4)}',351,'1x2','home',2,'pending',301,'26/27',16),(212,'${U(4)}',260,'1x2','home',2,'pending',301,'26/27',16)`)
+await asSvc(() => db.exec(`select public.settle_bet(211,'won',0); select public.settle_bet(212,'won',0)`))
+ok('Combo-Legs gewonnen: keine eigene Gutschrift', (await bal(U(4))) === 1000)
+const c1 = await asSvc(() => q1(db, `select public.settle_combo(301,'won',40)`))
+const c2 = await asSvc(() => q1(db, `select public.settle_combo(301,'won',40)`))
+ok('settle_combo: genau einmal +40, zweiter Aufruf false ohne Doppelzahlung', c1 === true && c2 === false && (await bal(U(4))) === 1040)
+const badStatus = await throws(() => asSvc(() => q1(db, `select public.settle_bet(999999,'maybe',1)`)))
+ok('Ungültiger Status wird abgewiesen; unbekannte Wette liefert false', !!badStatus && (await asSvc(() => q1(db, `select public.settle_bet(999999,'won',1)`))) === false)
+// Storno + Erstattung
+await db.exec(`insert into bets (id, user_id, match_id, market_type, selection, stake, odds_value, status, season, placed_matchday) values (221,'${U(5)}',351,'1x2','home',25,2,'pending','26/27',16)`)
+const v0 = await asSvc(() => q1(db, `select public.void_slip_refund('single',221,'user_cancelled','${U(6)}',false)`))
+ok('Fremder Nutzer kann nicht stornieren (null, nichts erstattet)', v0 === null && (await st('bets', 221)).status === 'pending')
+const v1 = await asSvc(() => q1(db, `select public.void_slip_refund('single',221,'user_cancelled','${U(5)}',false)`))
+const v2 = await asSvc(() => q1(db, `select public.void_slip_refund('single',221,'user_cancelled','${U(5)}',false)`))
+ok('Storno: Einsatz einmal erstattet (+25), zweiter Versuch null (kein Doppelrefund)', Number(v1) === 25 && v2 === null && (await bal(U(5))) === 1025)
+await db.exec(`insert into bets (id, user_id, match_id, market_type, selection, stake, odds_value, status, season, placed_matchday) values (222,'${U(5)}',351,'1x2','home',10,2,'pending','26/27',16)`)
+await asSvc(() => q1(db, `select public.settle_bet(222,'won',20)`))
+const v3 = await asSvc(() => q1(db, `select public.void_slip_refund('single',222,'admin_special_voided',null,false)`))
+ok('Storno gegen bereits abgerechnete Wette: null – kein Refund NACH Auszahlung', v3 === null && (await bal(U(5))) === 1045)
+await db.exec(`insert into combo_bets (id, user_id, stake, total_odds, status, season, placed_matchday) values (302,'${U(6)}',30,4,'pending','26/27',16);
+  insert into bets (id, user_id, match_id, market_type, selection, odds_value, status, combo_id, season, placed_matchday) values (231,'${U(6)}',351,'1x2','home',2,'won',302,'26/27',16),(232,'${U(6)}',260,'1x2','home',2,'pending',302,'26/27',16)`)
+const cv = await asSvc(() => q1(db, `select public.void_slip_refund('combo',302,'admin_goalscorer_unavailable',null,true)`))
+const legs = await val(db, `select status from bets where combo_id=302`)
+ok('Admin-Void einer Kombi: alle Legs + Parent void, Einsatz 30 einmal erstattet', Number(cv) === 30 && legs.every((l) => l.status === 'void') && (await st('combo_bets', 302)).status === 'void')
+const denied2 = []
+for (const role of ['anon', 'authenticated']) {
+  await db.exec(`set role ${role}`)
+  for (const sql of [`select public.settle_bet(1,'won',1)`, `select public.settle_combo(1,'won',1)`, `select public.void_slip_refund('single',1,'user_cancelled',null,false)`]) denied2.push(await throws(() => db.query(sql)))
+  await db.exec('reset role')
+}
+ok('anon/authenticated dürfen settle_bet / settle_combo / void_slip_refund nicht ausführen', denied2.every((e) => /permission denied/i.test(e ?? '')))
+
 console.log(`\n${total - failed}/${total} Prüfungen bestanden`)
 process.exit(failed ? 1 : 0)

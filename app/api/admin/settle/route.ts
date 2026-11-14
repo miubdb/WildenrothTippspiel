@@ -8,6 +8,7 @@ import { wildiLabel } from '@/components/WildiIcon'
 import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
 import { cappedPayout } from '@/lib/payout'
 import { settleBet } from '@/lib/settleBet'
+import { settleSingle, settleCombo, findStuckComboIds } from '@/lib/settlement'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -54,10 +55,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
 
-  const {
-    matchId, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam,
-    cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed, cupFirstGoalMinute,
-  } = body
+  const { matchId, homeScore, awayScore } = body
+  // eslint-disable-next-line prefer-const -- reassigned from the stored match row in a recovery run (see below)
+  let { cupShootoutWinner, cupFirstGoalTeam, cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed, cupFirstGoalMinute } = body
 
   if (
     typeof matchId !== 'number' ||
@@ -73,13 +73,27 @@ export async function POST(request: NextRequest) {
   // loudly instead of corrupting balances quietly.
   const { data: existingMatch } = await supabase
     .from('matches')
-    .select('status, competition_type')
+    .select('status, competition_type, home_score, away_score, cup_shootout_winner, cup_first_goal_team, cup_halftime_home_goals, cup_halftime_away_goals, cup_away_team_led, cup_first_goal_minute')
     .eq('id', matchId)
     .single()
 
-  if (existingMatch?.status === 'finished') {
+  // Recovery: a match that is already 'finished' with EXACTLY the submitted score may have lost its settlement half-way
+  // (e.g. the bet query failed after the status flip). Settlement is idempotent now (settle_bet/settle_combo only act on
+  // still-pending rows and credit atomically), so re-running it is safe and finishes the job. A DIFFERENT score is still
+  // refused — it would silently desync from already-paid bets.
+  const isRecoveryRun = existingMatch?.status === 'finished' && existingMatch.home_score === homeScore && existingMatch.away_score === awayScore
+  if (isRecoveryRun && existingMatch?.competition_type === 'cup') {
+    // The stored values are authoritative for a re-run (the admin may not have the original inputs at hand).
+    cupShootoutWinner = existingMatch.cup_shootout_winner
+    cupFirstGoalTeam = existingMatch.cup_first_goal_team
+    cupHalftimeHomeGoals = existingMatch.cup_halftime_home_goals
+    cupHalftimeAwayGoals = existingMatch.cup_halftime_away_goals
+    cupAwayTeamLed = existingMatch.cup_away_team_led
+    cupFirstGoalMinute = existingMatch.cup_first_goal_minute
+  }
+  if (existingMatch?.status === 'finished' && !isRecoveryRun) {
     return NextResponse.json(
-      { error: 'Dieses Spiel wurde bereits abgerechnet. Eine Korrektur ist über diese Funktion nicht möglich.' },
+      { error: 'Dieses Spiel wurde bereits mit einem anderen Ergebnis abgerechnet. Eine Korrektur ist über diese Funktion nicht möglich.' },
       { status: 409 }
     )
   }
@@ -177,6 +191,7 @@ export async function POST(request: NextRequest) {
   // FOR UPDATE lock + early status check closes that direction). The earlier
   // `existingMatch?.status` reads above are only a fast, non-authoritative
   // pre-check for a nicer error message; THIS is the actual guard.
+  if (!isRecoveryRun) {
   const { data: updatedMatchRows, error: matchError } = await supabase
     .from('matches')
     .update({
@@ -205,6 +220,7 @@ export async function POST(request: NextRequest) {
       { status: 409 }
     )
   }
+  }
 
   // Fetch all pending single bets for this match (skip goalscorer markets — those settle
   // separately once the admin enters who scored, which depends on more than the final score).
@@ -222,19 +238,19 @@ export async function POST(request: NextRequest) {
     .not('market_type', 'in', '("goalscorer","goalscorer_2plus","matchday_special")')
 
   if (betsError) {
-    return NextResponse.json({ error: 'Fehler beim Abrufen der Wetten.' }, { status: 500 })
+    return NextResponse.json({ error: 'Fehler beim Abrufen der Wetten. Das Spiel ist bereits gespeichert – bitte dieselbe Abrechnung erneut absenden (sicher wiederholbar).' }, { status: 500 })
   }
 
-  if (!pendingBets || pendingBets.length === 0) {
-    return NextResponse.json({ success: true, settled: 0 })
-  }
+  // NOTE: no early return when there is nothing to settle — the Spieltag may still need finalizing (awards, recap, inactivity
+  // fee, pocket money) precisely because THIS match was the last one to finish, even if nobody bet on it.
 
   // Settle each bet
   const userBalanceUpdates: Record<string, number> = {}
   const settledBetIds: number[] = []
   const combosToCheck = new Set<number>()
+  let settleErrors = 0
 
-  for (const bet of pendingBets) {
+  for (const bet of pendingBets ?? []) {
     const result = settleBet(bet.market_type, bet.selection, homeScore, awayScore, cupShootoutWinner, cupFirstGoalTeam, cupHalftimeHomeGoals, cupHalftimeAwayGoals, cupAwayTeamLed, homeScore === 0 && awayScore === 0 ? null : cupFirstGoalMinute)
     let payout = 0
 
@@ -245,16 +261,11 @@ export async function POST(request: NextRequest) {
       payout = Math.round(cappedPayout(bet.stake, bet.odds_value, bet.is_risky) * 100) / 100
     }
 
-    // Update the bet — compare-and-set on status='pending': if a concurrent/duplicate settle (or an annulment) already
-    // resolved this row, this call must neither overwrite it nor credit the payout a second time.
-    const { data: updatedBet, error: betUpdateError } = await admin
-      .from('bets')
-      .update({ status: result, payout: result === 'won' ? payout : 0 })
-      .eq('id', bet.id)
-      .eq('status', 'pending')
-      .select('id')
-    if (betUpdateError) { console.error('Settle: bet update failed', { betId: bet.id, betUpdateError }); continue }
-    if (!updatedBet || updatedBet.length === 0) continue
+    // Status flip + payout credit in ONE transaction (settle_bet). 'skipped' = already decided elsewhere (never credited twice),
+    // 'error' = rolled back, row stays pending, a re-run of this endpoint pays it.
+    const outcome = await settleSingle(admin, bet.id, result, payout)
+    if (outcome === 'error') { settleErrors++; continue }
+    if (outcome === 'skipped') continue
     if (result === 'won' && bet.combo_id === null) {
       userBalanceUpdates[bet.user_id] = (userBalanceUpdates[bet.user_id] ?? 0) + payout
     }
@@ -274,6 +285,8 @@ export async function POST(request: NextRequest) {
   // (pending -> lost/won) so the push-notification summary below counts each
   // combo's outcome exactly once — otherwise a lost combo re-fires "verloren"
   // on every subsequent (already-moot) leg's match settlement.
+  // Self-healing: legs of this match that an earlier (crashed) run already settled, whose combo was never evaluated.
+  for (const id of await findStuckComboIds(admin, { matchId })) combosToCheck.add(id)
   const newlyResolvedCombos = new Map<number, { user_id: string; status: 'won' | 'lost' }>()
   for (const comboId of combosToCheck) {
     // Fetch all legs of this combo
@@ -301,14 +314,9 @@ export async function POST(request: NextRequest) {
     if (comboBet.status !== 'pending') continue
 
     if (anyLost) {
-      const { data: lostRows, error: lostErr } = await admin
-        .from('combo_bets')
-        .update({ status: 'lost', payout: 0 })
-        .eq('id', comboId)
-        .eq('status', 'pending')
-        .select('id')
-      if (lostErr) { console.error('Settle: combo update failed', { comboId, lostErr }); continue }
-      if (!lostRows || lostRows.length === 0) continue   // someone else resolved it first
+      const lostOutcome = await settleCombo(admin, comboId, 'lost', 0)
+      if (lostOutcome === 'error') { settleErrors++; continue }
+      if (lostOutcome === 'skipped') continue   // someone else resolved it first
       newlyResolvedCombos.set(comboId, { user_id: comboBet.user_id, status: 'lost' })
     } else {
       // All legs won. combo_bets has no is_risky column of its own — every
@@ -316,15 +324,10 @@ export async function POST(request: NextRequest) {
       // lib/risky.ts), so any one leg reflects the combo's classification.
       const comboIsRisky = comboLegs[0]?.is_risky ?? false
       const payout = Math.round(cappedPayout(comboBet.stake, comboBet.total_odds, comboIsRisky) * 100) / 100
-      // Compare-and-set: only the call that actually flips pending -> won may credit the payout (no double pay on races).
-      const { data: wonRows, error: wonErr } = await admin
-        .from('combo_bets')
-        .update({ status: 'won', payout })
-        .eq('id', comboId)
-        .eq('status', 'pending')
-        .select('id')
-      if (wonErr) { console.error('Settle: combo update failed', { comboId, wonErr }); continue }
-      if (!wonRows || wonRows.length === 0) continue
+      // settle_combo flips pending -> won AND credits the payout atomically; only the call that really flips it pays.
+      const wonOutcome = await settleCombo(admin, comboId, 'won', payout)
+      if (wonOutcome === 'error') { settleErrors++; continue }
+      if (wonOutcome === 'skipped') continue
 
       userBalanceUpdates[comboBet.user_id] = (userBalanceUpdates[comboBet.user_id] ?? 0) + payout
       newlyResolvedCombos.set(comboId, { user_id: comboBet.user_id, status: 'won' })
@@ -351,19 +354,9 @@ export async function POST(request: NextRequest) {
   // Apply balance updates + send one bundled push per user
   const allAffectedUsers = new Set([...Object.keys(userBalanceUpdates), ...Object.keys(userWonCount), ...Object.keys(userLostCount)])
   const pushNotifications: Promise<unknown>[] = []
-  const creditFailures: { userId: string; amount: number }[] = []
   for (const userId of allAffectedUsers) {
     const amount = userBalanceUpdates[userId] ?? 0
-    if (amount > 0) {
-      // Atomic increment — avoids losing a payout if this races a concurrent
-      // bet placement/cancellation or another settle call for the same user.
-      const { error: creditError } = await admin.rpc('increment_balance', { p_user_id: userId, p_amount: amount })
-      if (creditError) {
-        // The status flip already committed: surface loudly for manual reconciliation instead of failing silently.
-        console.error('SETTLE CREDIT FAILED – manual reconciliation required', { userId, amount, matchId, creditError })
-        creditFailures.push({ userId, amount })
-      }
-    }
+    // The payout itself was already credited atomically by settle_bet/settle_combo; `amount` is only used for the push text.
 
     const won = userWonCount[userId] ?? 0
     const lost = userLostCount[userId] ?? 0
@@ -397,7 +390,12 @@ export async function POST(request: NextRequest) {
   // duplicate only the awards half of this and silently skip the recap push
   // and inactivity penalty whenever a goalscorer bet was the last thing to
   // settle for a Spieltag — see lib/matchdayFinalize.ts for the full logic.
-  await finalizeMatchdayIfDone(admin, matchId)
+  try {
+    await finalizeMatchdayIfDone(admin, matchId)
+  } catch (e) {
+    console.error('Matchday finalization failed after settlement (re-submit the same settlement to retry):', e)
+    settleErrors++
+  }
 
   // These pages cache their result (ISR) — without an explicit revalidate
   // here, a bet that just flipped to won/lost (e.g. a combo losing the moment
@@ -424,6 +422,7 @@ export async function POST(request: NextRequest) {
     success: true,
     settled: settledBetIds.length,
     combosChecked: combosToCheck.size,
-    ...(creditFailures.length > 0 ? { warning: 'Gutschrift fehlgeschlagen – manuelle Prüfung nötig', creditFailures } : {}),
+    ...(settleErrors > 0 ? { warning: `${settleErrors} Abrechnung(en) fehlgeschlagen und zurückgerollt – bitte erneut abrechnen (idempotent).`, settleErrors } : {}),
+    ...(isRecoveryRun ? { recovered: true } : {}),
   })
 }

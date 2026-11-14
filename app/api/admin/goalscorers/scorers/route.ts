@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser } from '@/lib/push'
 import { fmtWildi, wildiLabel } from '@/components/WildiIcon'
 import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
+import { settleSingle, settleCombo, findStuckComboIds } from '@/lib/settlement'
 import { cappedPayout } from '@/lib/payout'
 
 /**
@@ -39,9 +40,10 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient()
 
   // Replace scorers for the match.
-  await admin.from('match_goalscorers').delete().eq('match_id', matchId)
+  const { error: delScorersError } = await admin.from('match_goalscorers').delete().eq('match_id', matchId)
+  if (delScorersError) return NextResponse.json({ error: 'Torschützen konnten nicht gespeichert werden.' }, { status: 500 })
   if (scorers.length > 0) {
-    await admin.from('match_goalscorers').insert(
+    const { error: insScorersError } = await admin.from('match_goalscorers').insert(
       scorers.map(s => ({
         match_id: matchId,
         player_id: s.playerId,
@@ -49,6 +51,7 @@ export async function POST(request: NextRequest) {
         is_own_goal: !!s.isOwnGoal,
       }))
     )
+    if (insScorersError) return NextResponse.json({ error: 'Torschützen konnten nicht gespeichert werden – bitte erneut absenden.' }, { status: 500 })
   }
 
   // Aggregate goals per player (own goals don't count for player goalscorer bets).
@@ -70,6 +73,7 @@ export async function POST(request: NextRequest) {
   const combosToCheck = new Set<number>()
   const loserIds = new Set<string>()
 
+  let settleErrors = 0
   for (const b of bets ?? []) {
     const playerId = parseInt(b.selection, 10)
     const goals = goalsByPlayer.get(playerId) ?? 0
@@ -77,16 +81,18 @@ export async function POST(request: NextRequest) {
     let payout = 0
     if (won && b.combo_id == null) {
       payout = Math.round(cappedPayout(Number(b.stake), Number(b.odds_value), b.is_risky) * 100) / 100
-      userPayouts.set(b.user_id, (userPayouts.get(b.user_id) ?? 0) + payout)
-    } else if (!won && b.combo_id == null) {
-      loserIds.add(b.user_id)
     }
-    await admin
-      .from('bets')
-      .update({ status: won ? 'won' : 'lost', payout: won ? payout : 0 })
-      .eq('id', b.id)
+    // Atomic status flip + credit (settle_bet): double submits / concurrent settlements can never pay twice,
+    // a failed credit rolls the status back so the bet stays pending and a re-submit pays it.
+    const outcome = await settleSingle(admin, b.id, won ? 'won' : 'lost', payout)
+    if (outcome === 'error') { settleErrors++; continue }
+    if (outcome === 'skipped') continue
+    if (won && b.combo_id == null) userPayouts.set(b.user_id, (userPayouts.get(b.user_id) ?? 0) + payout)
+    else if (!won && b.combo_id == null) loserIds.add(b.user_id)
     if (b.combo_id != null) combosToCheck.add(b.combo_id)
   }
+  // Self-healing: combos whose goalscorer legs were settled by an earlier crashed run but never evaluated.
+  for (const id of await findStuckComboIds(admin, { matchId, markets: ['goalscorer', 'goalscorer_2plus'] })) combosToCheck.add(id)
 
   // Settle combos: mark lost immediately when any leg is lost; won when all settled and none lost.
   for (const comboId of combosToCheck) {
@@ -101,14 +107,16 @@ export async function POST(request: NextRequest) {
     if (!combo) continue
     if (combo.status !== 'pending') continue // already settled, skip
     if (anyLost) {
-      await admin.from('combo_bets').update({ status: 'lost', payout: 0 }).eq('id', comboId)
+      const o = await settleCombo(admin, comboId, 'lost', 0)
+      if (o === 'error') settleErrors++
     } else {
       // combo_bets has no is_risky column of its own — every leg carries the
       // same value, so any one leg reflects the combo's classification.
       const comboIsRisky = legs[0]?.is_risky ?? false
       const payout = Math.round(cappedPayout(Number(combo.stake), Number(combo.total_odds), comboIsRisky) * 100) / 100
-      await admin.from('combo_bets').update({ status: 'won', payout }).eq('id', comboId)
-      userPayouts.set(combo.user_id, (userPayouts.get(combo.user_id) ?? 0) + payout)
+      const o = await settleCombo(admin, comboId, 'won', payout)
+      if (o === 'error') settleErrors++
+      else if (o === 'applied') userPayouts.set(combo.user_id, (userPayouts.get(combo.user_id) ?? 0) + payout)
     }
   }
 
@@ -116,10 +124,7 @@ export async function POST(request: NextRequest) {
   const jobs: Promise<unknown>[] = []
   for (const [userId, amount] of userPayouts) {
     if (amount <= 0) continue
-    // Atomic increment — avoids losing a payout if this races a concurrent
-    // bet placement/cancellation or another settlement call for the same user
-    // (a plain select-then-update here would silently clobber that change).
-    await admin.rpc('increment_balance', { p_user_id: userId, p_amount: amount })
+    // Payout already credited atomically inside settle_bet/settle_combo; this loop only notifies.
     jobs.push(sendPushToUser(userId, '🎉 Wette gewonnen!', `+${fmtWildi(amount)} ${wildiLabel(amount)} wurden deinem Konto gutgeschrieben.`, '/profil'))
   }
   for (const uid of loserIds) {
@@ -147,5 +152,5 @@ export async function POST(request: NextRequest) {
     revalidatePath('/spieler/[id]', 'page')
   } catch (e) { console.error('revalidatePath after goalscorer settlement failed:', e) }
 
-  return NextResponse.json({ success: true, settled: bets?.length ?? 0, combosChecked: combosToCheck.size })
+  return NextResponse.json({ success: true, settled: bets?.length ?? 0, combosChecked: combosToCheck.size, ...(settleErrors > 0 ? { warning: `${settleErrors} Abrechnung(en) fehlgeschlagen und zurückgerollt – bitte erneut absenden (idempotent).`, settleErrors } : {}) })
 }

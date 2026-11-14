@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { voidSlipWithRefund } from '@/lib/settlement'
 import { recomputeRiskyForUserMatchday } from '@/lib/risky'
 import { hasStartedCombo } from '@/lib/betStart'
 
@@ -95,54 +96,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // A neutralized leg remains for the audit trail after annulment,
-    // but when the ENTIRE combo is subsequently cancelled it must become
-    // void too. neutralized_at/reason remain recorded. Otherwise it leaks
-    // back into queries that filter only bets.status != 'void'.
-    // Soft-cancel: mark status='void' instead of deleting, so the row
-    // survives for later "what would have happened" recap analysis — void
-    // bets are never shown to users, never count toward slot limits, and
-    // never settle (every other read site filters status <> 'void'; see the
-    // grep-for-`.from('bets')`/`.from('combo_bets')` sweep done when this was
-    // introduced). 'void' — not 'cancelled' — because that's the value the
-    // bets_status_check / combo_bets_status_check CHECK constraints actually
-    // allow (ARRAY['pending','won','lost','void']); 'cancelled' fails the
-    // constraint. Legs first, gated on still being pending — this is the
-    // atomic guard against concurrent cancels: only the request that actually
-    // flips rows may refund. A losing racer's update matches 0 rows and it
-    // must not credit the stake.
-    const { data: cancelledLegs, error: legsCancelError } = await admin
-      .from('bets')
-      .update({ status: 'void', void_reason: 'user_cancelled' })
-      .eq('combo_id', comboId)
-      .in('status', ['pending', 'neutralized'])
-      .select('id')
-
-    if (legsCancelError) {
-      console.error('combo legs cancel error:', legsCancelError)
+    // Void + refund in ONE transaction (void_slip_refund, user-scoped): legs pending/neutralized -> void, parent -> void,
+    // stake credited. null = someone else already cancelled/settled it -> nothing refunded. A refund error rolls the void
+    // back, so a failed refund can never leave a voided-but-unpaid slip (the old code voided first, then credited).
+    let refunded: number | null
+    try {
+      refunded = await voidSlipWithRefund(admin, 'combo', comboId, 'user_cancelled', { userId: user.id })
+    } catch (e) {
+      console.error('combo cancel+refund error:', e)
       return NextResponse.json({ error: 'Fehler beim Stornieren.' }, { status: 500 })
     }
-    if (!cancelledLegs || cancelledLegs.length === 0) {
+    if (refunded == null) {
       return NextResponse.json({ error: 'Wette wurde bereits storniert oder abgerechnet.' }, { status: 409 })
     }
-
-    const { error: comboCancelError } = await admin.from('combo_bets').update({ status: 'void', void_reason: 'user_cancelled' }).eq('id', comboId).eq('user_id', user.id).eq('status', 'pending')
-    if (comboCancelError) {
-      // Legs are already cancelled (and the user is about to be refunded) —
-      // log it, but don't fail the request over the parent row's own status.
-      console.error('combo_bets row cancel error (legs already cancelled):', comboCancelError)
-    }
-
-    // Refund stake atomically (avoids the stale-read-then-write race a plain
-    // select+update would have if two cancellations/settlements overlap)
-    const { data: newBalance, error: refundError } = await admin.rpc('increment_balance', {
-      p_user_id: user.id,
-      p_amount: combo.stake,
-    })
-    if (refundError) {
-      console.error('combo refund error:', refundError)
-      return NextResponse.json({ error: 'Fehler bei der Rückerstattung.' }, { status: 500 })
-    }
+    const { data: balRow } = await admin.from('profiles').select('balance').eq('id', user.id).single()
+    const newBalance = balRow?.balance ?? null
 
     await recomputeAffectedMatchdays(allMatchIds)
 
@@ -190,32 +158,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Soft-cancel (see combo branch above for why 'void', not 'cancelled') —
-    // gated on still being pending — only the request that actually flips
-    // the row may refund.
-    const { data: cancelledBet, error: cancelError } = await admin
-      .from('bets')
-      .update({ status: 'void', void_reason: 'user_cancelled' })
-      .eq('id', bet.id)
-      .eq('status', 'pending')
-      .select('id, stake')
-
-    if (cancelError) {
-      console.error('bet cancel error:', cancelError)
+    // Soft-cancel + refund atomically (see combo branch above).
+    let refundedSingle: number | null
+    try {
+      refundedSingle = await voidSlipWithRefund(admin, 'single', bet.id, 'user_cancelled', { userId: user.id })
+    } catch (e) {
+      console.error('single bet cancel+refund error:', e)
       return NextResponse.json({ error: 'Fehler beim Stornieren.' }, { status: 500 })
     }
-    if (!cancelledBet || cancelledBet.length === 0) {
+    if (refundedSingle == null) {
       return NextResponse.json({ error: 'Wette wurde bereits storniert oder abgerechnet.' }, { status: 409 })
     }
-
-    const { data: newBalance, error: refundError } = await admin.rpc('increment_balance', {
-      p_user_id: user.id,
-      p_amount: cancelledBet[0].stake ?? 0,
-    })
-    if (refundError) {
-      console.error('single bet refund error:', refundError)
-      return NextResponse.json({ error: 'Fehler bei der Rückerstattung.' }, { status: 500 })
-    }
+    const { data: balRowSingle } = await admin.from('profiles').select('balance').eq('id', user.id).single()
+    const newBalance = balRowSingle?.balance ?? null
 
     await recomputeAffectedMatchdays([bet.match_id])
 

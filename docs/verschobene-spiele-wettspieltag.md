@@ -61,3 +61,11 @@
 **Tests:** `scripts/run-postponements-check.mjs` (in CI) und `scripts/placed-matchday-migration-test.mjs` (PGlite, lokal: `npm i --no-save @electric-sql/pglite`, 26 Prüfungen inkl. echter nicht-monotoner Freigabezeiten, Rollback bei Fehler, Rechte, Atomarität).
 
 **Rollout-Reihenfolge (zwingend):** 1) Migration (additiv, alte App läuft weiter), 2) App-Deploy, 3) erst danach ST16 abschließen (15.11.). Rollback: App auf Vorversion; Migration bleibt (rückwärtskompatibel).
+
+## Runde 2: transaktionssichere Abrechnung (zweites unabhängiges Review)
+
+- **Status + Gutschrift sind eine Transaktion.** `settle_bet`, `settle_combo` und `void_slip_refund` (Migration, nur `service_role`) sperren die Zeile (`FOR UPDATE`), wirken nur auf `pending`, setzen den Status und schreiben gut – oder tun nichts. Schlägt die Gutschrift fehl, bleibt die Wette `pending`; ein erneuter Abrechnungslauf zahlt sie. Rückgabe `false`/`skipped` = bereits entschieden → nie doppelt.
+- **Genutzt von:** `/api/admin/settle`, `/api/admin/goalscorers/scorers`, Spieltag-Specials (`lib/matchdaySpecials.ts`), Special-Void, Torschützen-Storno (`cancel-player`) und dem Nutzer-Storno (`/api/bets/cancel`). Annullierungs-RPCs waren bereits atomar.
+- **Recovery `/api/admin/settle`:** Ein Spiel, das bereits `finished` ist, wird bei **identischem** Ergebnis erneut abgerechnet (idempotent); abweichendes Ergebnis → weiter 409. Cup-Zusatzwerte kommen dann aus der Datenbank. Kein Frühabbruch mehr bei 0 offenen Wetten – der Spieltagsabschluss läuft immer. Hängende Kombis (Legs abgerechnet, Kombi nicht) werden beim erneuten Lauf selbstheilend nachgezogen. Specials bleiben bei Teilfehlern `active` und werden beim nächsten Abschluss fertig abgerechnet.
+- **user_awards (read-only geprüft):** `anon`/`authenticated` haben Tabellenrechte inkl. INSERT/UPDATE/DELETE; RLS ist aktiv, einzige Policy = SELECT für alle → Schreiben ist blockiert (kein akutes Risiko, nur eine Sicherungsebene). Optionales Hardening: `supabase/user_awards_hardening.sql` (nicht ausgeführt).
+- **Entscheidungen:** Kombis über mehrere ursprüngliche Wettspieltage werden abgelehnt; veröffentlichte Winter-Recaps bleiben eingefroren; Stornos zählen zum ursprünglichen Wettspieltag; Stornoregel für verschobene Spiele unverändert.
