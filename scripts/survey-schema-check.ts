@@ -627,6 +627,19 @@ export function run(): number {
             (page.length === 2 && page.some((question) => question.id === 'q_features_text'))))
       }
     }
+    const firstSection = SURVEY_SECTIONS[0]
+    for (const selection of [{}, { q_motivation: ['Etwas anderes'] }]) {
+      const introductoryPages = questionPages(visibleQuestionsForSection(firstSection, selection))
+      check('Technische Probleme erscheinen auf der ersten Seite bei Bedienung und Verständlichkeit',
+        introductoryPages[0].some((question) => question.id === 'q_technical_feedback'))
+      check('Freudefrage bleibt auf der zweiten Seite, getrennt von technischen Problemen',
+        introductoryPages.length === 2 &&
+        introductoryPages[1].some((question) => question.id === 'q_motivation') &&
+        !introductoryPages[1].some((question) => question.id === 'q_technical_feedback'))
+      check('Optionale Idee zur Freude bleibt bei ihrer Ausgangsfrage',
+        !selection.q_motivation ||
+        introductoryPages[1].some((question) => question.id === 'q_motivation_text'))
+    }
     const shortQuestions = Array.from({ length: 5 }, (_, index) =>
       ({ ...q('q2'), id: `short-${index}`, text: 'Wie einfach ist das?' }))
     const longQuestions = Array.from({ length: 4 }, (_, index) =>
