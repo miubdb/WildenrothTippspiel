@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { Answers } from '@/lib/survey'
 import { surveyProgress } from '@/lib/survey'
+import { WildiIcon } from '@/components/WildiIcon'
 
 type SurveyResponse = { answers?: Answers | null; submitted_at?: string | null } | null
 
@@ -17,9 +18,11 @@ export function SurveyInvitation({ variant, response }: { variant: 'home' | 'win
         <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#bfe3fb]">❄ Dein Feedback zur Halbzeit</span>
         <h2 className="font-display mt-2 text-2xl font-bold leading-tight">{submitted ? 'Danke fürs Mitmachen!' : 'Nach dem Rückblick bist du dran!'}</h2>
         <p className="relative mt-2 text-sm leading-relaxed text-[#e3f1fc]">
-          {submitted
-            ? 'Deine Antworten sind angekommen. Danke, dass du das Wildenroth-Tippspiel mitgestaltest!'
-            : 'Was lief gut, was nervt und was wünschst du dir für die Rückrunde? Mit deiner Meinung machen wir unser Tippspiel gemeinsam noch besser.'}
+          {submitted ? (
+            <>Deine Antworten sind angekommen. Danke, dass du das Wildenroth-Tippspiel mitgestaltest! Dein Dankeschön: einmalig <strong>100 Wildis</strong> <WildiIcon size={16} />.</>
+          ) : (
+            <>Was lief gut, was nervt und was wünschst du dir für die Rückrunde? Mit deiner Meinung machen wir unser Tippspiel gemeinsam noch besser. Und vielleicht gibt’s als kleines Dankeschön für deine Teilnahme ja auch <strong>100 Wildis</strong> <WildiIcon size={16} /> 😉</>
+          )}
         </p>
         {!submitted && (
           <>
@@ -41,9 +44,11 @@ export function SurveyInvitation({ variant, response }: { variant: 'home' | 'win
       <div className="text-[11px] font-bold uppercase tracking-widest text-red-700 dark:text-red-300">Deine Meinung zählt</div>
       <h2 className="mt-1 text-lg font-black text-gray-900 dark:text-gray-100">{submitted ? 'Danke für deine Teilnahme! ⚽' : 'Mach unser Tippspiel noch besser! ⚽'}</h2>
       <p className="mt-2 text-sm leading-relaxed text-gray-600 dark:text-gray-300">
-        {submitted
-          ? 'Danke für dein Feedback! Damit hilfst du uns, das Tippspiel für die Rückrunde und die nächste Saison weiterzuentwickeln.'
-          : 'Was gefällt dir, was können wir verbessern und welche Funktionen wünschst du dir? Dein Feedback hilft uns, das Tippspiel gemeinsam weiterzuentwickeln.'}
+        {submitted ? (
+          <>Danke für dein Feedback! Damit hilfst du uns, das Tippspiel für die Rückrunde und die nächste Saison weiterzuentwickeln. Dein Dankeschön: einmalig <strong>100 Wildis</strong> <WildiIcon size={16} />.</>
+        ) : (
+          <>Was gefällt dir, was können wir verbessern und welche Funktionen wünschst du dir? Deine Meinung hilft uns, das Wildenroth-Tippspiel noch besser zu machen. Und vielleicht gibt’s als kleines Dankeschön für deine Teilnahme ja auch <strong>100 Wildis</strong> <WildiIcon size={16} /> 😉</>
+        )}
       </p>
       {!submitted && (
         <>
