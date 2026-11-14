@@ -362,7 +362,7 @@ export async function computeAndPersistMatchdayAwards(
   // Tiebreak: smallest gap to kickoff wins (most last-minute).
   const ONE_HOUR_MS = 60 * 60 * 1000
   const lastMinuteCandidates: { user_id: string; gapMs: number; kickoff: string; betId: number | null; comboId: number | null }[] = []
-  for (const b of wonSingles as { id: number; user_id: string; match_id: number; created_at: string }[]) {
+  for (const b of wonSingles as { id: number; user_id: string; match_id: number; created_at: string; placed_kickoff_at?: string | null }[]) {
     const kickoff = b.placed_kickoff_at ?? matchDateMap.get(b.match_id)
     if (!kickoff) continue
     const gapMs = new Date(kickoff).getTime() - new Date(b.created_at).getTime()
