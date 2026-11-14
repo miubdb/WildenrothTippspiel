@@ -61,6 +61,31 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
   } catch (e) { console.error('Spieltag-Special settlement failed:', e) }
 
   const matchday = recapMatchdayOf(matchInfo as Match, mdIndex)
+  // A delayed match can resolve a slip from an ALREADY closed earlier betting
+  // round. Recompute that round's awards without charging its penalty/pocket
+  // money again or sending another recap push.
+  const { data: ownedLegs, error: ownersError } = await admin
+    .from('bets').select('placed_matchday')
+    .eq('match_id', matchId).eq('season', CURRENT_SEASON)
+  if (ownersError) {
+    console.error('Unable to load delayed-bet owners:', ownersError)
+    return // fail closed before any penalty/award writes
+  }
+  for (const ownerMd of new Set((ownedLegs ?? []).map((b) => b.placed_matchday as number | null))) {
+    if (ownerMd == null || ownerMd >= 900 || ownerMd === matchday) continue
+    const { data: priorRecap } = await admin.from('push_reminders').select('id')
+      .eq('type', 'recap').eq('season', CURRENT_SEASON).eq('matchday', ownerMd).maybeSingle()
+    if (!priorRecap) continue
+    const { data: originBetIds, error: originError } = await admin.from('bets')
+      .select('match_id').eq('season', CURRENT_SEASON).eq('placed_matchday', ownerMd)
+    if (originError || !originBetIds) {
+      console.error('Cannot recalculate original round awards:', originError)
+      continue
+    }
+    const ownerIds = [...new Set(originBetIds.map((b) => b.match_id))]
+    try { await computeAndPersistMatchdayAwards(admin, CURRENT_SEASON, ownerMd, ownerIds) }
+    catch (e) { console.error('Delayed-match award refresh failed:', e) }
+  }
   if (matchday == null || matchday >= 900) return // test matchday: no recap, awards or penalty
 
   const matchdayMatches = seasonMatchesForMd.filter((m) => recapMatchdayOf(m, mdIndex) === matchday)
@@ -143,18 +168,22 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
     .from('push_reminders')
     .insert({ type: 'inactivity_fee', matchday, season: CURRENT_SEASON })
   if (!penaltyDedupError) {
-    // Fairness check uses the DISPLAY grouping, not the recap grouping — a
-    // user who bet on a match shown under this Spieltag's tab must count as
-    // active for it even if that specific match later turned out to be a
-    // recap-outlier reassigned elsewhere for award purposes.
+    // Activity is an immutable property of the PLACED slip, not the fixture's
+    // CURRENT kickoff grouping. Pending postponed wagers count at the ORIGINAL
+    // round, never at the new March round. User-cancelled slips (void) do not.
     const mdMatchIds = displayMatchdayMatches.map((m) => m.id)
     if (mdMatchIds.length > 0) {
-      const { data: activeBetRows } = await admin
+      const { data: activeBetRows, error: activityError } = await admin
         .from('bets')
         .select('user_id')
-        .in('match_id', mdMatchIds)
+        .eq('season', CURRENT_SEASON)
+        .eq('placed_matchday', matchday)
         .neq('status', 'void')
-      const activeUserIds = new Set((activeBetRows ?? []).map((b) => b.user_id as string))
+      if (activityError || activeBetRows == null) {
+        console.error('Cannot verify penalty eligibility; no penalties charged:', activityError)
+        return
+      }
+      const activeUserIds = new Set(activeBetRows.map((b) => b.user_id as string))
 
       // Only users actually allowed to bet this season can be "inactive" —
       // ineligible users are hard-blocked from placing any bet at all (see

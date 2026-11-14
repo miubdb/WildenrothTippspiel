@@ -37,7 +37,7 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
   type BetRow = {
     id: number; market_type: string; selection: string; stake: number; odds_value: number
     status: string; payout: number | null; created_at: string; combo_id: number | null
-    season: string | null; is_risky: boolean | null; special_id: number | null
+    season: string | null; is_risky: boolean | null; special_id: number | null; placed_matchday: number | null
     match: { id: number; matchday: number; match_date: string; home_score: number | null; away_score: number | null; status: string
       home_team: { name: string; short_name: string } | { name: string; short_name: string }[] | null
       away_team: { name: string; short_name: string } | { name: string; short_name: string }[] | null
@@ -55,7 +55,7 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
       fetchAllRows<BetRow>((from, to) => supabase
         .from('bets')
         .select(
-          `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id, season, is_risky, special_id,
+          `id, market_type, selection, stake, odds_value, status, payout, created_at, combo_id, season, is_risky, special_id, placed_matchday,
          match:matches(id, matchday, match_date, home_score, away_score, status,
            home_team:teams!matches_home_team_id_fkey(name, short_name),
            away_team:teams!matches_away_team_id_fkey(name, short_name)
@@ -110,7 +110,7 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
   const comboIds = [...new Set(bets.filter((b) => b.combo_id != null).map((b) => b.combo_id as number))]
   // Kombischeine und Specials hängen nur von den Scheinen ab und laufen gemeinsam.
   const [cbRes, specialsRes] = await Promise.all([
-    comboIds.length > 0 ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds) : Promise.resolve({ data: [] as { id: number; stake: number; total_odds: number; status: string; payout: number | null }[], error: null }),
+    comboIds.length > 0 ? supabase.from('combo_bets').select('id, stake, total_odds, status, payout, placed_matchday').in('id', comboIds) : Promise.resolve({ data: [] as { id: number; stake: number; total_odds: number; status: string; payout: number | null; placed_matchday: number | null }[], error: null }),
     specialIds.length > 0 ? supabase.from('matchday_specials').select('id, matchday, template_key, options, settlement_result').in('id', specialIds) : Promise.resolve({ data: [] as { id: number; matchday: number; template_key: string; options: unknown; settlement_result: unknown }[], error: null }),
   ])
   // Derselbe Grundsatz wie oben: ein Fehlschlag beim Laden der Kombischeine darf NIE
@@ -138,6 +138,8 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
   // Gruppierung in Scheine (Einzeltipp/Kombischein) über die geteilte, separat getestete
   // Funktion (scripts/meine-wetten-check.ts) — nicht mehr hier dupliziert nachgebaut.
   const items = groupBetsIntoItems(bets, cbRes.data ?? []) as unknown as HistoryItem[]
+  const placedMdByBetId = new Map(bets.map((b) => [b.id, b.placed_matchday] as const))
+  const placedMdByComboId = new Map((cbRes.data ?? []).map((c) => [c.id, c.placed_matchday] as const))
 
   // Zuordnung zum Tippspiel-Spieltag wie in der Platzierungs-API (lib/season.ts, effectiveMatchdayOf; Pokal: rohe Nummer) – NICHT die
   // rohe BFV-Nummer. Ein Schein hat keinen gespeicherten Spieltag; liegen seine Spiele in mehreren Spieltagen, wird das als „gemischt“
@@ -164,11 +166,14 @@ export default async function MeineWettenPage({ searchParams }: { searchParams: 
       // Spieltag-Special: match_id ist nur ein technischer Anker, der Spieltag steht am Special selbst
       const md = l.market_type === 'matchday_special' && l.special_id != null
         ? specialsById[l.special_id]?.matchday ?? null
-        : (() => { const m = l.match?.id != null ? matchById.get(l.match.id) : undefined; return m ? legMatchdayOf(m, mdIndex) : null })()
+        : (placedMdByBetId.get(l.id) ?? (() => { const m = l.match?.id != null ? matchById.get(l.match.id) : undefined; return m ? legMatchdayOf(m, mdIndex) : null })())
       legMatchdays[`leg-${l.id}`] = md
       return md
     })
-    slipMatchdays[item.kind === 'single' ? `bet-${item.bet.id}` : `combo-${item.comboId}`] = resolveSlipMatchday(mds)
+    slipMatchdays[item.kind === 'single' ? `bet-${item.bet.id}` : `combo-${item.comboId}`] =
+      item.kind === 'combo' && placedMdByComboId.get(item.comboId) != null
+        ? { kind: 'single', matchday: placedMdByComboId.get(item.comboId)!, partial: false }
+        : resolveSlipMatchday(mds)
   }
 
   return (
