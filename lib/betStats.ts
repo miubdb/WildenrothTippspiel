@@ -459,7 +459,7 @@ export async function computeUserBetStats(
 ): Promise<UserBetStats> {
   const { data: betsRaw } = await supabase
     .from('bets')
-    .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season')
+    .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season, placed_matchday')
     .eq('user_id', userId)
     .neq('status', 'void')
     .neq('status', 'neutralized')
@@ -590,7 +590,7 @@ export async function getUserSlipDetails(
   const effMdOf = await buildMatchdayLookup(supabase)
   const { data: betsRaw } = await supabase
     .from('bets')
-    .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season')
+    .select('id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, created_at, match_id, season, placed_matchday')
     .eq('user_id', userId)
     .neq('status', 'void')
     .neq('status', 'neutralized')
@@ -604,7 +604,7 @@ export async function getUserSlipDetails(
   if (comboIds.length > 0) {
     const { data: comboRaw } = await supabase
       .from('combo_bets')
-      .select('id, stake, total_odds, status, payout, created_at, season')
+      .select('id, stake, total_odds, status, payout, created_at, season, placed_matchday')
       .in('id', comboIds)
     combos = ((comboRaw ?? []) as (ComboRow & { season: string | null })[]).filter(c => c.season === season)
   }
@@ -620,7 +620,7 @@ export async function getUserSlipDetails(
   const details: SlipDetail[] = []
   for (const b of singleBets) {
     details.push({
-      matchday: effMdOf(b.match_id),
+      matchday: (b as typeof b & { placed_matchday?: number | null }).placed_matchday ?? effMdOf(b.match_id),
       label: `${MARKET_LABELS[b.market_type] ?? b.market_type}: ${selLabel(b.market_type, b.selection)}`,
       odds: b.odds_value,
       stake: b.stake ?? 0,
@@ -638,7 +638,7 @@ export async function getUserSlipDetails(
     // Ausreißerschutz von computeBalanceHistory (der ist dort nötig, weil er
     // Beträge einem einzigen Spieltag GUTSCHREIBT; hier wird nur angezeigt).
     const mds = legs.map(l => effMdOf(l.match_id)).filter((m): m is number => m != null)
-    const matchday = mds.length > 0 ? Math.min(...mds) : null
+    const matchday = (c as typeof c & { placed_matchday?: number | null }).placed_matchday ?? (mds.length > 0 ? Math.min(...mds) : null)
     details.push({
       matchday,
       label: `Kombi (${legs.length} Tipps)`,
@@ -709,7 +709,7 @@ export async function computeBalanceHistory(
   const [{ data: betsRaw }, { data: seasonMatchesRaw }] = await Promise.all([
     supabase
       .from('bets')
-      .select('id, stake, payout, status, combo_id, match_id, season')
+      .select('id, stake, payout, status, combo_id, match_id, season, placed_matchday')
       .eq('user_id', userId)
       .neq('status', 'void')
       .in('status', ['won', 'lost']),
@@ -719,7 +719,7 @@ export async function computeBalanceHistory(
       .or('match_date.gte.2026-08-01,matchday.eq.999'),
   ])
 
-  type Row = { id: number; stake: number | null; payout: number | null; status: string; combo_id: number | null; match_id: number | null; season: string | null }
+  type Row = { id: number; stake: number | null; payout: number | null; status: string; combo_id: number | null; match_id: number | null; season: string | null; placed_matchday: number | null }
   const bets = ((betsRaw ?? []) as Row[]).filter(b => b.season === season)
   const seasonMatches = (seasonMatchesRaw ?? []) as unknown as SeasonMatchRow[]
   // buildEffectiveMatchdayIndex/effectiveMatchdayOf only read the fields
@@ -736,13 +736,13 @@ export async function computeBalanceHistory(
 
   const comboIds = [...new Set(bets.filter(b => b.combo_id != null).map(b => b.combo_id as number))]
   const comboLegMatchdays = new Map<number, number[]>()
-  const comboById = new Map<number, { stake: number; payout: number | null; status: string }>()
+  const comboById = new Map<number, { stake: number; payout: number | null; status: string; placed_matchday: number | null }>()
   if (comboIds.length > 0) {
     const [{ data: comboRaw }, { data: allLegsRaw }] = await Promise.all([
-      supabase.from('combo_bets').select('id, stake, payout, status, season').in('id', comboIds),
+      supabase.from('combo_bets').select('id, stake, payout, status, season, placed_matchday').in('id', comboIds),
       supabase.from('bets').select('combo_id, match_id').in('combo_id', comboIds),
     ])
-    for (const c of (comboRaw ?? []) as { id: number; stake: number; payout: number | null; status: string; season: string | null }[]) {
+    for (const c of (comboRaw ?? []) as { id: number; stake: number; payout: number | null; status: string; season: string | null; placed_matchday: number | null }[]) {
       if (c.season === season) comboById.set(c.id, c)
     }
     for (const l of (allLegsRaw ?? []) as { combo_id: number | null; match_id: number | null }[]) {
@@ -771,12 +771,12 @@ export async function computeBalanceHistory(
       seenCombos.add(b.combo_id)
       const cb = comboById.get(b.combo_id)
       if (!cb || cb.status === 'pending') continue
-      const md = earliestMatchday(comboLegMatchdays.get(b.combo_id) ?? [])
+      const md = cb.placed_matchday ?? earliestMatchday(comboLegMatchdays.get(b.combo_id) ?? [])
       if (md == null) continue
       const delta = cb.status === 'won' ? (cb.payout ?? 0) - cb.stake : -cb.stake
       byMatchday.set(md, (byMatchday.get(md) ?? 0) + delta)
     } else {
-      const md = effMdOf(b.match_id)
+      const md = b.placed_matchday ?? effMdOf(b.match_id)
       if (md == null) continue
       const stake = b.stake ?? 0
       const delta = b.status === 'won' ? (b.payout ?? 0) - stake : -stake

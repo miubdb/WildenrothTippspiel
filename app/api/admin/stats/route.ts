@@ -45,11 +45,11 @@ export async function GET() {
   try {
     const [legsRaw, matchesRaw, settingsRes, eligibleRes] = await Promise.all([
       fetchAllRows<{
-        id: number; user_id: string; combo_id: number | null; created_at: string; season: string | null
+        id: number; user_id: string; combo_id: number | null; created_at: string; season: string | null; placed_matchday: number | null; status: string
         match: ActivityLeg['match'] | ActivityLeg['match'][] | null
       }>((from, to) => admin
         .from('bets')
-        .select('id, user_id, combo_id, created_at, season, match:matches(matchday, match_date, status, match_category, is_topspiel, tippspiel_matchday)')
+        .select('id, user_id, combo_id, created_at, season, placed_matchday, status, match:matches(matchday, match_date, status, match_category, is_topspiel, tippspiel_matchday)')
         .order('id')
         .range(from, to)),
       fetchAllRows((from, to) => admin

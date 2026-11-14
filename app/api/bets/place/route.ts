@@ -338,7 +338,7 @@ export async function POST(request: NextRequest) {
   // goalscorer block above (dedicated table instead of the generic `odds`
   // table, since a Special has no single match to key an `odds` row off).
   const specialSels = selections.filter((s) => s.marketType === 'matchday_special')
-  let specialsById = new Map<number, { id: number; status: string; closes_at: string; options: { key: string; final_odds: number }[]; included_match_ids: number[] }>()
+  let specialsById = new Map<number, { id: number; matchday: number; status: string; closes_at: string; options: { key: string; final_odds: number }[]; included_match_ids: number[] }>()
   if (specialSels.length > 0) {
     const specialIds = [...new Set(specialSels.map((s) => s.specialId).filter((id): id is number => id != null))]
     if (specialIds.length !== specialSels.length) {
@@ -346,7 +346,7 @@ export async function POST(request: NextRequest) {
     }
     const { data: specialRows } = await supabase
       .from('matchday_specials')
-      .select('id, status, closes_at, options, included_match_ids')
+      .select('id, matchday, status, closes_at, options, included_match_ids')
       .in('id', specialIds)
     specialsById = new Map((specialRows ?? []).map((r) => [r.id, r]))
 
@@ -646,18 +646,33 @@ export async function POST(request: NextRequest) {
   // since they don't belong to the Kreisliga/WildenrothII/Topspiel structure.
   // Use their raw matchday number directly so the per-matchday limit and bonus
   // slot checks run correctly for cup-only submissions.
-  const matchdayIds = [...new Set(
-    matches.map((m) => m.competition_type === 'cup' ? m.matchday : effectiveMatchdayOf(m as Match, mdIndex)).filter((md): md is number => md !== null)
-  )]
-  // Captured here so the recompute pass after insertion (below) doesn't have
-  // to redo this lookup — same set of match ids used for both.
-  const matchdayAllIds = new Map<number, number[]>()
+  // Snapshot at PLACEMENT, never derive an old slip's owner from a new BFV kickoff.
+  // A Special's match_id is only a technical anchor; its own matchday wins.
+  const placementMdOf = (s: typeof selections[number]): number | null => {
+    if (s.marketType === 'matchday_special') return specialsById.get(s.specialId!)?.matchday ?? null
+    const m = matches.find((x) => x.id === s.matchId)
+    if (!m) return null
+    return m.competition_type === 'cup' ? m.matchday : effectiveMatchdayOf(m as Match, mdIndex)
+  }
+  const placementKickoffOf = (s: typeof selections[number]): string | null => {
+    if (s.marketType === 'matchday_special') return specialsById.get(s.specialId!)?.closes_at ?? null
+    return matches.find((m) => m.id === s.matchId)?.match_date ?? null
+  }
+  const placementMatchdays = selections.map(placementMdOf)
+  if (placementMatchdays.some((md) => md == null || md <= 0)) {
+    return NextResponse.json({ error: 'Wettspieltag nicht eindeutig. Bitte Seite neu laden.' }, { status: 400 })
+  }
+  const matchdayIds = [...new Set(placementMatchdays as number[])]
+  // A combo is one indivisible slip and MUST have one immutable origin matchday.
+  if (mode === 'combo' && matchdayIds.length !== 1) {
+    return NextResponse.json({ error: 'Kombiwetten über mehrere Spieltage sind nicht erlaubt.' }, { status: 400 })
+  }
   // Fed into finalize_bet_placement (see below) — the atomic RPC re-verifies
   // each of these counts under a per-(user, matchday) advisory lock right
   // before inserting, so two truly concurrent submissions can never both
   // succeed off the same stale read (closes a TOCTOU race the plain
   // read-then-insert below this loop used to have).
-  const lockChecks: { matchday: number; match_ids: number[]; expected_count: number }[] = []
+  const lockChecks: { matchday: number; match_ids: number[]; expected_count: number; origin_mode: true }[] = []
 
   // "4. Wettschein" Pokal-Bonus (round 6, see CLAUDE.md "TEIL 2"). The cup
   // fixture's own effective Spieltag — looked up from the FULL season match
@@ -690,7 +705,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (allMatchdayIds.length === 0) continue
-    matchdayAllIds.set(matchday, allMatchdayIds)
 
     // Service-role read: this is the actual security boundary for the
     // per-matchday bet limit, so it must never depend on the caller's own
@@ -709,7 +723,7 @@ export async function POST(request: NextRequest) {
       .select('id, combo_id, odds_value, match_id, is_bonus')
       .eq('user_id', user.id)
       .in('status', ['pending', 'won', 'lost'])
-      .in('match_id', allMatchdayIds)
+      .eq('placed_matchday', matchday)
     // Per spec: "cup573AlreadyUsedInNormalSlips" — despite the name, this is
     // simply "was match 573 already used in ANY earlier slip this Spieltag"
     // (normal slot OR bonus slot) — there can only ever be ONE bet on 573
@@ -718,12 +732,15 @@ export async function POST(request: NextRequest) {
     const cup573AlreadyUsed = isCupMatchday && (existingLegs ?? []).some((b) => b.match_id === CUP_BONUS_MATCH_ID)
     const bonusAlreadyUsed = isCupMatchday && (existingLegs ?? []).some((b) => b.is_bonus === true)
 
-    const existingComboIds = [...new Set((existingLegs ?? []).filter((b) => b.combo_id != null).map((b) => b.combo_id as number))]
-    let existingCombos: { id: number; total_odds: number }[] = []
-    if (existingComboIds.length > 0) {
-      const { data } = await admin.from('combo_bets').select('id, total_odds').in('id', existingComboIds).in('status', ['pending', 'won', 'lost'])
-      existingCombos = data ?? []
+    const { data: existingCombosRaw, error: comboSlotError } = await admin
+      .from('combo_bets').select('id, total_odds')
+      .eq('user_id', user.id).eq('placed_matchday', matchday)
+      .in('status', ['pending', 'won', 'lost'])
+    if (comboSlotError) {
+      console.error('Unable to verify immutable matchday slots:', comboSlotError)
+      return NextResponse.json({ error: 'Wettplätze konnten nicht geprüft werden.' }, { status: 500 })
     }
+    const existingCombos = existingCombosRaw ?? []
 
     // The bonus slip is a fully separate allowance — it must NOT occupy (or
     // be occupied by) a normal-budget slot, so it's excluded here. It's
@@ -732,7 +749,7 @@ export async function POST(request: NextRequest) {
       ...(existingLegs ?? []).filter((b) => b.combo_id == null && !b.is_bonus).map((b) => ({ id: `bet-${b.id}`, odds: Number(b.odds_value) })),
       ...existingCombos.map((c) => ({ id: `combo-${c.id}`, odds: Number(c.total_odds) })),
     ]
-    lockChecks.push({ matchday, match_ids: allMatchdayIds, expected_count: existingSlips.length })
+    lockChecks.push({ matchday, match_ids: allMatchdayIds, expected_count: existingSlips.length, origin_mode: true })
 
     // Simulate the user's slip set for this Spieltag AFTER this request's new
     // slip(s) were added — a combo is one new slip regardless of matchday (it
@@ -743,10 +760,7 @@ export async function POST(request: NextRequest) {
       ? [{ id: 'new-combo', odds: effectiveTotalOdds }]
       : selections
           .filter((s) => {
-            const m = matches.find((match) => match.id === s.matchId)
-            if (!m) return false
-            const mMatchday = m.competition_type === 'cup' ? m.matchday : effectiveMatchdayOf(m as Match, mdIndex)
-            return mMatchday === matchday
+            return placementMdOf(s) === matchday
           })
           .map((s, i) => ({ id: `new-${i}`, odds: s.oddsValue }))
 
@@ -855,6 +869,7 @@ export async function POST(request: NextRequest) {
       total_odds: Math.round(totalOdds * 100) / 100,
       status: 'pending',
       season: betSeason,
+      placed_matchday: matchdayIds[0],
     }
     betRows = selections.map((s) => ({
       match_id: s.matchId,
@@ -867,6 +882,8 @@ export async function POST(request: NextRequest) {
       is_bonus: false,
       season: betSeason,
       special_id: s.marketType === 'matchday_special' ? s.specialId : null,
+      placed_matchday: placementMdOf(s),
+      placed_kickoff_at: placementKickoffOf(s),
     }))
   } else {
     betRows = selections.map((s) => ({
@@ -885,6 +902,8 @@ export async function POST(request: NextRequest) {
       is_bonus: submissionIsBonus,
       season: betSeason,
       special_id: s.marketType === 'matchday_special' ? s.specialId : null,
+      placed_matchday: placementMdOf(s),
+      placed_kickoff_at: placementKickoffOf(s),
     }))
   }
 
@@ -956,8 +975,8 @@ export async function POST(request: NextRequest) {
   // new slip's odds might now be the highest, bumping a previously-Risky
   // slip back to normal. Runs once per affected Spieltag, using the same
   // match-id sets already gathered above.
-  for (const allMatchdayIds of matchdayAllIds.values()) {
-    await recomputeRiskyForUserMatchday(admin, user.id, allMatchdayIds)
+  for (const matchday of matchdayIds) {
+    await recomputeRiskyForUserMatchday(admin, user.id, matchday)
   }
 
   // /tipps and /leaderboard use time-based revalidation (revalidate = 60);

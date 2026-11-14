@@ -20,7 +20,7 @@ export async function NavBottom({ userId }: { userId: string }) {
       .order('id').range(from, to))
     const active = activeTippMatchday(seasonMatches as never)
     if (active.matchday != null && active.matchIds.length > 0) {
-      const { data: rows, error: betsError } = await supabase.from('bets').select('combo_id, is_risky, is_bonus').eq('user_id', userId).in('match_id', active.matchIds).neq('status', 'void')
+      const { data: rows, error: betsError } = await supabase.from('bets').select('combo_id, is_risky, is_bonus').eq('user_id', userId).eq('placed_matchday', active.matchday).neq('status', 'void')
       if (betsError) throw new Error(betsError.message)
       const betRows = rows ?? []
       const singleBets = betRows.filter((b) => b.combo_id == null)

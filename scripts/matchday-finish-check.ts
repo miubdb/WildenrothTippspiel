@@ -13,6 +13,10 @@ import {
   type CompletionPendingBet,
   type CompletionSpecial,
 } from '@/lib/matchdayFinishReadiness'
+import { buildEffectiveMatchdayIndex, effectiveMatchdayOf } from '@/lib/season'
+import { computeMatchdayParticipation } from '@/lib/bettingActivityStats'
+import { buildSlips, type RecapBetRow, type RecapComboRow, type RecapMatchRow } from '@/lib/recap/slips'
+import type { Match } from '@/types'
 
 let checks = 0
 let failures = 0
@@ -72,6 +76,58 @@ export function run(): number {
     isPendingBetBlockingFinalization(bet(99999), new Map(allMatches.map(m => [m.id, m])), new Map()))
   test('Entschiedene oder stornierte Tipps zählen unabhängig vom Matchstatus nicht als pending',
     canFinalizeMatchday(matchday, [bet(413, 'won'), bet(260, 'void'), bet(421, 'lost')], allMatches))
+
+  console.log('\n=== Eingefrorener Wettspieltag trotz Nachholspiel ===')
+  const originalKickoff = '2026-11-15T12:00:00.000Z'
+  const makeupKickoff = '2027-03-17T18:00:00.000Z'
+  const fixtures = [
+    { id: 413, matchday: 16, match_date: '2026-11-13T18:45:00Z', match_category: 'kreisliga', status: 'finished' },
+    { id: 421, matchday: 16, match_date: '2026-11-14T12:00:00Z', match_category: 'kreisliga', status: 'finished' },
+    { id: 260, matchday: 16, match_date: makeupKickoff, match_category: 'kreisliga', status: 'postponed' },
+    { id: 323, matchday: 16, match_date: makeupKickoff, match_category: 'kreisliga', status: 'postponed' },
+    { id: 329, matchday: 19, match_date: '2027-03-13T12:00:00Z', match_category: 'kreisliga', status: 'scheduled' },
+    { id: 314, matchday: 19, match_date: '2027-03-14T14:00:00Z', match_category: 'kreisliga', status: 'scheduled' },
+    { id: 318, matchday: 19, match_date: '2027-03-14T14:00:00Z', match_category: 'kreisliga', status: 'scheduled' },
+  ] as unknown as RecapMatchRow[]
+  const mdIndex = buildEffectiveMatchdayIndex(fixtures as unknown as Match[])
+  test('Denklingen ist für die Spielanzeige am März-Spieltag 19',
+    effectiveMatchdayOf(fixtures[3] as unknown as Match, mdIndex) === 19)
+  const own = (id: number, matchId: number, comboId: number | null, placedMd: number, kickoff: string): RecapBetRow => ({
+    id, user_id: 'alice', match_id: matchId, market_type: '1x2', selection: 'home',
+    stake: comboId == null ? 10 : null, odds_value: 2, status: 'pending', payout: null, combo_id: comboId,
+    created_at: '2026-11-14T12:00:00Z', is_risky: false, season: '26/27', is_bonus: false,
+    void_reason: null, special_id: null, placed_matchday: placedMd, placed_kickoff_at: kickoff,
+  })
+  const single = own(1, 323, null, 16, originalKickoff)
+  const comboLegA = own(2, 323, 77, 16, originalKickoff)
+  const comboLegB = own(3, 413, 77, 16, '2026-11-13T18:45:00Z')
+  const cb: RecapComboRow = {
+    id: 77, user_id: 'alice', stake: 30, total_odds: 4, status: 'pending', payout: null,
+    created_at: '2026-11-14T12:00:00Z', season: '26/27',
+    void_reason: null, original_total_odds: null, placed_matchday: 16,
+  }
+  const { slips } = buildSlips({ bets: [single, comboLegA, comboLegB], combos: [cb], matches: fixtures })
+  test('Verschobene Einzelwette bleibt ihrem ursprünglichen Spieltag 16 zugeordnet',
+    slips.find(x => x.key === 's1')?.ownerMatchday === 16)
+  test('Verschobene Kombi gehört unveränderlich zu Spieltag 16',
+    slips.find(x => x.key === 'c77')?.ownerMatchday === 16)
+  test('Originaler November-Anpfiff bleibt für Einzelwetten erhalten',
+    slips.find(x => x.key === 's1')?.firstKickoffMs === Date.parse(originalKickoff))
+  test('Originaler frühester November-Anpfiff bleibt für Kombis erhalten',
+    slips.find(x => x.key === 'c77')?.firstKickoffMs === Date.parse('2026-11-13T18:45:00Z'))
+  const part = computeMatchdayParticipation([
+    { id: 1, user_id: 'alice', combo_id: null, created_at: single.created_at,
+      match: fixtures[3] as Match, placed_matchday: 16, status: 'pending' },
+    { id: 2, user_id: 'alice', combo_id: 77, created_at: single.created_at,
+      match: fixtures[3] as Match, placed_matchday: 16, status: 'pending' },
+    { id: 3, user_id: 'alice', combo_id: null, created_at: single.created_at,
+      match: fixtures[3] as Match, placed_matchday: 19, status: 'pending' },
+    { id: 4, user_id: 'alice', combo_id: null, created_at: single.created_at,
+      match: fixtures[3] as Match, placed_matchday: 16, status: 'void' },
+  ], mdIndex, 19)
+  test('Alte November-Wetten sind nur Teilnahme an ST16', part.find(p => p.matchday === 16)?.legs === 2)
+  test('Neue März-Wette ist nur Teilnahme an ST19', part.find(p => p.matchday === 19)?.legs === 1)
+  test('Nutzerstorno zählt nicht mehr als Teilnahme', part.reduce((sum, p) => sum + p.legs, 0) === 3)
 
   console.log(`\n${checks} Prüfungen, ${failures} Fehler.`)
   return failures
