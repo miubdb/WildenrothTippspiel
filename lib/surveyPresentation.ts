@@ -96,6 +96,10 @@ export function questionPages(questions: QuestionDef[]): QuestionDef[][] {
     let choice: Candidate | null = null
     for (let end = start; end < groups.length; end++) {
       const group = groups[end]
+      // The first section's second screen is deliberately about what
+      // participants enjoy; never mix its motivation question into the
+      // preceding usability/technical-feedback screen.
+      if (current.length && group.some((q) => q.id === 'q_motivation')) break
       count += group.length
       height += group.reduce((sum, q) => sum + estimateQuestionHeight(q), 0)
       current = [...current, ...group]
