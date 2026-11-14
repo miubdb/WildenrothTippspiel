@@ -62,16 +62,16 @@ export function evaluateSlips(slips: RiskySlip[]): RiskyEvaluation {
 export async function recomputeRiskyForUserMatchday(
   admin: ReturnType<typeof createAdminClient>,
   userId: string,
-  matchdayMatchIds: number[],
+  placedMatchday: number,
 ): Promise<void> {
-  if (matchdayMatchIds.length === 0) return
+  if (!Number.isInteger(placedMatchday) || placedMatchday <= 0) return
 
   const { data: legs } = await admin
     .from('bets')
     .select('id, combo_id, odds_value, is_risky, is_bonus')
     .eq('user_id', userId)
     .eq('status', 'pending')
-    .in('match_id', matchdayMatchIds)
+    .eq('placed_matchday', placedMatchday)
 
   if (!legs || legs.length === 0) return
 
@@ -87,6 +87,7 @@ export async function recomputeRiskyForUserMatchday(
       .from('combo_bets')
       .select('id, total_odds, original_total_odds')
       .in('id', comboIds)
+      .eq('placed_matchday', placedMatchday)
       .eq('status', 'pending')
     combos = data ?? []
   }

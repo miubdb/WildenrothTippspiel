@@ -61,6 +61,31 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
   } catch (e) { console.error('Spieltag-Special settlement failed:', e) }
 
   const matchday = recapMatchdayOf(matchInfo as Match, mdIndex)
+  // A delayed match can resolve a slip from an ALREADY closed earlier betting
+  // round. Recompute that round's awards without charging its penalty/pocket
+  // money again or sending another recap push.
+  const { data: ownedLegs, error: ownersError } = await admin
+    .from('bets').select('placed_matchday')
+    .eq('match_id', matchId).eq('season', CURRENT_SEASON)
+  if (ownersError) {
+    console.error('Unable to load delayed-bet owners:', ownersError)
+    return // fail closed before any penalty/award writes
+  }
+  for (const ownerMd of new Set((ownedLegs ?? []).map((b) => b.placed_matchday as number | null))) {
+    if (ownerMd == null || ownerMd >= 900 || ownerMd === matchday) continue
+    const { data: priorRecap } = await admin.from('push_reminders').select('id')
+      .eq('type', 'recap').eq('season', CURRENT_SEASON).eq('matchday', ownerMd).maybeSingle()
+    if (!priorRecap) continue
+    const { data: originBetIds, error: originError } = await admin.from('bets')
+      .select('match_id').eq('season', CURRENT_SEASON).eq('placed_matchday', ownerMd)
+    if (originError || !originBetIds) {
+      console.error('Cannot recalculate original round awards:', originError)
+      continue
+    }
+    const ownerIds = [...new Set(originBetIds.map((b) => b.match_id))]
+    try { await computeAndPersistMatchdayAwards(admin, CURRENT_SEASON, ownerMd, ownerIds) }
+    catch (e) { console.error('Delayed-match award refresh failed:', e) }
+  }
   if (matchday == null || matchday >= 900) return // test matchday: no recap, awards or penalty
 
   const matchdayMatches = seasonMatchesForMd.filter((m) => recapMatchdayOf(m, mdIndex) === matchday)
@@ -136,51 +161,37 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
     )
   }
 
-  // Dedup via push_reminders so this only runs once even if multiple matches
-  // settle simultaneously. Season is part of the dedupe key — matchday
-  // numbers reset every season.
-  const { error: penaltyDedupError } = await admin
-    .from('push_reminders')
+  // A postponed match must not erase the original participation. Read ALL
+  // eligible users and ALL origin-round bets BEFORE claiming the once-only
+  // penalty lock: a failed/truncated query must not silently charge everyone.
+  const { data: activeBetRows, count: activeBetCount, error: activityError } = await admin
+    .from('bets').select('user_id', { count: 'exact' })
+    .eq('season', CURRENT_SEASON)
+    .eq('placed_matchday', matchday)
+    .neq('status', 'void')
+  const { data: allProfiles, error: profilesError } = await admin.from('profiles')
+    .select('id, created_at').or('eligible_for_current_season.eq.true,is_admin.eq.true')
+  if (activityError || !activeBetRows || activeBetCount !== activeBetRows.length || profilesError || !allProfiles) {
+    console.error('Cannot verify origin round participants; penalties deferred:', activityError, profilesError,
+      { activeBetCount, loaded: activeBetRows?.length })
+    return
+  }
+  const activeUserIds = new Set(activeBetRows.map((b) => b.user_id as string))
+  const latestKickoff = displayMatchdayMatches.length > 0
+    ? Math.max(...displayMatchdayMatches.map((m) => new Date(m.match_date).getTime())) : null
+  // Existing once-only lock prevents double penalties even when a postponed
+  // fixture settles months later and this function runs again.
+  const { error: penaltyDedupError } = await admin.from('push_reminders')
     .insert({ type: 'inactivity_fee', matchday, season: CURRENT_SEASON })
   if (!penaltyDedupError) {
-    // Fairness check uses the DISPLAY grouping, not the recap grouping — a
-    // user who bet on a match shown under this Spieltag's tab must count as
-    // active for it even if that specific match later turned out to be a
-    // recap-outlier reassigned elsewhere for award purposes.
-    const mdMatchIds = displayMatchdayMatches.map((m) => m.id)
-    if (mdMatchIds.length > 0) {
-      const { data: activeBetRows } = await admin
-        .from('bets')
-        .select('user_id')
-        .in('match_id', mdMatchIds)
-        .neq('status', 'void')
-      const activeUserIds = new Set((activeBetRows ?? []).map((b) => b.user_id as string))
-
-      // Only users actually allowed to bet this season can be "inactive" —
-      // ineligible users are hard-blocked from placing any bet at all (see
-      // app/api/bets/place/route.ts NOT_ELIGIBLE), so penalizing them here
-      // would charge people for a season they were never allowed to play.
-      const { data: allProfiles } = await admin
-        .from('profiles')
-        .select('id, created_at')
-        .or('eligible_for_current_season.eq.true,is_admin.eq.true')
-
-      // Someone who registered after every one of this Spieltag's matches had
-      // already kicked off had zero opportunity to place a bet on it — every
-      // market was closed before they existed. Charging them the same as a
-      // member who simply chose not to bet would penalize an impossibility,
-      // not inactivity (observed: a user who signed up minutes after the last
-      // kickoff, well before this settlement ran, still got the full −50).
-      const latestKickoff = displayMatchdayMatches.length > 0
-        ? Math.max(...displayMatchdayMatches.map((m) => new Date(m.match_date).getTime()))
-        : null
-
-      await Promise.allSettled(
-        (allProfiles ?? [])
-          .filter((p) => !activeUserIds.has(p.id))
-          .filter((p) => latestKickoff == null || new Date(p.created_at).getTime() <= latestKickoff)
-          .map((p) => admin.rpc('apply_penalty', { p_user_id: p.id, p_amount: INACTIVITY_PENALTY }))
-      )
+    const penalties = await Promise.allSettled(
+      allProfiles
+        .filter((p) => !activeUserIds.has(p.id))
+        .filter((p) => latestKickoff == null || new Date(p.created_at).getTime() <= latestKickoff)
+        .map((p) => admin.rpc('apply_penalty', { p_user_id: p.id, p_amount: INACTIVITY_PENALTY }))
+    )
+    if (penalties.some((r) => r.status === 'rejected' || (r.status === 'fulfilled' && r.value.error))) {
+      console.error('One or more inactivity debits failed; admin reconciliation required', { matchday })
     }
   }
 

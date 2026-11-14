@@ -28,8 +28,8 @@ export async function loadRawRecapData(): Promise<RawRecapData> {
   const admin = createAdminClient()
   const [matches, bets, combos, profiles, teams, players, specials] = await Promise.all([
     fetchAllRows<RecapMatchRow>((f, t) => admin.from('matches').select('id, matchday, match_date, status, match_category, is_topspiel, tippspiel_matchday, home_team_id, away_team_id, home_score, away_score, competition_type').or(`match_date.gte.${SEASON_START},matchday.eq.999`).order('id').range(f, t)),
-    fetchAllRows<RecapBetRow>((f, t) => admin.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, created_at, is_risky, season, is_bonus, void_reason, special_id').eq('season', RECAP_SEASON).order('id').range(f, t)),
-    fetchAllRows<RecapComboRow>((f, t) => admin.from('combo_bets').select('id, user_id, stake, total_odds, status, payout, created_at, season, void_reason, original_total_odds').eq('season', RECAP_SEASON).order('id').range(f, t)),
+    fetchAllRows<RecapBetRow>((f, t) => admin.from('bets').select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, created_at, is_risky, season, is_bonus, void_reason, special_id, placed_matchday, placed_kickoff_at').eq('season', RECAP_SEASON).order('id').range(f, t)),
+    fetchAllRows<RecapComboRow>((f, t) => admin.from('combo_bets').select('id, user_id, stake, total_odds, status, payout, created_at, season, void_reason, original_total_odds, placed_matchday').eq('season', RECAP_SEASON).order('id').range(f, t)),
     fetchAllRows<RawRecapData['profiles'][number]>((f, t) => admin.from('profiles').select('id, display_name, username, avatar_url, deleted_at, is_admin').order('id').range(f, t)),
     fetchAllRows<{ id: number; name: string }>((f, t) => admin.from('teams').select('id, name').order('id').range(f, t)),
     fetchAllRows<{ id: number; name: string }>((f, t) => admin.from('wildenroth_players').select('id, name').order('id').range(f, t)),

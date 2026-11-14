@@ -65,7 +65,6 @@ export default async function RecapPage({
     away_team: Array.isArray(m.away_team) ? m.away_team[0] : m.away_team,
   }))
 
-  const matchIds = matches.map((m) => m.id)
 
   // Date range header
   const dates = matches.map((m) => new Date(m.match_date))
@@ -76,33 +75,18 @@ export default async function RecapPage({
       ? minDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
       : `${minDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} – ${maxDate.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}`
 
-  // Fetch all bets for these matches (all users), current season only
-  const { data: betRows } = await supabase
-    .from('bets')
-    .select(`id, user_id, match_id, stake, payout, status, combo_id`)
-    .in('match_id', matchIds)
-    .eq('season', '26/27')
-    .in('status', ['won', 'lost'])
-
-  // Fetch combo_bets for combos that have at least one leg in this matchday
-  const comboIds = [
-    ...new Set(
-      (betRows ?? [])
-        .filter((b) => b.combo_id !== null)
-        .map((b) => b.combo_id as number)
-    ),
-  ]
-
-  type ComboBetRow = { id: number; user_id: string; stake: number; payout: number | null; status: string }
-  let comboBetRows: ComboBetRow[] = []
-  if (comboIds.length > 0) {
-    const { data: cbData } = await supabase
-      .from('combo_bets')
+  // Money belongs to the original betting round, even when the match itself
+  // is shown and actually played several months later.
+  const [{ data: betRows }, { data: comboBetRows }] = await Promise.all([
+    supabase.from('bets')
+      .select('id, user_id, match_id, stake, payout, status, combo_id')
+      .eq('season', '26/27').eq('placed_matchday', matchday)
+      .is('combo_id', null).in('status', ['won', 'lost']),
+    supabase.from('combo_bets')
       .select('id, user_id, stake, payout, status')
-      .in('id', comboIds)
-      .in('status', ['won', 'lost'])
-    comboBetRows = (cbData ?? []) as ComboBetRow[]
-  }
+      .eq('season', '26/27').eq('placed_matchday', matchday)
+      .in('status', ['won', 'lost']),
+  ])
 
   // Fetch profiles for display names
   const { data: profileRows } = await supabase
@@ -135,39 +119,12 @@ export default async function RecapPage({
     userPnl.set(b.user_id, cur)
   }
 
-  // Count settled combo bets, but exactly ONCE per combo across the whole
-  // season — not once per Spieltag its legs happen to touch. A combo whose
-  // legs span two Spieltage would otherwise get its full stake/payout added
-  // to BOTH Spieltage's totals. Fetch every leg of every combo touched here
-  // (not just the ones in this matchday) and assign the combo to the
-  // earliest recap-Spieltag among its legs; only count it here if that
-  // canonical Spieltag is the one this page is showing.
-  const processedCombos = new Set<number>()
-  if (comboIds.length > 0) {
-    const { data: allLegsRaw } = await supabase
-      .from('bets')
-      .select('combo_id, match_id')
-      .in('combo_id', comboIds)
-    const matchIdToRecapMd = new Map<number, number | null>(
-      seasonMatchesForRecap.map((m) => [m.id, recapMatchdayOf(m, mdIndex)])
-    )
-    const comboOwnerMatchday = new Map<number, number>()
-    for (const leg of allLegsRaw ?? []) {
-      const legMd = matchIdToRecapMd.get(leg.match_id)
-      if (legMd == null) continue
-      const cid = leg.combo_id as number
-      const cur = comboOwnerMatchday.get(cid)
-      if (cur == null || legMd < cur) comboOwnerMatchday.set(cid, legMd)
-    }
-    for (const cb of comboBetRows) {
-      if (processedCombos.has(cb.id)) continue
-      processedCombos.add(cb.id)
-      if (comboOwnerMatchday.get(cb.id) !== matchday) continue
-      const cur = userPnl.get(cb.user_id) ?? { staked: 0, payout: 0 }
-      cur.staked += Number(cb.stake ?? 0)
-      if (cb.status === 'won') cur.payout += Number(cb.payout ?? 0)
-      userPnl.set(cb.user_id, cur)
-    }
+  // Every combo parent appears once for exactly ONE immutable placed_matchday.
+  for (const cb of comboBetRows ?? []) {
+    const cur = userPnl.get(cb.user_id) ?? { staked: 0, payout: 0 }
+    cur.staked += Number(cb.stake ?? 0)
+    if (cb.status === 'won') cur.payout += Number(cb.payout ?? 0)
+    userPnl.set(cb.user_id, cur)
   }
 
   // Pokale des Spieltags from user_awards

@@ -56,13 +56,13 @@ export default async function LeaderboardPage({
     ).then((data) => ({ data: [...data].sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime()) })),
     fetchAllRows((from, to) => supabase
       .from('bets')
-      .select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season, created_at, special_id')
+      .select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season, created_at, special_id, placed_matchday, placed_kickoff_at')
       .order('id')
       .range(from, to)
     ).then((data) => ({ data })),
     fetchAllRows((from, to) => supabase
       .from('combo_bets')
-      .select('id, user_id, stake, total_odds, status, payout, season, created_at')
+      .select('id, user_id, stake, total_odds, status, payout, season, created_at, placed_matchday')
       .order('id')
       .range(from, to)
     ).then((data) => ({ data })),
@@ -434,30 +434,21 @@ export default async function LeaderboardPage({
   // Single bets
   for (const b of allBets) {
     if (b.status === 'pending' || b.status === 'void' || b.status === 'neutralized' || !b.match_id) continue
-    const md = matchToMatchday.get(b.match_id)
+    const md = b.placed_matchday ?? matchToMatchday.get(b.match_id)
     if (!md || b.combo_id) continue
     const key = `${b.user_id}_${md}`
     const delta = b.status === 'won' ? (b.payout ?? 0) - (b.stake ?? 0) : -(b.stake ?? 0)
     mdPnl.set(key, (mdPnl.get(key) ?? 0) + delta)
   }
 
-  // Combo bets — assign each combo to exactly one Spieltag. Today every
-  // valid combo's legs normally belong to the same effective Spieltag, but a
-  // reschedule can make a cross-Spieltag combo possible. Never depend on the
-  // arbitrary DB/leg iteration order: choose the chronologically earliest
-  // effective Spieltag by the same median anchor used everywhere else.
+  // The combo parent's immutable origin wins over any changed kickoff.
   const comboToMatchday = new Map<number, number>()
   for (const b of allBets) {
-    if (b.combo_id && b.match_id) {
-      const md = matchToMatchday.get(b.match_id)
-      if (!md) continue
-      const current = comboToMatchday.get(b.combo_id)
-      if (current == null || byAnchor(md, current) < 0) comboToMatchday.set(b.combo_id, md)
-    }
+    if (b.combo_id != null && b.placed_matchday != null) comboToMatchday.set(b.combo_id, b.placed_matchday)
   }
   for (const cb of allCombos) {
     if (cb.status === 'pending' || cb.status === 'void') continue
-    const md = comboToMatchday.get(cb.id)
+    const md = cb.placed_matchday ?? comboToMatchday.get(cb.id)
     if (!md) continue
     const key = `${cb.user_id}_${md}`
     const delta = cb.status === 'won' ? (cb.payout ?? 0) - (cb.stake ?? 0) : -(cb.stake ?? 0)
@@ -544,10 +535,9 @@ export default async function LeaderboardPage({
       .eq('matchday', latestCompletedMd)
       .maybeSingle()
     if (pocketMoneyRan) {
-      const latestMdMatchIds = new Set((recapMdMatches.get(latestCompletedMd) ?? []).map(m => m.id))
       const activeUserIds = new Set<string>()
       for (const b of allBets) {
-        if (b.status !== 'void' && b.match_id != null && latestMdMatchIds.has(b.match_id)) activeUserIds.add(b.user_id)
+        if (b.status !== 'void' && b.placed_matchday === latestCompletedMd) activeUserIds.add(b.user_id)
       }
       for (const p of sortedProfiles) {
         pocketPenaltyAdjustment.set(p.id, activeUserIds.has(p.id) ? 10 : -40) // +10 always, −50 more if inactive
@@ -647,18 +637,17 @@ export default async function LeaderboardPage({
     // Recap grouping here too, so this live-computed card matches what
     // computeAndPersistMatchdayAwards persisted for the same Spieltag.
     const mdMatchIdArr = [...recapGroupMatchIds]
-    const recapBets = allBets.filter(b => b.match_id != null && mdMatchIdArr.includes(b.match_id) && (b.status === 'won' || b.status === 'lost'))
+    const recapBets = allBets.filter(b => b.placed_matchday === currentMatchday && (b.status === 'won' || b.status === 'lost'))
 
     if (recapBets.length > 0) {
       const recapSingles = recapBets.filter(b => !b.combo_id)
-      const recapComboLegBets = recapBets.filter(b => b.combo_id)
-      const recapComboIds = [...new Set(recapComboLegBets.map(b => Number(b.combo_id)))]
-
-      const recapCombos = allCombos.filter(cb => recapComboIds.includes(cb.id) && (cb.status === 'won' || cb.status === 'lost')) as { id: number; user_id: string; stake: number; total_odds: number; payout: number; status: string; created_at: string }[]
+      const recapCombos = allCombos.filter(cb => cb.placed_matchday === currentMatchday && (cb.status === 'won' || cb.status === 'lost')) as { id: number; user_id: string; stake: number; total_odds: number; payout: number; status: string; created_at: string }[]
+      const recapComboIds = recapCombos.map(cb => cb.id)
+      const recapComboLegBets = allBets.filter(b => b.combo_id != null && recapComboIds.includes(b.combo_id))
 
       // Fetch all legs for unlucky bastard check
       const { data: allLegRows } = recapComboIds.length > 0
-        ? await supabase.from('bets').select('id, combo_id, status, match_id').in('combo_id', recapComboIds)
+        ? await supabase.from('bets').select('id, combo_id, status, match_id, placed_kickoff_at').in('combo_id', recapComboIds)
         : { data: [] }
       const allComboLegs = (allLegRows ?? []).map(l => ({ ...l, combo_id: Number(l.combo_id) }))
 
@@ -668,7 +657,7 @@ export default async function LeaderboardPage({
       const matchDateMap = new Map<number, string>(seasonMatches.map(m => [m.id, m.match_date]))
       const comboEarliestKickoff = new Map<number, string>()
       for (const l of allComboLegs) {
-        const d = matchDateMap.get(l.match_id)
+        const d = l.placed_kickoff_at ?? matchDateMap.get(l.match_id)
         if (!d) continue
         const cur = comboEarliestKickoff.get(l.combo_id)
         if (!cur || d < cur) comboEarliestKickoff.set(l.combo_id, d)
@@ -708,7 +697,7 @@ export default async function LeaderboardPage({
         const { data: recapMatchRows } = await supabase
           .from('matches')
           .select('id, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
-          .in('id', mdMatchIdArr)
+          .in('id', [...new Set([...mdMatchIdArr, ...recapBets.map(b => b.match_id).filter((id): id is number => id != null)])])
         for (const m of recapMatchRows ?? []) {
           const ht = Array.isArray(m.home_team) ? m.home_team[0] : m.home_team
           const at = Array.isArray(m.away_team) ? m.away_team[0] : m.away_team
@@ -921,7 +910,7 @@ export default async function LeaderboardPage({
       }[] = []
       for (const b of wonSingles) {
         if (!b.match_id || !b.created_at) continue
-        const kickoff = matchDateMap.get(b.match_id)
+        const kickoff = b.placed_kickoff_at ?? matchDateMap.get(b.match_id)
         if (!kickoff) continue
         const gapMs = new Date(kickoff).getTime() - new Date(b.created_at).getTime()
         if (gapMs >= 0 && gapMs < ONE_HOUR_MS) lastMinuteCandidates.push({ user_id: b.user_id, gapMs, bet: b })

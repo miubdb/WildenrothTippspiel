@@ -2,11 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { buildEffectiveMatchdayIndex, effectiveMatchdayOf, SEASON_START } from '@/lib/season'
 import { recomputeRiskyForUserMatchday } from '@/lib/risky'
 import { hasStartedCombo } from '@/lib/betStart'
-import type { Match } from '@/types'
-const TEST_MATCHDAY = 999
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -23,22 +20,13 @@ export async function POST(request: NextRequest) {
   // by `matchIds` — cancelling a slip can change which of the user's
   // remaining slips (if any) is now Risky (see lib/risky.ts).
   async function recomputeAffectedMatchdays(matchIds: number[]) {
-    const { data: seasonMatchesRaw } = await supabase
-      .from('matches')
-      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
-      .or(`match_date.gte.${SEASON_START},matchday.eq.${TEST_MATCHDAY}`)
-    const seasonMatches = (seasonMatchesRaw ?? []) as Match[]
-    const mdIndex = buildEffectiveMatchdayIndex(seasonMatches)
-    const affectedMatchdays = new Set(
-      seasonMatches
-        .filter((m) => matchIds.includes(m.id))
-        .map((m) => effectiveMatchdayOf(m, mdIndex))
-        .filter((md): md is number => md !== null)
-    )
-    for (const md of affectedMatchdays) {
-      const allMatchdayIds = seasonMatches.filter((m) => effectiveMatchdayOf(m, mdIndex) === md).map((m) => m.id)
-      await recomputeRiskyForUserMatchday(admin, userId, allMatchdayIds)
-    }
+    // Cancelled legs keep their immutable owner; neither date changes nor
+    // technical Special anchors may reassign their Risky classification.
+    const { data: affectedLegs, error } = await admin
+      .from('bets').select('placed_matchday').eq('user_id', userId).in('match_id', matchIds)
+    if (error) { console.error('Unable to determine cancelled slip owner:', error); return }
+    const mds = [...new Set((affectedLegs ?? []).map((b) => b.placed_matchday).filter((x): x is number => x != null))]
+    for (const md of mds) await recomputeRiskyForUserMatchday(admin, userId, md)
   }
 
   let body: { betId?: number; comboId?: number }

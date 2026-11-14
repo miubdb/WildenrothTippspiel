@@ -51,6 +51,8 @@ export interface RecapBetRow {
   void_reason: string | null
   special_id: number | null
   neutralized_reason?: string | null
+  placed_matchday?: number | null
+  placed_kickoff_at?: string | null
 }
 
 export interface RecapComboRow {
@@ -64,6 +66,7 @@ export interface RecapComboRow {
   season: string | null
   void_reason: string | null
   original_total_odds: number | null
+  placed_matchday?: number | null
 }
 
 export type RecapMatchRow = Pick<
@@ -82,6 +85,7 @@ export interface SlipLeg {
   specialId: number | null
   /** Recap-Spieltag dieses Legs (recapMatchdayOf) — null, wenn das Spiel unbekannt/Testspieltag ist. */
   recapMatchday: number | null
+  placedKickoffAt?: string | null
 }
 
 export type SlipStatus = 'pending' | 'won' | 'lost' | 'void' | 'neutralized'
@@ -170,20 +174,21 @@ export function buildSlips(input: SlipBuildInput): { slips: Slip[]; mdIndex: Eff
     odds: Number(b.odds_value),
     status: b.status,
     specialId: b.special_id,
-    recapMatchday: b.match_id != null ? (recapMd.get(b.match_id) ?? null) : null,
+    recapMatchday: b.placed_matchday ?? (b.match_id != null ? (recapMd.get(b.match_id) ?? null) : null),
+    placedKickoffAt: b.placed_kickoff_at ?? null,
   })
 
-  const finish = (partial: Omit<Slip, 'ownerMatchday' | 'firstKickoffMs'>): Slip | null => {
+  const finish = (partial: Omit<Slip, 'ownerMatchday' | 'firstKickoffMs'>, frozenOwner?: number | null): Slip | null => {
     const mds = partial.legs.map((l) => l.recapMatchday).filter((x): x is number => x != null)
     // Wett-Scheine auf dem Testspieltag (999) gehören in keine Auswertung.
     if (mds.some((md) => md >= 900)) return null
     const kicks = partial.legs
-      .map((l) => (l.matchId != null ? matchById.get(l.matchId)?.match_date : undefined))
+      .map((l) => l.placedKickoffAt ?? (l.matchId != null ? matchById.get(l.matchId)?.match_date : undefined))
       .filter((d): d is string => !!d)
       .map((d) => new Date(d).getTime())
     return {
       ...partial,
-      ownerMatchday: mds.length > 0 ? Math.min(...mds) : null,
+      ownerMatchday: frozenOwner ?? (mds.length > 0 ? Math.min(...mds) : null),
       firstKickoffMs: kicks.length > 0 ? Math.min(...kicks) : null,
     }
   }
@@ -209,7 +214,7 @@ export function buildSlips(input: SlipBuildInput): { slips: Slip[]; mdIndex: Eff
       isBonus: !!b.is_bonus,
       voidReason: b.void_reason,
       legs: [toLeg(b)],
-    })
+    }, b.placed_matchday)
     if (s) slips.push(s)
   }
 
@@ -233,7 +238,7 @@ export function buildSlips(input: SlipBuildInput): { slips: Slip[]; mdIndex: Eff
       isBonus: legRows.some((l) => !!l.is_bonus),
       voidReason: c.void_reason ?? legRows.find((l) => l.void_reason)?.void_reason ?? null,
       legs: legRows.map(toLeg),
-    })
+    }, c.placed_matchday)
     if (s) slips.push(s)
   }
 
