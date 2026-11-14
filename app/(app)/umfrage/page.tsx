@@ -137,7 +137,9 @@ export default function UmfragePage() {
     if (!tracking) return
 
     const sessionId = crypto.randomUUID()
-    let visible = document.visibilityState === 'visible' && document.hasFocus()
+    // iOS PWA can report hasFocus() = false even while the visible page
+    // is being used; the actual visibility/blur events handle backgrounding.
+    let visible = document.visibilityState === 'visible'
     let clock = freshActivityClock(performance.now())
     let lastSentMs = 0
 
