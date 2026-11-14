@@ -661,7 +661,7 @@ export function run(): number {
       questionPages(visibleQuestionsForSection(SURVEY_SECTIONS[4], {})).some(
         (page) => page.length === 2 && page[0].id === 'q_features' && page[1].id === 'q_features_text'))
     const shortMixed = Array.from({ length: 5 }, (_, index) =>
-      ({ ...q('q5'), id: `compact-${index}`, text: 'Welcher kurze Wert passt?', helpText: undefined }))
+      ({ ...q('q5'), id: `compact-${index}`, text: 'Welcher kurze Wert passt?', helpText: undefined, infoText: undefined, options: ['A', 'B', 'C'] }))
     check('Fünf kurze Mehrfachwahl-Fragen werden auf nur einer Seite zusammengefasst',
       questionPages(shortMixed).length === 1 && questionPages(shortMixed)[0].length === 5)
     const medium = [q('q4'), q('q7'), q('q5'), q('q8')]
