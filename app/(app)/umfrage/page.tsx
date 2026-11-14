@@ -44,6 +44,7 @@ export default function UmfragePage() {
   const [sectionIdx, setSectionIdx] = useState(0)
   const [pageIdx, setPageIdx] = useState(0)
   const [navigationOpen, setNavigationOpen] = useState(false)
+  const [submitErrorQuestionId, setSubmitErrorQuestionId] = useState<string | null>(null)
   const positionRef = useRef({ sectionIdx: 0, pageIdx: 0 })
   const scrollToQuestionRef = useRef<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
@@ -263,6 +264,7 @@ export default function UmfragePage() {
   }, [loadState, started, sectionIdx, pageIdx, paused, justSubmitted])
 
   function setAnswer(id: string, value: Answers[string]) {
+    setSubmitErrorQuestionId(null)
     saveEnabled.current = true
     // stripHiddenAnswers runs on every change (not just at save time) — a
     // trigger answer changing (q4, q12, q25, q29, q_motivation, q9, q19, q15, q10,
@@ -353,12 +355,15 @@ export default function UmfragePage() {
         const pages = questionPages(visibleQuestionsForSection(SURVEY_SECTIONS[idx], answers))
         const missingPage = pages.findIndex((questions) => !pageComplete(questions, answers))
         if (missingPage >= 0) {
-          await goToPosition(idx, missingPage)
+          const firstMissing = pages[missingPage].find((q) => isRequired(q, answers) && !pageComplete([q], answers))
+          setSubmitErrorQuestionId(firstMissing?.id ?? null)
+          await goToPosition(idx, missingPage, firstMissing?.id)
           return
         }
       }
       return
     }
+    setSubmitErrorQuestionId(null)
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     // Record the last active seconds BEFORE submission stops the timer.
     await flushActiveTimeRef.current()
@@ -540,6 +545,11 @@ export default function UmfragePage() {
         </div>
       )}
 
+      {submitErrorQuestionId && currentQuestions.some((q) => q.id === submitErrorQuestionId) && (
+        <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          Bitte beantworte diese Pflichtfrage, bevor du die Umfrage abschicken kannst.
+        </div>
+      )}
       <div className="space-y-3">
         {currentQuestions.map((q) => (
           <div key={q.id} id={`survey-question-${q.id}`} className="scroll-mt-4">
