@@ -5,6 +5,7 @@ import { logAdminAction } from '@/lib/auditLog'
 import { computeOverview, computePerQuestionStats, computeCrossTabs, isActuallySubmitted, type SurveyRow, type ProfileLite } from '@/lib/surveyAggregate'
 import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion } from '@/lib/surveyMode'
 import { findSurveyOperatorId, withoutSurveyOperator } from '@/lib/surveyAudience'
+import { surveyTimeStats, totalSurveyActivityByUser, type SurveyActivityRow } from '@/lib/surveyActivity'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -28,12 +29,18 @@ export async function GET() {
 
   const admin = createAdminClient()
 
-  const [{ data: rowsRaw }, { data: activeProfiles }, { data: allProfilesRaw }, { data: settingsRaw }] = await Promise.all([
+  const [{ data: rowsRaw }, { data: activeProfiles }, { data: allProfilesRaw }, { data: settingsRaw }, { data: activityRaw, error: activityError }] = await Promise.all([
     admin.from('survey_responses').select('user_id, answers, started_at, submitted_at, updated_at').eq('survey_version', currentSurveyVersion()),
     admin.from('profiles').select('id').eq('eligible_for_current_season', true).is('deleted_at', null),
     admin.from('profiles').select('id, username, display_name, is_admin'),
     admin.from('app_settings').select('key, value').in('key', [currentSurveyModeKey(), 'survey_admin_allow_reset']),
+    admin.from('survey_activity_sessions').select('user_id, active_ms').eq('survey_version', currentSurveyVersion()),
   ])
+  if (activityError) {
+    console.error('Survey activity read failed:', activityError)
+    return NextResponse.json({ error: 'Bearbeitungszeiten konnten nicht geladen werden.' }, { status: 500 })
+  }
+  const activeTimeByUser = totalSurveyActivityByUser((activityRaw ?? []) as SurveyActivityRow[])
 
   const rows = (rowsRaw ?? []) as SurveyRow[]
   const activeUserIds = new Set((activeProfiles ?? []).map((p) => p.id as string))
@@ -54,8 +61,11 @@ export async function GET() {
   const perQuestion = computePerQuestionStats(submittedRows, profileMap)
   const crossTabs = computeCrossTabs(submittedRows, profileMap)
   const communitySubmittedRows = communityRows.filter(isActuallySubmitted)
+  const activeTime = surveyTimeStats(submittedRows.map((r) => r.user_id), activeTimeByUser)
+  const communityActiveTime = surveyTimeStats(communitySubmittedRows.map((r) => r.user_id), activeTimeByUser)
   const community = {
     overview: computeOverview(communityRows, communityActiveIds),
+    activeTime: communityActiveTime,
     perQuestion: computePerQuestionStats(communitySubmittedRows, profileMap),
     crossTabs: computeCrossTabs(communitySubmittedRows, profileMap),
   }
@@ -70,6 +80,7 @@ export async function GET() {
         startedAt: r.started_at,
         submittedAt: r.submitted_at,
         updatedAt: r.updated_at,
+        activeMs: activeTimeByUser.get(r.user_id) ?? null,
         answers: r.answers,
       }
     })
@@ -98,6 +109,7 @@ export async function GET() {
       isProduction: process.env.VERCEL_ENV === 'production',
     },
     overview,
+    activeTime,
     perQuestion,
     crossTabs,
     // Admin-only response: individual answers remain stored and available.
