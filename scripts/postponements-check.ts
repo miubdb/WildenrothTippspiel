@@ -82,7 +82,7 @@ export function run():number {
   check('SQL: placed_matchday NOT NULL + Trigger-Sicherheitsnetz + saisonbewusste RPC + atomare Rundenbuchung vorhanden',/alter column placed_matchday set not null/i.test(sql)&&/bets_fill_placed_matchday/.test(sql)&&/SEASON_MISSING/.test(sql)&&/function public\.book_matchday_round/i.test(sql))
   // ---- Settlement atomicity guards: status flip + credit must never be two separate statements again ----
   const settleSrc=src('app/api/admin/settle/route.ts')
-  const scorersSrc=src('app/api/admin/goalscorers/scorers/route.ts')
+  const scorersSrc=src('lib/goalscorerSettlement.ts')  // the scorers route delegates to this shared module
   const specialsSrc=src('lib/matchdaySpecials.ts')
   for (const [name,code] of [['settle',settleSrc],['scorers',scorersSrc],['matchdaySpecials',specialsSrc]] as const) {
     check(`${name}: Auszahlung nur über atomare RPCs (kein increment_balance, keine direkten Status-Updates auf bets/combo_bets)`,

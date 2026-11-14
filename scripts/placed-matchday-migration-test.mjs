@@ -7,11 +7,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const MIGRATION = fs.readFileSync(path.join(process.cwd(), 'supabase/immutable_placed_matchday_2026.sql'), 'utf8')
+const SURVEY_REWARD = fs.readFileSync(path.join(process.cwd(), 'supabase/survey_reward_2026.sql'), 'utf8')
 let failed = 0, total = 0
 const ok = (name, cond) => { total++; if (!cond) failed++; console.log(`${cond ? 'OK  ' : 'FAIL'} ${name}`) }
 
 const SCHEMA = `
 create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
+create schema auth; grant usage on schema auth to anon, authenticated, service_role;
+create function auth.uid() returns uuid language sql stable as $f$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $f$;
 grant usage on schema public to anon, authenticated, service_role;
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
@@ -22,6 +25,7 @@ create table public.matchday_specials (id int primary key, matchday int not null
 create table public.app_settings (key text primary key, value text);
 create table public.combo_bets (id serial primary key, user_id uuid not null, stake numeric not null check (stake > 0), total_odds numeric not null, status text not null default 'pending' check (status in ('pending','won','lost','void','neutralized')), payout numeric, created_at timestamptz default now(), season text not null default '26/27', void_reason text, original_total_odds numeric, neutralized_at timestamptz);
 create table public.bets (id serial primary key, user_id uuid not null, match_id int not null references public.matches(id), market_type text not null, selection text not null, stake numeric, odds_value numeric not null, status text not null default 'pending' check (status in ('pending','won','lost','void','neutralized')), payout numeric, combo_id int references public.combo_bets(id), created_at timestamptz default now(), is_risky boolean not null default false, season text not null default '26/27', is_bonus boolean not null default false, void_reason text, special_id int references public.matchday_specials(id), neutralized_at timestamptz, neutralized_reason text, constraint single_or_combo check ((combo_id is null and stake is not null) or (combo_id is not null and stake is null)));
+create table public.survey_responses (user_id uuid not null references public.profiles(id), survey_version text not null, answers jsonb not null default '{}', submitted_at timestamptz, primary key (user_id, survey_version));
 create table public.push_reminders (id bigserial primary key, type text not null, matchday int not null, sent_at timestamptz not null default now(), season text not null default '26/27', unique (type, matchday, season));
 create or replace function public.apply_penalty(p_user_id uuid, p_amount numeric) returns numeric language plpgsql security definer set search_path to '' as $f$ declare v numeric; begin update public.profiles set balance = greatest(0, balance - p_amount) where id = p_user_id returning balance into v; return v; end; $f$;
 create or replace function public.increment_balance(p_user_id uuid, p_amount numeric) returns numeric language plpgsql security definer set search_path to '' as $f$ declare v numeric; begin update public.profiles set balance = balance + p_amount where id = p_user_id returning balance into v; return v; end; $f$;
@@ -234,6 +238,45 @@ for (const role of ['anon', 'authenticated']) {
   await db.exec('reset role')
 }
 ok('anon/authenticated dürfen settle_bet / settle_combo / void_slip_refund nicht ausführen', denied2.every((e) => /permission denied/i.test(e ?? '')))
+
+// ---------- 100-Wildis-Umfragebelohnung (supabase/survey_reward_2026.sql) ----------
+await db.exec(SURVEY_REWARD)
+ok('Umfrage-Migration läuft und ist erneut ausführbar', (await throws(() => db.exec(SURVEY_REWARD))) === null)
+await db.exec(`update profiles set balance = 500 where id in ('${U(1)}','${U(2)}','${U(3)}');
+  insert into survey_responses (user_id, survey_version, submitted_at) values ('${U(1)}','winter_2026_v2', now()), ('${U(2)}','winter_2026_v2', null), ('${U(3)}','winter_2026_v2_preview', now()), ('${U(3)}','winter_2026_v2', now())`)
+const gr = async (u, v) => asSvc(() => q1(db, `select public.grant_survey_reward('${u}', '${v}')`))
+const g1 = await gr(U(1), 'winter_2026_v2')
+ok('Erstmalige gültige Teilnahme: +100 und Journal-Zeile', g1.granted === true && (await bal(U(1))) === 600 && (await q1(db, `select count(*)::int from balance_transactions where user_id='${U(1)}'`)) === 1)
+const g2 = await gr(U(1), 'winter_2026_v2')
+ok('Wiederholt: ALREADY_GRANTED, kein zweites Mal', g2.granted === false && g2.reason === 'ALREADY_GRANTED' && (await bal(U(1))) === 600)
+const g3 = await gr(U(2), 'winter_2026_v2')
+ok('Nicht abgeschickt (Entwurf/abgebrochen): keine Belohnung', g3.granted === false && g3.reason === 'NOT_SUBMITTED' && (await bal(U(2))) === 500)
+const g4 = await throws(() => gr(U(3), 'winter_2026_v2_preview'))
+ok('Preview-Version wird in der Datenbank abgewiesen', /SURVEY_VERSION_NOT_REWARDED/.test(g4 ?? '') && (await bal(U(3))) === 500)
+ok('V1 wird abgewiesen', /SURVEY_VERSION_NOT_REWARDED/.test((await throws(() => gr(U(1), 'winter_2026_v1'))) ?? ''))
+await db.exec(`create function fail_u3() returns trigger language plpgsql as $f$ begin if new.id = '${U(3)}' then raise exception 'credit boom'; end if; return new; end $f$; create trigger t_fail_u3 before update on profiles for each row execute function fail_u3();`)
+const g5 = await throws(() => gr(U(3), 'winter_2026_v2'))
+ok('Gutschrift scheitert: Fehler, KEIN Journal-Eintrag, Guthaben unverändert', !!g5 && (await q1(db, `select count(*)::int from balance_transactions where user_id='${U(3)}'`)) === 0 && (await bal(U(3))) === 500)
+await db.exec('drop trigger t_fail_u3 on profiles')
+const g6 = await gr(U(3), 'winter_2026_v2')
+ok('Wiederholung nach Fehler: genau einmal +100', g6.granted === true && (await bal(U(3))) === 600)
+for (let i = 0; i < 3; i++) for (const u of [U(1), U(2), U(3)]) await gr(u, 'winter_2026_v2')
+ok('Mehrfacher Backfill: Summe unverändert (2 Empfänger, 200 Wildis)', (await q1(db, `select sum(amount)::int from balance_transactions`)) === 200 && (await bal(U(1))) === 600 && (await bal(U(3))) === 600)
+await db.exec(`update survey_responses set submitted_at = null where user_id='${U(1)}'`)
+await gr(U(1), 'winter_2026_v2')
+ok('Nachträglich wieder unvollständig: keine Rückbuchung', (await bal(U(1))) === 600)
+// RLS / Rechte
+await db.exec(`set role authenticated; select set_config('request.jwt.claim.sub', '${U(1)}', false)`)
+const own = await val(db, `select user_id from balance_transactions`)
+const ins = await throws(() => db.query(`insert into balance_transactions (user_id, kind, ref, amount, description) values ('${U(1)}','survey_reward','x',100,'x')`))
+const exe = await throws(() => db.query(`select public.grant_survey_reward('${U(1)}','winter_2026_v2')`))
+await db.exec(`reset role; select set_config('request.jwt.claim.sub', '', false)`)
+ok('RLS: angemeldeter Nutzer sieht nur die eigene Buchung', own.length === 1 && own[0].user_id === U(1))
+ok('authenticated darf weder ins Journal schreiben noch die Belohnungs-RPC aufrufen', /permission denied/i.test(ins ?? '') && /permission denied/i.test(exe ?? ''))
+await db.exec('set role anon')
+const anonRead = await throws(() => db.query(`select * from balance_transactions`))
+await db.exec('reset role')
+ok('anon hat keinen Zugriff auf das Journal', /permission denied/i.test(anonRead ?? ''))
 
 console.log(`\n${total - failed}/${total} Prüfungen bestanden`)
 process.exit(failed ? 1 : 0)

@@ -9,6 +9,7 @@ import { finalizeMatchdayIfDone } from '@/lib/matchdayFinalize'
 import { cappedPayout } from '@/lib/payout'
 import { settleBet } from '@/lib/settleBet'
 import { settleSingle, settleCombo, findStuckComboIds } from '@/lib/settlement'
+import { GOALSCORER_MARKETS, resolveWildenrothGoals, settleGoalscorerMarket } from '@/lib/goalscorerSettlement'
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient()
@@ -390,6 +391,34 @@ export async function POST(request: NextRequest) {
   // duplicate only the awards half of this and silently skip the recap push
   // and inactivity penalty whenever a goalscorer bet was the last thing to
   // settle for a Spieltag — see lib/matchdayFinalize.ts for the full logic.
+  // Goalscorer market, server-side and independent of the admin UI: if Wildenroth (I or II, home or away) scored
+  // NOTHING, every pending goalscorer bet on this match is lost — no scorer list needed. The old UI only called the
+  // scorers endpoint for a non-empty list, so a 0:5 left all goalscorer bets open (Match 413). If Wildenroth DID score,
+  // nothing is assumed: the bets stay open until the admin submits a complete list, and the response says so.
+  let goalscorerAutoSettled = 0
+  let goalscorerPending = 0
+  {
+    const { count: gsPendingCount } = await admin.from('bets').select('id', { count: 'exact', head: true })
+      .eq('match_id', matchId).in('market_type', [...GOALSCORER_MARKETS]).eq('status', 'pending')
+    if ((gsPendingCount ?? 0) > 0) {
+      const ctx = await resolveWildenrothGoals(admin, matchId)
+      if (ctx.ok && ctx.teamGoals === 0) {
+        const gs = await settleGoalscorerMarket(admin, matchId, null)
+        if (gs.ok) {
+          goalscorerAutoSettled = gs.settled
+          settleErrors += gs.settleErrors
+          await Promise.allSettled([...gs.losers].map((uid) => sendPushToUser(uid, '😬 Wette verloren', 'Deine Torschützenwette wurde leider nicht gewonnen.', '/tipps')))
+        } else {
+          console.error('Automatic zero-goal goalscorer settlement failed', { matchId, error: gs.error })
+          settleErrors++
+        }
+      }
+      const { count: stillPending } = await admin.from('bets').select('id', { count: 'exact', head: true })
+        .eq('match_id', matchId).in('market_type', [...GOALSCORER_MARKETS]).eq('status', 'pending')
+      goalscorerPending = stillPending ?? 0
+    }
+  }
+
   try {
     await finalizeMatchdayIfDone(admin, matchId)
   } catch (e) {
@@ -424,5 +453,7 @@ export async function POST(request: NextRequest) {
     combosChecked: combosToCheck.size,
     ...(settleErrors > 0 ? { warning: `${settleErrors} Abrechnung(en) fehlgeschlagen und zurückgerollt – bitte erneut abrechnen (idempotent).`, settleErrors } : {}),
     ...(isRecoveryRun ? { recovered: true } : {}),
+    goalscorerAutoSettled,
+    goalscorerPending,
   })
 }

@@ -3,6 +3,9 @@ import { createClient } from '@/lib/supabase/server'
 import { validateIncomingAnswers, isCompleteForSubmission, nextSubmittedAt } from '@/lib/surveyValidation'
 import { SURVEY_SECTIONS } from '@/lib/survey'
 import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion, surveyModeAllowsAccess } from '@/lib/surveyMode'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { grantSurveyRewardIfEligible, isRewardableSurveyVersion, SURVEY_REWARD_AMOUNT, SURVEY_REWARD_KIND, type SurveyRewardState } from '@/lib/surveyReward'
+import type { Answers } from '@/lib/survey'
 
 // Own-survey endpoint: reads/writes the caller's own survey_responses row for
 // THIS ENVIRONMENT's own survey_version (lib/surveyMode.ts#currentSurveyVersion
@@ -35,9 +38,23 @@ export async function GET() {
     supabase.from('app_settings').select('value').eq('key', currentSurveyModeKey()).maybeSingle(),
   ])
 
+  // Reward state. A submitted, complete production response without a booking (e.g. the credit failed on submit,
+  // or the response predates the reward) is booked here — idempotent, so reloading the page can never pay twice.
+  let reward: SurveyRewardState | null = null
+  const version = currentSurveyVersion()
+  if (isRewardableSurveyVersion(version)) {
+    const { data: booking } = await supabase.from('balance_transactions').select('id')
+      .eq('user_id', user.id).eq('kind', SURVEY_REWARD_KIND).eq('ref', version).maybeSingle()
+    if (booking) reward = { status: 'already_granted', amount: SURVEY_REWARD_AMOUNT }
+    else if (response?.submitted_at) {
+      reward = await grantSurveyRewardIfEligible(createAdminClient(), user.id, version, response.submitted_at, response.answers as Answers)
+    }
+  }
+
   return NextResponse.json({
     surveyMode: resolveSurveyMode(modeSetting?.value),
     response: response ?? null,
+    reward,
   })
 }
 
@@ -143,5 +160,12 @@ export async function POST(req: Request) {
   // `submitted`/`submittedAt` reflect the ACTUAL resulting row, not just the
   // requested action — the client needs this to correctly fall back its own
   // "already submitted" UI state when a save just un-submitted the response.
-  return NextResponse.json({ ok: true, submitted: submittedAt != null, submittedAt })
+  // 100-Wildis-Dankeschön: only for a stamped AND complete production submission; booked atomically and at most once
+  // per user/version (grant_survey_reward). A failed credit leaves no booking -> the next save/submit/page load retries.
+  // Editing later never books again and never takes the reward back.
+  const reward = submittedAt != null
+    ? await grantSurveyRewardIfEligible(createAdminClient(), user.id, currentSurveyVersion(), submittedAt, answers)
+    : null
+
+  return NextResponse.json({ ok: true, submitted: submittedAt != null, submittedAt, reward })
 }

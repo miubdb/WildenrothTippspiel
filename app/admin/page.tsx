@@ -416,11 +416,13 @@ export default function AdminPage() {
     }
 
     let msg = `Spiel abgerechnet! ${data.settled} Wette(n) bearbeitet, ${data.combosChecked} Kombi(s) geprüft.`
+    if (data.goalscorerAutoSettled > 0) msg += ` Wildenroth ohne eigenes Tor: ${data.goalscorerAutoSettled} Torschützenwette(n) automatisch als verloren abgerechnet.`
+    if (data.warning) msg += ` ⚠️ ${data.warning}`
 
     // Wildenroth match with scorers entered inline: submit them right after
-    // settlement, in the same click — see ScorerDraft/handleScorersChange
-    // above. Skips silently if none were entered (own-goal-only 0:0 etc. is
-    // valid; the admin just leaves the list empty).
+    // settlement, in the same click. With NO list the server already settled a
+    // zero-goal Wildenroth match itself (/api/admin/settle); if Wildenroth did
+    // score, the bets stay open and the message below asks for the scorers.
     const draft = (scorers[matchId] ?? []).filter(s => s.playerId)
     if (draft.length > 0) {
       const gsRes = await fetch('/api/admin/goalscorers/scorers', {
@@ -435,6 +437,9 @@ export default function AdminPage() {
       } else {
         msg += ` Fehler bei Torschützen: ${gsData.error}`
       }
+    } else if (data.goalscorerPending > 0) {
+      // Wildenroth scored but no scorers were entered: the bets stay open (never read as "nobody scored").
+      msg += ` ⚠️ ${data.goalscorerPending} Torschützenwette(n) noch offen – bitte die Torschützen erfassen (Tab „Torschützen“).`
     }
 
     setSettleLoading(null)
