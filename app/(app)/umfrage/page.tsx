@@ -454,7 +454,7 @@ export default function UmfragePage() {
         </div>
         <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100">
           <WildiIcon size={22} />
-          <span>Für die vollständig abgeschlossene Umfrage gibt’s einmalig <strong>100 Wildis</strong> als Dankeschön 😉</span>
+          <span>Schließ die Umfrage ab – vielleicht gibt’s ja auch eine kleine Überraschung 😉</span>
         </div>
         <button type="button" onClick={() => setPaused(false)}
           className="min-h-[48px] w-full rounded-xl bg-red-700 px-4 py-3 text-sm font-bold text-white hover:bg-red-800">
@@ -486,7 +486,7 @@ export default function UmfragePage() {
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-700/60 dark:bg-amber-900/20">
           <WildiIcon size={30} />
           <p className="text-[14px] leading-5 text-amber-950 dark:text-amber-100">
-            Deine Meinung zählt! Hilf uns, das Wildenroth-Tippspiel noch besser zu machen. Und vielleicht gibt’s als kleines Dankeschön für deine Teilnahme ja auch <span className="whitespace-nowrap font-bold">100 Wildis <WildiIcon size={16} /></span> 😉
+            Deine Meinung zählt! Hilf uns, das Wildenroth-Tippspiel noch besser zu machen. Und vielleicht gibt’s als Dankeschön für deine Teilnahme ja auch <span className="whitespace-nowrap font-semibold">eine kleine Überraschung <WildiIcon size={16} /></span> 😉
           </p>
         </div>
         <p className="px-1 text-[12px] leading-5 text-gray-500 dark:text-gray-400">
@@ -560,7 +560,7 @@ export default function UmfragePage() {
 
       <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100">
         <WildiIcon size={22} />
-        <span>Deine Meinung zählt! Für die vollständig abgeschlossene Umfrage gibt’s einmalig <strong>100 Wildis</strong> als Dankeschön 😉</span>
+        <span>Deine Meinung zählt! Und vielleicht gibt’s für die abgeschlossene Umfrage ja auch eine kleine Überraschung 😉</span>
       </div>
 
       {submittedAt && (

@@ -276,10 +276,12 @@ export default async function AnleitungPage() {
           rollout mode), so it's only findable, not pushed on anyone yet. */}
       {surveyModeShowsHelpLink(surveyMode) && (
         <HelpAccordion title="Feedback & Umfrage" emoji="📝">
-          <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-5 text-amber-950 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100">
-            <WildiIcon size={22} />
-            <span>Deine Meinung zählt! Für die vollständig abgeschlossene Winterumfrage gibt es einmalig <strong>100 Wildis</strong> als Dankeschön 😉</span>
-          </div>
+          {surveyStatus !== 'submitted' && (
+            <div className="mb-3 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-5 text-amber-950 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-100">
+              <WildiIcon size={22} />
+              <span>Deine Meinung zählt! Und vielleicht gibt’s für die abgeschlossene Winterumfrage ja auch eine kleine Überraschung 😉</span>
+            </div>
+          )}
           {surveyStatus === 'submitted' ? (
             <>
               <p className="text-green-700 dark:text-green-400 font-semibold">
