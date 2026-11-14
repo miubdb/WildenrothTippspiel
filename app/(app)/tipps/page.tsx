@@ -17,7 +17,8 @@ import { ODDS_MATCH_COLUMNS, ODDS_MATCH_JOINS, SEASON_START, priorContextFromRow
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerDisplayOffer, type GoalscorerMatchContext } from '@/lib/goalscorer'
 import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, goalscorerOfferState, loadPreviousPublishedOfferState } from '@/lib/goalscorerContext'
-import { currentSurveyModeKey, resolveSurveyMode } from '@/lib/surveyMode'
+import { currentSurveyModeKey, currentSurveyVersion, resolveSurveyMode } from '@/lib/surveyMode'
+import { SurveyInvitation } from '@/components/SurveyInvitation'
 import Link from 'next/link'
 import { CUP_MARKET_LABEL, plainSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
@@ -100,6 +101,9 @@ export default async function TippsPage({
   // to the dynamic computation unchanged.
   const explicitBettingOpens = parseBettingOpenOverrides(appSettings)
   const surveyMode = resolveSurveyMode(appSettings.get(currentSurveyModeKey()))
+  const surveyResponse = surveyMode === 'prominent' && user
+    ? (await supabase.from('survey_responses').select('answers, submitted_at').eq('user_id', user.id).eq('survey_version', currentSurveyVersion()).maybeSingle()).data
+    : null
 
   const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
     ...m,
@@ -1561,25 +1565,7 @@ export default async function TippsPage({
         </div>
       )}
 
-      {/* Prominent survey banner — only rendered once THIS environment's own
-          app_settings key (production vs. preview/integration, see
-          lib/surveyMode.ts#currentSurveyModeKey) is explicitly switched to
-          'prominent'. Defaults to 'hidden' on both until that later, separate,
-          per-environment release decision — built now so flipping the config
-          flag alone is enough then. */}
-      {surveyMode === 'prominent' && (
-        <Link
-          href="/umfrage"
-          className="block bg-gradient-to-br from-amber-500 to-amber-600 text-white rounded-2xl px-5 py-4 shadow-sm"
-        >
-          <div className="font-bold text-sm leading-snug">
-            📣 Halbzeit! Hilf mit, das Wildenroth-Wettspiel für die Rückrunde und nächste Saison zu verbessern.
-          </div>
-          <div className="mt-2 inline-block bg-white/20 rounded-lg px-3 py-1.5 text-sm font-bold">
-            Umfrage starten →
-          </div>
-        </Link>
-      )}
+      {surveyMode === 'prominent' && <SurveyInvitation variant="home" response={surveyResponse} />}
 
       {/* Matchday Header */}
       <div className="bg-gradient-to-br from-red-700 to-red-800 text-white rounded-2xl px-5 py-4 shadow-sm">
