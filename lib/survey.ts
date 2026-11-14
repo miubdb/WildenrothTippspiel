@@ -202,7 +202,6 @@ export const SURVEY_SECTIONS: SectionDef[] = [
           'Ob ein Wettschein noch offen, gewonnen, verloren oder storniert ist',
           'Warum eine Wette gewonnen, verloren oder storniert wurde',
           'Wie sich die Auszahlung aus Einsatz und Quote berechnet',
-          'Wie sich mein aktuelles Wildis-Guthaben zusammensetzt',
           'Warum mir Wildis gutgeschrieben oder abgezogen wurden (z. B. Taschengeld oder Strafen)',
           'Ich beschäftige mich damit zu wenig, um es beurteilen zu können',
         ],
@@ -317,7 +316,7 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         id: 'q15_zero', type: 'single', required: false,
         text: 'Wenn das Taschengeld wegfällt: Wie sollten Spieler mit 0 Wildis wieder an Guthaben kommen?',
         options: [
-          'Keine automatische Gutschrift',
+          'Wer seine Wildis verzockt hat, scheidet ohne neues Guthaben aus'
           'Kleine Gutschrift nur bei aufgebrauchtem Guthaben',
           'Einmaliger Rettungsbonus pro Saison',
           'Andere Lösung',
@@ -472,23 +471,24 @@ export const SURVEY_SECTIONS: SectionDef[] = [
     title: 'Neue Funktionen',
     questions: [
       {
-        id: 'q_features', type: 'multi', required: true, maxSelect: 5,
-        text: 'Welche neuen Funktionen würdest du dir für das Wildenroth-Wettspiel am meisten wünschen?',
-        helpText: 'Wähle bis zu fünf Ideen aus allen drei Kategorien. Die Vorschläge sind noch keine zugesagten Funktionen.',
+        id: 'q_features', type: 'multi', required: true,
+        text: 'Welche neuen Funktionen würdest du dir für das Wildenroth-Wettspiel wünschen?',
+        helpText: 'Wähle beliebig viele Ideen aus allen drei Kategorien. Die Vorschläge sind noch keine zugesagten Funktionen.',
         options: [
-          'Cashout', 'Quotenänderungen & Quotenverlauf', 'Same-Game-Kombis', 'Systemwetten', 'Wildi-Boost', 'Wettscheine als Entwurf speichern',
+          'Live-Cashout während eines Spiels', 'Kombi-Cashout vor dem nächsten Spiel', 'Quotenänderungen & Quotenverlauf', 'Same-Game-Kombis', 'Systemwetten', 'Wildi-Boost', 'Wettscheine als Entwurf speichern',
           'Spieler-Duelle', 'Zusätzliche Achievements', 'Zusätzliche Bonus-Tipps', 'Wochen-Challenges', 'Zusätzliche Ranglisten',
           'Individuelle Push-Einstellungen', 'Spiele favorisieren', 'Wettscheine teilen',
           FEATURES_NONE,
         ],
         exclusiveOptions: [FEATURES_NONE],
         optionGroups: [
-          { label: 'Wetten & Quoten', options: ['Cashout', 'Quotenänderungen & Quotenverlauf', 'Same-Game-Kombis', 'Systemwetten', 'Wildi-Boost', 'Wettscheine als Entwurf speichern'] },
+          { label: 'Wetten & Quoten', options: ['Live-Cashout während eines Spiels', 'Kombi-Cashout vor dem nächsten Spiel', 'Quotenänderungen & Quotenverlauf', 'Same-Game-Kombis', 'Systemwetten', 'Wildi-Boost', 'Wettscheine als Entwurf speichern'] },
           { label: 'Community & Wettbewerb', options: ['Spieler-Duelle', 'Zusätzliche Achievements', 'Zusätzliche Bonus-Tipps', 'Wochen-Challenges', 'Zusätzliche Ranglisten'] },
           { label: 'Bedienung & Kommunikation', options: ['Individuelle Push-Einstellungen', 'Spiele favorisieren', 'Wettscheine teilen'] },
         ],
         optionHelp: {
-          'Cashout': 'Laufende Wetten vorzeitig gegen eine angebotene Auszahlung beenden.',
+          'Live-Cashout während eines Spiels': 'Eine laufende Wette noch während des Fußballspiels gegen eine angebotene Auszahlung vorzeitig beenden – nur bei verfügbaren Live-Daten möglich.',
+          'Kombi-Cashout vor dem nächsten Spiel': 'Beispiel: Bei einer Dreier-Kombi sind zwei Tipps gewonnen, das dritte Spiel hat noch nicht begonnen. Du kannst die Kombi gegen eine angebotene vorzeitige Auszahlung beenden.',
           'Quotenänderungen & Quotenverlauf': 'Aktuell werden die Quoten bei der Freischaltung am Montag eingefroren. Künftig könnten sie sich vor dem Wettschluss etwa bei Ausfällen, Aufstellungsänderungen oder neuen Insider-Infos anpassen. Bereits platzierte Wetten behalten immer die Quote bei Abgabe.',
           'Same-Game-Kombis': 'Verschiedene Tipps auf dasselbe Spiel kombinieren, z. B. Sieg und über 2,5 Tore.',
           'Systemwetten': 'Bei einer 2-aus-3-Wette kann auch mit einem falschen Tipp eine Auszahlung entstehen.',
