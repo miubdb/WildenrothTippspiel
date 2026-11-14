@@ -204,7 +204,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
             <Metric label="Ø aktive Bearbeitungszeit" value={surveyTimeLabel(activeTime.meanMs)} />
             <Metric label="Median der Bearbeitungszeit" value={surveyTimeLabel(activeTime.medianMs)} />
           </div>
-          <p className="text-[12px] leading-5 text-gray-500">Bearbeitungszeit: ${activeTime.tracked} von ${activeTime.submitted} abgegebenen Umfragen messbar. Nur aktive Nutzung, Pausen und geschlossene Tabs zählen nicht. Frühere Antworten ohne Messung werden nicht als 0 Minuten gewertet.</p>
+          <p className="text-[12px] leading-5 text-gray-500">Bearbeitungszeit: {activeTime.tracked} von {activeTime.submitted} abgegebenen Umfragen messbar. Nur aktive Nutzung, Pausen und geschlossene Tabs zählen nicht. Frühere Antworten ohne Messung werden nicht als 0 Minuten gewertet.</p>
           <p className="text-[13px] text-gray-600">{overview.submitted} abgegeben · {overview.started} begonnen · {overview.activeUsers} aktive Nutzer</p>
           {overview.startedNotSubmitted > 0 && (
             <Notice tone="open"><strong>{overview.startedNotSubmitted}</strong> Person(en) haben begonnen, aber noch nicht abgegeben.</Notice>
