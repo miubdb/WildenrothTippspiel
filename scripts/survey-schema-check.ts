@@ -143,7 +143,7 @@ export function run(): number {
   check('Q7 hat sechs realistische Preisarten', q('q7').options!.length === 6)
   check('Q8 hat fünf Antwortoptionen', q('q8').options!.length === 5)
   check('Q29 hat 13 Antworten', q('q29').options!.length === 13)
-  check('Feature-Auswahl hat 14 Ideen plus eine exklusive Nein-Option', q('q_features').options!.length === 15 && q('q_features').maxSelect === 5)
+  check('Feature-Auswahl hat 15 Ideen plus exklusive Nein-Option, ohne Auswahlgrenze', q('q_features').options!.length === 16 && q('q_features').maxSelect == null)
   check('Wiederteilnahme wird ohne Voraussetzung zur Kostenlosigkeit abgefragt', q('q30_general').text.includes('2027/28') && !q('q30_general').text.includes('kostenlos'))
   check('Die drei allgemeinen einklappbaren Freitexte bleiben freiwillig und sichtbar',
     ['q_technical_feedback', 'q26', 'q_features_text'].every((id) => !isRequired(q(id), {}) && isQuestionVisible(q(id), {})))
@@ -261,7 +261,7 @@ export function run(): number {
     // Nachvollziehbarkeit: 2 exklusive Optionen, max 2 konkrete.
     const qc = q('q_comprehensibility')
     let selC = toggleMultiOption(qc, [], 'Wie sich die Auszahlung aus Einsatz und Quote berechnet')
-    selC = toggleMultiOption(qc, selC, 'Wie sich mein aktuelles Wildis-Guthaben zusammensetzt')
+    selC = toggleMultiOption(qc, selC, 'Warum mir Wildis gutgeschrieben oder abgezogen wurden (z. B. Taschengeld oder Strafen)')
     check('Nachvollziehbarkeit: 2 konkrete Optionen wählbar', selC.length === 2)
     const selC3 = toggleMultiOption(qc, selC, 'Warum eine Wette gewonnen, verloren oder storniert wurde')
     check('Nachvollziehbarkeit: 3. konkrete Option blockiert (max. 2)', selC3.length === 2)
@@ -290,20 +290,40 @@ export function run(): number {
     check('Q29: keine Rückfrage nötig, da keine exklusive Antwort', !wouldReplaceSurveySelection(q29, ['Ich habe zu wenig Wildis'], 'Ich wette bereits so häufig, wie ich möchte.'))
     check('Echte exklusive Optionen erfordern Bestätigung vor Verdrängen', wouldReplaceSurveySelection(q25, ['1X2 / Spielausgang'], 'Auf keinen – ich möchte alle behalten'))
 
-    // Feature-Frage: "Keine" jederzeit klickbar, auch bei 5 gewählten Features;
+    // Feature-Frage: unbegrenzt viele konkrete Wünsche, exklusives „Keine“.
     // Feature-Freitext bleibt unabhängig davon immer sichtbar (separate Frage, kein visible()).
     const qf = q('q_features')
-    let selF = toggleMultiOption(qf, [], 'Cashout')
+    let selF = toggleMultiOption(qf, [], 'Live-Cashout während eines Spiels')
     selF = toggleMultiOption(qf, selF, 'Spieler-Duelle')
     selF = toggleMultiOption(qf, selF, 'Spiele favorisieren')
     selF = toggleMultiOption(qf, selF, 'Zusätzliche Bonus-Tipps')
     selF = toggleMultiOption(qf, selF, 'Wochen-Challenges')
     check('Features: fünf Ideen gruppenübergreifend wählbar', selF.length === 5)
     const sixth = toggleMultiOption(qf, selF, 'Wettscheine teilen')
-    check('Features: sechste Auswahl wird abgelehnt', sixth.length === 5 && !sixth.includes('Wettscheine teilen'))
+    check('Features: sechste Auswahl ist ausdrücklich erlaubt', sixth.length === 6 && sixth.includes('Wettscheine teilen'))
+    const withSecondCashout = toggleMultiOption(qf, sixth, 'Kombi-Cashout vor dem nächsten Spiel')
+    check('Beide Cashout-Varianten können gleichzeitig gewählt werden', withSecondCashout.length === 7 && withSecondCashout.includes('Live-Cashout während eines Spiels'))
     const selFNone = toggleMultiOption(qf, selF, 'Keine dieser Funktionen interessiert mich')
-    check('Features: "Keine" trotz fünf gewählter Features wählbar, ersetzt alles', selFNone.length === 1)
+    check('Features: "Keine" bleibt exklusiv und entfernt andere Auswahlen', selFNone.length === 1)
     check('Feature-Freitext ist immer sichtbar (auch bei "Keine")', isQuestionVisible(q('q_features_text'), { q_features: selFNone }))
+    check('Cashout-Optionen sind getrennt und beide verständlich erklärt',
+      qf.optionHelp?.['Live-Cashout während eines Spiels']?.includes('während') &&
+      qf.optionHelp?.['Kombi-Cashout vor dem nächsten Spiel']?.includes('Dreier-Kombi'))
+    check('Nur relevante Antworten bleiben beim erneuten Öffnen erhalten',
+      (() => {
+        const normalized = normalizeLegacySurveyAnswers({
+          q_features: ['Cashout', 'Spieler-Duelle'],
+          q15_zero: 'Keine automatische Gutschrift',
+          q_comprehensibility: ['Wie sich mein aktuelles Wildis-Guthaben zusammensetzt', 'Wie sich die Auszahlung aus Einsatz und Quote berechnet'],
+        })
+        return Array.isArray(normalized.q_features) && normalized.q_features.length === 1 &&
+          normalized.q_features[0] === 'Spieler-Duelle' && normalized.q15_zero === undefined &&
+          Array.isArray(normalized.q_comprehensibility) && normalized.q_comprehensibility.length === 1
+      })())
+    check('Exklusives "Keine" bleibt auch ohne Auswahlgrenze gültig',
+      isValidMultiSelection(qf, [qf.exclusiveOptions![0]]) &&
+      !isValidMultiSelection(qf, [qf.exclusiveOptions![0], 'Spieler-Duelle']))
+
   }
 
   console.log('\n7. API-Adversarial: validateIncomingAnswers lehnt manipulierte Eingaben ab')
@@ -546,11 +566,11 @@ export function run(): number {
       ({ user_id: id, answers, started_at: date, updated_at: date, submitted_at: date })
     // Intentionally partial, as the pure insight function receives only already-validated rows.
     const rows: SurveyRow[] = [
-      make('r1', { q1: 8, q30_general: 'Ja, auf jeden Fall', q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.', q9: 'Häufig', q20: 'Ich nutze sie, bekomme aber zu viele Benachrichtigungen', q21_recap_frequency: 'Ich lese eigentlich jeden Recap.', q_features: ['Cashout'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
-      make('r2', { q1: 8, q30_general: 'Eher ja', q4: 'Ich würde lieber kostenlos weiterspielen, wäre bei einem angemessenen Startgeld aber trotzdem dabei.', q5: '20 €', q9: 'Nie', q20: 'Ich habe sie bewusst deaktiviert bzw. möchte keine', q21_recap_frequency: 'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt.', q_features: ['Cashout'], q29: ['Ich wette bewusst nur, wenn ich eine gute Gelegenheit sehe'] }),
+      make('r1', { q1: 8, q30_general: 'Ja, auf jeden Fall', q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.', q9: 'Häufig', q20: 'Ich nutze sie, bekomme aber zu viele Benachrichtigungen', q21_recap_frequency: 'Ich lese eigentlich jeden Recap.', q_features: ['Live-Cashout während eines Spiels'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
+      make('r2', { q1: 8, q30_general: 'Eher ja', q4: 'Ich würde lieber kostenlos weiterspielen, wäre bei einem angemessenen Startgeld aber trotzdem dabei.', q5: '20 €', q9: 'Nie', q20: 'Ich habe sie bewusst deaktiviert bzw. möchte keine', q21_recap_frequency: 'Ich wusste bisher nicht, dass es Spieltags-Recaps gibt.', q_features: ['Live-Cashout während eines Spiels'], q29: ['Ich wette bewusst nur, wenn ich eine gute Gelegenheit sehe'] }),
       make('r3', { q1: 8, q30_general: 'Eher nein', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: '10 €', q9: 'Sehr häufig', q20: 'Ich habe sie aktiviert, aber sie kommen nicht zuverlässig an', q21_recap_frequency: 'Ich lese die meisten Recaps, aber nicht alle.', q_features: ['Individuelle Push-Einstellungen'], q29: ['Ich habe zu wenig Wildis'] }),
       make('r4', { q1: 8, q30_general: 'Ich bin noch unentschlossen', q4: 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q21_recap_frequency: 'Ich kenne die Recaps, lese sie aber nicht.', q_features: ['Keine dieser Funktionen interessiert mich'], q29: ['Ich wette bereits so häufig, wie ich möchte.'] }),
-      make('r5', { q1: 8, q30_general: 'Ja, auf jeden Fall', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: '15 €', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q_features: ['Cashout'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
+      make('r5', { q1: 8, q30_general: 'Ja, auf jeden Fall', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: '15 €', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q_features: ['Live-Cashout während eines Spiels'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
       make('r6', { q1: 8, q30_general: 'Ja, auf jeden Fall', q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.', q5: 'Kann ich noch nicht beurteilen', q9: 'Nie', q20: 'Ich nutze sie und finde sie hilfreich', q_features: ['Spiele favorisieren'], q29: ['Ich vergesse, rechtzeitig zu wetten'] }),
     ]
     const summary = computeSurveyDecisionInsights(rows)
@@ -560,7 +580,7 @@ export function run(): number {
     check('Q21: 2 von 4 Antwortenden lesen die meisten Recaps', summary.recapReaders.count === 2 && summary.recapReaders.base === 4)
     check('Q5: Zahlbereitschaft 5/10/15/20-Euro-Szenarien', [3, 3, 2, 1].every((n, i) => summary.prices[i].willing === n))
     check('Q5: rechnerisches Budget niemals als reale Einnahme ausgegeben', summary.prices[2].hypotheticalBudget === 30)
-    check('Feature-Ranking: „Keine“ nicht als Feature gezählt', summary.topFeatures[0].label === 'Cashout' && summary.topFeatures[0].count === 3)
+    check('Feature-Ranking: „Keine“ nicht als Feature gezählt', summary.topFeatures[0].label === 'Live-Cashout während eines Spiels' && summary.topFeatures[0].count === 3)
     check('Q29: bewusst selektives Wetten ist kein Hindernis', !summary.topObstacles.some((r) => r.label.includes('bewusst nur')))
     check('Q29: konkretes häufigstes Hindernis hat 3 Stimmen', summary.topObstacles[0].count === 3)
     check('Segmente filtern Q4-Ausstiegsrisiko korrekt', rows.filter((r) => inSurveySegment(r.answers, 'fee_exit')).length === 2)
@@ -639,6 +659,32 @@ export function run(): number {
       check('Optionale Idee zur Freude bleibt bei ihrer Ausgangsfrage',
         !selection.q_motivation ||
         introductoryPages[1].some((question) => question.id === 'q_motivation_text'))
+    }
+    const marketSection = SURVEY_SECTIONS[3]
+    const marketOption = '1X2 / Spielausgang'
+    const beforeMarket = questionPages(visibleQuestionsForSection(marketSection, {}))
+    const afterMarket = questionPages(visibleQuestionsForSection(marketSection, { q25: [marketOption] }))
+    const marketPageIndex = (pages: typeof beforeMarket, id: string) =>
+      pages.findIndex((page) => page.some((item) => item.id === id))
+    check('Wettmarkt-Verzicht und bedingte Begründung erscheinen immer auf derselben Seite',
+      marketPageIndex(afterMarket, 'q25') === marketPageIndex(afterMarket, 'q25_text'))
+    check('Ein Klick auf einen Markt verschiebt die Frage nicht auf eine andere Seite',
+      marketPageIndex(beforeMarket, 'q25') === marketPageIndex(afterMarket, 'q25'))
+    const followupPairs: { trigger: string; dependent: string; answer: Answers }[] = [
+      { trigger: 'q9', dependent: 'q9_text', answer: { q9: 'Häufig' } },
+      { trigger: 'q10', dependent: 'q10_amount', answer: { q10: 'Anderer Betrag' } },
+      { trigger: 'q15', dependent: 'q15_zero', answer: { q15: '0 Wildis (abschaffen)' } },
+      { trigger: 'q15', dependent: 'q15_zero_text', answer: { q15: '0 Wildis (abschaffen)' } },
+      { trigger: 'q29', dependent: 'q29_text', answer: { q29: ['Sonstiges'] } },
+      { trigger: 'q20', dependent: 'q20_text', answer: { q20: 'Ich nutze sie, bekomme aber zu viele Benachrichtigungen' } },
+    ]
+    for (const { trigger, dependent, answer } of followupPairs) {
+      const section = SURVEY_SECTIONS.find((s) => s.questions.some((q) => q.id === trigger))!
+      const inactive = questionPages(visibleQuestionsForSection(section, {}))
+      const active = questionPages(visibleQuestionsForSection(section, answer))
+      check(`Dynamische Folgefrage ${dependent} bleibt bei ${trigger} und dessen Seite unverändert`,
+        marketPageIndex(active, trigger) === marketPageIndex(active, dependent) &&
+        marketPageIndex(inactive, trigger) === marketPageIndex(active, trigger))
     }
     const shortQuestions = Array.from({ length: 5 }, (_, index) =>
       ({ ...q('q2'), id: `short-${index}`, text: 'Wie einfach ist das?' }))
