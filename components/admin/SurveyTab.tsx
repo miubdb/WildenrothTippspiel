@@ -7,6 +7,7 @@ import type {
 } from '@/lib/surveyAggregate'
 import { Btn, EmptyNote, LoadingBlock, Notice, Panel, Pill, Section, useConfirm } from '@/components/admin/ui'
 import { SurveyInsightsPanel } from '@/components/admin/SurveyInsightsPanel'
+import { surveyTimeLabel, type SurveyTimeStats } from '@/lib/surveyActivity'
 
 interface Participant {
   userId: string
@@ -15,17 +16,19 @@ interface Participant {
   startedAt: string
   submittedAt: string | null
   updatedAt: string
+  activeMs: number | null
   answers: Answers
 }
 
 interface SurveyData {
   settings: { surveyMode: string; surveyModeKey: string; surveyVersion: string; allowReset: boolean; isProduction: boolean }
   overview: SurveyOverview
+  activeTime: SurveyTimeStats
   perQuestion: QuestionStat[]
   crossTabs: SurveyCrossTabs
   participants: Participant[]
   operatorUserId: string | null
-  community: { overview: SurveyOverview; perQuestion: QuestionStat[]; crossTabs: SurveyCrossTabs }
+  community: { overview: SurveyOverview; activeTime: SurveyTimeStats; perQuestion: QuestionStat[]; crossTabs: SurveyCrossTabs }
 }
 
 const MODE_LABEL: Record<string, string> = { hidden: 'Versteckt', direct_only: 'Nur Direktlink', help_only: 'Nur unter Hilfe', prominent: 'Prominent (Startseite)' }
@@ -152,7 +155,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
   const { settings, participants } = data
   const communityAvailable = !!data.operatorUserId
   const communitySelected = audience === 'community' && communityAvailable
-  const { overview, perQuestion, crossTabs } = communitySelected ? data.community : data
+  const { overview, perQuestion, crossTabs, activeTime } = communitySelected ? data.community : data
   const analysisParticipants = communitySelected
     ? participants.filter((p) => p.userId !== data.operatorUserId)
     : participants
@@ -198,7 +201,10 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
             <Metric label="Teilnahmequote" value={fmtPct(overview.participationRatePct)} />
             <Metric label="Ø Zufriedenheit" value={fmtNum(overview.avgQ1, 1)} />
             <Metric label="Wieder dabei 2027/28" value={overview.returningPct == null ? '—' : fmtPct(overview.returningPct)} />
+            <Metric label="Ø aktive Bearbeitungszeit" value={surveyTimeLabel(activeTime.meanMs)} />
+            <Metric label="Median der Bearbeitungszeit" value={surveyTimeLabel(activeTime.medianMs)} />
           </div>
+          <p className="text-[12px] leading-5 text-gray-500">Bearbeitungszeit: ${activeTime.tracked} von ${activeTime.submitted} abgegebenen Umfragen messbar. Nur aktive Nutzung, Pausen und geschlossene Tabs zählen nicht. Frühere Antworten ohne Messung werden nicht als 0 Minuten gewertet.</p>
           <p className="text-[13px] text-gray-600">{overview.submitted} abgegeben · {overview.started} begonnen · {overview.activeUsers} aktive Nutzer</p>
           {overview.startedNotSubmitted > 0 && (
             <Notice tone="open"><strong>{overview.startedNotSubmitted}</strong> Person(en) haben begonnen, aber noch nicht abgegeben.</Notice>
@@ -264,6 +270,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
                     <th className="py-2 pr-2 font-semibold">Gestartet</th>
                     <th className="py-2 pr-2 font-semibold">Abgegeben</th>
                     <th className="py-2 pr-2 font-semibold">Geändert</th>
+                    <th className="py-2 pr-2 font-semibold">Aktive Zeit</th>
                     <th className="py-2 pr-2 font-semibold"></th>
                   </tr>
                 </thead>
@@ -277,6 +284,7 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
                       <td className="py-2 pr-2 text-gray-500">{fmtDate(p.startedAt)}</td>
                       <td className="py-2 pr-2 text-gray-500">{fmtDate(p.submittedAt)}</td>
                       <td className="py-2 pr-2 text-gray-500">{fmtDate(p.updatedAt)}</td>
+                      <td className="py-2 pr-2 text-gray-500 whitespace-nowrap">{surveyTimeLabel(p.activeMs)}</td>
                       <td className="py-2 pr-2">
                         <div className="flex justify-end gap-1.5">
                           <Btn size="sm" variant="secondary" onClick={() => setViewParticipant(p)}>Ansehen</Btn>
@@ -714,6 +722,7 @@ function ParticipantDetail({ participant, onClose }: { participant: Participant;
           <div>Gestartet: {fmtDate(participant.startedAt)}</div>
           <div>Abgegeben: {fmtDate(participant.submittedAt)}</div>
           <div>Zuletzt geändert: {fmtDate(participant.updatedAt)}</div>
+          <div>Aktive Bearbeitungszeit: {surveyTimeLabel(participant.activeMs)}</div>
         </div>
         <div className="space-y-3">
           {visibleQs.map((q) => {
