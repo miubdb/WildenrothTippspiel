@@ -307,8 +307,8 @@ export function run(): number {
     check('Features: "Keine" bleibt exklusiv und entfernt andere Auswahlen', selFNone.length === 1)
     check('Feature-Freitext ist immer sichtbar (auch bei "Keine")', isQuestionVisible(q('q_features_text'), { q_features: selFNone }))
     check('Cashout-Optionen sind getrennt und beide verständlich erklärt',
-      qf.optionHelp?.['Live-Cashout während eines Spiels']?.includes('während') &&
-      qf.optionHelp?.['Kombi-Cashout vor dem nächsten Spiel']?.includes('Dreier-Kombi'))
+      Boolean(qf.optionHelp?.['Live-Cashout während eines Spiels']?.includes('während') &&
+      qf.optionHelp?.['Kombi-Cashout vor dem nächsten Spiel']?.includes('Dreier-Kombi')))
     check('Nur relevante Antworten bleiben beim erneuten Öffnen erhalten',
       (() => {
         const normalized = normalizeLegacySurveyAnswers({
