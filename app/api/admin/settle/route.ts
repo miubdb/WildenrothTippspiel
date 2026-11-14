@@ -243,14 +243,21 @@ export async function POST(request: NextRequest) {
       // this slip's Risky status (see lib/payout.ts) — never applied to
       // odds_value itself, only to the credited amount.
       payout = Math.round(cappedPayout(bet.stake, bet.odds_value, bet.is_risky) * 100) / 100
-      userBalanceUpdates[bet.user_id] = (userBalanceUpdates[bet.user_id] ?? 0) + payout
     }
 
-    // Update the bet
-    await admin
+    // Update the bet — compare-and-set on status='pending': if a concurrent/duplicate settle (or an annulment) already
+    // resolved this row, this call must neither overwrite it nor credit the payout a second time.
+    const { data: updatedBet, error: betUpdateError } = await admin
       .from('bets')
       .update({ status: result, payout: result === 'won' ? payout : 0 })
       .eq('id', bet.id)
+      .eq('status', 'pending')
+      .select('id')
+    if (betUpdateError) { console.error('Settle: bet update failed', { betId: bet.id, betUpdateError }); continue }
+    if (!updatedBet || updatedBet.length === 0) continue
+    if (result === 'won' && bet.combo_id === null) {
+      userBalanceUpdates[bet.user_id] = (userBalanceUpdates[bet.user_id] ?? 0) + payout
+    }
 
     settledBetIds.push(bet.id)
 
@@ -294,10 +301,14 @@ export async function POST(request: NextRequest) {
     if (comboBet.status !== 'pending') continue
 
     if (anyLost) {
-      await admin
+      const { data: lostRows, error: lostErr } = await admin
         .from('combo_bets')
         .update({ status: 'lost', payout: 0 })
         .eq('id', comboId)
+        .eq('status', 'pending')
+        .select('id')
+      if (lostErr) { console.error('Settle: combo update failed', { comboId, lostErr }); continue }
+      if (!lostRows || lostRows.length === 0) continue   // someone else resolved it first
       newlyResolvedCombos.set(comboId, { user_id: comboBet.user_id, status: 'lost' })
     } else {
       // All legs won. combo_bets has no is_risky column of its own — every
@@ -305,10 +316,15 @@ export async function POST(request: NextRequest) {
       // lib/risky.ts), so any one leg reflects the combo's classification.
       const comboIsRisky = comboLegs[0]?.is_risky ?? false
       const payout = Math.round(cappedPayout(comboBet.stake, comboBet.total_odds, comboIsRisky) * 100) / 100
-      await admin
+      // Compare-and-set: only the call that actually flips pending -> won may credit the payout (no double pay on races).
+      const { data: wonRows, error: wonErr } = await admin
         .from('combo_bets')
         .update({ status: 'won', payout })
         .eq('id', comboId)
+        .eq('status', 'pending')
+        .select('id')
+      if (wonErr) { console.error('Settle: combo update failed', { comboId, wonErr }); continue }
+      if (!wonRows || wonRows.length === 0) continue
 
       userBalanceUpdates[comboBet.user_id] = (userBalanceUpdates[comboBet.user_id] ?? 0) + payout
       newlyResolvedCombos.set(comboId, { user_id: comboBet.user_id, status: 'won' })
@@ -335,12 +351,18 @@ export async function POST(request: NextRequest) {
   // Apply balance updates + send one bundled push per user
   const allAffectedUsers = new Set([...Object.keys(userBalanceUpdates), ...Object.keys(userWonCount), ...Object.keys(userLostCount)])
   const pushNotifications: Promise<unknown>[] = []
+  const creditFailures: { userId: string; amount: number }[] = []
   for (const userId of allAffectedUsers) {
     const amount = userBalanceUpdates[userId] ?? 0
     if (amount > 0) {
       // Atomic increment — avoids losing a payout if this races a concurrent
       // bet placement/cancellation or another settle call for the same user.
-      await admin.rpc('increment_balance', { p_user_id: userId, p_amount: amount })
+      const { error: creditError } = await admin.rpc('increment_balance', { p_user_id: userId, p_amount: amount })
+      if (creditError) {
+        // The status flip already committed: surface loudly for manual reconciliation instead of failing silently.
+        console.error('SETTLE CREDIT FAILED – manual reconciliation required', { userId, amount, matchId, creditError })
+        creditFailures.push({ userId, amount })
+      }
     }
 
     const won = userWonCount[userId] ?? 0
@@ -402,5 +424,6 @@ export async function POST(request: NextRequest) {
     success: true,
     settled: settledBetIds.length,
     combosChecked: combosToCheck.size,
+    ...(creditFailures.length > 0 ? { warning: 'Gutschrift fehlgeschlagen – manuelle Prüfung nötig', creditFailures } : {}),
   })
 }

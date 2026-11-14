@@ -192,23 +192,11 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
         .filter((p) => !activeUserIds.has(p.id))
         .filter((p) => new Date(p.created_at).getTime() <= latestKickoff)
 
-      const { error: penaltyDedupError } = await admin
-        .from('push_reminders')
-        .insert({ type: 'inactivity_fee', matchday, season: CURRENT_SEASON })
-      if (!penaltyDedupError) {
-        const outcomes = await Promise.allSettled(eligibleForPenalty.map(async (p) => {
-          const { error } = await admin.rpc('apply_penalty',
-            { p_user_id: p.id, p_amount: INACTIVITY_PENALTY })
-          if (error) throw error
-        }))
-        const failures = outcomes.filter((outcome) => outcome.status === 'rejected')
-        if (failures.length > 0) {
-          // Do NOT retry here: the dedup marker protects against duplicate
-          // debits. Individual failures need audited manual reconciliation.
-          console.error('Some inactivity debits failed; manual reconciliation required',
-            { matchday, failures: failures.length })
-        }
-      }
+      // Marker + all debits in ONE database transaction (book_matchday_round):
+      // either everybody is debited and the marker exists, or nothing happened
+      // and a later call may retry. The old "marker first, then N independent
+      // RPCs" left half-booked rounds that could never be repaired.
+      await bookRound(admin, 'inactivity_fee', matchday, eligibleForPenalty.map((p) => p.id as string), INACTIVITY_PENALTY)
     }
   }
 
@@ -225,20 +213,21 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
     console.error('Pocket-money recipients could not be verified; no payout lock created',
       payoutProfilesError)
   } else {
-    const { error: pocketMoneyDedupError } = await admin
-      .from('push_reminders')
-      .insert({ type: 'pocket_money', matchday, season: CURRENT_SEASON })
-    if (!pocketMoneyDedupError) {
-      const outcomes = await Promise.allSettled(payoutProfiles.map(async (p) => {
-        const { error } = await admin.rpc('increment_balance',
-          { p_user_id: p.id, p_amount: POCKET_MONEY_PER_MATCHDAY })
-        if (error) throw error
-      }))
-      const failures = outcomes.filter((outcome) => outcome.status === 'rejected')
-      if (failures.length > 0) {
-        console.error('Some pocket-money credits failed; manual reconciliation required',
-          { matchday, failures: failures.length })
-      }
-    }
+    await bookRound(admin, 'pocket_money', matchday, payoutProfiles.map((p) => p.id as string), POCKET_MONEY_PER_MATCHDAY)
   }
+}
+
+/** Atomic once-per-round booking (marker + balance changes in one transaction). Fails closed: if the RPC is missing or
+ *  errors, nothing is booked and no marker is left behind, so the next finalization attempt can retry cleanly. */
+async function bookRound(admin: SupabaseClient, type: 'inactivity_fee' | 'pocket_money', matchday: number, userIds: string[], amount: number) {
+  if (userIds.length === 0) return   // nothing to book: leave no marker so a later run can still pick up newly eligible users
+  const { data, error } = await admin.rpc('book_matchday_round', {
+    p_type: type, p_season: CURRENT_SEASON, p_matchday: matchday, p_user_ids: userIds, p_amount: amount,
+  })
+  if (error) {
+    console.error(`book_matchday_round(${type}) failed; nothing booked, will retry on next finalization`, { matchday, error })
+    return
+  }
+  const r = data as { booked?: boolean; reason?: string } | null
+  if (r && r.booked === false && r.reason !== 'ALREADY_BOOKED') console.error(`book_matchday_round(${type}) not booked`, { matchday, r })
 }

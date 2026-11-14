@@ -4,7 +4,10 @@ import { computeMatchdayParticipation, type ActivityLeg } from '@/lib/bettingAct
 import { buildSlips, type RecapBetRow, type RecapComboRow, type RecapMatchRow } from '@/lib/recap/slips'
 import { evaluateSlips } from '@/lib/risky'
 import { countPlacedSlots } from '@/components/navBetState'
+import { slipSeasonForMatchday } from '@/lib/season'
 import type { Match } from '@/types'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 
 let total=0,failed=0
 const check=(name:string,ok:boolean)=>{total++;if(!ok)failed++;console.log(`${ok?'OK':'FAIL'} ${name}`)}
@@ -59,6 +62,24 @@ export function run():number {
   check('Risky-Budget: 3 Scheine mit Quote >20 erlaubt',evaluateSlips([{id:'a',odds:2},{id:'b',odds:3},{id:'c',odds:21}]).valid)
   // The fixture calendar is still free to show the rescheduled actual kickoff.
   check('Matchday-index is still available for physical fixture layout',effectiveMatchdayOf(matches[4],idx)===19)
+  // ---- Source guards: the immutable-owner rules must stay wired into every slot/participation lookup ----
+  const src=(f:string)=>readFileSync(path.join(process.cwd(),f),'utf8')
+  check('slipSeasonForMatchday: normal Spieltag → 26/27, Testspieltag 999 → TEST',slipSeasonForMatchday(16)==='26/27'&&slipSeasonForMatchday(999)==='TEST')
+  const place=src('app/api/bets/place/route.ts')
+  check('place: Wettplatz-Abfragen sind auf die Saison begrenzt (Einzelwetten + Kombis)',(place.match(/\.eq\('season', slotSeason\)/g)??[]).length>=2)
+  check('place: lockChecks übergeben Saison an die RPC',/origin_mode: true, season: slotSeason/.test(place))
+  check('place: Slot-Zählung nutzt NIE .in(match_id) auf Spieltagsspielen',!/\.from\('bets'\)[\s\S]{0,200}\.in\('match_id', allMatchdayIds\)[\s\S]{0,80}\.in\('status', \['pending'/.test(place))
+  const risky=src('lib/risky.ts')
+  check('risky: Neuberechnung ist saison-gescopt',(risky.match(/slipSeasonForMatchday\(placedMatchday\)/g)??[]).length>=2)
+  const fin=src('lib/matchdayFinalize.ts')
+  check('finalize: Strafwildis + Taschengeld laufen über die atomare RPC book_matchday_round',/rpc\('book_matchday_round'/.test(fin)&&!/rpc\('apply_penalty'/.test(fin)&&!/rpc\('increment_balance'/.test(fin))
+  check('finalize: kein Marker-Insert (push_reminders) mehr VOR der Buchung für Strafe/Taschengeld',!/insert\(\{ type: 'inactivity_fee'/.test(fin)&&!/insert\(\{ type: 'pocket_money'/.test(fin))
+  check('finalize: Teilnahme zählt über placed_matchday + Saison',/\.eq\('season', CURRENT_SEASON\)\s*\.eq\('placed_matchday', matchday\)/.test(fin))
+  const cron=src('app/api/cron/notifications/route.ts')
+  check('cron: Erinnerung zählt Wettplätze nach placed_matchday, nicht nach aktuellen Spieltagsspielen',/\.eq\('placed_matchday', matchday\)/.test(cron)&&!/\.in\('match_id', matchdayMatchIds\)/.test(cron))
+  check('nav/tipps: Platzanzeige ist saison-gescopt',/slipSeasonForMatchday\(active\.matchday\)/.test(src('components/NavBottom.tsx'))&&/slipSeasonForMatchday\(currentMatchday\)/.test(src('app/(app)/tipps/page.tsx')))
+  const sql=src('supabase/immutable_placed_matchday_2026.sql')
+  check('SQL: placed_matchday NOT NULL + Trigger-Sicherheitsnetz + saisonbewusste RPC + atomare Rundenbuchung vorhanden',/alter column placed_matchday set not null/i.test(sql)&&/bets_fill_placed_matchday/.test(sql)&&/SEASON_MISSING/.test(sql)&&/function public\.book_matchday_round/i.test(sql))
   console.log(`${total-failed}/${total} assertions passed`)
   return failed
 }

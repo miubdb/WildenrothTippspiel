@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { BottomNav } from '@/components/BottomNav'
 import { activeTippMatchday, countPlacedSlots, type NavBetState } from '@/components/navBetState'
-import { SEASON_START } from '@/lib/season'
+import { SEASON_START, slipSeasonForMatchday } from '@/lib/season'
 import { occupiesBettingSlot } from '@/lib/slipLifecycle'
 import { fetchAllRowsParallel } from '@/app/_lib/fetchAllRowsParallel'
 
@@ -25,6 +25,7 @@ export async function NavBottom({ userId }: { userId: string }) {
         .select('combo_id, is_risky, is_bonus, status')
         .eq('user_id', userId)
         .eq('placed_matchday', active.matchday)
+        .eq('season', slipSeasonForMatchday(active.matchday))
         .neq('status', 'void')
       if (betsError) throw new Error(betsError.message)
       const betRows = rows ?? []

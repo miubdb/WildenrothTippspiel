@@ -151,9 +151,10 @@ export async function GET(request: NextRequest) {
         const { data: betLegs } = await admin
           .from('bets')
           .select('user_id, combo_id, is_risky')
-          .in('match_id', matchdayMatchIds)
+          .eq('placed_matchday', matchday)   // immutable owner: a fixture that was postponed in/out of this Spieltag never moves a slot
           .eq('season', '26/27')
-          .neq('status', 'void')
+          .eq('is_bonus', false)             // the Pokal bonus slip is a separate allowance
+          .in('status', ['pending', 'won', 'lost'])
 
         // Track normal singles/combos (max 2 slots) and risky singles/combos (max 1 slot)
         const userNormalSingles = new Map<string, number>()

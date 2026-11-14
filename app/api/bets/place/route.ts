@@ -671,7 +671,7 @@ export async function POST(request: NextRequest) {
   // before inserting, so two truly concurrent submissions can never both
   // succeed off the same stale read (closes a TOCTOU race the plain
   // read-then-insert below this loop used to have).
-  const lockChecks: { matchday: number; match_ids: number[]; expected_count: number; origin_mode: true }[] = []
+  const lockChecks: { matchday: number; match_ids: number[]; expected_count: number; origin_mode: true; season: string }[] = []
 
   // "4. Wettschein" Pokal-Bonus (round 6, see CLAUDE.md "TEIL 2"). The cup
   // fixture's own effective Spieltag — looked up from the FULL season match
@@ -706,6 +706,8 @@ export async function POST(request: NextRequest) {
     if (allMatchdayIds.length === 0) continue
     matchdayAllIds.set(matchday, allMatchdayIds)
 
+    // placed_matchday numbers repeat every season (and 999 = test): slots only ever count within the same season label.
+    const slotSeason = matchday === TEST_MATCHDAY ? 'TEST' : CURRENT_SEASON
     // Service-role read: this is the actual security boundary for the
     // per-matchday bet limit, so it must never depend on the caller's own
     // session-scoped RLS visibility into their own rows — a future RLS
@@ -724,6 +726,7 @@ export async function POST(request: NextRequest) {
       .eq('user_id', user.id)
       .in('status', ['pending', 'won', 'lost'])
       .eq('placed_matchday', matchday)
+      .eq('season', slotSeason)
     // Per spec: "cup573AlreadyUsedInNormalSlips" — despite the name, this is
     // simply "was match 573 already used in ANY earlier slip this Spieltag"
     // (normal slot OR bonus slot) — there can only ever be ONE bet on 573
@@ -734,7 +737,7 @@ export async function POST(request: NextRequest) {
 
     const { data: existingCombosRaw, error: comboSlotError } = await admin
       .from('combo_bets').select('id, total_odds')
-      .eq('user_id', user.id).eq('placed_matchday', matchday)
+      .eq('user_id', user.id).eq('placed_matchday', matchday).eq('season', slotSeason)
       .in('status', ['pending', 'won', 'lost'])
     if (comboSlotError) {
       console.error('Unable to verify immutable matchday slots:', comboSlotError)
@@ -749,7 +752,7 @@ export async function POST(request: NextRequest) {
       ...(existingLegs ?? []).filter((b) => b.combo_id == null && !b.is_bonus).map((b) => ({ id: `bet-${b.id}`, odds: Number(b.odds_value) })),
       ...existingCombos.map((c) => ({ id: `combo-${c.id}`, odds: Number(c.total_odds) })),
     ]
-    lockChecks.push({ matchday, match_ids: allMatchdayIds, expected_count: existingSlips.length, origin_mode: true })
+    lockChecks.push({ matchday, match_ids: allMatchdayIds, expected_count: existingSlips.length, origin_mode: true, season: slotSeason })
 
     // Simulate the user's slip set for this Spieltag AFTER this request's new
     // slip(s) were added — a combo is one new slip regardless of matchday (it

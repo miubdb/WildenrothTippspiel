@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { slipSeasonForMatchday } from '@/lib/season'
 
 /**
  * Central Risky classification, per lib/risky.ts's single caller-facing rule:
@@ -72,6 +73,7 @@ export async function recomputeRiskyForUserMatchday(
     .eq('user_id', userId)
     .eq('status', 'pending')
     .eq('placed_matchday', placedMatchday)
+    .eq('season', slipSeasonForMatchday(placedMatchday))
 
   if (!legs || legs.length === 0) return
 
@@ -88,6 +90,7 @@ export async function recomputeRiskyForUserMatchday(
       .select('id, total_odds, original_total_odds')
       .in('id', comboIds)
       .eq('placed_matchday', placedMatchday)
+      .eq('season', slipSeasonForMatchday(placedMatchday))
       .eq('status', 'pending')
     combos = data ?? []
   }

@@ -14,7 +14,7 @@ import { calculateOdds, oddsFromXG, getMatchXG, getFullExactScoreMatrix, mergeEx
 import { CupMatchCard } from '@/components/CupMatchCard'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { ODDS_MATCH_COLUMNS, ODDS_MATCH_JOINS, SEASON_START, priorContextFromRows } from '@/lib/oddsInputs'
-import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
+import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch, slipSeasonForMatchday } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerDisplayOffer, type GoalscorerMatchContext } from '@/lib/goalscorer'
 import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, goalscorerOfferState, loadPreviousPublishedOfferState } from '@/lib/goalscorerContext'
 import { currentSurveyModeKey, currentSurveyVersion, resolveSurveyMode } from '@/lib/surveyMode'
@@ -973,7 +973,7 @@ export default async function TippsPage({
   const [{ data: userProfile }, ownBetsResult] = await Promise.all([
     user ? supabase.from('profiles').select('is_wildenroth, is_wildenroth_ii, eligible_for_current_season, is_admin').eq('id', user.id).single() : Promise.resolve({ data: null }),
     user && currentMatchday != null
-      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky, is_bonus, special_id').eq('user_id', user.id).eq('placed_matchday', currentMatchday).neq('status', 'void')
+      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky, is_bonus, special_id').eq('user_id', user.id).eq('placed_matchday', currentMatchday).eq('season', slipSeasonForMatchday(currentMatchday)).neq('status', 'void')
       : Promise.resolve({ data: [] }),
   ])
 
@@ -1000,6 +1000,7 @@ export default async function TippsPage({
           .select('id, stake, status, total_odds, payout')
           .in('id', comboIds)
           .eq('placed_matchday', currentMatchday)
+          .eq('season', slipSeasonForMatchday(currentMatchday))
         userCombos = (comboBetRows ?? []).filter(cb => occupiesBettingSlot(cb.status)).map(cb => ({
           id: cb.id,
           stake: cb.stake,

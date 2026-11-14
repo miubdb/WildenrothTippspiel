@@ -47,3 +47,17 @@
 - Test-Insertions liefen innerhalb einer SQL-Transaktion mit `ROLLBACK`. Anschließende Counts unverändert: 2.141 Wettpositionen und 493 Kombis.
 - Privilegien geprüft: `service_role` kann die RPC ausführen; `anon` und `authenticated` nicht.
 - Sandbox und CI ersetzen keinen realen End-to-End-UI-Test mit angemeldetem Testnutzer und **keinen Production-Backfill**.
+
+## Review-Nachträge (unabhängiges Code-Review PR #29)
+
+**Zusätzliche Absicherungen in der Migration (`supabase/immutable_placed_matchday_2026.sql`)**
+- `derive_placed_matchday(...)` ist die einzige Ableitungsregel (Backfill + Trigger): Special → Special-Spieltag, Pokal → rohe Nummer, Testspieltag 999, sonst jüngste `betting_open_md_N`-Freigabe ≤ Wettzeitpunkt (nicht monoton!), Vorsaison → rohe Nummer.
+- `bets.placed_matchday` ist `NOT NULL`; ein `BEFORE INSERT`-Trigger füllt den Owner auch bei Alt-App-/Fremd-Inserts, ein `AFTER INSERT`-Trigger setzt ihn auf dem Kombi-Parent. Die alte App kann dadurch nie NULL-Owner erzeugen.
+- `finalize_bet_placement` zählt im Ursprungsmodus **saisonbezogen** (`placed_matchday` wiederholt sich jede Saison, 999 = `TEST`); fehlt die Saison → `SEASON_MISSING`.
+- `book_matchday_round(...)`: Marker (`push_reminders`) **und** alle Guthabenänderungen (Strafwildis −50 / Taschengeld +10) in **einer** Transaktion. Fehler → alles zurück, Retry möglich; zweiter Lauf → `ALREADY_BOOKED`. Nur `service_role`.
+
+**App-Änderungen:** Wettplatz-/Risky-/Nav-/Tipps-Abfragen sind saison-gescopt (`slipSeasonForMatchday`); Erinnerungs-Cron zählt nach `placed_matchday` (ohne Pokal-Bonus); Spieltagsabschluss bucht über `book_matchday_round` (fail-closed: fehlt die RPC, wird nichts gebucht); `settle` nutzt Compare-and-Set (`status='pending'`) für Einzelwetten und Kombis und meldet fehlgeschlagene Gutschriften.
+
+**Tests:** `scripts/run-postponements-check.mjs` (in CI) und `scripts/placed-matchday-migration-test.mjs` (PGlite, lokal: `npm i --no-save @electric-sql/pglite`, 26 Prüfungen inkl. echter nicht-monotoner Freigabezeiten, Rollback bei Fehler, Rechte, Atomarität).
+
+**Rollout-Reihenfolge (zwingend):** 1) Migration (additiv, alte App läuft weiter), 2) App-Deploy, 3) erst danach ST16 abschließen (15.11.). Rollback: App auf Vorversion; Migration bleibt (rückwärtskompatibel).
