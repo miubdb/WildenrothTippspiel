@@ -21,7 +21,7 @@ export function SurveyInvitation({ variant, response }: { variant: 'home' | 'win
           {submitted ? (
             <>Deine Antworten sind angekommen. Danke, dass du das Wildenroth-Tippspiel mitgestaltest! Dein Dankeschön: einmalig <strong>100 Wildis</strong> <WildiIcon size={16} />.</>
           ) : (
-            <>Was lief gut, was nervt und was wünschst du dir für die Rückrunde? Mit deiner Meinung machen wir unser Tippspiel gemeinsam noch besser. Und vielleicht gibt’s als Dankeschön für deine Teilnahme ja auch eine kleine Überraschung <WildiIcon size={16} /> 😉</>
+            <>Was lief gut, was nervt und was wünschst du dir für die Rückrunde? Mit deiner Meinung machen wir unser Tippspiel gemeinsam noch besser. Und vielleicht gibt’s als Dankeschön ja auch eine kleine <span className="whitespace-nowrap">Überraschung <WildiIcon size={16} /> 😉</span></>
           )}
         </p>
         {!submitted && (
@@ -47,7 +47,7 @@ export function SurveyInvitation({ variant, response }: { variant: 'home' | 'win
         {submitted ? (
           <>Danke für dein Feedback! Damit hilfst du uns, das Tippspiel für die Rückrunde und die nächste Saison weiterzuentwickeln. Dein Dankeschön: einmalig <strong>100 Wildis</strong> <WildiIcon size={16} />.</>
         ) : (
-          <>Was gefällt dir, was können wir verbessern und welche Funktionen wünschst du dir? Deine Meinung hilft uns, das Wildenroth-Tippspiel noch besser zu machen. Und vielleicht gibt’s als Dankeschön für deine Teilnahme ja auch eine kleine Überraschung <WildiIcon size={16} /> 😉</>
+          <>Was gefällt dir, was können wir verbessern und welche Funktionen wünschst du dir? Deine Meinung hilft uns, das Wildenroth-Tippspiel noch besser zu machen. Und vielleicht gibt’s als Dankeschön ja auch eine kleine <span className="whitespace-nowrap">Überraschung <WildiIcon size={16} /> 😉</span></>
         )}
       </p>
       {!submitted && (

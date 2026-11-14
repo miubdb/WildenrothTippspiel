@@ -486,7 +486,7 @@ export default function UmfragePage() {
         <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-700/60 dark:bg-amber-900/20">
           <WildiIcon size={30} />
           <p className="text-[14px] leading-5 text-amber-950 dark:text-amber-100">
-            Deine Meinung zählt! Hilf uns, das Wildenroth-Tippspiel noch besser zu machen. Und vielleicht gibt’s als Dankeschön für deine Teilnahme ja auch <span className="whitespace-nowrap font-semibold">eine kleine Überraschung <WildiIcon size={16} /></span> 😉
+            Deine Meinung zählt! Hilf uns, das Wildenroth-Tippspiel noch besser zu machen. Und vielleicht gibt’s als Dankeschön ja auch eine kleine <span className="whitespace-nowrap">Überraschung <WildiIcon size={16} /> 😉</span>
           </p>
         </div>
         <p className="px-1 text-[12px] leading-5 text-gray-500 dark:text-gray-400">
