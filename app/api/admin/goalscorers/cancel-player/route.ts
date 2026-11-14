@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { voidSlipWithRefund } from '@/lib/settlement'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendPushToUser } from '@/lib/push'
 
@@ -60,49 +61,38 @@ export async function POST(request: NextRequest) {
     .in('market_type', ['goalscorer', 'goalscorer_2plus'])
     .eq('status', 'pending')
 
-  const refunds: { userId: string; amount: number }[] = []
+  // Void + refund per slip in ONE transaction (void_slip_refund) — no double refund against a user's own cancel or a repeated
+  // admin click, and a failing refund rolls the void back so the slip can be retried.
   const cancelledSingles: number[] = []
   const cancelledCombos: number[] = []
-
+  const perUser = new Map<string, number>()
+  const add = (u: string, a: number) => perUser.set(u, (perUser.get(u) ?? 0) + a)
+  let failures = 0
+  const comboIds = new Set<number>()
   for (const bet of affectedBets ?? []) {
     if (bet.combo_id == null) {
-      cancelledSingles.push(bet.id)
-      refunds.push({ userId: bet.user_id, amount: Number(bet.stake ?? 0) })
-    } else {
-      // Mark whole combo for cancellation
-      if (!cancelledCombos.includes(bet.combo_id)) {
-        cancelledCombos.push(bet.combo_id)
-      }
-    }
+      try {
+        const amt = await voidSlipWithRefund(admin, 'single', bet.id, 'admin_goalscorer_unavailable')
+        if (amt != null) { cancelledSingles.push(bet.id); add(bet.user_id, amt) }
+      } catch (e) { failures++; console.error('cancel-player single failed', { id: bet.id, e }) }
+    } else comboIds.add(bet.combo_id)
   }
-
-  // Cancel single bets
-  if (cancelledSingles.length > 0) {
-    await admin.from('bets').update({ status: 'void', void_reason: 'admin_goalscorer_unavailable' }).in('id', cancelledSingles)
+  for (const comboId of comboIds) {
+    const { data: combo } = await admin.from('combo_bets').select('user_id').eq('id', comboId).single()
+    try {
+      const amt = await voidSlipWithRefund(admin, 'combo', comboId, 'admin_goalscorer_unavailable', { allLegs: true })
+      if (amt != null && combo) { cancelledCombos.push(comboId); add(combo.user_id, amt) }
+    } catch (e) { failures++; console.error('cancel-player combo failed', { comboId, e }) }
   }
-
-  // Cancel combos (refund the full combo stake to the user)
-  for (const comboId of cancelledCombos) {
-    const { data: combo } = await admin
-      .from('combo_bets').select('id, user_id, stake').eq('id', comboId).single()
-    if (!combo) continue
-    await admin.from('bets').update({ status: 'void', void_reason: 'admin_goalscorer_unavailable' }).eq('combo_id', comboId)
-    await admin.from('combo_bets').update({ status: 'void', void_reason: 'admin_goalscorer_unavailable' }).eq('id', comboId)
-    refunds.push({ userId: combo.user_id, amount: Number(combo.stake) })
-  }
-
-  // Apply refunds (aggregate per user)
-  const perUser = new Map<string, number>()
-  for (const r of refunds) {
-    perUser.set(r.userId, (perUser.get(r.userId) ?? 0) + r.amount)
+  if (failures > 0) {
+    return NextResponse.json({ error: `${failures} Stornierung(en) fehlgeschlagen und zurückgerollt – bitte erneut ausführen (idempotent).`, cancelledSingles: cancelledSingles.length, cancelledCombos: cancelledCombos.length }, { status: 500 })
   }
 
   const pushJobs: Promise<unknown>[] = []
   for (const [userId, refundAmount] of perUser) {
     // Atomic increment — see scorers/route.ts for why a select-then-update here
     // would silently lose a concurrent bet placement/cancellation/settlement.
-    await admin.rpc('increment_balance', { p_user_id: userId, p_amount: refundAmount })
-
+    // refund already booked atomically with the void
     pushJobs.push(
       sendPushToUser(
         userId,

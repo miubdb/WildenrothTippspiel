@@ -50,6 +50,7 @@ export interface RecapBetRow {
   is_bonus: boolean | null
   void_reason: string | null
   special_id: number | null
+  placed_matchday?: number | null
   neutralized_reason?: string | null
 }
 
@@ -64,6 +65,7 @@ export interface RecapComboRow {
   season: string | null
   void_reason: string | null
   original_total_odds: number | null
+  placed_matchday?: number | null
 }
 
 export type RecapMatchRow = Pick<
@@ -170,10 +172,10 @@ export function buildSlips(input: SlipBuildInput): { slips: Slip[]; mdIndex: Eff
     odds: Number(b.odds_value),
     status: b.status,
     specialId: b.special_id,
-    recapMatchday: b.match_id != null ? (recapMd.get(b.match_id) ?? null) : null,
+    recapMatchday: b.placed_matchday ?? (b.match_id != null ? (recapMd.get(b.match_id) ?? null) : null),
   })
 
-  const finish = (partial: Omit<Slip, 'ownerMatchday' | 'firstKickoffMs'>): Slip | null => {
+  const finish = (partial: Omit<Slip, 'ownerMatchday' | 'firstKickoffMs'>, ownerOverride: number | null = null): Slip | null => {
     const mds = partial.legs.map((l) => l.recapMatchday).filter((x): x is number => x != null)
     // Wett-Scheine auf dem Testspieltag (999) gehören in keine Auswertung.
     if (mds.some((md) => md >= 900)) return null
@@ -183,7 +185,7 @@ export function buildSlips(input: SlipBuildInput): { slips: Slip[]; mdIndex: Eff
       .map((d) => new Date(d).getTime())
     return {
       ...partial,
-      ownerMatchday: mds.length > 0 ? Math.min(...mds) : null,
+      ownerMatchday: ownerOverride ?? (mds.length > 0 ? Math.min(...mds) : null),
       firstKickoffMs: kicks.length > 0 ? Math.min(...kicks) : null,
     }
   }
@@ -233,7 +235,7 @@ export function buildSlips(input: SlipBuildInput): { slips: Slip[]; mdIndex: Eff
       isBonus: legRows.some((l) => !!l.is_bonus),
       voidReason: c.void_reason ?? legRows.find((l) => l.void_reason)?.void_reason ?? null,
       legs: legRows.map(toLeg),
-    })
+    }, c.placed_matchday ?? null)
     if (s) slips.push(s)
   }
 

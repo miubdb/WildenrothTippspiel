@@ -42,6 +42,7 @@ const ACTION_LABEL: Record<AuditAction, string> = {
   match_annulment: 'Spiel annulliert (Nichtantritt)',
   match_official_score_confirmed: 'Offizielle Wertung bestätigt',
   recap_publish: 'Recap-Freigabe geändert',
+  survey_reward_backfill: 'Umfrage-Dankeschön nachgebucht',
 }
 
 function fmt(v: unknown): string {

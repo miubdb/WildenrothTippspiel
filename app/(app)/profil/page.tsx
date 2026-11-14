@@ -72,6 +72,14 @@ export default async function ProfilPage() {
   // Winter-Pokale (Hinrunde 2026/27): nur sichtbar, solange der Winter-Recap veröffentlicht ist – serverseitig entschieden.
   const winterAwards = await loadVisibleWinterAwards(createAdminClient() as unknown as WinterAwardsClient, user.id)
   const prevBets = prevBetsRaw ?? []
+  // Sonderbuchungen (z. B. 100-Wildis-Dankeschön für die Winterumfrage): eigenes Buchungsjournal, per RLS nur eigene Zeilen.
+  const { data: specialBookingsRaw } = await supabase
+    .from('balance_transactions')
+    .select('id, kind, amount, description, created_at')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(20)
+  const specialBookings = (specialBookingsRaw ?? []) as { id: number; kind: string; amount: number; description: string; created_at: string }[]
 
   // "Wettbilanz" = realisierte Bilanz aus abgeschlossenen Wettscheinen — NICHT
   // dasselbe wie balance-vs-start, das auch Taschengeld/Strafen enthält.
@@ -184,6 +192,28 @@ export default async function ProfilPage() {
       {sonstigeBuchungen !== 0 && (
         <div className="text-xs text-gray-400 dark:text-gray-500 px-1 -mt-2">
           Taschengeld &amp; Sonstiges (nicht Teil der Wettbilanz): {sonstigeBuchungen >= 0 ? '+' : ''}{fmtWildi(sonstigeBuchungen)} Wildis
+        </div>
+      )}
+
+      {specialBookings.length > 0 && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-700">
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">Sonderbuchungen</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Gutschriften außerhalb von Wetten</p>
+          </div>
+          <ul className="divide-y divide-gray-50 dark:divide-gray-700">
+            {specialBookings.map((b) => (
+              <li key={b.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{b.description}</div>
+                  <div className="text-[11px] text-gray-400 dark:text-gray-500">{new Date(b.created_at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Berlin' })}</div>
+                </div>
+                <div className="shrink-0 text-sm font-black text-green-600 dark:text-green-400 flex items-center gap-1">
+                  +{fmtWildi(Number(b.amount))} <WildiIcon size={16} />
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

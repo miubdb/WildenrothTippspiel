@@ -94,11 +94,13 @@ jobs:
         run: |
           node --experimental-strip-types scripts/run-match-annulment-check.mjs
           node --experimental-strip-types scripts/run-matchday-finish-check.mjs
+          node --experimental-strip-types scripts/run-postponements-check.mjs
           node --experimental-strip-types scripts/run-slip-lifecycle-check.mjs
           node --experimental-strip-types scripts/run-meine-wetten-check.mjs
           node --experimental-strip-types scripts/run-combo-leg-order-check.mjs
           node --experimental-strip-types scripts/run-betting-activity-stats-check.mjs
           node --experimental-strip-types scripts/run-recap-v2-check.mjs
+          node --experimental-strip-types scripts/run-settlement-integrity-check.mjs
           node scripts/check-no-demo-artifacts.mjs
       - name: Verify production build without real secrets
         env:

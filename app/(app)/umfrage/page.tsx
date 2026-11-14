@@ -8,10 +8,13 @@ import {
 } from '@/lib/survey'
 import { toggleMultiOption, stripHiddenAnswers, normalizeLegacySurveyAnswers, wouldReplaceSurveySelection } from '@/lib/surveyValidation'
 import { questionPages, pageComplete, firstIncompleteSurveyPage } from '@/lib/surveyPresentation'
+import { WildiIcon } from '@/components/WildiIcon'
 import { advanceSurveyActivity, freshActivityClock, noteSurveyInteraction, resumeSurveyActivity, SURVEY_HEARTBEAT_MS } from '@/lib/surveyActivity'
 
 type LoadState = 'loading' | 'ready' | 'error'
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
+/** Server-decided reward state (lib/surveyReward.ts) — the client never decides about Wildis itself. */
+type RewardStatus = 'granted' | 'already_granted' | 'not_eligible' | 'pending'
 
 // Keep the CURRENT numerical rule easily visible, but make detailed reasoning
 // opt-in rather than placing a paragraph above every single question.
@@ -51,6 +54,7 @@ export default function UmfragePage() {
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null)
   const [justSubmitted, setJustSubmitted] = useState(false)
   const [paused, setPaused] = useState(false)
+  const [rewardStatus, setRewardStatus] = useState<RewardStatus | null>(null)
   const [pauseSaving, setPauseSaving] = useState(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Reopening a saved V2 answer may require new questions to be answered.
@@ -78,6 +82,7 @@ export default function UmfragePage() {
       .then((r) => r.json())
       .then((data) => {
         setSurveyMode(data.surveyMode ?? 'hidden')
+        if (data.reward?.status) setRewardStatus(data.reward.status)
         if (data.response) {
           const resumedAnswers = normalizeLegacySurveyAnswers(data.response.answers ?? {})
           answersRef.current = resumedAnswers
@@ -124,6 +129,7 @@ export default function UmfragePage() {
         // not keep showing "bereits abgegeben" for a response that no
         // longer qualifies. See lib/surveyValidation.ts#nextSubmittedAt.
         setSubmittedAt(data.submittedAt ?? null)
+        if (data.reward?.status) setRewardStatus(data.reward.status)
         return { ok: true, submitted: !!data.submitted }
       } catch {
         setSaveState('error')
@@ -403,6 +409,20 @@ export default function UmfragePage() {
           <div className="text-3xl mb-2">✅</div>
           <div className="font-bold text-green-800 dark:text-green-300">Danke! Deine Antworten wurden gespeichert.</div>
         </div>
+        {(rewardStatus === 'granted' || rewardStatus === 'already_granted') && (
+          <div role="status" className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-700/60 dark:bg-amber-900/20">
+            <WildiIcon size={32} />
+            <p className="text-sm leading-5 text-amber-900 dark:text-amber-200">
+              <span className="font-bold">+100 Wildis</span> {rewardStatus === 'granted' ? 'wurden dir als Dankeschön gutgeschrieben.' : 'Dankeschön hast du für diese Umfrage bereits erhalten.'}
+              <span className="block text-xs text-amber-800/80 dark:text-amber-300/80">Die Buchung findest du in deinem Profil.</span>
+            </p>
+          </div>
+        )}
+        {rewardStatus === 'pending' && (
+          <div role="status" className="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+            Dein Dankeschön von 100 Wildis wird gleich nachgebucht – öffne die Umfrage später noch einmal, falls es noch nicht im Profil steht.
+          </div>
+        )}
         <div className="flex gap-2">
           <button
             onClick={() => { setJustSubmitted(false); setSectionIdx(0); setPageIdx(0); positionRef.current = { sectionIdx: 0, pageIdx: 0 } }}
@@ -458,6 +478,12 @@ export default function UmfragePage() {
             <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">7 Themen</span>
             <span className="rounded-full bg-gray-100 px-3 py-1.5 dark:bg-gray-700">Zwischenspeichern möglich</span>
           </div>
+        </div>
+        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-700/60 dark:bg-amber-900/20">
+          <WildiIcon size={30} />
+          <p className="text-[14px] leading-5 text-amber-950 dark:text-amber-100">
+            Deine Meinung zählt! Hilf uns, das Wildenroth-Tippspiel noch besser zu machen. Und vielleicht gibt’s als kleines Dankeschön für deine Teilnahme ja auch <span className="whitespace-nowrap font-bold">100 Wildis <WildiIcon size={16} /></span> 😉
+          </p>
         </div>
         <p className="px-1 text-[12px] leading-5 text-gray-500 dark:text-gray-400">
           Deine ehrliche Meinung hilft uns, das Tippspiel besser zu machen – Kritik ist ausdrücklich willkommen! 😉 Admins können deine Antworten deinem Benutzerkonto zuordnen.

@@ -12,6 +12,14 @@ import type { Match } from '@/types'
  */
 export const SEASON_START = '2026-08-01'
 
+/** Season label under which a slip for this placed matchday is stored. placed_matchday numbers repeat every season
+ *  and 999 is the test matchday (bets.season = 'TEST'), so every slot/participation lookup must be scoped by this. */
+export const SLIP_SEASON = '26/27'
+export const TEST_MATCHDAY_NUMBER = 999
+export function slipSeasonForMatchday(matchday: number): string {
+  return matchday === TEST_MATCHDAY_NUMBER ? 'TEST' : SLIP_SEASON
+}
+
 /**
  * Returns Monday 12:00 Europe/Berlin of the week containing refDate.
  * Single source of truth for the "betting opens Monday noon" rule — do not

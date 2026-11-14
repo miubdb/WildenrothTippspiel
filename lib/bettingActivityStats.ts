@@ -13,6 +13,8 @@ export interface ActivityLeg {
   user_id: string
   combo_id: number | null
   created_at: string
+  placed_matchday?: number | null
+  status?: string
   match: Pick<Match, 'matchday' | 'match_date' | 'status' | 'match_category' | 'is_topspiel' | 'tippspiel_matchday'> | null
 }
 
@@ -41,8 +43,8 @@ export function computeMatchdayParticipation(
   const usersByMd = new Map<number, Set<string>>()
   const legsByMd = new Map<number, number>()
   for (const l of legs) {
-    if (!l.match) continue
-    const md = effectiveMatchdayOf(l.match as Match, mdIndex)
+    if (l.status === 'void' || !l.match) continue
+    const md = l.placed_matchday ?? effectiveMatchdayOf(l.match as Match, mdIndex)
     if (md == null || md === 999) continue
     if (!usersByMd.has(md)) usersByMd.set(md, new Set())
     usersByMd.get(md)!.add(l.user_id)
