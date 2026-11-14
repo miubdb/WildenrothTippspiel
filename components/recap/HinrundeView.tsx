@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { RecapReport } from '@/lib/recap/report'
 import type { PersonalTips, TipCard, TipLeg } from '@/lib/recap/bestTips'
 import type { AwardEntry, AwardResult } from '@/lib/recap/halbzeitAwards'
@@ -466,9 +467,10 @@ function IqSection({ r, myId }: { r: RecapReport; myId: string }) {
   )
 }
 
-export function HinrundeView({ report, personal, myId, previewTo, simulation }: {
+export function HinrundeView({ report, personal, myId, previewTo, simulation, surveyCard }: {
   report: RecapReport; personal: PersonalTips | null; myId: string; previewTo: number | null
   simulation: { matches: number; betRows: number; databaseRef: string } | null
+  surveyCard?: ReactNode
 }) {
   const r = report
   const b = r.breakdown
@@ -537,6 +539,7 @@ export function HinrundeView({ report, personal, myId, previewTo, simulation }: 
         <div className="flex items-end gap-4"><WildiCoin deco="snowcap" size={34} bob /><WildiCoin deco="hat" size={40} bob className="-mb-0.5" /><WildiCoin deco="scarf" size={34} bob /></div>
         <div className={`font-display text-sm uppercase tracking-[0.25em] ${MUTED}`}>Schöne Winterpause!</div>
       </div>
+      {surveyCard && <div className="pb-2">{surveyCard}</div>}
     </div>
   )
 }

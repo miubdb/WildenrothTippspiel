@@ -9,14 +9,14 @@
  */
 import {
   SURVEY_SECTIONS, ALL_QUESTIONS, QUESTION_BY_ID, isRequired, isQuestionVisible, visibleQuestionsForSection,
-  isSectionComplete, isSurveyComplete, type Answers,
+  isSectionComplete, isSurveyComplete, surveyProgress, type Answers,
 } from '@/lib/survey'
 import {
   toggleMultiOption, wouldReplaceSurveySelection, isValidMultiSelection, isValidAnswerValue, validateIncomingAnswers, stripHiddenAnswers, normalizeLegacySurveyAnswers, nextSubmittedAt,
 } from '@/lib/surveyValidation'
 import { isActuallySubmitted, computeOverview, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
 import { computeSurveyDecisionInsights, inSurveySegment } from '@/lib/surveyInsights'
-import { questionPages, pageComplete, estimateQuestionHeight, QUESTION_PAGE_BUDGET } from '@/lib/surveyPresentation'
+import { questionPages, pageComplete, firstIncompleteSurveyPage, estimateQuestionHeight, QUESTION_PAGE_BUDGET } from '@/lib/surveyPresentation'
 import { advanceSurveyActivity, freshActivityClock, noteSurveyInteraction, resumeSurveyActivity, surveyTimeStats, surveyTimeLabel, totalSurveyActivityByUser } from '@/lib/surveyActivity'
 import { findSurveyOperatorId, withoutSurveyOperator } from '@/lib/surveyAudience'
 import {
@@ -47,6 +47,27 @@ export function run(): number {
     check('keine doppelten Frage-IDs', new Set(ids).size === ids.length)
     const perSection = SURVEY_SECTIONS.map((s) => s.questions.length)
     check('Felder pro Bereich: 6,14,4,8,2,7,5', perSection.join(',') === '6,14,4,8,2,7,5', perSection.join(','))
+  }
+
+  console.log('\n1b. Fortschritt misst beantwortete Pflichtfragen statt besuchte Seiten')
+  {
+    const empty = surveyProgress({})
+    const oneAnswer = surveyProgress({ q1: 10 })
+    check('Ohne Antworten: 0 %', empty.percent === 0 && empty.answered === 0 && empty.total > 0)
+    check('Eine beantwortete Pflichtfrage erhöht Fortschritt', oneAnswer.answered === 1 && oneAnswer.percent > empty.percent)
+    check('Bedingte Pflichtfragen werden mitgezählt', surveyProgress({ q12: '2 Risky-Wetten' }).total > empty.total)
+  }
+
+  console.log('\n1c. Navigations-Schutz: erste fehlende Pflichtfrage bei dynamischen Schritten')
+  {
+    const empty = firstIncompleteSurveyPage({})
+    check('Leere Umfrage verweist auf Q1', empty?.sectionIdx === 0 && empty.pageIdx === 0 && empty.questionId === 'q1')
+    const next = firstIncompleteSurveyPage({ q1: 10 })
+    check('Nach Q1 wird Q2 als nächste Pflichtfrage erkannt', next?.questionId === 'q2')
+    const lateAnswer = firstIncompleteSurveyPage({ q30_general: 'Ja, auf jeden Fall' })
+    check('Beantwortete Abschlussfrage überspringt keine fehlenden früheren Pflichtfragen', lateAnswer?.questionId === 'q1')
+    const custom = firstIncompleteSurveyPage({ q10: 'Anderer Betrag' })
+    check('Dynamische Pflichtantwort Q10 Betrag bleibt als Frage auffindbar', custom !== null)
   }
 
   console.log('\n2. Maximal 28 Pflichtfelder (bei der Antwortkombination, die am meisten Pflichtfragen freischaltet)')

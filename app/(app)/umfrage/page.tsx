@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  SURVEY_SECTIONS, visibleQuestionsForSection, isSurveyComplete, isRequired,
+  SURVEY_SECTIONS, visibleQuestionsForSection, isSectionComplete, isSurveyComplete, isRequired, surveyProgress,
   type Answers, type QuestionDef,
 } from '@/lib/survey'
 import { toggleMultiOption, stripHiddenAnswers, normalizeLegacySurveyAnswers, wouldReplaceSurveySelection } from '@/lib/surveyValidation'
-import { questionPages, pageComplete } from '@/lib/surveyPresentation'
+import { questionPages, pageComplete, firstIncompleteSurveyPage } from '@/lib/surveyPresentation'
 import { advanceSurveyActivity, freshActivityClock, noteSurveyInteraction, resumeSurveyActivity, SURVEY_HEARTBEAT_MS } from '@/lib/surveyActivity'
 
 type LoadState = 'loading' | 'ready' | 'error'
@@ -43,6 +43,10 @@ export default function UmfragePage() {
   const [started, setStarted] = useState(false)
   const [sectionIdx, setSectionIdx] = useState(0)
   const [pageIdx, setPageIdx] = useState(0)
+  const [navigationOpen, setNavigationOpen] = useState(false)
+  const [submitErrorQuestionId, setSubmitErrorQuestionId] = useState<string | null>(null)
+  const positionRef = useRef({ sectionIdx: 0, pageIdx: 0 })
+  const scrollToQuestionRef = useRef<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null)
   const [justSubmitted, setJustSubmitted] = useState(false)
@@ -78,7 +82,18 @@ export default function UmfragePage() {
           const resumedAnswers = normalizeLegacySurveyAnswers(data.response.answers ?? {})
           answersRef.current = resumedAnswers
           setAnswers(resumedAnswers)
-          setSubmittedAt(isSurveyComplete(resumedAnswers) ? data.response.submitted_at ?? null : null)
+          const validSubmitted = isSurveyComplete(resumedAnswers) && !!data.response.submitted_at
+          setSubmittedAt(validSubmitted ? data.response.submitted_at : null)
+          if (validSubmitted) setJustSubmitted(true)
+          const restoredSection = SURVEY_SECTIONS.findIndex((section) => section.id === data.response.last_section_id)
+          if (restoredSection >= 0) {
+            const pageCount = questionPages(visibleQuestionsForSection(SURVEY_SECTIONS[restoredSection], resumedAnswers)).length
+            const requestedPage = Number.isInteger(data.response.last_page_idx) ? data.response.last_page_idx : 0
+            const restoredPage = Math.max(0, Math.min(requestedPage, pageCount - 1))
+            positionRef.current = { sectionIdx: restoredSection, pageIdx: restoredPage }
+            setSectionIdx(restoredSection)
+            setPageIdx(restoredPage)
+          }
           setStarted(true)
         }
         setLoadState('ready')
@@ -86,14 +101,14 @@ export default function UmfragePage() {
       .catch(() => setLoadState('error'))
   }, [])
 
-  const save = useCallback((action: 'save' | 'submit', nextAnswers?: Answers) => {
+  const save = useCallback((action: 'save' | 'submit', nextAnswers?: Answers, target?: { sectionId: number; pageIdx: number }) => {
     const run = async () => {
       setSaveState('saving')
       try {
         const res = await fetch('/api/survey', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, answers: nextAnswers ?? answersRef.current }),
+          body: JSON.stringify({ action, answers: nextAnswers ?? answersRef.current, lastSectionId: target?.sectionId ?? SURVEY_SECTIONS[positionRef.current.sectionIdx].id, lastPageIdx: target?.pageIdx ?? positionRef.current.pageIdx }),
         })
         const data = await res.json()
         if (!res.ok) {
@@ -249,6 +264,7 @@ export default function UmfragePage() {
   }, [loadState, started, sectionIdx, pageIdx, paused, justSubmitted])
 
   function setAnswer(id: string, value: Answers[string]) {
+    setSubmitErrorQuestionId(null)
     saveEnabled.current = true
     // stripHiddenAnswers runs on every change (not just at save time) — a
     // trigger answer changing (q4, q12, q25, q29, q_motivation, q9, q19, q15, q10,
@@ -266,44 +282,66 @@ export default function UmfragePage() {
     setStarted(true)
   }
 
+  // Save the destination together with answers so a reopened survey can
+  // resume on the precise step, even on another device. Jumping does not
+  // bypass server-side required-question validation on submission.
+  async function goToPosition(targetSection: number, targetPage: number, questionId?: string) {
+    if (targetSection < 0 || targetSection >= SURVEY_SECTIONS.length) return
+    const targetPages = questionPages(visibleQuestionsForSection(SURVEY_SECTIONS[targetSection], answersRef.current))
+    if (targetPage < 0 || targetPage >= targetPages.length) return
+    if (targetSection === sectionIdx && targetPage === pageIdx) {
+      setNavigationOpen(false)
+      if (questionId) document.getElementById(`survey-question-${questionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      return
+    }
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    const result = await save('save', undefined, { sectionId: SURVEY_SECTIONS[targetSection].id, pageIdx: targetPage })
+    if (!result.ok) return
+    void flushActiveTimeRef.current()
+    positionRef.current = { sectionIdx: targetSection, pageIdx: targetPage }
+    scrollToQuestionRef.current = questionId ?? null
+    setSectionIdx(targetSection)
+    setPageIdx(targetPage)
+    setNavigationOpen(false)
+  }
+
+  useEffect(() => {
+    const questionId = scrollToQuestionRef.current
+    if (!questionId) return
+    scrollToQuestionRef.current = null
+    // The existing iOS scroll-reset effect runs over two paint frames.
+    // Jump to the requested question after that reset settles.
+    const timer = window.setTimeout(() => document.getElementById(`survey-question-${questionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 180)
+    return () => window.clearTimeout(timer)
+  }, [sectionIdx, pageIdx])
+
   async function goNext() {
     const section = SURVEY_SECTIONS[sectionIdx]
     const blocks = questionPages(visibleQuestionsForSection(section, answers))
     const currentBlock = Math.min(pageIdx, blocks.length - 1)
     if (!pageComplete(blocks[currentBlock], answers)) return
-    // Cancel the debounced autosave before firing our own save for this
-    // click — without this, a save() from THIS click and the pending
-    // 900ms-later debounce timer can both fire (e.g. answering the last
-    // question of a section, then clicking "Weiter" within 900ms), sending
-    // two overlapping POSTs for the same row. (saveChain above additionally
-    // guarantees that even if both still fired, they'd never race.)
-    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
-    const result = await save('save')
-    // Bug found during testing (section 7 → 8): this used to advance the
-    // section unconditionally, discarding save()'s result — a failed save
-    // (network blip, transient 5xx) silently dropped the user's answers
-    // for that section while the UI moved on as if nothing happened. Now
-    // the section only advances once the save is confirmed to have
-    // succeeded; on failure the user stays put with their answers intact
-    // and sees a retry affordance (see saveError below).
-    if (!result.ok) return
-    void flushActiveTimeRef.current()
+    // A conditional question or repagination can invalidate a step visited
+    // earlier. Never let normal forward navigation leave that gap unseen.
+    const missing = firstIncompleteSurveyPage(answers)
+    if (missing && (missing.sectionIdx < sectionIdx || (missing.sectionIdx === sectionIdx && missing.pageIdx <= currentBlock))) {
+      setSubmitErrorQuestionId(missing.questionId)
+      await goToPosition(missing.sectionIdx, missing.pageIdx, missing.questionId)
+      return
+    }
     if (currentBlock + 1 < blocks.length) {
-      setPageIdx(currentBlock + 1)
+      await goToPosition(sectionIdx, currentBlock + 1)
     } else if (sectionIdx < SURVEY_SECTIONS.length - 1) {
-      setSectionIdx((i) => i + 1)
-      setPageIdx(0)
+      await goToPosition(sectionIdx + 1, 0)
     }
   }
 
-  function goBack() {
-    void flushActiveTimeRef.current()
+  async function goBack() {
     if (pageIdx > 0) {
-      setPageIdx((i) => i - 1)
+      await goToPosition(sectionIdx, pageIdx - 1)
     } else if (sectionIdx > 0) {
       const previousSection = SURVEY_SECTIONS[sectionIdx - 1]
-      setSectionIdx((i) => i - 1)
-      setPageIdx(questionPages(visibleQuestionsForSection(previousSection, answers)).length - 1)
+      const previousPage = questionPages(visibleQuestionsForSection(previousSection, answers)).length - 1
+      await goToPosition(sectionIdx - 1, previousPage)
     }
   }
 
@@ -320,7 +358,15 @@ export default function UmfragePage() {
   }
 
   async function handleSubmit() {
-    if (!isSurveyComplete(answers)) return
+    if (!isSurveyComplete(answers)) {
+      const missing = firstIncompleteSurveyPage(answers)
+      if (missing) {
+        setSubmitErrorQuestionId(missing.questionId)
+        await goToPosition(missing.sectionIdx, missing.pageIdx, missing.questionId)
+      }
+      return
+    }
+    setSubmitErrorQuestionId(null)
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     // Record the last active seconds BEFORE submission stops the timer.
     await flushActiveTimeRef.current()
@@ -359,7 +405,7 @@ export default function UmfragePage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => { setJustSubmitted(false); setSectionIdx(0); setPageIdx(0) }}
+            onClick={() => { setJustSubmitted(false); setSectionIdx(0); setPageIdx(0); positionRef.current = { sectionIdx: 0, pageIdx: 0 } }}
             className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-200"
           >
             Antworten ansehen / ändern
@@ -435,20 +481,51 @@ export default function UmfragePage() {
   const blockOk = pageComplete(currentQuestions, answers)
   const onLastBlock = activeBlock === blocks.length - 1
   const isLast = sectionIdx === SURVEY_SECTIONS.length - 1 && onLastBlock
-  const progressPct = (sectionIdx + (activeBlock + 1) / blocks.length) / SURVEY_SECTIONS.length * 100
+  const progress = surveyProgress(answers)
+  const progressPct = progress.percent
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 px-3 py-4 pb-8 sm:px-4">
       <div className="rounded-2xl border border-gray-100 bg-white px-4 py-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-        <div className="mb-1.5 flex items-center justify-between gap-2 text-[12px] text-gray-500 dark:text-gray-400">
-          <span>Bereich {sectionIdx + 1} von {SURVEY_SECTIONS.length}</span>
-          <SaveIndicator state={saveState} />
+        <div className="mb-1.5 flex items-start justify-between gap-2">
+          <div>
+            <div className="text-[12px] text-gray-500 dark:text-gray-400">Bereich {sectionIdx + 1} von {SURVEY_SECTIONS.length}</div>
+            <h1 className="mt-1 text-[18px] font-bold leading-6 text-gray-900 dark:text-gray-100">{section.title}</h1>
+          </div>
+          <div className="shrink-0 text-right">
+            <div className="text-lg font-black tabular-nums text-red-700 dark:text-red-300">{progressPct} %</div>
+            <SaveIndicator state={saveState} />
+          </div>
         </div>
-        <h1 className="mb-2 text-[18px] font-bold leading-6 text-gray-900 dark:text-gray-100">{section.title}</h1>
-        <div className="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700" role="progressbar" aria-valuenow={Math.round(progressPct)} aria-valuemin={0} aria-valuemax={100} aria-label="Umfragefortschritt">
+        <div className="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700" role="progressbar" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100} aria-label="Beantwortete Pflichtfragen">
           <div className="h-full rounded-full bg-red-600 transition-all dark:bg-red-500" style={{ width: `${progressPct}%` }} />
         </div>
-        <p className="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400">Schritt {activeBlock + 1} von {blocks.length} in diesem Bereich</p>
+        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+          <span>Schritt {activeBlock + 1} von {blocks.length} · {progress.answered}/{progress.total} Pflichtfragen</span>
+          <button type="button" aria-expanded={navigationOpen} aria-controls="survey-jump-navigation" onClick={() => setNavigationOpen((open) => !open)} className="font-bold text-red-700 dark:text-red-300">Bereiche & Fragen {navigationOpen ? '▲' : '▼'}</button>
+        </div>
+        {navigationOpen && (
+          <nav id="survey-jump-navigation" aria-label="Umfrage-Navigation" className="mt-2 max-h-80 space-y-1 overflow-y-auto rounded-xl border border-gray-200 p-2 dark:border-gray-700">
+            {SURVEY_SECTIONS.map((surveySection, idx) => {
+              const sectionPages = questionPages(visibleQuestionsForSection(surveySection, answers))
+              return (
+                <div key={surveySection.id}>
+                  <button type="button" onClick={() => goToPosition(idx, 0)} className={`flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2 text-left text-xs ${idx === sectionIdx ? 'bg-red-50 font-bold text-red-800 dark:bg-red-900/20 dark:text-red-200' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700'}`}>
+                    <span>{idx + 1}. {surveySection.title}</span><span className="shrink-0">{isSectionComplete(surveySection, answers) ? '✓' : 'Offen'}</span>
+                  </button>
+                  {idx === sectionIdx && sectionPages.map((questions, page) => (
+                    <div key={page} className="ml-3 border-l-2 border-red-100 pl-2 dark:border-red-900/30">
+                      <div className="py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Schritt {page + 1} von {sectionPages.length}</div>
+                      {questions.map((question) => (
+                        <button key={question.id} type="button" onClick={() => goToPosition(idx, page, question.id)} className={`block w-full rounded-md px-2 py-1.5 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 ${page === activeBlock ? 'text-red-700 dark:text-red-300' : 'text-gray-600 dark:text-gray-300'}`}>{question.text}</button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+          </nav>
+        )}
       </div>
 
       {submittedAt && (
@@ -471,9 +548,16 @@ export default function UmfragePage() {
         </div>
       )}
 
+      {submitErrorQuestionId && currentQuestions.some((q) => q.id === submitErrorQuestionId) && (
+        <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          Bitte beantworte diese Pflichtfrage, bevor du die Umfrage abschicken kannst.
+        </div>
+      )}
       <div className="space-y-3">
         {currentQuestions.map((q) => (
-          <QuestionCard key={q.id} q={q} answers={answers} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} />
+          <div key={q.id} id={`survey-question-${q.id}`} className="scroll-mt-4">
+            <QuestionCard q={q} answers={answers} value={answers[q.id]} onChange={(v) => setAnswer(q.id, v)} />
+          </div>
         ))}
       </div>
 
@@ -497,10 +581,9 @@ export default function UmfragePage() {
         ) : (
           <button
             onClick={handleSubmit}
-            disabled={!isSurveyComplete(answers)}
-            className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white font-bold transition-colors"
+            className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold transition-colors"
           >
-            {submittedAt ? 'Änderungen absenden' : 'Absenden'}
+            {!isSurveyComplete(answers) ? 'Offene Pflichtfragen finden' : submittedAt ? 'Änderungen absenden' : 'Absenden'}
           </button>
         )}
       </div>
@@ -555,7 +638,7 @@ function QuestionCard({ q, answers, value, onChange }: { q: QuestionDef; answers
         <div className="mb-3">
           <div className="mb-1 flex items-start gap-2">
             <h2 id={`question-${q.id}`} className="min-w-0 flex-1 text-[16px] font-semibold leading-6 text-gray-900 dark:text-gray-100">{q.text}</h2>
-            {!required && <span className="mt-1 shrink-0 rounded-md bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">Optional</span>}
+            <span className="mt-1 shrink-0 rounded-md bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-gray-700 dark:text-gray-400">{required ? 'Pflicht' : 'Optional'}</span>
           </div>
           {q.infoText && (
             <details className="group mt-2 rounded-lg bg-red-50/60 px-3 py-2 text-[12px] text-red-900 dark:bg-red-950/30 dark:text-red-200">

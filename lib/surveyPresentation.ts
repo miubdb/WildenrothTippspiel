@@ -1,4 +1,4 @@
-import { isRequired, QUESTION_BY_ID, type Answers, type QuestionDef } from './survey'
+import { isRequired, QUESTION_BY_ID, SURVEY_SECTIONS, visibleQuestionsForSection, type Answers, type QuestionDef } from './survey'
 
 /**
  * Mobile-first visual budget, not a fixed number of questions per screen.
@@ -165,4 +165,21 @@ function answered(q: QuestionDef, value: Answers[string]): boolean {
 
 export function pageComplete(questions: QuestionDef[], answers: Answers): boolean {
   return questions.every((q) => !isRequired(q, answers) || answered(q, answers[q.id]))
+}
+
+/**
+ * Locate the earliest unanswered REQUIRED question in the currently visible,
+ * dynamically paginated survey. Both forward navigation and final submission
+ * use this exact same traversal so conditional answers cannot leave a
+ * silently incomplete earlier page.
+ */
+export function firstIncompleteSurveyPage(answers: Answers): { sectionIdx: number; pageIdx: number; questionId: string } | null {
+  for (const [sectionIdx, section] of SURVEY_SECTIONS.entries()) {
+    const pages = questionPages(visibleQuestionsForSection(section, answers))
+    for (const [pageIdx, questions] of pages.entries()) {
+      const firstMissing = questions.find((q) => isRequired(q, answers) && !pageComplete([q], answers))
+      if (firstMissing) return { sectionIdx, pageIdx, questionId: firstMissing.id }
+    }
+  }
+  return null
 }

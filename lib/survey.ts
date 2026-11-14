@@ -683,6 +683,13 @@ export function isSurveyComplete(answers: Answers): boolean {
   return SURVEY_SECTIONS.every((s) => isSectionComplete(s, answers))
 }
 
+/** Completion is calculated from visible mandatory questions, not visited pages. */
+export function surveyProgress(answers: Answers): { percent: number; answered: number; total: number } {
+  const required = SURVEY_SECTIONS.flatMap((s) => visibleQuestionsForSection(s, answers)).filter((q) => isRequired(q, answers))
+  const answered = required.filter((q) => isAnswered(q, answers)).length
+  return { percent: required.length ? Math.round((answered / required.length) * 100) : 100, answered, total: required.length }
+}
+
 /** All questions that are visible anywhere given the final answer set — used by admin views to render only the Q&A that actually applied to this respondent (jump logic respected, not shown as "not answered"). */
 export function visibleQuestionsForAnswers(answers: Answers): QuestionDef[] {
   return ALL_QUESTIONS.filter((q) => isQuestionVisible(q, answers))
