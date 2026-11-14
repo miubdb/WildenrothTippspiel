@@ -7,6 +7,8 @@ import { isSimulationAllowed } from '@/lib/recap/environmentGuard'
 import { RecapTypeNav } from '@/components/recap/RecapTypeNav'
 import { RecapPublishPanel } from '@/components/recap/RecapPublishPanel'
 import { HinrundeView } from '@/components/recap/HinrundeView'
+import { SurveyInvitation } from '@/components/SurveyInvitation'
+import { currentSurveyModeKey, currentSurveyVersion, resolveSurveyMode } from '@/lib/surveyMode'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Winter-Recap' }
@@ -22,6 +24,13 @@ export default async function HinrundeRecapPage({ searchParams }: { searchParams
   const wantsSim = test === 'sim16'
   const state = await loadHinrundeState({ adminPreview: isAdmin, viewerId: user.id, simulate: wantsSim })
   const visibleToMembers = state.visibility === 'published' && !state.simulation
+  const { data: surveyModeSetting } = state.report
+    ? await supabase.from('app_settings').select('value').eq('key', currentSurveyModeKey()).maybeSingle()
+    : { data: null }
+  const showSurvey = !!state.report && resolveSurveyMode(surveyModeSetting?.value) === 'prominent'
+  const surveyResponse = showSurvey
+    ? (await supabase.from('survey_responses').select('answers, submitted_at').eq('user_id', user.id).eq('survey_version', currentSurveyVersion()).maybeSingle()).data
+    : null
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -39,7 +48,7 @@ export default async function HinrundeRecapPage({ searchParams }: { searchParams
         </div>
       )}
       {state.report ? (
-        <HinrundeView report={state.report} personal={state.personal} myId={user.id} previewTo={state.previewTo} simulation={state.simulation} />
+        <HinrundeView report={state.report} personal={state.personal} myId={user.id} previewTo={state.previewTo} simulation={state.simulation} surveyCard={showSurvey ? <SurveyInvitation variant="winter" response={surveyResponse} /> : null} />
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm py-12 px-6 text-center">
           <div className="text-4xl mb-3">🏆</div>
