@@ -316,7 +316,7 @@ export const SURVEY_SECTIONS: SectionDef[] = [
         id: 'q15_zero', type: 'single', required: false,
         text: 'Wenn das Taschengeld wegfällt: Wie sollten Spieler mit 0 Wildis wieder an Guthaben kommen?',
         options: [
-          'Keine Rettung: Wer seine Wildis verzockt, ist für den Rest der Saison raus'
+          'Keine Rettung: Wer seine Wildis verzockt, ist für den Rest der Saison raus',
           'Kleine Gutschrift nur bei aufgebrauchtem Guthaben',
           'Einmaliger Rettungsbonus pro Saison',
           'Andere Lösung',
