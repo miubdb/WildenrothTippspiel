@@ -106,7 +106,8 @@ export async function finalizeMatchdayIfDone(admin: SupabaseClient, matchId: num
   const { data: pendingBetsRaw, count: pendingBetCount, error: pendingError } = await admin
     .from('bets')
     .select('match_id, special_id, market_type, status', { count: 'exact' })
-    .in('match_id', mIds)
+    .eq('season', CURRENT_SEASON)
+    .eq('placed_matchday', matchday)
     .eq('status', 'pending')
   if (pendingError || pendingBetsRaw == null || pendingBetCount !== pendingBetsRaw.length) {
     // Supabase may truncate result rows at its server-side max_rows limit.

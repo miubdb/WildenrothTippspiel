@@ -230,7 +230,16 @@ export default async function LeaderboardPage({
     : []
   const recapGroupMatchIds = new Set(recapGroupMatches.map(m => m.id))
   const nonPostponedRecapMatches = recapGroupMatches.filter(m => m.status !== 'postponed' && m.status !== 'annulled')
-  const matchdayHasPendingBets = allBets.some(b => b.status === 'pending' && b.match_id != null && recapGroupMatchIds.has(b.match_id))
+  // A November slip on a postponed match must not keep March's recap open.
+  // Pending specials remain blocking unless the settlement gate confirms
+  // their included matches are postponed (special resolution is fail-closed).
+  const matchStatusById = new Map(seasonMatches.map(m => [m.id, m.status]))
+  const matchdayHasPendingBets = allBets.some(b => {
+    if (b.status !== 'pending' || b.placed_matchday !== currentMatchday) return false
+    if (b.market_type === 'matchday_special') return true
+    const status = b.match_id != null ? matchStatusById.get(b.match_id) : undefined
+    return status !== 'postponed' && status !== 'annulled'
+  })
   const isMatchdayComplete = nonPostponedRecapMatches.length > 0 && nonPostponedRecapMatches.every(m => m.status === 'finished') && !matchdayHasPendingBets
   // Default to Spieltag tab once the matchday kicks off, back to Rangliste once fully settled
   const hasMatchdayStarted = matchdayMatches.some(m => m.status === 'live' || m.status === 'finished')
