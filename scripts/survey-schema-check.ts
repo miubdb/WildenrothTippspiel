@@ -621,8 +621,9 @@ export function run(): number {
         check(`Bereich ${section.id}: visuelles Budget wird eingehalten`,
           pages.every((page) => page.length === 1 ||
             page.reduce((height, question) => height + estimateQuestionHeight(question), 0) <= QUESTION_PAGE_BUDGET))
-        check(`Bereich ${section.id}: Feature-Auswahl bleibt eine eigenständige Seite`,
-          pages.every((page) => !page.some((question) => question.id === 'q_features') || page.length === 1))
+        check(`Bereich ${section.id}: Feature-Auswahl und eigene Feature-Idee bleiben auf einer Seite`,
+          pages.every((page) => !page.some((question) => question.id === 'q_features') ||
+            (page.length === 2 && page.some((question) => question.id === 'q_features_text'))))
       }
     }
     const shortQuestions = Array.from({ length: 5 }, (_, index) =>
@@ -656,9 +657,20 @@ export function run(): number {
       !pageComplete([q5], { q4: 'Ich würde ein Startgeld mit Preisen ausdrücklich begrüßen.' }))
     check('Freiwilliger Freitext blockiert den UX-Schritt nicht',
       pageComplete([q('q31')], {}))
-    check('Die große Feature-Frage steht in einem eigenen UX-Block',
+    check('Feature-Auswahl und freiwillige Feature-Idee stehen zusammen statt auf zwei Einzel-Seiten',
       questionPages(visibleQuestionsForSection(SURVEY_SECTIONS[4], {})).some(
-        (page) => page.length === 1 && page[0].id === 'q_features'))
+        (page) => page.length === 2 && page[0].id === 'q_features' && page[1].id === 'q_features_text'))
+    const shortMixed = Array.from({ length: 5 }, (_, index) =>
+      ({ ...q('q5'), id: `compact-${index}`, text: 'Welcher kurze Wert passt?', helpText: undefined, infoText: undefined, options: ['A', 'B', 'C'] }))
+    check('Fünf kurze Mehrfachwahl-Fragen werden auf nur einer Seite zusammengefasst',
+      questionPages(shortMixed).length === 1 && questionPages(shortMixed)[0].length === 5)
+    const medium = [q('q4'), q('q7'), q('q5'), q('q8')]
+    const mediumPages = questionPages(medium)
+    check('Vier mittlere Fragen werden ohne künstliche Einzel-Frage am Seitenende aufgeteilt',
+      mediumPages.every((page) => page.length >= 2) && mediumPages.flat().length === medium.length)
+    const conditionalFollowUp = questionPages([q('q29'), q('q29_text')])
+    check('Lange Wettaktivitätsfrage darf mit ihrem kurzen Freitext auf derselben Seite stehen',
+      conditionalFollowUp.length === 1 && conditionalFollowUp[0].length === 2)
   }
 
   console.log(`\n${checks} Prüfungen, ${failures} Fehler.`)
