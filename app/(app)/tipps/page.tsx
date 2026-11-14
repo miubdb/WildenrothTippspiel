@@ -17,7 +17,8 @@ import { ODDS_MATCH_COLUMNS, ODDS_MATCH_JOINS, SEASON_START, priorContextFromRow
 import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerDisplayOffer, type GoalscorerMatchContext } from '@/lib/goalscorer'
 import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, goalscorerOfferState, loadPreviousPublishedOfferState } from '@/lib/goalscorerContext'
-import { currentSurveyModeKey, resolveSurveyMode } from '@/lib/surveyMode'
+import { currentSurveyModeKey, currentSurveyVersion, resolveSurveyMode } from '@/lib/surveyMode'
+import { SurveyInvitation } from '@/components/SurveyInvitation'
 import Link from 'next/link'
 import { CUP_MARKET_LABEL, plainSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
@@ -100,6 +101,9 @@ export default async function TippsPage({
   // to the dynamic computation unchanged.
   const explicitBettingOpens = parseBettingOpenOverrides(appSettings)
   const surveyMode = resolveSurveyMode(appSettings.get(currentSurveyModeKey()))
+  const surveyResponse = surveyMode === 'prominent' && user
+    ? (await supabase.from('survey_responses').select('answers, submitted_at').eq('user_id', user.id).eq('survey_version', currentSurveyVersion()).maybeSingle()).data
+    : null
 
   const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
     ...m,
