@@ -102,7 +102,7 @@ export function questionPages(questions: QuestionDef[]): QuestionDef[][] {
       // with its optional free text but never append unrelated questions.
       if (containsFeature && !(start === end && group[0].id === 'q_features')) break
       // Exception: a single oversized question may occupy its own page.
-      if (height > QUESTION_PAGE_BUDGET && count > 1) break
+      if (height > QUESTION_PAGE_BUDGET && end > start) break
 
       const remaining = best[end + 1]
       if (!remaining) continue
