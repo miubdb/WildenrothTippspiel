@@ -374,7 +374,7 @@ export default function UmfragePage() {
           </div>
         </div>
         <p className="px-1 text-[12px] leading-5 text-gray-500 dark:text-gray-400">
-          Wir werten deine Antworten aus, um das Tippspiel zu verbessern – nicht, um einzelne Spieler zu beurteilen. Admins können sie zwar deinem Benutzerkonto zuordnen, aber Kritik ist ausdrücklich willkommen. Also sei einfach ehrlich! 😉 Die Bearbeitungszeit messen wir nur während der aktiven Nutzung; Pausen und geschlossene Tabs zählen nicht.
+          Deine ehrliche Meinung hilft uns, das Tippspiel besser zu machen – Kritik ist ausdrücklich willkommen! 😉 Admins können deine Antworten deinem Benutzerkonto zuordnen.
         </p>
         <button
           type="button"
