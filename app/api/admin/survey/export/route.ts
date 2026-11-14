@@ -5,6 +5,7 @@ import { ALL_QUESTIONS, visibleQuestionsForAnswers } from '@/lib/survey'
 import type { Answers } from '@/lib/survey'
 import { currentSurveyVersion } from '@/lib/surveyMode'
 import { findSurveyOperatorId, withoutSurveyOperator } from '@/lib/surveyAudience'
+import { totalSurveyActivityByUser, type SurveyActivityRow } from '@/lib/surveyActivity'
 
 // Formula-injection guard: a cell starting with =, +, -, or @ is executed as
 // a formula by Excel/LibreOffice/Google Sheets when the file is opened — a
@@ -49,10 +50,13 @@ export async function GET(req: Request) {
   // rows, never the other environment's (both share the same table).
   const version = currentSurveyVersion()
   const admin = createAdminClient()
-  const [{ data: rows }, { data: profiles }] = await Promise.all([
+  const [{ data: rows }, { data: profiles }, { data: activityRaw, error: activityError }] = await Promise.all([
     admin.from('survey_responses').select('user_id, answers, started_at, submitted_at, updated_at').eq('survey_version', version),
     admin.from('profiles').select('id, username, display_name, is_admin'),
+    admin.from('survey_activity_sessions').select('user_id, active_ms').eq('survey_version', version),
   ])
+  if (activityError) return NextResponse.json({ error: 'Bearbeitungszeiten konnten nicht geladen werden.' }, { status: 500 })
+  const activeByUser = totalSurveyActivityByUser((activityRaw ?? []) as SurveyActivityRow[])
 
   const profileMap = new Map((profiles ?? []).map((p) => [p.id as string, p]))
   const operatorUserId = findSurveyOperatorId(profiles ?? [])
@@ -65,7 +69,7 @@ export async function GET(req: Request) {
     : (rows ?? [])
 
   const header = [
-    'Nutzer', 'User-ID', 'Umfrageversion', 'Gestartet am', 'Abgegeben am', 'Zuletzt geändert',
+    'Nutzer', 'User-ID', 'Umfrageversion', 'Gestartet am', 'Abgegeben am', 'Zuletzt geändert', 'Aktive Bearbeitungszeit (Sekunden)',
     ...ALL_QUESTIONS.map((q) => q.text),
   ]
 
@@ -82,6 +86,7 @@ export async function GET(req: Request) {
       r.started_at as string,
       (r.submitted_at as string | null) ?? '',
       r.updated_at as string,
+      activeByUser.has(r.user_id as string) ? Math.round(activeByUser.get(r.user_id as string)! / 1000) : '',
       ...ALL_QUESTIONS.map((q) => (visibleIds.has(q.id) ? answerToText(answers[q.id]) : '')),
     ]
     lines.push(cells.map((c) => csvEscape(String(c))).join(';'))
