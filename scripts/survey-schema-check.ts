@@ -17,6 +17,7 @@ import {
 import { isActuallySubmitted, computeOverview, computeCrossTabs, type SurveyRow } from '@/lib/surveyAggregate'
 import { computeSurveyDecisionInsights, inSurveySegment } from '@/lib/surveyInsights'
 import { questionPages, pageComplete, estimateQuestionHeight, QUESTION_PAGE_BUDGET } from '@/lib/surveyPresentation'
+import { advanceSurveyActivity, freshActivityClock, noteSurveyInteraction, resumeSurveyActivity, surveyTimeStats, surveyTimeLabel, totalSurveyActivityByUser } from '@/lib/surveyActivity'
 import { findSurveyOperatorId, withoutSurveyOperator } from '@/lib/surveyAudience'
 import {
   currentSurveyModeKey, resolveSurveyMode, surveyModeAllowsAccess, surveyModeShowsHelpLink, SURVEY_MODE_KEY_PRODUCTION, SURVEY_MODE_KEY_PREVIEW,
@@ -671,6 +672,44 @@ export function run(): number {
     const conditionalFollowUp = questionPages([q('q29'), q('q29_text')])
     check('Lange Wettaktivitätsfrage darf mit ihrem kurzen Freitext auf derselben Seite stehen',
       conditionalFollowUp.length === 1 && conditionalFollowUp[0].length === 2)
+  }
+
+  console.log('\n17. Aktive Bearbeitungszeit über mehrere Besuche')
+  {
+    let current = freshActivityClock(0)
+    current = advanceSurveyActivity(current, 30_000, true)
+    current = advanceSurveyActivity(current, 180_000, true)
+    check('Ohne Interaktion wird nach 60 Sekunden automatisch pausiert',
+      current.activeMs === 60_000)
+    current = noteSurveyInteraction(current, 180_000, true)
+    current = advanceSurveyActivity(current, 195_000, true)
+    check('Nach erneuter Interaktion zählen weitere aktive Sekunden',
+      current.activeMs === 75_000)
+    current = advanceSurveyActivity(current, 500_000, false)
+    check('Während eines Hintergrund-Tabs läuft die Uhr niemals weiter',
+      current.activeMs === 75_000)
+    current = resumeSurveyActivity(current, 900_000)
+    current = advanceSurveyActivity(current, 920_000, true)
+    check('Nach Rückkehr zählt nur die neue aktive Zeit, nicht die Unterbrechung',
+      current.activeMs === 95_000)
+    const sessions = [
+      { user_id: 'a', active_ms: 95_000 },
+      { user_id: 'a', active_ms: 42_000 },
+      { user_id: 'b', active_ms: '180000' },
+      { user_id: 'c', active_ms: 0 },
+    ]
+    const aggregate = totalSurveyActivityByUser(sessions)
+    check('Mehrere Besuche werden pro Spieler zusammengezählt',
+      aggregate.get('a') === 137_000 && aggregate.get('b') === 180_000)
+    const stats = surveyTimeStats(['a', 'b', 'c', 'old'], aggregate)
+    check('Mittelwert und Median schließen alte Antworten ohne Tracking aus',
+      stats.tracked === 2 && stats.submitted === 4 &&
+      stats.meanMs === 158_500 && stats.medianMs === 158_500)
+    check('Zeitformat für Admin ist verständlich',
+      surveyTimeLabel(137_000) === '2:17 Min.' && surveyTimeLabel(null) === '—')
+    const missing = surveyTimeStats(['old'], new Map())
+    check('Bei alten Antworten ohne Daten wird nie 0 Minuten vorgetäuscht',
+      missing.tracked === 0 && missing.meanMs === null && missing.medianMs === null)
   }
 
   console.log(`\n${checks} Prüfungen, ${failures} Fehler.`)
