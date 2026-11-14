@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { validateIncomingAnswers, isCompleteForSubmission, nextSubmittedAt } from '@/lib/surveyValidation'
+import { SURVEY_SECTIONS } from '@/lib/survey'
 import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion, surveyModeAllowsAccess } from '@/lib/surveyMode'
 
 // Own-survey endpoint: reads/writes the caller's own survey_responses row for
@@ -27,7 +28,7 @@ export async function GET() {
   const [{ data: response }, { data: modeSetting }] = await Promise.all([
     supabase
       .from('survey_responses')
-      .select('answers, started_at, submitted_at, updated_at')
+      .select('answers, started_at, submitted_at, updated_at, last_section_id, last_page_idx')
       .eq('user_id', user.id)
       .eq('survey_version', currentSurveyVersion())
       .maybeSingle(),
@@ -61,7 +62,7 @@ export async function POST(req: Request) {
   if (!body || typeof body !== 'object') {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
-  const { action, answers: rawAnswers } = body as { action?: string; answers?: unknown }
+  const { action, answers: rawAnswers, lastSectionId, lastPageIdx } = body as { action?: string; answers?: unknown; lastSectionId?: unknown; lastPageIdx?: unknown }
   if (action !== 'save' && action !== 'submit') {
     return NextResponse.json({ error: 'Unbekannte Aktion.' }, { status: 400 })
   }
@@ -91,6 +92,13 @@ export async function POST(req: Request) {
     }
   }
 
+  if (lastSectionId !== undefined && (!Number.isInteger(lastSectionId) || !SURVEY_SECTIONS.some((section) => section.id === lastSectionId))) {
+    return NextResponse.json({ error: 'Ungültiger Umfrage-Bereich.' }, { status: 400 })
+  }
+  if (lastPageIdx !== undefined && (typeof lastPageIdx !== 'number' || !Number.isInteger(lastPageIdx) || lastPageIdx < 0 || lastPageIdx > 30)) {
+    return NextResponse.json({ error: 'Ungültiger Umfrage-Schritt.' }, { status: 400 })
+  }
+
   const now = new Date().toISOString()
 
   // Fetch existing row first so we keep the original started_at and decide
@@ -98,7 +106,7 @@ export async function POST(req: Request) {
   // just echo the client's intended action.
   const { data: existing } = await supabase
     .from('survey_responses')
-    .select('started_at, submitted_at')
+    .select('started_at, submitted_at, last_section_id, last_page_idx')
     .eq('user_id', user.id)
     .eq('survey_version', currentSurveyVersion())
     .maybeSingle()
@@ -122,6 +130,8 @@ export async function POST(req: Request) {
       started_at: existing?.started_at ?? now,
       submitted_at: submittedAt,
       updated_at: now,
+      last_section_id: typeof lastSectionId === 'number' ? lastSectionId : (existing?.last_section_id ?? 1),
+      last_page_idx: typeof lastPageIdx === 'number' ? lastPageIdx : (existing?.last_page_idx ?? 0),
       answers,
     }, { onConflict: 'user_id,survey_version' })
 
