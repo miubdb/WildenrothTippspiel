@@ -159,6 +159,21 @@ export function normalizeLegacySurveyAnswers(raw: Answers): Answers {
   // database response until this user actively saves a revised survey;
   // strip it only from the client-side draft.
   delete migrated.q30
+  // The prior generic Cashout answer cannot be interpreted as either
+  // live cashout or pre-match combo cashout. Ask for a fresh choice instead.
+  // Likewise, the new "verzockt -> raus" is more specific than a previous
+  // wish for no automatic credit, so don't infer that change of intent.
+  if (Array.isArray(migrated.q_features)) {
+    migrated.q_features = migrated.q_features.filter((value) => value !== 'Cashout')
+  }
+  if (migrated.q15_zero === 'Keine automatische Gutschrift') {
+    delete migrated.q15_zero
+  }
+  if (Array.isArray(migrated.q_comprehensibility)) {
+    migrated.q_comprehensibility = migrated.q_comprehensibility.filter(
+      (value) => value !== 'Wie sich mein aktuelles Wildis-Guthaben zusammensetzt'
+    )
+  }
   // No longer offer speculative "Erlebnispreise"; preserve the rest of Q7.
   if (Array.isArray(migrated.q7)) {
     const valid = new Set(QUESTION_BY_ID.get('q7')?.options ?? [])
