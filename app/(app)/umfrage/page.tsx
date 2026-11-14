@@ -7,7 +7,7 @@ import {
   type Answers, type QuestionDef,
 } from '@/lib/survey'
 import { toggleMultiOption, stripHiddenAnswers, normalizeLegacySurveyAnswers, wouldReplaceSurveySelection } from '@/lib/surveyValidation'
-import { questionPages, pageComplete } from '@/lib/surveyPresentation'
+import { questionPages, pageComplete, firstIncompleteSurveyPage } from '@/lib/surveyPresentation'
 import { advanceSurveyActivity, freshActivityClock, noteSurveyInteraction, resumeSurveyActivity, SURVEY_HEARTBEAT_MS } from '@/lib/surveyActivity'
 
 type LoadState = 'loading' | 'ready' | 'error'
@@ -320,6 +320,14 @@ export default function UmfragePage() {
     const blocks = questionPages(visibleQuestionsForSection(section, answers))
     const currentBlock = Math.min(pageIdx, blocks.length - 1)
     if (!pageComplete(blocks[currentBlock], answers)) return
+    // A conditional question or repagination can invalidate a step visited
+    // earlier. Never let normal forward navigation leave that gap unseen.
+    const missing = firstIncompleteSurveyPage(answers)
+    if (missing && (missing.sectionIdx < sectionIdx || (missing.sectionIdx === sectionIdx && missing.pageIdx <= currentBlock))) {
+      setSubmitErrorQuestionId(missing.questionId)
+      await goToPosition(missing.sectionIdx, missing.pageIdx, missing.questionId)
+      return
+    }
     if (currentBlock + 1 < blocks.length) {
       await goToPosition(sectionIdx, currentBlock + 1)
     } else if (sectionIdx < SURVEY_SECTIONS.length - 1) {
@@ -351,15 +359,10 @@ export default function UmfragePage() {
 
   async function handleSubmit() {
     if (!isSurveyComplete(answers)) {
-      for (let idx = 0; idx < SURVEY_SECTIONS.length; idx++) {
-        const pages = questionPages(visibleQuestionsForSection(SURVEY_SECTIONS[idx], answers))
-        const missingPage = pages.findIndex((questions) => !pageComplete(questions, answers))
-        if (missingPage >= 0) {
-          const firstMissing = pages[missingPage].find((q) => isRequired(q, answers) && !pageComplete([q], answers))
-          setSubmitErrorQuestionId(firstMissing?.id ?? null)
-          await goToPosition(idx, missingPage, firstMissing?.id)
-          return
-        }
+      const missing = firstIncompleteSurveyPage(answers)
+      if (missing) {
+        setSubmitErrorQuestionId(missing.questionId)
+        await goToPosition(missing.sectionIdx, missing.pageIdx, missing.questionId)
       }
       return
     }
