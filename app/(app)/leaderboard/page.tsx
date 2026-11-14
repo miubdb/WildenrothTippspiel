@@ -56,13 +56,13 @@ export default async function LeaderboardPage({
     ).then((data) => ({ data: [...data].sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime()) })),
     fetchAllRows((from, to) => supabase
       .from('bets')
-      .select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season, created_at, special_id')
+      .select('id, user_id, match_id, market_type, selection, stake, odds_value, status, payout, combo_id, is_risky, season, created_at, special_id, placed_matchday')
       .order('id')
       .range(from, to)
     ).then((data) => ({ data })),
     fetchAllRows((from, to) => supabase
       .from('combo_bets')
-      .select('id, user_id, stake, total_odds, status, payout, season, created_at')
+      .select('id, user_id, stake, total_odds, status, payout, season, created_at, placed_matchday')
       .order('id')
       .range(from, to)
     ).then((data) => ({ data })),
@@ -115,7 +115,6 @@ export default async function LeaderboardPage({
   // grouping exactly, or the persisted Spieltagskönig trophy and this page's
   // live Wochentippkönig banner could disagree about the same Spieltag.
   const recapMatchdayOf = (m: Match) => recapMatchdayOfShared(m, mdIndex)
-  const byKickoff = (a: number, b: number) => (matchdayMinDate.get(a) ?? 0) - (matchdayMinDate.get(b) ?? 0)
   // Outlier-robust variant for firstScheduledMd below — matchdayMinDate is
   // NOT outlier-robust (see its doc in lib/season.ts) and is keyed by RAW
   // matchday, so a rescheduled makeup match that now runs under a DIFFERENT
@@ -134,8 +133,8 @@ export default async function LeaderboardPage({
   // Fall back to 1-28 placeholder when no real season matches exist yet (ignore test matchday).
   // Chronological order by actual kickoff (outlier-robust median anchor, see
   // lib/season.ts) — mirrors the same picker order used on tipps/page.tsx.
-  // Every date-dependent decision below goes through the explicit `byKickoff`
-  // comparator instead of this array's own order, so reordering it here is safe.
+  // Date-sensitive ordering below uses the outlier-robust median anchor where
+  // chronology matters, so raw rescheduled kickoffs cannot distort Spieltag order.
   const allMatchdays = kreisligaMatchdaysDisplayOrder.length > 0
     ? [...(hasTestMatchday ? [999] : []), ...kreisligaMatchdaysDisplayOrder]
     : [...(hasTestMatchday ? [999] : []), ...Array.from({ length: 28 }, (_, i) => i + 1)]
@@ -231,7 +230,7 @@ export default async function LeaderboardPage({
     : []
   const recapGroupMatchIds = new Set(recapGroupMatches.map(m => m.id))
   const nonPostponedRecapMatches = recapGroupMatches.filter(m => m.status !== 'postponed' && m.status !== 'annulled')
-  const matchdayHasPendingBets = allBets.some(b => b.status === 'pending' && b.match_id != null && recapGroupMatchIds.has(b.match_id))
+  const matchdayHasPendingBets = allBets.some(b => b.status === 'pending' && b.match_id != null && recapGroupMatchIds.has(b.match_id) && seasonMatches.some(m => m.id === b.match_id && m.status !== 'postponed' && m.status !== 'annulled'))
   const isMatchdayComplete = nonPostponedRecapMatches.length > 0 && nonPostponedRecapMatches.every(m => m.status === 'finished') && !matchdayHasPendingBets
   // Default to Spieltag tab once the matchday kicks off, back to Rangliste once fully settled
   const hasMatchdayStarted = matchdayMatches.some(m => m.status === 'live' || m.status === 'finished')
@@ -346,7 +345,7 @@ export default async function LeaderboardPage({
   const combosObj: ComboMap = {}
   const initialReactions: { target_type: string; target_id: number; emoji: string; user_id: string }[] = []
 
-  if (matchdayMatchIds.size > 0 && user) {
+  if (currentMatchday != null && user) {
     const matchIds = [...matchdayMatchIds]
     const { data: betsRaw } = await supabase
       .from('bets')
@@ -357,7 +356,7 @@ export default async function LeaderboardPage({
            away_team:teams!matches_away_team_id_fkey(name, short_name)
          )`
       )
-      .in('match_id', matchIds)
+      .eq('placed_matchday', currentMatchday)
       .neq('status', 'void')
 
     const mapped = (betsRaw ?? []).map(b => ({
@@ -375,7 +374,7 @@ export default async function LeaderboardPage({
 
     const comboIds = [...new Set(mapped.filter(b => b.combo_id).map(b => b.combo_id as number))]
     const { data: cbData } = comboIds.length > 0
-      ? await supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds)
+      ? await supabase.from('combo_bets').select('id, stake, total_odds, status, payout').in('id', comboIds).eq('placed_matchday', currentMatchday)
       : { data: [] as ComboMeta[] }
     const visibleComboIds = new Set((cbData ?? []).filter(cb => isVisibleComboStatus(cb.status)).map(cb => Number(cb.id)))
     const visibleMapped = mapped.filter(b => !b.combo_id || visibleComboIds.has(Number(b.combo_id)))
@@ -434,25 +433,31 @@ export default async function LeaderboardPage({
 
   // Single bets
   for (const b of allBets) {
-    if (b.status === 'pending' || b.status === 'void' || !b.match_id) continue
-    const md = matchToMatchday.get(b.match_id)
+    if (b.status === 'pending' || b.status === 'void' || b.status === 'neutralized' || !b.match_id) continue
+    const md = b.placed_matchday ?? matchToMatchday.get(b.match_id)
     if (!md || b.combo_id) continue
     const key = `${b.user_id}_${md}`
     const delta = b.status === 'won' ? (b.payout ?? 0) - (b.stake ?? 0) : -(b.stake ?? 0)
     mdPnl.set(key, (mdPnl.get(key) ?? 0) + delta)
   }
 
-  // Combo bets — map combo → matchday via first leg
+  // Combo bets — assign each combo to exactly one Spieltag. Today every
+  // valid combo's legs normally belong to the same effective Spieltag, but a
+  // reschedule can make a cross-Spieltag combo possible. Never depend on the
+  // arbitrary DB/leg iteration order: choose the chronologically earliest
+  // effective Spieltag by the same median anchor used everywhere else.
   const comboToMatchday = new Map<number, number>()
   for (const b of allBets) {
     if (b.combo_id && b.match_id) {
-      const md = matchToMatchday.get(b.match_id)
-      if (md && !comboToMatchday.has(b.combo_id)) comboToMatchday.set(b.combo_id, md)
+      const md = b.placed_matchday ?? matchToMatchday.get(b.match_id)
+      if (!md) continue
+      const current = comboToMatchday.get(b.combo_id)
+      if (current == null || byAnchor(md, current) < 0) comboToMatchday.set(b.combo_id, md)
     }
   }
   for (const cb of allCombos) {
     if (cb.status === 'pending' || cb.status === 'void') continue
-    const md = comboToMatchday.get(cb.id)
+    const md = cb.placed_matchday ?? comboToMatchday.get(cb.id)
     if (!md) continue
     const key = `${cb.user_id}_${md}`
     const delta = cb.status === 'won' ? (cb.payout ?? 0) - (cb.stake ?? 0) : -(cb.stake ?? 0)
@@ -464,8 +469,19 @@ export default async function LeaderboardPage({
   // used to make this permanently stuck on last season's final matchdays (the
   // 🔥 streak badge in particular never lit up during the whole current season).
   const settledMatchdays = [...new Set(
-    seasonMatches.filter(m => m.status === 'finished').map(m => recapMatchdayOf(m))
-  )].filter((md): md is number => md !== null).sort(byKickoff)
+    seasonMatches.map(m => recapMatchdayOf(m))
+  )]
+    .filter((md): md is number => md !== null && md !== 999)
+    .filter((md) => {
+      const nonPostponed = seasonMatches
+        .filter(m => recapMatchdayOf(m) === md && m.status !== 'postponed' && m.status !== 'annulled')
+      return nonPostponed.length > 0 && nonPostponed.every(m => m.status === 'finished')
+    })
+    // IMPORTANT: matchdayMinDate is intentionally NOT used here. A single
+    // raw-matchday outlier can make a later effective Spieltag look months
+    // older (ST13 currently has raw_min 09.09. although it ran 21.–25.10.).
+    // The median anchor is the stable chronological order for "in Folge".
+    .sort(byAnchor)
   const weeklyWinners = new Map<number, string>() // matchday → userId
 
   for (const md of settledMatchdays) {
@@ -498,7 +514,7 @@ export default async function LeaderboardPage({
       return nonPostponed.length > 0 && nonPostponed.every(m => m.status === 'finished')
     })
     .map(([md]) => md)
-    .sort(byKickoff)
+    .sort(byAnchor)
   const latestCompletedMd = fullyCompletedMds.at(-1)
   const previousCompletedMd = fullyCompletedMds.at(-2)
   const previousMdCutoff = previousCompletedMd != null
@@ -520,7 +536,7 @@ export default async function LeaderboardPage({
   // old weekly cron), so it must NOT get an adjustment applied.
   const pocketPenaltyAdjustment = new Map<string, number>()
   if (latestCompletedMd != null) {
-    const { data: pocketMoneyRan } = await supabase
+    const { data: pocketMoneyRan } = await adminSupa
       .from('push_reminders')
       .select('id')
       .eq('type', 'pocket_money')
@@ -528,10 +544,9 @@ export default async function LeaderboardPage({
       .eq('matchday', latestCompletedMd)
       .maybeSingle()
     if (pocketMoneyRan) {
-      const latestMdMatchIds = new Set((recapMdMatches.get(latestCompletedMd) ?? []).map(m => m.id))
       const activeUserIds = new Set<string>()
       for (const b of allBets) {
-        if (b.status !== 'void' && b.match_id != null && latestMdMatchIds.has(b.match_id)) activeUserIds.add(b.user_id)
+        if (b.status !== 'void' && b.placed_matchday === latestCompletedMd) activeUserIds.add(b.user_id)
       }
       for (const p of sortedProfiles) {
         pocketPenaltyAdjustment.set(p.id, activeUserIds.has(p.id) ? 10 : -40) // +10 always, −50 more if inactive
@@ -583,8 +598,8 @@ export default async function LeaderboardPage({
     // them — e.g. 5 newcomers between ST7 and ST2 alone turned a real ↓7 for
     // one user into a displayed ↓2.
     const previousOrder = currentOrder.filter(p => hadPresenceBeforePreviousMd.has(p.id)).sort((a, b) => {
-      const prevA = a.balance - (mdPnl.get(`${a.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(a.id) ?? 0)
-      const prevB = b.balance - (mdPnl.get(`${b.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(b.id) ?? 0)
+      const prevA = a.balance + (pendingStakesPerUser[a.id] ?? 0) - (mdPnl.get(`${a.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(a.id) ?? 0)
+      const prevB = b.balance + (pendingStakesPerUser[b.id] ?? 0) - (mdPnl.get(`${b.id}_${latestCompletedMd}`) ?? 0) - (pocketPenaltyAdjustment.get(b.id) ?? 0)
       if (prevB !== prevA) return prevB - prevA
       return (a.display_name || a.username).localeCompare(b.display_name || b.username, 'de')
     })
@@ -631,7 +646,7 @@ export default async function LeaderboardPage({
     // Recap grouping here too, so this live-computed card matches what
     // computeAndPersistMatchdayAwards persisted for the same Spieltag.
     const mdMatchIdArr = [...recapGroupMatchIds]
-    const recapBets = allBets.filter(b => b.match_id != null && mdMatchIdArr.includes(b.match_id) && (b.status === 'won' || b.status === 'lost'))
+    const recapBets = allBets.filter(b => b.placed_matchday === currentMatchday && (b.status === 'won' || b.status === 'lost'))
 
     if (recapBets.length > 0) {
       const recapSingles = recapBets.filter(b => !b.combo_id)
@@ -689,10 +704,13 @@ export default async function LeaderboardPage({
       // one query for this Spieltag's own matches, not per-award.
       const recapMatchNameMap = new Map<number, string>()
       {
+        // Include delayed games from the ORIGINAL betting round in recap
+        // details, even if the fixture is physically shown in a later round.
+        const namedMatchIds = [...new Set([...mdMatchIdArr, ...recapBets.map(b => b.match_id).filter((x): x is number => x != null)])]
         const { data: recapMatchRows } = await supabase
           .from('matches')
           .select('id, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)')
-          .in('id', mdMatchIdArr)
+          .in('id', namedMatchIds)
         for (const m of recapMatchRows ?? []) {
           const ht = Array.isArray(m.home_team) ? m.home_team[0] : m.home_team
           const at = Array.isArray(m.away_team) ? m.away_team[0] : m.away_team

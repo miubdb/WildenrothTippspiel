@@ -20,6 +20,7 @@ import { databaseKind, isSimulationAllowed, supabaseRef, PRODUCTION_SUPABASE_REF
 import { extractWinterAwards, WINTER_AWARD_KEYS, WINTER_LABEL } from '@/lib/recap/winterAwards'
 import { loadVisibleWinterAwards, replaceWinterAwards, type WinterAwardsClient } from '@/lib/recap/winterAwardsStore'
 import { evaluatePublishGate } from '@/lib/recap/publishGate'
+import { validFrozenWinterRecap, frozenViewForUser, type FrozenWinterRecap } from '@/lib/recap/frozenSnapshot'
 import { cents, type AwardEntry } from '@/lib/recap/halbzeitAwards'
 import type { RecapReport } from '@/lib/recap/report'
 import { computeOverview } from '@/lib/recap/hinrundeStats'
@@ -226,11 +227,56 @@ test('Neutrale Torwetten (Über/Unter, BTTS) sind KEINE Gegenwette', classifySta
   test('Ein Spiel noch nicht beendet → NICHT bereit', !computeRangeReadiness(ms2, [], 1, 3).ready)
   const ms3 = ms.map((m) => (m.id === 31 ? { ...m, status: 'postponed' as const } : m))
   test('Verschobenes Spiel blockiert nicht; annulliertes ebenfalls nicht', computeRangeReadiness(ms3, [], 1, 3).ready && computeRangeReadiness(ms.map((m) => (m.id === 31 ? { ...m, status: 'annulled' as const } : m)), [], 1, 3).ready)
+  const suspendedBets = Array.from({ length: 15 }, (_, i) => ({
+    match_id: 31, status: 'pending' as const, season: '26/27', market_type: i % 2 ? '1x2' : 'over_under_3_5', special_id: null,
+  }))
+  const suspendedReady = computeRangeReadiness(ms3, suspendedBets, 1, 3)
+  test('Verschobenes Spiel mit 15 offenen Tipps BLOCKIERT den Winter-Recap nicht',
+    suspendedReady.ready && suspendedReady.matchdays[2].openBetRows === 0 && suspendedReady.matchdays[2].deferredBetRows === 15)
+  test('Nachholtermin angesetzt: offene Wetten blockieren wieder, solange nicht abgerechnet',
+    !computeRangeReadiness(ms, suspendedBets, 1, 3).ready)
+  test('Offene Torschützen-Wette auf regulär beendetem Spiel blockiert weiterhin',
+    !computeRangeReadiness(ms3, [...suspendedBets, { match_id: 30, status: 'pending', season: '26/27', market_type: 'goalscorer', special_id: null }], 1, 3).ready)
+  const specialPending = { match_id: 31, status: 'pending' as const, season: '26/27', market_type: 'matchday_special', special_id: 77 }
+  test('Special mit verschobenem included match wird zurückgestellt, nicht als offene Wette gewertet',
+    computeRangeReadiness(ms3, [specialPending], 1, 3, '26/27', [{ id: 77, included_match_ids: [30,31] }]).ready)
+  test('Special nur mit beendeten included matches blockiert – auch wenn der technische Anker verschoben wurde',
+    !computeRangeReadiness(ms3, [specialPending], 1, 3, '26/27', [{ id: 77, included_match_ids: [30,20] }]).ready)
+  test('Unbekanntes Special gilt sicherheitshalber als offen',
+    !computeRangeReadiness(ms3, [specialPending], 1, 3).ready)
+  test('Annulliertes Match mit offenen historischen Tipps blockiert nicht',
+    computeRangeReadiness(ms.map(m => m.id === 31 ? { ...m, status: 'annulled' as const } : m), suspendedBets, 1, 3).ready)
+  
   test('Fehlender Spieltag (keine Spiele) → NICHT bereit', !computeRangeReadiness(ms, [], 1, 4).ready)
   test('Nie nach Datum allein: Zukunftsdatum ohne Abschluss bleibt gesperrt', !computeRangeReadiness(ms2, [], 1, 3).ready)
   test('Sichtbarkeit: nicht bereit → versteckt; bereit ohne Freigabe → unveröffentlicht; mit Freigabe → öffentlich', recapVisibility(false, 'true') === 'hidden_not_ready' && recapVisibility(true, null) === 'ready_unpublished' && recapVisibility(true, 'true') === 'published')
 }
 
+
+// ── Historischer Winter-Snapshot ───────────────────────────────────────────────
+{
+  const payload = {
+    season: '26/27', recap_key: 'hinrunde',
+    report: { version: '1', range: { from: 1, to: 16 }, dataAsOfMs: 12345, awards: [{ key: 'wildi_magnet', entries: [] }] },
+    readiness: { ready: true, matchdays: [{ matchday: 16, complete: true }], blockers: [] },
+    personal_by_user: { alice: { wonSlips: 2, settledSlips: 3 }, bob: { wonSlips: 0, settledSlips: 1 } },
+    created_at: '2026-11-15T22:00:00Z',
+  } as unknown as FrozenWinterRecap
+  test('Finaler, vollständig gespeicherter Snapshot wird akzeptiert', validFrozenWinterRecap(payload))
+  test('Unvollständiger oder nicht freigabefähiger Snapshot wird abgelehnt',
+    !validFrozenWinterRecap({ ...payload, readiness: { ready: false, matchdays: [], blockers: [] } }) &&
+    !validFrozenWinterRecap({ ...payload, report: { ...payload.report, range: { from: 1, to: 15 } } }))
+  const alice = frozenViewForUser(payload, 'alice')
+  test('Veröffentlichte persönliche Daten werden exakt für den anfragenden Benutzer ausgewählt',
+    alice.personal?.wonSlips === 2 && !Object.keys(alice).includes('personal_by_user'))
+  test('Fehlender persönlicher Datensatz wird niemals durch fremde Antworten ersetzt',
+    frozenViewForUser(payload, 'charlie').personal === null)
+  const savedBefore = JSON.stringify(payload)
+  const lateResult = { status: 'finished', score: '4:1', winningCombo: true }
+  lateResult.score = '0:0'
+  test('Spätere Nachholspiel-Änderungen können gespeicherte Snapshot-Werte nicht ändern',
+    JSON.stringify(payload) === savedBefore && frozenViewForUser(payload, 'bob').personal?.wonSlips === 0)
+}
 
 // ── 9. Zusatzfakten ────────────────────────────────────────────────────────────────────────
 {

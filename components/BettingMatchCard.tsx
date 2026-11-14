@@ -758,7 +758,7 @@ export function BettingMatchCard({ match, odds, allMatches, historyMatches, posi
         }`}>
           {isLive && <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse flex-shrink-0" />}
           <span className={`text-xs font-medium ${isLive ? 'text-orange-600 dark:text-orange-400' : 'text-gray-400 dark:text-gray-500'}`}>
-            {isLive ? 'Spiel läuft – keine Tipps mehr möglich' : isAnnulled ? resultDisplay?.detail : 'Spiel beendet – Tippschluss abgelaufen'}
+            {isLive ? 'Spiel läuft – keine Tipps mehr möglich' : match.status === 'postponed' ? 'Spiel verschoben – Nachholtermin folgt' : isAnnulled ? resultDisplay?.detail : 'Spiel beendet – Tippschluss abgelaufen'}
           </span>
         </div>
       )}

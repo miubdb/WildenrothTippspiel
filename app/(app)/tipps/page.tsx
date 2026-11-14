@@ -14,10 +14,11 @@ import { calculateOdds, oddsFromXG, getMatchXG, getFullExactScoreMatrix, mergeEx
 import { CupMatchCard } from '@/components/CupMatchCard'
 import { persistOddsDiagnostics } from '@/lib/oddsDiagnostics'
 import { ODDS_MATCH_COLUMNS, ODDS_MATCH_JOINS, SEASON_START, priorContextFromRows } from '@/lib/oddsInputs'
-import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch } from '@/lib/season'
+import { isSeasonStarted, bettingOpenTime, parseBettingOpenOverrides, buildEffectiveMatchdayIndex, effectiveMatchdayOf as effectiveMatchdayOfShared, isRescheduledMatch, slipSeasonForMatchday } from '@/lib/season'
 import { computeGoalscorerOffersForMatch, type WildenrothPlayer, type GoalscorerDisplayOffer, type GoalscorerMatchContext } from '@/lib/goalscorer'
 import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, goalscorerOfferState, loadPreviousPublishedOfferState } from '@/lib/goalscorerContext'
-import { currentSurveyModeKey, resolveSurveyMode } from '@/lib/surveyMode'
+import { currentSurveyModeKey, currentSurveyVersion, resolveSurveyMode } from '@/lib/surveyMode'
+import { SurveyInvitation } from '@/components/SurveyInvitation'
 import Link from 'next/link'
 import { CUP_MARKET_LABEL, plainSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
@@ -100,6 +101,9 @@ export default async function TippsPage({
   // to the dynamic computation unchanged.
   const explicitBettingOpens = parseBettingOpenOverrides(appSettings)
   const surveyMode = resolveSurveyMode(appSettings.get(currentSurveyModeKey()))
+  const surveyResponse = surveyMode === 'prominent' && user
+    ? (await supabase.from('survey_responses').select('answers, submitted_at').eq('user_id', user.id).eq('survey_version', currentSurveyVersion()).maybeSingle()).data
+    : null
 
   const allMatches: Match[] = (allMatchesRaw ?? []).map((m) => ({
     ...m,
@@ -234,7 +238,12 @@ export default async function TippsPage({
     .filter((m) => effectiveMatchdayOf(m) === currentMatchday)
     .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())
 
-  const deadline = matchdayMatches[0] ? new Date(matchdayMatches[0].match_date) : null
+  // Verschobene Partien ohne bestätigten Nachholtermin sind im Wettschein-Spielplan
+  // unsichtbar. Die originale matchdayMatches-Liste bleibt für Recap, bestehende
+  // Wetten und Spieltagsstatistik unverändert.
+  const visibleMatchdayMatches = matchdayMatches.filter((m) => m.status !== 'postponed')
+
+  const deadline = visibleMatchdayMatches[0] ? new Date(visibleMatchdayMatches[0].match_date) : null
   const isDeadlinePassed = deadline ? deadline <= new Date() : false
 
   // Betting window: opens Monday 12:00 of match week (unless early_betting_open override is set)
@@ -963,8 +972,8 @@ export default async function TippsPage({
 
   const [{ data: userProfile }, ownBetsResult] = await Promise.all([
     user ? supabase.from('profiles').select('is_wildenroth, is_wildenroth_ii, eligible_for_current_season, is_admin').eq('id', user.id).single() : Promise.resolve({ data: null }),
-    user && matchdayMatchIds.length > 0
-      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky, is_bonus, special_id').eq('user_id', user.id).in('match_id', matchdayMatchIds).neq('status', 'void')
+    user && currentMatchday != null
+      ? supabase.from('bets').select('id, match_id, market_type, selection, odds_value, stake, status, combo_id, is_risky, is_bonus, special_id').eq('user_id', user.id).eq('placed_matchday', currentMatchday).eq('season', slipSeasonForMatchday(currentMatchday)).neq('status', 'void')
       : Promise.resolve({ data: [] }),
   ])
 
@@ -980,7 +989,7 @@ export default async function TippsPage({
   let userSingles: OwnBet[] = []
   let userCombos: OwnCombo[] = []
 
-  if (user && matchdayMatchIds.length > 0) {
+  if (user && currentMatchday != null) {
     const ownBets = ownBetsResult.data ?? []
     if (ownBets.length > 0) {
       userSingles = (ownBets as OwnBet[]).filter(b => !b.combo_id)
@@ -990,6 +999,8 @@ export default async function TippsPage({
           .from('combo_bets')
           .select('id, stake, status, total_odds, payout')
           .in('id', comboIds)
+          .eq('placed_matchday', currentMatchday)
+          .eq('season', slipSeasonForMatchday(currentMatchday))
         userCombos = (comboBetRows ?? []).filter(cb => occupiesBettingSlot(cb.status)).map(cb => ({
           id: cb.id,
           stake: cb.stake,
@@ -1561,25 +1572,7 @@ export default async function TippsPage({
         </div>
       )}
 
-      {/* Prominent survey banner — only rendered once THIS environment's own
-          app_settings key (production vs. preview/integration, see
-          lib/surveyMode.ts#currentSurveyModeKey) is explicitly switched to
-          'prominent'. Defaults to 'hidden' on both until that later, separate,
-          per-environment release decision — built now so flipping the config
-          flag alone is enough then. */}
-      {surveyMode === 'prominent' && (
-        <Link
-          href="/umfrage"
-          className="block bg-gradient-to-br from-amber-500 to-amber-600 text-white rounded-2xl px-5 py-4 shadow-sm"
-        >
-          <div className="font-bold text-sm leading-snug">
-            📣 Halbzeit! Hilf mit, das Wildenroth-Wettspiel für die Rückrunde und nächste Saison zu verbessern.
-          </div>
-          <div className="mt-2 inline-block bg-white/20 rounded-lg px-3 py-1.5 text-sm font-bold">
-            Umfrage starten →
-          </div>
-        </Link>
-      )}
+      {surveyMode === 'prominent' && <SurveyInvitation variant="home" response={surveyResponse} />}
 
       {/* Matchday Header */}
       <div className="bg-gradient-to-br from-red-700 to-red-800 text-white rounded-2xl px-5 py-4 shadow-sm">
@@ -1686,7 +1679,7 @@ export default async function TippsPage({
             sobald er vom BFV veröffentlicht wurde.
           </div>
         </div>
-      ) : matchdayMatches.length === 0 ? (
+      ) : visibleMatchdayMatches.length === 0 ? (
         <div className="text-center py-16 text-gray-400 dark:text-gray-500">
           <div className="text-4xl mb-3">⚽</div>
           <div className="font-medium">Keine Spiele</div>
@@ -1694,7 +1687,7 @@ export default async function TippsPage({
       ) : (
         <div className="space-y-3">
           {(() => {
-            const kreisligaAll = matchdayMatches.filter(m => !m.match_category || m.match_category === 'kreisliga')
+            const kreisligaAll = visibleMatchdayMatches.filter(m => !m.match_category || m.match_category === 'kreisliga')
             // Cup fixtures (competition_type='cup') are pinned at the top of
             // their own Spieltag's section in a distinct card instead of the
             // normal Kreisliga list — same effective Spieltag (matchday/
@@ -1702,7 +1695,7 @@ export default async function TippsPage({
             // display slot and its own 4-market card (see CupMatchCard).
             const cupMatches = kreisligaAll.filter(m => m.competition_type === 'cup')
             const kreisliga = kreisligaAll.filter(m => m.competition_type !== 'cup')
-            const bklasse = matchdayMatches.filter(m => m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel))
+            const bklasse = visibleMatchdayMatches.filter(m => m.match_category === 'wildenroth_ii' || m.match_category === 'bklasse_topspiel' || (m.match_category === 'b-klasse' && m.is_topspiel))
             return (
               <>
                 {cupMatches.map((match) => (

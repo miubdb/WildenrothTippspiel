@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { validateIncomingAnswers, isCompleteForSubmission, nextSubmittedAt } from '@/lib/surveyValidation'
+import { SURVEY_SECTIONS } from '@/lib/survey'
 import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion, surveyModeAllowsAccess } from '@/lib/surveyMode'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { grantSurveyRewardIfEligible, isRewardableSurveyVersion, SURVEY_REWARD_AMOUNT, SURVEY_REWARD_KIND, type SurveyRewardState } from '@/lib/surveyReward'
+import type { Answers } from '@/lib/survey'
 
 // Own-survey endpoint: reads/writes the caller's own survey_responses row for
 // THIS ENVIRONMENT's own survey_version (lib/surveyMode.ts#currentSurveyVersion
@@ -27,16 +31,30 @@ export async function GET() {
   const [{ data: response }, { data: modeSetting }] = await Promise.all([
     supabase
       .from('survey_responses')
-      .select('answers, started_at, submitted_at, updated_at')
+      .select('answers, started_at, submitted_at, updated_at, last_section_id, last_page_idx')
       .eq('user_id', user.id)
       .eq('survey_version', currentSurveyVersion())
       .maybeSingle(),
     supabase.from('app_settings').select('value').eq('key', currentSurveyModeKey()).maybeSingle(),
   ])
 
+  // Reward state. A submitted, complete production response without a booking (e.g. the credit failed on submit,
+  // or the response predates the reward) is booked here — idempotent, so reloading the page can never pay twice.
+  let reward: SurveyRewardState | null = null
+  const version = currentSurveyVersion()
+  if (isRewardableSurveyVersion(version)) {
+    const { data: booking } = await supabase.from('balance_transactions').select('id')
+      .eq('user_id', user.id).eq('kind', SURVEY_REWARD_KIND).eq('ref', version).maybeSingle()
+    if (booking) reward = { status: 'already_granted', amount: SURVEY_REWARD_AMOUNT }
+    else if (response?.submitted_at) {
+      reward = await grantSurveyRewardIfEligible(createAdminClient(), user.id, version, response.submitted_at, response.answers as Answers)
+    }
+  }
+
   return NextResponse.json({
     surveyMode: resolveSurveyMode(modeSetting?.value),
     response: response ?? null,
+    reward,
   })
 }
 
@@ -61,7 +79,7 @@ export async function POST(req: Request) {
   if (!body || typeof body !== 'object') {
     return NextResponse.json({ error: 'Ungültige Anfrage.' }, { status: 400 })
   }
-  const { action, answers: rawAnswers } = body as { action?: string; answers?: unknown }
+  const { action, answers: rawAnswers, lastSectionId, lastPageIdx } = body as { action?: string; answers?: unknown; lastSectionId?: unknown; lastPageIdx?: unknown }
   if (action !== 'save' && action !== 'submit') {
     return NextResponse.json({ error: 'Unbekannte Aktion.' }, { status: 400 })
   }
@@ -91,6 +109,13 @@ export async function POST(req: Request) {
     }
   }
 
+  if (lastSectionId !== undefined && (!Number.isInteger(lastSectionId) || !SURVEY_SECTIONS.some((section) => section.id === lastSectionId))) {
+    return NextResponse.json({ error: 'Ungültiger Umfrage-Bereich.' }, { status: 400 })
+  }
+  if (lastPageIdx !== undefined && (typeof lastPageIdx !== 'number' || !Number.isInteger(lastPageIdx) || lastPageIdx < 0 || lastPageIdx > 30)) {
+    return NextResponse.json({ error: 'Ungültiger Umfrage-Schritt.' }, { status: 400 })
+  }
+
   const now = new Date().toISOString()
 
   // Fetch existing row first so we keep the original started_at and decide
@@ -98,7 +123,7 @@ export async function POST(req: Request) {
   // just echo the client's intended action.
   const { data: existing } = await supabase
     .from('survey_responses')
-    .select('started_at, submitted_at')
+    .select('started_at, submitted_at, last_section_id, last_page_idx')
     .eq('user_id', user.id)
     .eq('survey_version', currentSurveyVersion())
     .maybeSingle()
@@ -122,6 +147,8 @@ export async function POST(req: Request) {
       started_at: existing?.started_at ?? now,
       submitted_at: submittedAt,
       updated_at: now,
+      last_section_id: typeof lastSectionId === 'number' ? lastSectionId : (existing?.last_section_id ?? 1),
+      last_page_idx: typeof lastPageIdx === 'number' ? lastPageIdx : (existing?.last_page_idx ?? 0),
       answers,
     }, { onConflict: 'user_id,survey_version' })
 
@@ -133,5 +160,12 @@ export async function POST(req: Request) {
   // `submitted`/`submittedAt` reflect the ACTUAL resulting row, not just the
   // requested action — the client needs this to correctly fall back its own
   // "already submitted" UI state when a save just un-submitted the response.
-  return NextResponse.json({ ok: true, submitted: submittedAt != null, submittedAt })
+  // 100-Wildis-Dankeschön: only for a stamped AND complete production submission; booked atomically and at most once
+  // per user/version (grant_survey_reward). A failed credit leaves no booking -> the next save/submit/page load retries.
+  // Editing later never books again and never takes the reward back.
+  const reward = submittedAt != null
+    ? await grantSurveyRewardIfEligible(createAdminClient(), user.id, currentSurveyVersion(), submittedAt, answers)
+    : null
+
+  return NextResponse.json({ ok: true, submitted: submittedAt != null, submittedAt, reward })
 }

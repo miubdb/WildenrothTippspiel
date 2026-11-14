@@ -11,24 +11,19 @@ import { ADMIN_TAB_ICONS, AdminTabBadge } from '@/components/admin/ui'
  * feste Seitenleiste mit Beschreibung + Untermenüs je Bereich. Mobil: feste Leiste unten.
  * Beide steuern denselben `tab`-Zustand.
  *
- * Admin 3.0 (Entschlackung): von 5 auf 4 Hauptbereiche reduziert — "Verwaltung" und "Umfrage"
- * sind keine eigenen Tabs mehr, sondern leben als Kategorien (`CategoryGroup`, components/admin/
- * ui.tsx) gemeinsam im neuen Tab "Mehr". Keine bisherige Funktion ist dadurch verloren oder
- * schwerer erreichbar als vorher gedacht — nur eine Navigationsebene tiefer. Bonus-Tipps und
- * Spieltag-Specials sind aus der alten Verwaltung in den Spieltag-Tab gewandert (gehören
- * fachlich zur Spieltagsvorbereitung, siehe dort), daher fehlen ihre alten `vw-bonus`/
- * `vw-specials`-Sprungziele hier bewusst.
+ * Die Umfrage hat wieder einen eigenen Hauptreiter auf Desktop und Mobil.
+ * Spieler, Kader, Statistik und System bleiben zusammen im Bereich „Mehr“.
  *
  * Die Untermenüs (`subs`) sind Sprungmarken auf Abschnitts-IDs innerhalb des jeweils aktiven
  * Tabs (`document.getElementById`). Für Ergebnisse gibt es bewusst keine — schon im alten
  * Redesign leer, weil die Filter dort die Rolle übernehmen. Für "Mehr" sind es bewusst nur die
- * 5 Kategorie-Anker (nicht jeder einzelne Abschnitt darunter) — sonst wäre die Untermenü-Liste
+ * wenige Kategorie-Anker (nicht jeder einzelne Abschnitt darunter) — sonst wäre die Untermenü-Liste
  * selbst wieder überladen, genau das Gegenteil des Auftrags. Jede hier gelistete `id` ist auch
  * tatsächlich ein `<Section id="…">`/`<CategoryGroup id="…">` in der jeweiligen Tab-Fläche —
  * kein Sprungziel ins Leere.
  */
 
-export type AdminTab = 'ergebnisse' | 'spieltag' | 'quoten' | 'mehr'
+export type AdminTab = 'ergebnisse' | 'spieltag' | 'quoten' | 'umfrage' | 'mehr'
 
 type TabDef = { id: AdminTab; label: string; desc: string; subs: { id: string; label: string }[] }
 
@@ -41,9 +36,10 @@ const TABS: TabDef[] = [
   { id: 'quoten', label: 'Quoten', desc: 'Neu berechnen, Vorschau, manuell überschreiben', subs: [
     { id: 'qu-berechnung', label: 'Neu berechnen' }, { id: 'qu-warnungen', label: 'Quotenprüfung' }, { id: 'qu-vorschau', label: 'Vorschau & Überschreiben' },
   ] },
-  { id: 'mehr', label: 'Mehr', desc: 'Spieler, Kader & Transfers, Umfrage, Statistik, System & Wartung', subs: [
+  { id: 'umfrage', label: 'Umfrage', desc: 'Teilnahme, Analyse & Antworten', subs: [] },
+  { id: 'mehr', label: 'Mehr', desc: 'Spieler, Kader, Statistik & System', subs: [
     { id: 'mh-spieler', label: 'Spieler & Mitglieder' }, { id: 'mh-kader', label: 'Kader & Transfers' },
-    { id: 'mh-umfrage', label: 'Umfrage' }, { id: 'mh-statistik', label: 'Statistik' }, { id: 'mh-system', label: 'System & Wartung' },
+    { id: 'mh-statistik', label: 'Statistik' }, { id: 'mh-system', label: 'System & Wartung' },
   ] },
 ]
 
@@ -105,7 +101,7 @@ export function AdminShellNav({ tab, onTabChange, newUserCount }: {
 
       {/* Mobil: feste Tab-Leiste unten – alle fünf Bereiche mit vollem Namen, aktiver Bereich klar markiert, Safe-Area berücksichtigt */}
       <nav aria-label="Admin-Bereiche" className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-300 bg-white shadow-[0_-4px_16px_rgba(0,0,0,0.08)] lg:hidden">
-        <div className="mx-auto grid max-w-3xl grid-cols-4 pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[max(0.25rem,env(safe-area-inset-bottom))]">
+        <div className="mx-auto grid max-w-3xl grid-cols-5 pl-[max(0.25rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] pb-[max(0.25rem,env(safe-area-inset-bottom))]">
           {TABS.map((t) => {
             const Icon = ADMIN_TAB_ICONS[t.id]
             const active = tab === t.id

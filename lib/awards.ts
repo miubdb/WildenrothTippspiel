@@ -1,6 +1,5 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { wildiLabel } from '@/components/WildiIcon'
-import { buildEffectiveMatchdayIndex, recapMatchdayOf, SEASON_START } from '@/lib/season'
 import { cappedPayout } from '@/lib/payout'
 import { settleBet } from '@/lib/settleBet'
 import { MARKET_LABELS } from '@/lib/betStats'
@@ -152,13 +151,17 @@ export async function computeAndPersistMatchdayAwards(
   const { data: rawBets } = await admin
     .from('bets')
     .select('id, user_id, match_id, stake, odds_value, payout, status, is_risky, combo_id, market_type, selection, created_at')
-    .in('match_id', matchIds)
+    .eq('season', season)
+    .eq('placed_matchday', matchday)
     .in('status', ['won', 'lost'])
   const allBets = rawBets ?? []
 
   // Kickoff times for this Spieltag's own matches — needed for Last-Minute-
   // Tipper's "placed < 1h before kickoff" check on single bets.
-  const { data: mdMatchesRaw } = await admin.from('matches').select('id, match_date').in('id', matchIds)
+  const settledMatchIds = [...new Set(allBets.map((b) => b.match_id))]
+  const { data: mdMatchesRaw } = settledMatchIds.length
+    ? await admin.from('matches').select('id, match_date').in('id', settledMatchIds)
+    : { data: [] as { id: number; match_date: string }[] }
   const matchDateMap = new Map<number, string>((mdMatchesRaw ?? []).map((m) => [m.id, m.match_date]))
   const singleBets = allBets.filter((b: { combo_id: unknown }) => !b.combo_id)
   const legBets = allBets.filter((b: { combo_id: unknown }) => b.combo_id)
@@ -178,6 +181,8 @@ export async function computeAndPersistMatchdayAwards(
       .from('combo_bets')
       .select('id, user_id, stake, total_odds, payout, status, created_at')
       .in('id', comboIds)
+      .eq('season', season)
+      .eq('placed_matchday', matchday)
       .in('status', ['won', 'lost'])
     comboBets = (cbData ?? []) as CB[]
     const { data: legData } = await admin
@@ -206,23 +211,8 @@ export async function computeAndPersistMatchdayAwards(
       const cur = comboEarliestKickoff.get(cid)
       if (!cur || d < cur) comboEarliestKickoff.set(cid, d)
     }
-    const { data: seasonMatchesRaw } = await admin
-      .from('matches')
-      .select('id, match_number, matchday, home_team_id, away_team_id, match_date, home_score, away_score, status, match_category, is_topspiel, tippspiel_matchday')
-      .or(`match_date.gte.${SEASON_START},matchday.eq.999`)
-    const mdIndex = buildEffectiveMatchdayIndex((seasonMatchesRaw ?? []) as Match[])
-    const matchIdToRecapMd = new Map<number, number | null>(
-      ((legMatchesRaw ?? []) as Match[]).map((m) => [m.id, recapMatchdayOf(m, mdIndex)])
-    )
-    const comboOwnerMatchday = new Map<number, number>()
-    for (const l of legData ?? []) {
-      const legMd = matchIdToRecapMd.get(l.match_id as number)
-      if (legMd == null) continue
-      const cid = Number(l.combo_id)
-      const cur = comboOwnerMatchday.get(cid)
-      if (cur == null || legMd < cur) comboOwnerMatchday.set(cid, legMd)
-    }
-    comboBets = comboBets.filter((c) => comboOwnerMatchday.get(c.id) === matchday)
+    // Parent's frozen placement matchday is authoritative. A future BFV
+    // kickoff change must not move a settled combo to a later round.
     const ownedComboIds = new Set(comboBets.map((c) => c.id))
     allLegs = allLegs.filter((l) => ownedComboIds.has(l.combo_id))
   }

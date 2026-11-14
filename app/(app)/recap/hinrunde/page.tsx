@@ -7,6 +7,8 @@ import { isSimulationAllowed } from '@/lib/recap/environmentGuard'
 import { RecapTypeNav } from '@/components/recap/RecapTypeNav'
 import { RecapPublishPanel } from '@/components/recap/RecapPublishPanel'
 import { HinrundeView } from '@/components/recap/HinrundeView'
+import { SurveyInvitation } from '@/components/SurveyInvitation'
+import { currentSurveyModeKey, currentSurveyVersion, resolveSurveyMode } from '@/lib/surveyMode'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Winter-Recap' }
@@ -22,6 +24,13 @@ export default async function HinrundeRecapPage({ searchParams }: { searchParams
   const wantsSim = test === 'sim16'
   const state = await loadHinrundeState({ adminPreview: isAdmin, viewerId: user.id, simulate: wantsSim })
   const visibleToMembers = state.visibility === 'published' && !state.simulation
+  const { data: surveyModeSetting } = state.report
+    ? await supabase.from('app_settings').select('value').eq('key', currentSurveyModeKey()).maybeSingle()
+    : { data: null }
+  const showSurvey = !!state.report && resolveSurveyMode(surveyModeSetting?.value) === 'prominent'
+  const surveyResponse = showSurvey
+    ? (await supabase.from('survey_responses').select('answers, submitted_at').eq('user_id', user.id).eq('survey_version', currentSurveyVersion()).maybeSingle()).data
+    : null
 
   return (
     <div className="px-4 py-4 space-y-4">
@@ -38,8 +47,13 @@ export default async function HinrundeRecapPage({ searchParams }: { searchParams
             : <Link href="/recap/hinrunde?test=sim16" className="font-semibold text-red-700 dark:text-red-300">🧪 Testvorschau öffnen: Spieltag {HINRUNDE.to} simuliert (nur Vorschau-Umgebung, schreibt nichts)</Link>}
         </div>
       )}
+      {state.published && state.report && (
+        <p className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+          📌 Dieser Winter-Rückblick zeigt den festen Stand bei Veröffentlichung. Spätere Nachholspiele ändern diese Auswertung nicht.
+        </p>
+      )}
       {state.report ? (
-        <HinrundeView report={state.report} personal={state.personal} myId={user.id} previewTo={state.previewTo} simulation={state.simulation} />
+        <HinrundeView report={state.report} personal={state.personal} myId={user.id} previewTo={state.previewTo} simulation={state.simulation} surveyCard={showSurvey ? <SurveyInvitation variant="winter" response={surveyResponse} /> : null} />
       ) : (
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm py-12 px-6 text-center">
           <div className="text-4xl mb-3">🏆</div>

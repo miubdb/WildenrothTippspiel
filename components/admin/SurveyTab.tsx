@@ -6,6 +6,8 @@ import type {
   SurveyOverview, QuestionStat, SurveyCrossTabs, SingleChoiceStat, ScaleStat, MultiStat, FreetextStat,
 } from '@/lib/surveyAggregate'
 import { Btn, EmptyNote, LoadingBlock, Notice, Panel, Pill, Section, useConfirm } from '@/components/admin/ui'
+import { SurveyInsightsPanel } from '@/components/admin/SurveyInsightsPanel'
+import { surveyTimeLabel, type SurveyTimeStats } from '@/lib/surveyActivity'
 
 interface Participant {
   userId: string
@@ -14,15 +16,19 @@ interface Participant {
   startedAt: string
   submittedAt: string | null
   updatedAt: string
+  activeMs: number | null
   answers: Answers
 }
 
 interface SurveyData {
   settings: { surveyMode: string; surveyModeKey: string; surveyVersion: string; allowReset: boolean; isProduction: boolean }
   overview: SurveyOverview
+  activeTime: SurveyTimeStats
   perQuestion: QuestionStat[]
   crossTabs: SurveyCrossTabs
   participants: Participant[]
+  operatorUserId: string | null
+  community: { overview: SurveyOverview; activeTime: SurveyTimeStats; perQuestion: QuestionStat[]; crossTabs: SurveyCrossTabs }
 }
 
 const MODE_LABEL: Record<string, string> = { hidden: 'Versteckt', direct_only: 'Nur Direktlink', help_only: 'Nur unter Hilfe', prominent: 'Prominent (Startseite)' }
@@ -54,6 +60,8 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
   const [loadFailed, setLoadFailed] = useState(false)
   const [viewParticipant, setViewParticipant] = useState<Participant | null>(null)
   const [busy, setBusy] = useState(false)
+  const [audience, setAudience] = useState<'community' | 'all'>('community')
+  const [view, setView] = useState<'overview' | 'analysis' | 'responses' | 'settings'>('overview')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -144,27 +152,164 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
     </Panel>
   )
 
-  const { settings, overview, perQuestion, crossTabs, participants } = data
+  const { settings, participants } = data
+  const communityAvailable = !!data.operatorUserId
+  const communitySelected = audience === 'community' && communityAvailable
+  const { overview, perQuestion, crossTabs, activeTime } = communitySelected ? data.community : data
+  const analysisParticipants = communitySelected
+    ? participants.filter((p) => p.userId !== data.operatorUserId)
+    : participants
   const statById = new Map(perQuestion.map((s) => [s.stat.questionId, s]))
 
   return (
     <div className="space-y-4">
-      <Section id="uf-sichtbarkeit" title="Sichtbarkeit & Konfiguration" subtitle="Umfrage-Rollout steuern (V2)" defaultOpen>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="tablist" aria-label="Umfrageverwaltung">
+        {([
+          { id: 'overview', label: 'Überblick' },
+          { id: 'analysis', label: 'Analysen' },
+          { id: 'responses', label: 'Antworten' },
+          { id: 'settings', label: 'Einstellungen' },
+        ] as const).map((item) => (
+          <button type="button" key={item.id} role="tab" aria-selected={view === item.id}
+            onClick={() => setView(item.id)}
+            className={`min-h-[46px] rounded-xl border px-3 py-2 text-[13px] font-bold ${view === item.id
+              ? 'border-red-700 bg-red-700 text-white' : 'border-gray-300 bg-white text-gray-700 hover:border-red-300'}`}>
+            {item.label}
+          </button>
+        ))}
+      </div>
+          <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+            <div className="mb-2 text-[13px] font-bold text-gray-900">Auswertungsbasis</div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2" role="group" aria-label="Auswertungsgruppe">
+              <button type="button" disabled={!communityAvailable} aria-pressed={communitySelected}
+                onClick={() => setAudience('community')}
+                className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-[13px] font-bold ${communitySelected ? 'border-red-700 bg-red-700 text-white' : 'border-gray-300 bg-white text-gray-700'} disabled:cursor-not-allowed disabled:opacity-50`}>
+                Nur Community (ohne Betreiber)
+              </button>
+              <button type="button" aria-pressed={!communitySelected} onClick={() => setAudience('all')}
+                className={`min-h-[44px] rounded-xl border px-3 py-2.5 text-[13px] font-bold ${!communitySelected ? 'border-red-700 bg-red-700 text-white' : 'border-gray-300 bg-white text-gray-700'}`}>
+                Alle Antworten (inkl. Betreiber)
+              </button>
+            </div>
+          </div>
+
+      {view === 'overview' && (
+        <>
+      <Section id="uf-uebersicht" title="Übersicht" subtitle="Teilnahme & kombinierte Auswertungen" defaultOpen badge={<Pill tone="neutral">{overview.submitted} abgegeben</Pill>}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <Metric label="Teilnahmequote" value={fmtPct(overview.participationRatePct)} />
+            <Metric label="Ø Zufriedenheit" value={fmtNum(overview.avgQ1, 1)} />
+            <Metric label="Wieder dabei 2027/28" value={overview.returningPct == null ? '—' : fmtPct(overview.returningPct)} />
+            <Metric label="Ø aktive Bearbeitungszeit" value={surveyTimeLabel(activeTime.meanMs)} />
+            <Metric label="Median der Bearbeitungszeit" value={surveyTimeLabel(activeTime.medianMs)} />
+          </div>
+          <p className="text-[12px] leading-5 text-gray-500">Bearbeitungszeit: {activeTime.tracked} von {activeTime.submitted} abgegebenen Umfragen messbar. Nur aktive Nutzung, Pausen und geschlossene Tabs zählen nicht. Frühere Antworten ohne Messung werden nicht als 0 Minuten gewertet.</p>
+          <p className="text-[13px] text-gray-600">{overview.submitted} abgegeben · {overview.started} begonnen · {overview.activeUsers} aktive Nutzer</p>
+          {overview.startedNotSubmitted > 0 && (
+            <Notice tone="open"><strong>{overview.startedNotSubmitted}</strong> Person(en) haben begonnen, aber noch nicht abgegeben.</Notice>
+          )}
+        </div>
+      </Section>
+
+        </>
+      )}
+      {view === 'analysis' && (
+        <>
+      {overview.submitted > 0 ? (
+        <>
+          <SurveyInsightsPanel participants={analysisParticipants} />
+          <details className="group rounded-xl border border-gray-200 bg-white">
+            <summary className="min-h-[48px] cursor-pointer list-none px-4 py-3 text-[13px] font-bold text-gray-800">
+              Bestehende kombinierte Auswertungen und Detailtabellen aufklappen
+              <span aria-hidden="true" className="ml-2 text-gray-400 group-open:hidden">+</span>
+              <span aria-hidden="true" className="ml-2 hidden text-gray-400 group-open:inline">−</span>
+            </summary>
+            <div className="border-t border-gray-200 p-4"><CrossTabsSection crossTabs={crossTabs} /></div>
+          </details>
+
+        </>
+      ) : <EmptyNote>Noch keine vollständig abgegebenen Antworten für die Analyse.</EmptyNote>}
+      <Section id="uf-fragen" title="Auswertung je Frage" subtitle={`Basierend auf ${overview.submitted} vollständig abgegebenen Antworten`}>
         <div className="space-y-3">
-          <Notice tone="info">
-            Dieser Schalter steuert ausschließlich <code>app_settings.{settings.surveyModeKey}</code>,
-            <strong> nur für die Umgebung, in der dieses Admin-Panel gerade läuft</strong> ({settings.isProduction ? 'Production (main)' : 'Preview/integration'}).
-            Production und Preview/integration haben JEWEILS ihren eigenen, komplett getrennten
-            Schlüssel (<code>survey_mode_v2</code> bzw. <code>survey_mode_v2_preview</code>) in derselben
-            Datenbank — eine Freigabe hier wirkt sich nie auf die jeweils andere Umgebung aus, weder
-            sichtbar noch tatsächlich freigeschaltet. Ebenso speichert diese Umgebung ihre Antworten
-            unter einer eigenen Umfrageversion: aktuell <strong><code>{settings.surveyVersion}</code></strong>{' '}
-            — auch Export, Einzel-Löschung und Komplettreset betreffen ausschließlich diese Version, nie
-            die der anderen Umgebung. Das alte <code>survey_mode</code>/<code>winter_2026_v1</code> (V1)
-            bleibt davon unberührt und wird hier nicht mehr angezeigt/gesteuert; V1 hat bisher keine
-            abgegebenen Antworten. Solange hier nichts geändert wird, bleibt V2 in beiden Umgebungen auf
-            „Versteckt&rdquo; — keine Freischaltung ohne ausdrückliche Freigabe für genau diese Umgebung.
-          </Notice>
+          {SURVEY_SECTIONS.map((section) => (
+            <details key={section.id} className="group rounded-xl border border-gray-200">
+              <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between px-4 text-[14px] font-semibold text-gray-800 select-none [&::-webkit-details-marker]:hidden">
+                {section.id}. {section.title}
+                <svg className="h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+              </summary>
+              <div className="space-y-4 border-t border-gray-200 p-4">
+                {section.questions.map((q) => {
+                  const stat = statById.get(q.id)
+                  if (!stat) return null
+                  return <QuestionStatBlock key={q.id} stat={stat} />
+                })}
+              </div>
+            </details>
+          ))}
+        </div>
+      </Section>
+
+        </>
+      )}
+      {view === 'responses' && (
+        <>
+      <Section id="uf-antworten" title="Einzelantworten" subtitle="Alle Teilnehmer inkl. Betreiber ansehen oder löschen" badge={<Pill tone="neutral">{participants.length}</Pill>}>
+        <div className="space-y-3">
+          <a href={`/api/admin/survey/export?scope=${communitySelected ? 'community' : 'all'}`}
+            className="text-[13px] font-semibold text-red-700 hover:underline">
+            CSV-Export ({communitySelected ? 'nur Community' : 'alle inkl. Betreiber'})
+          </a>
+          {participants.length === 0 ? <EmptyNote>Noch keine Antworten.</EmptyNote> : (
+            <div className="-mx-4 overflow-x-auto px-4">
+              <table className="w-full min-w-[640px] text-[13px]">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left text-gray-500">
+                    <th className="py-2 pr-2 font-semibold">Nutzer</th>
+                    <th className="py-2 pr-2 font-semibold">Status</th>
+                    <th className="py-2 pr-2 font-semibold">Gestartet</th>
+                    <th className="py-2 pr-2 font-semibold">Abgegeben</th>
+                    <th className="py-2 pr-2 font-semibold">Geändert</th>
+                    <th className="py-2 pr-2 font-semibold">Aktive Zeit</th>
+                    <th className="py-2 pr-2 font-semibold"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {participants.map((p) => (
+                    <tr key={p.userId} className="border-b border-gray-100">
+                      <td className="py-2 pr-2 font-medium text-gray-800">{p.username}</td>
+                      <td className="py-2 pr-2">
+                        <Pill tone={p.status === 'abgegeben' ? 'success' : 'open'}>{p.status}</Pill>
+                      </td>
+                      <td className="py-2 pr-2 text-gray-500">{fmtDate(p.startedAt)}</td>
+                      <td className="py-2 pr-2 text-gray-500">{fmtDate(p.submittedAt)}</td>
+                      <td className="py-2 pr-2 text-gray-500">{fmtDate(p.updatedAt)}</td>
+                      <td className="py-2 pr-2 text-gray-500 whitespace-nowrap">{surveyTimeLabel(p.activeMs)}</td>
+                      <td className="py-2 pr-2">
+                        <div className="flex justify-end gap-1.5">
+                          <Btn size="sm" variant="secondary" onClick={() => setViewParticipant(p)}>Ansehen</Btn>
+                          <Btn size="sm" variant="danger" onClick={() => confirmDeleteResponse(p.userId, p.username)}>Löschen</Btn>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Section>
+
+        </>
+      )}
+      {view === 'settings' && (
+        <>
+      <Section id="uf-sichtbarkeit" title="Sichtbarkeit & Konfiguration" subtitle="Freigabe und Einstellungen" defaultOpen>
+        <div className="space-y-3">
+          <details className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-[13px] text-gray-700">
+            <summary className="cursor-pointer font-semibold">Technische Details zur Trennung von Preview und Production</summary>
+            <p className="mt-2 leading-5">Diese Umgebung: <strong>{settings.isProduction ? 'Production' : 'Preview'}</strong> · Schlüssel <code>{settings.surveyModeKey}</code> · Datenversion <code>{settings.surveyVersion}</code>. Sichtbarkeit und Antworten sind zwischen Preview und Production getrennt. Ältere Umfrageversionen bleiben erhalten.</p>
+          </details>
           <div className="flex flex-wrap gap-2">
             {(['hidden', 'direct_only', 'help_only', 'prominent'] as const).map((m) => (
               <Btn key={m} variant={settings.surveyMode === m ? 'primary' : 'secondary'} size="sm" className="flex-1" disabled={busy} onClick={() => setMode(m)}>
@@ -190,85 +335,6 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
         </div>
       </Section>
 
-      <Section id="uf-uebersicht" title="Übersicht" subtitle="Teilnahme & kombinierte Auswertungen" defaultOpen badge={<Pill tone="neutral">{overview.submitted} abgegeben</Pill>}>
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            <Metric label="Aktive User" value={overview.activeUsers} />
-            <Metric label="Umfrage begonnen" value={overview.started} />
-            <Metric label="Vollständig abgegeben" value={overview.submitted} highlight="green" />
-            <Metric label="Noch nicht teilgenommen" value={overview.notStarted} />
-            <Metric label="Teilnahmequote" value={fmtPct(overview.participationRatePct)} />
-            <Metric label="Ø Zufriedenheit (Q1)" value={fmtNum(overview.avgQ1, 1)} />
-            <Metric label="Ø Wiederteilnahme (Q30)" value={fmtNum(overview.avgQ30, 1)} />
-          </div>
-          {overview.startedNotSubmitted > 0 && (
-            <Notice tone="open"><strong>{overview.startedNotSubmitted}</strong> Person(en) haben begonnen, aber noch nicht abgegeben.</Notice>
-          )}
-          <CrossTabsSection crossTabs={crossTabs} />
-        </div>
-      </Section>
-
-      <Section id="uf-fragen" title="Auswertung je Frage" subtitle={`Basierend auf ${overview.submitted} vollständig abgegebenen Antworten`}>
-        <div className="space-y-3">
-          {SURVEY_SECTIONS.map((section) => (
-            <details key={section.id} className="group rounded-xl border border-gray-200">
-              <summary className="flex min-h-[48px] cursor-pointer list-none items-center justify-between px-4 text-[14px] font-semibold text-gray-800 select-none [&::-webkit-details-marker]:hidden">
-                {section.id}. {section.title}
-                <svg className="h-4 w-4 shrink-0 text-gray-400 transition-transform group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-              </summary>
-              <div className="space-y-4 border-t border-gray-200 p-4">
-                {section.questions.map((q) => {
-                  const stat = statById.get(q.id)
-                  if (!stat) return null
-                  return <QuestionStatBlock key={q.id} stat={stat} />
-                })}
-              </div>
-            </details>
-          ))}
-        </div>
-      </Section>
-
-      <Section id="uf-antworten" title="Einzelantworten" subtitle="Je Teilnehmer ansehen oder löschen" badge={<Pill tone="neutral">{participants.length}</Pill>}>
-        <div className="space-y-3">
-          <a href="/api/admin/survey/export" className="text-[13px] font-semibold text-red-700 hover:underline">CSV Export</a>
-          {participants.length === 0 ? <EmptyNote>Noch keine Antworten.</EmptyNote> : (
-            <div className="-mx-4 overflow-x-auto px-4">
-              <table className="w-full min-w-[640px] text-[13px]">
-                <thead>
-                  <tr className="border-b border-gray-200 text-left text-gray-500">
-                    <th className="py-2 pr-2 font-semibold">Nutzer</th>
-                    <th className="py-2 pr-2 font-semibold">Status</th>
-                    <th className="py-2 pr-2 font-semibold">Gestartet</th>
-                    <th className="py-2 pr-2 font-semibold">Abgegeben</th>
-                    <th className="py-2 pr-2 font-semibold">Geändert</th>
-                    <th className="py-2 pr-2 font-semibold"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {participants.map((p) => (
-                    <tr key={p.userId} className="border-b border-gray-100">
-                      <td className="py-2 pr-2 font-medium text-gray-800">{p.username}</td>
-                      <td className="py-2 pr-2">
-                        <Pill tone={p.status === 'abgegeben' ? 'success' : 'open'}>{p.status}</Pill>
-                      </td>
-                      <td className="py-2 pr-2 text-gray-500">{fmtDate(p.startedAt)}</td>
-                      <td className="py-2 pr-2 text-gray-500">{fmtDate(p.submittedAt)}</td>
-                      <td className="py-2 pr-2 text-gray-500">{fmtDate(p.updatedAt)}</td>
-                      <td className="py-2 pr-2">
-                        <div className="flex justify-end gap-1.5">
-                          <Btn size="sm" variant="secondary" onClick={() => setViewParticipant(p)}>Ansehen</Btn>
-                          <Btn size="sm" variant="danger" onClick={() => confirmDeleteResponse(p.userId, p.username)}>Löschen</Btn>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </Section>
-
       <Section id="uf-danger" title="Testphase — Alle Antworten löschen" subtitle="Unwiderruflich, nur für die Testphase" tone="critical">
         <div className="space-y-3">
           <p className="text-[14px] leading-6 text-red-900">
@@ -286,6 +352,8 @@ export function SurveyTab({ onMessage }: { onMessage: (m: string | null) => void
         </div>
       </Section>
 
+        </>
+      )}
       {/* Participant detail */}
       {viewParticipant && (
         <ParticipantDetail participant={viewParticipant} onClose={() => setViewParticipant(null)} />
@@ -322,7 +390,7 @@ function SingleBlock({ stat }: { stat: SingleChoiceStat }) {
   return (
     <div>
       <div className="text-sm font-semibold text-gray-800 mb-1.5">{stat.text}</div>
-      <div className="text-[11px] text-gray-400 mb-1.5">{stat.total} Antworten</div>
+      <div className="text-[11px] text-gray-500 mb-1.5">{stat.total - stat.shownButUnanswered} Antworten · {stat.total} Teilnehmern angezeigt</div>
       <div className="space-y-1.5">
         {stat.options.map((o) => (
           <div key={o.option} className="flex items-center gap-2 text-xs">
@@ -462,7 +530,7 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
           </div>
         </DetailSection>
 
-        <DetailSection title="Risky-Wetten (Q12/Q13/Auszahlung)" defaultOpen>
+        <DetailSection title="Rired-Wetten (Q12/Q13/Auszahlung)" defaultOpen>
           <div className="grid grid-cols-3 gap-1.5">
             <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
               <div className="text-sm font-bold text-gray-700">{fmtPct(risky.q12Groups.abolishPct)}</div>
@@ -506,7 +574,7 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
           </div>
         </DetailSection>
 
-        <DetailSection title="Wettmärkte & Spielauswahl (Q25/Q27/Q28)">
+        <DetailSection title="Neue Märkte, Verzicht & Ligen (Q26/Q25/Q27/Q28)">
           <div className="grid grid-cols-3 gap-1.5">
             <div className="bg-gray-50 rounded-lg px-1.5 py-2 text-center">
               <div className="text-sm font-bold text-gray-700">{fmtPct(wettmaerkte.wouldDropAtLeastOnePct)}</div>
@@ -522,15 +590,19 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
             </div>
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Verzichtbare Märkte (Q25, n={wettmaerkte.q25.respondents})</div>
+            <div className="font-semibold text-gray-600 mb-1">Gewünschte neue Märkte (n={wettmaerkte.q26_markets.respondents})</div>
+            <OptionBars options={wettmaerkte.q26_markets.options} pctKey="pctOfRespondents" />
+          </div>
+          <div>
+            <div className="font-semibold text-gray-600 mb-1">Verzichtbare Märkte (freiwillig, n={wettmaerkte.q25.respondents})</div>
             <OptionBars options={wettmaerkte.q25.options} pctKey="pctOfRespondents" />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Kreisliga-Spielumfang (Q27)</div>
+            <div className="font-semibold text-gray-600 mb-1">Liga von Wildenroth I (Q27)</div>
             <OptionBars options={wettmaerkte.q27.options} pctKey="pct" />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">B-Klasse-Spielumfang (Q28)</div>
+            <div className="font-semibold text-gray-600 mb-1">Liga von Wildenroth II (Q28)</div>
             <OptionBars options={wettmaerkte.q28.options} pctKey="pct" />
           </div>
         </DetailSection>
@@ -586,7 +658,7 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
             </div>
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Gewünschte Preisarten (Q7, max. 2 + „Keine Präferenz&rdquo;, n={startgeldPreise.q7.respondents})</div>
+            <div className="font-semibold text-gray-600 mb-1">Gewünschte Preisarten (Q7, max. 2 + „Preise egal&rdquo;, n={startgeldPreise.q7.respondents})</div>
             <OptionBars options={startgeldPreise.q7.options} pctKey="pctOfRespondents" />
           </div>
           <div>
@@ -605,12 +677,12 @@ function CrossTabsSection({ crossTabs }: { crossTabs: SurveyCrossTabs }) {
 
         <DetailSection title="Zukunft & Verbesserungen (Q29/Q30/Features)" defaultOpen>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Gründe für weniger Wetten (Q29, max. 3, n={zukunft.q29.respondents})</div>
+            <div className="font-semibold text-gray-600 mb-1">Gründe für Wettaktivität (Q29, max. 3, n={zukunft.q29.respondents})</div>
             <div className="text-[10px] text-gray-400 mb-1">{fmtPct(zukunft.satisfiedPct)} davon sind mit ihrer Wettaktivität bereits zufrieden (exklusive Option).</div>
             <OptionBars options={zukunft.q29.options} pctKey="pctOfRespondents" />
           </div>
           <div>
-            <div className="font-semibold text-gray-600 mb-1">Teilnahme 2027/28 (Q30)</div>
+            <div className="font-semibold text-gray-600 mb-1">Teilnahme 2027/28 (allgemeine Absicht)</div>
             <OptionBars options={zukunft.q30.options} pctKey="pct" />
           </div>
           <div>
@@ -650,6 +722,7 @@ function ParticipantDetail({ participant, onClose }: { participant: Participant;
           <div>Gestartet: {fmtDate(participant.startedAt)}</div>
           <div>Abgegeben: {fmtDate(participant.submittedAt)}</div>
           <div>Zuletzt geändert: {fmtDate(participant.updatedAt)}</div>
+          <div>Aktive Bearbeitungszeit: {surveyTimeLabel(participant.activeMs)}</div>
         </div>
         <div className="space-y-3">
           {visibleQs.map((q) => {

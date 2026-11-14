@@ -237,6 +237,7 @@ export const ADMIN_TAB_ICONS = {
   ergebnisse: icon('M9 11l2 2 4-4M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z'),
   spieltag: icon('M8 2v4M16 2v4M3 9h18M5 4h14a2 2 0 012 2v13a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z'),
   quoten: icon('M5 19L19 5M7.5 9a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM16.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z'),
+  umfrage: icon('M8 4h13M8 12h13M8 20h13M3 4h.01M3 12h.01M3 20h.01'),
   // Admin 3.0: ersetzt die vorherigen separaten `verwaltung`/`umfrage`-Icons (beide Bereiche
   // leben jetzt gemeinsam im 4. Tab "Mehr") durch ein 2×2-Raster, das "mehrere gruppierte
   // Bereiche" andeutet statt einer einzelnen Funktion.

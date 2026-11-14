@@ -3,6 +3,7 @@ import type { Match } from '@/types'
 import { getMatchXG, buildMatchScoreMatrix, oddsFromProbability, type PriorContext } from './odds'
 import { cappedPayout } from './payout'
 import { sendPushToUser } from './push'
+import { settleSingle, settleCombo, findStuckComboIds } from './settlement'
 
 /**
  * Spieltag-Specials: normal, stake/odds-bearing bets (same `bets`/`combo_bets`
@@ -509,14 +510,18 @@ export async function settleActiveMatchdaySpecials(admin: SupabaseClient, matchI
     const userLostCount: Record<string, number> = {}
     const combosToCheck = new Set<number>()
 
+    let settleErrors = 0
     for (const bet of pendingBets ?? []) {
       const result: 'won' | 'lost' = bet.selection === winningKey ? 'won' : 'lost'
       let payout = 0
       if (result === 'won' && bet.combo_id === null) {
         payout = Math.round(cappedPayout(bet.stake, bet.odds_value, bet.is_risky) * 100) / 100
-        userBalanceUpdates[bet.user_id] = (userBalanceUpdates[bet.user_id] ?? 0) + payout
       }
-      await admin.from('bets').update({ status: result, payout: result === 'won' ? payout : 0 }).eq('id', bet.id)
+      // Atomic status flip + credit; 'error' leaves the bet pending (retry-safe), 'skipped' = already decided.
+      const outcome = await settleSingle(admin, bet.id, result, payout)
+      if (outcome === 'error') { settleErrors++; continue }
+      if (outcome === 'skipped') continue
+      if (result === 'won' && bet.combo_id === null) userBalanceUpdates[bet.user_id] = (userBalanceUpdates[bet.user_id] ?? 0) + payout
       if (bet.combo_id !== null) {
         combosToCheck.add(bet.combo_id)
       } else {
@@ -524,6 +529,7 @@ export async function settleActiveMatchdaySpecials(admin: SupabaseClient, matchI
         else userLostCount[bet.user_id] = (userLostCount[bet.user_id] ?? 0) + 1
       }
     }
+    for (const id of await findStuckComboIds(admin, { specialId: special.id })) combosToCheck.add(id)
 
     for (const comboId of combosToCheck) {
       const { data: comboLegs } = await admin.from('bets').select('id, status, is_risky').eq('combo_id', comboId)
@@ -536,23 +542,25 @@ export async function settleActiveMatchdaySpecials(admin: SupabaseClient, matchI
       if (!comboBet || comboBet.status !== 'pending') continue
 
       if (anyLost) {
-        await admin.from('combo_bets').update({ status: 'lost', payout: 0 }).eq('id', comboId)
-        userLostCount[comboBet.user_id] = (userLostCount[comboBet.user_id] ?? 0) + 1
+        const o = await settleCombo(admin, comboId, 'lost', 0)
+        if (o === 'error') { settleErrors++; continue }
+        if (o === 'applied') userLostCount[comboBet.user_id] = (userLostCount[comboBet.user_id] ?? 0) + 1
       } else {
         const comboIsRisky = comboLegs[0]?.is_risky ?? false
         const payout = Math.round(cappedPayout(comboBet.stake, comboBet.total_odds, comboIsRisky) * 100) / 100
-        await admin.from('combo_bets').update({ status: 'won', payout }).eq('id', comboId)
-        userBalanceUpdates[comboBet.user_id] = (userBalanceUpdates[comboBet.user_id] ?? 0) + payout
-        userWonCount[comboBet.user_id] = (userWonCount[comboBet.user_id] ?? 0) + 1
+        const o = await settleCombo(admin, comboId, 'won', payout)
+        if (o === 'error') { settleErrors++; continue }
+        if (o === 'applied') {
+          userBalanceUpdates[comboBet.user_id] = (userBalanceUpdates[comboBet.user_id] ?? 0) + payout
+          userWonCount[comboBet.user_id] = (userWonCount[comboBet.user_id] ?? 0) + 1
+        }
       }
     }
 
     const allAffectedUsers = new Set([...Object.keys(userBalanceUpdates), ...Object.keys(userWonCount), ...Object.keys(userLostCount)])
     for (const userId of allAffectedUsers) {
       const amount = userBalanceUpdates[userId] ?? 0
-      if (amount > 0) {
-        await admin.rpc('increment_balance', { p_user_id: userId, p_amount: amount })
-      }
+      // (payouts were already credited atomically inside settle_bet / settle_combo)
       const won = userWonCount[userId] ?? 0
       const lost = userLostCount[userId] ?? 0
       let title: string, body: string
@@ -573,6 +581,11 @@ export async function settleActiveMatchdaySpecials(admin: SupabaseClient, matchI
       } catch (e) { console.error('Special settlement push failed:', e) }
     }
 
+    if (settleErrors > 0) {
+      // Leave the special 'active': the next finalization run re-evaluates it and pays whatever is still pending.
+      console.error('Special settlement incomplete; left active for retry', { specialId: special.id, settleErrors })
+      continue
+    }
     await admin
       .from('matchday_specials')
       .update({ status: 'settled', settlement_result: { finalStat, winningKey }, settled_at: new Date().toISOString() })

@@ -239,7 +239,7 @@ function avgByGroup(rows: SurveyRow[], groupQid: string, valueQid: string): { gr
 
 // ── Startgeld & Preise (Q4/Q5/Q7/Q8) ───────────────────────────────────────
 
-const Q4_WOULD_LEAVE = 'Das Wettspiel soll kostenlos bleiben. Mit Startgeld würde ich nicht mehr teilnehmen.'
+const Q4_WOULD_LEAVE = 'Ich möchte kein Startgeld. Falls es verpflichtend wird, würde ich nicht mehr teilnehmen.'
 const Q5_AMOUNT: Record<string, number> = {
   'Weniger als 5 €': 0, '5 €': 5, '10 €': 10, '15 €': 15, '20 €': 20, 'Mehr als 20 €': Infinity,
 }
@@ -330,6 +330,7 @@ const Q25_CANT_JUDGE = 'Kann ich nicht beurteilen'
 
 export interface WettmaerkteCrossTab {
   q25: MultiStat
+  q26_markets: MultiStat
   /** Anteil, der auf MINDESTENS einen konkreten Markt verzichten könnte, vs.
    *  "alle behalten" vs. "kann ich nicht beurteilen" — dieselbe Grundgesamtheit
    *  (Antwortende von Q25), nicht die Gesamtzahl aller Teilnehmer. */
@@ -347,6 +348,7 @@ function computeWettmaerkteCrossTab(rows: SurveyRow[]): WettmaerkteCrossTab {
   const cantJudgeCount = q25.options.find((o) => o.option === Q25_CANT_JUDGE)?.count ?? 0
   return {
     q25,
+    q26_markets: multiStats(QUESTION_BY_ID.get('q26_markets')!, rows),
     wouldDropAtLeastOnePct: base > 0 ? ((base - noneCount - cantJudgeCount) / base) * 100 : 0,
     keepAllPct: base > 0 ? (noneCount / base) * 100 : 0,
     cantJudgePct: base > 0 ? (cantJudgeCount / base) * 100 : 0,
@@ -392,7 +394,7 @@ function computeKommunikationCrossTab(rows: SurveyRow[], profileMap: Map<string,
 
 // ── Zukunft & Verbesserungen (Q29/Q30/Features) ────────────────────────────
 
-const Q29_SATISFIED = 'Ich bin mit meiner aktuellen Wettaktivität zufrieden und möchte nicht häufiger wetten'
+const Q29_SATISFIED = 'Ich wette bereits so häufig, wie ich möchte.'
 const FEATURES_NONE = 'Keine dieser Funktionen interessiert mich'
 
 export interface ZukunftCrossTab {
@@ -415,7 +417,7 @@ function computeZukunftCrossTab(rows: SurveyRow[]): ZukunftCrossTab {
     .filter((reason) => reason !== Q29_SATISFIED)
     .map((reason) => {
       const withReason = rows.filter((r) => Array.isArray(r.answers.q29) && (r.answers.q29 as string[]).includes(reason))
-      const distribution = singleChoiceStats(QUESTION_BY_ID.get('q30')!, withReason).options
+      const distribution = singleChoiceStats(QUESTION_BY_ID.get('q30_general')!, withReason).options
       return { reason, distribution, count: withReason.length }
     })
   const features = multiStats(QUESTION_BY_ID.get('q_features')!, rows)
@@ -424,7 +426,7 @@ function computeZukunftCrossTab(rows: SurveyRow[]): ZukunftCrossTab {
     q29,
     satisfiedPct: q29.respondents > 0 ? (satisfiedCount / q29.respondents) * 100 : 0,
     q30ByReason,
-    q30: singleChoiceStats(QUESTION_BY_ID.get('q30')!, rows),
+    q30: singleChoiceStats(QUESTION_BY_ID.get('q30_general')!, rows),
     features,
     featuresNonePct: features.respondents > 0 ? (noneCount / features.respondents) * 100 : 0,
   }
@@ -488,7 +490,7 @@ export interface SurveyOverview {
   notStarted: number
   participationRatePct: number
   avgQ1: number | null
-  avgQ30: number | null
+  returningPct: number | null
 }
 
 export function computeOverview(allRows: SurveyRow[], activeUserIds: Set<string>): SurveyOverview {
@@ -498,7 +500,8 @@ export function computeOverview(allRows: SurveyRow[], activeUserIds: Set<string>
   const submitted = submittedRows.length
   const activeUsers = activeUserIds.size
   const q1nums = submittedRows.map((r) => r.answers.q1).filter((n): n is number => typeof n === 'number')
-  const q30nums = submittedRows.map((r) => r.answers.q30).filter((n): n is number => typeof n === 'number')
+  const q30Answers = submittedRows.map((r) => r.answers.q30_general).filter((a): a is string => typeof a === 'string')
+  const q30Returning = q30Answers.filter((answer) => answer === 'Ja, auf jeden Fall' || answer === 'Eher ja').length
   return {
     activeUsers,
     started,
@@ -507,6 +510,6 @@ export function computeOverview(allRows: SurveyRow[], activeUserIds: Set<string>
     notStarted: Math.max(0, activeUsers - started),
     participationRatePct: activeUsers > 0 ? (submitted / activeUsers) * 100 : 0,
     avgQ1: avg(q1nums),
-    avgQ30: avg(q30nums),
+    returningPct: q30Answers.length > 0 ? (q30Returning / q30Answers.length) * 100 : null,
   }
 }

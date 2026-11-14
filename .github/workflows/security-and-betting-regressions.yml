@@ -75,10 +75,10 @@ jobs:
           }
           for f in "${FILES[@]}"; do
             [ -f "$f" ] || continue
-            AFTER=$(npx eslint -f json -- "$f" 2>/dev/null | count_errors)
+            AFTER=$((npx eslint -f json -- "$f" 2>/dev/null || true) | count_errors)
             BEFORE=0
             if git cat-file -e "$BASE:$f" 2>/dev/null; then
-              BEFORE=$(git show "$BASE:$f" | npx eslint --stdin --stdin-filename "$f" -f json 2>/dev/null | count_errors)
+              BEFORE=$((git show "$BASE:$f" | npx eslint --stdin --stdin-filename "$f" -f json 2>/dev/null || true) | count_errors)
             fi
             if [ "$AFTER" -gt "$BEFORE" ]; then
               echo "::error file=$f::New lint errors introduced ($BEFORE -> $AFTER). Run 'npx eslint $f' locally and fix what this change added."
@@ -93,11 +93,15 @@ jobs:
       - name: Verify annulment, cancellations and Risky accounting
         run: |
           node --experimental-strip-types scripts/run-match-annulment-check.mjs
+          node --experimental-strip-types scripts/run-matchday-finish-check.mjs
+          node --experimental-strip-types scripts/run-postponements-check.mjs
           node --experimental-strip-types scripts/run-slip-lifecycle-check.mjs
           node --experimental-strip-types scripts/run-meine-wetten-check.mjs
           node --experimental-strip-types scripts/run-combo-leg-order-check.mjs
           node --experimental-strip-types scripts/run-betting-activity-stats-check.mjs
           node --experimental-strip-types scripts/run-recap-v2-check.mjs
+          node --experimental-strip-types scripts/run-settlement-integrity-check.mjs
+          node scripts/check-no-demo-artifacts.mjs
       - name: Verify production build without real secrets
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://ci.invalid.supabase.co

@@ -24,6 +24,13 @@ const FREETEXT_HARD_REJECT_LENGTH = FREETEXT_MAX_LENGTH * 10
  * (2) picking it clears every other selection, and picking anything else
  * drops it first, so the two states can never coexist.
  */
+/** True if selecting a mutually-exclusive answer would remove a previous choice. */
+export function wouldReplaceSurveySelection(q: QuestionDef, current: string[], opt: string): boolean {
+  if (current.includes(opt) || current.length === 0) return false
+  const exclusive = new Set(q.exclusiveOptions ?? [])
+  return exclusive.has(opt) || current.some((value) => exclusive.has(value))
+}
+
 export function toggleMultiOption(q: QuestionDef, current: string[], opt: string): string[] {
   const exclusive = new Set(q.exclusiveOptions ?? [])
   if (current.includes(opt)) {
@@ -75,6 +82,12 @@ export function isValidAnswerValue(q: QuestionDef, value: unknown): boolean {
     case 'multi':
       return isValidMultiSelection(q, value)
     case 'freetext':
+      if (q.inputMode === 'positive-integer') {
+        // Decimal digits kept as a string: no arbitrary numeric maximum,
+        // no JS Number precision loss for large Wildis amounts. Empty drafts
+        // are valid for autosave, but a required field blocks submission.
+        return typeof value === 'string' && (value === '' || (/^[1-9][0-9]*$/.test(value) && value.length <= FREETEXT_MAX_LENGTH))
+      }
       // Deliberately more lenient than FREETEXT_MAX_LENGTH here — a moderate
       // overage (e.g. a careless paste) is truncated below in
       // validateIncomingAnswers rather than losing the whole answer; only a
@@ -100,6 +113,73 @@ export function stripHiddenAnswers(answers: Answers): Answers {
     if (v !== undefined) result[q.id] = v
   }
   return result
+}
+
+/**
+ * Adapt in-progress answers saved during the V2 preview before the final
+ * question wording/option updates. This never deletes a submitted row or
+ * rewrites the DB automatically. It only maps the former *equivalent*
+ * options to their current names on resume; withdrawn options are dropped
+ * so the participant can choose again.
+ */
+export function normalizeLegacySurveyAnswers(raw: Answers): Answers {
+  const migrated: Answers = { ...raw }
+  const aliases: Record<string, Record<string, string>> = {
+    q4: {
+      'Beide Modelle wären für mich in Ordnung, solange das Startgeld angemessen ist.':
+        'Mir ist egal, ob die Teilnahme kostenlos ist oder ein angemessenes Startgeld kostet.',
+    },
+    q27: {
+      'Alle Kreisliga-Spiele (wie bisher)': 'Alle Spiele der Liga (wie bisher)',
+      'Ist mir egal': 'Keine Meinung dazu',
+      'Ich verfolge die Kreisliga zu wenig, um das beurteilen zu können': 'Keine Meinung dazu',
+    },
+    q28: {
+      'Keine B-Klasse-Spiele': 'Keine Spiele aus dieser Liga',
+      'Wildenroth II + 1 weiteres ausgewähltes Spiel (wie bisher)': 'Wildenroth II + 1 weiteres Spiel (wie bisher)',
+      'Alle Spiele der B-Klasse 2': 'Alle Spiele der Liga',
+      'Ist mir egal': 'Keine Meinung dazu',
+      'Ich verfolge die B-Klasse zu wenig, um das beurteilen zu können': 'Keine Meinung dazu',
+    },
+  }
+  for (const [id, aliasesForQuestion] of Object.entries(aliases)) {
+    const v = migrated[id]
+    if (typeof v === 'string' && aliasesForQuestion[v]) migrated[id] = aliasesForQuestion[v]
+  }
+  if (Array.isArray(migrated.q26_markets)) {
+    const marketAliases: Record<string, string> = {
+      'Halbzeitergebnis': 'Wer führt zur Halbzeit? (Heim / Unentschieden / Gast)',
+      'Halbzeit/Endstand': 'Halbzeit & Endstand kombiniert (z. B. zur Pause X, am Ende Heimsieg)',
+      'Tore einer bestimmten Mannschaft': 'Tore eines Teams (z. B. Wildenroth I erzielt mindestens 2 Tore)',
+    }
+    migrated.q26_markets = migrated.q26_markets.map((value) => marketAliases[value] ?? value)
+  }
+  // An old free-participation-specific answer must NEVER be counted as an
+  // answer to the new general return-intent question. Keep it in the old
+  // database response until this user actively saves a revised survey;
+  // strip it only from the client-side draft.
+  delete migrated.q30
+  // The prior generic Cashout answer cannot be interpreted as either
+  // live cashout or pre-match combo cashout. Ask for a fresh choice instead.
+  // Likewise, the new "verzockt -> raus" is more specific than a previous
+  // wish for no automatic credit, so don't infer that change of intent.
+  if (Array.isArray(migrated.q_features)) {
+    migrated.q_features = migrated.q_features.filter((value) => value !== 'Cashout')
+  }
+  if (migrated.q15_zero === 'Keine automatische Gutschrift') {
+    delete migrated.q15_zero
+  }
+  if (Array.isArray(migrated.q_comprehensibility)) {
+    migrated.q_comprehensibility = migrated.q_comprehensibility.filter(
+      (value) => value !== 'Wie sich mein aktuelles Wildis-Guthaben zusammensetzt'
+    )
+  }
+  // No longer offer speculative "Erlebnispreise"; preserve the rest of Q7.
+  if (Array.isArray(migrated.q7)) {
+    const valid = new Set(QUESTION_BY_ID.get('q7')?.options ?? [])
+    migrated.q7 = migrated.q7.filter((option) => valid.has(option))
+  }
+  return stripHiddenAnswers(migrated)
 }
 
 export type AnswersValidationResult =

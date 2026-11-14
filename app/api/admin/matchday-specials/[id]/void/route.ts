@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { voidSlipWithRefund } from '@/lib/settlement'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 /**
@@ -32,36 +33,36 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     .eq('special_id', specialId)
     .eq('status', 'pending')
 
-  const refunds: { userId: string; amount: number }[] = []
+  // Every slip is voided + refunded in ONE transaction (void_slip_refund): a concurrent user cancel or a second admin click can
+  // never refund the same stake twice, and a failing refund rolls the void back instead of leaving a voided slip unpaid.
   const singleIds: number[] = []
   const comboIds = new Set<number>()
   for (const b of affectedBets ?? []) {
-    if (b.combo_id == null) {
-      singleIds.push(b.id)
-      refunds.push({ userId: b.user_id, amount: Number(b.stake ?? 0) })
-    } else {
-      comboIds.add(b.combo_id)
-    }
+    if (b.combo_id == null) singleIds.push(b.id)
+    else comboIds.add(b.combo_id)
   }
-
-  if (singleIds.length > 0) {
-    await admin.from('bets').update({ status: 'void', void_reason: 'admin_special_voided' }).in('id', singleIds)
+  const perUser = new Map<string, number>()
+  const userOf = new Map<number, string>((affectedBets ?? []).map((b) => [b.id, b.user_id as string]))
+  let refundedSingles = 0, refundedCombos = 0, failures = 0
+  for (const id of singleIds) {
+    try {
+      const amt = await voidSlipWithRefund(admin, 'single', id, 'admin_special_voided')
+      if (amt != null) { refundedSingles++; const u = userOf.get(id)!; perUser.set(u, (perUser.get(u) ?? 0) + amt) }
+    } catch (e) { failures++; console.error('special void single failed', { id, e }) }
   }
   for (const comboId of comboIds) {
-    const { data: combo } = await admin.from('combo_bets').select('id, user_id, stake').eq('id', comboId).single()
-    if (!combo) continue
-    await admin.from('bets').update({ status: 'void', void_reason: 'admin_special_voided' }).eq('combo_id', comboId)
-    await admin.from('combo_bets').update({ status: 'void', void_reason: 'admin_special_voided' }).eq('id', comboId)
-    refunds.push({ userId: combo.user_id, amount: Number(combo.stake) })
+    const { data: combo } = await admin.from('combo_bets').select('user_id').eq('id', comboId).single()
+    try {
+      const amt = await voidSlipWithRefund(admin, 'combo', comboId, 'admin_special_voided', { allLegs: true })
+      if (amt != null && combo) { refundedCombos++; perUser.set(combo.user_id, (perUser.get(combo.user_id) ?? 0) + amt) }
+    } catch (e) { failures++; console.error('special void combo failed', { comboId, e }) }
   }
-
-  const perUser = new Map<string, number>()
-  for (const r of refunds) perUser.set(r.userId, (perUser.get(r.userId) ?? 0) + r.amount)
-  for (const [userId, amount] of perUser) {
-    await admin.rpc('increment_balance', { p_user_id: userId, p_amount: amount })
+  if (failures > 0) {
+    // Do NOT mark the special void: re-running the void is idempotent and finishes the remaining slips.
+    return NextResponse.json({ error: `${failures} Stornierung(en) fehlgeschlagen und zurückgerollt – bitte erneut ausführen (idempotent).`, refundedSingles, refundedCombos }, { status: 500 })
   }
 
   await admin.from('matchday_specials').update({ status: 'void' }).eq('id', specialId)
 
-  return NextResponse.json({ ok: true, refundedSingles: singleIds.length, refundedCombos: comboIds.size, affectedUsers: perUser.size })
+  return NextResponse.json({ ok: true, refundedSingles, refundedCombos, affectedUsers: perUser.size })
 }
