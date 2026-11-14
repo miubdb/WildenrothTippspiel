@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
-  SURVEY_SECTIONS, visibleQuestionsForSection, isSectionComplete, isSurveyComplete, isRequired,
+  SURVEY_SECTIONS, visibleQuestionsForSection, isSectionComplete, isSurveyComplete, isRequired, surveyProgress,
   type Answers, type QuestionDef,
 } from '@/lib/survey'
 import { toggleMultiOption, stripHiddenAnswers } from '@/lib/surveyValidation'
@@ -12,12 +13,16 @@ type LoadState = 'loading' | 'ready' | 'error'
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 export default function UmfragePage() {
+  const router = useRouter()
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [surveyMode, setSurveyMode] = useState<string>('hidden')
   const [answers, setAnswers] = useState<Answers>({})
   const [submittedAt, setSubmittedAt] = useState<string | null>(null)
   const [started, setStarted] = useState(false)
   const [sectionIdx, setSectionIdx] = useState(0)
+  const [navigationOpen, setNavigationOpen] = useState(false)
+  const sectionIdxRef = useRef(0)
+  const questionToScrollRef = useRef<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [saveErrorMsg, setSaveErrorMsg] = useState<string | null>(null)
   const [justSubmitted, setJustSubmitted] = useState(false)
@@ -43,20 +48,26 @@ export default function UmfragePage() {
           setAnswers(data.response.answers ?? {})
           setSubmittedAt(data.response.submitted_at ?? null)
           setStarted(true)
+          const resumeIdx = SURVEY_SECTIONS.findIndex((section) => section.id === data.response.last_section_id)
+          if (resumeIdx >= 0) {
+            sectionIdxRef.current = resumeIdx
+            setSectionIdx(resumeIdx)
+          }
+          if (data.response.submitted_at) setJustSubmitted(true)
         }
         setLoadState('ready')
       })
       .catch(() => setLoadState('error'))
   }, [])
 
-  const save = useCallback((action: 'save' | 'submit', nextAnswers?: Answers) => {
+  const save = useCallback((action: 'save' | 'submit', nextAnswers?: Answers, sectionId?: number) => {
     const run = async () => {
       setSaveState('saving')
       try {
         const res = await fetch('/api/survey', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, answers: nextAnswers ?? answersRef.current }),
+          body: JSON.stringify({ action, answers: nextAnswers ?? answersRef.current, lastSectionId: sectionId ?? SURVEY_SECTIONS[sectionIdxRef.current].id }),
         })
         const data = await res.json()
         if (!res.ok) {
@@ -109,6 +120,39 @@ export default function UmfragePage() {
     setStarted(true)
   }
 
+  // All jumps persist the target section and the current answers before
+  // navigating. Required questions are validated at the actual submission.
+  async function goToSection(targetIdx: number, questionId?: string) {
+    if (targetIdx < 0 || targetIdx >= SURVEY_SECTIONS.length) return
+    if (targetIdx === sectionIdx) {
+      setNavigationOpen(false)
+      if (questionId) document.getElementById(`survey-q-${questionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      else scrollToTop()
+      return
+    }
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    const result = await save('save', undefined, SURVEY_SECTIONS[targetIdx].id)
+    if (!result.ok) return
+    sectionIdxRef.current = targetIdx
+    questionToScrollRef.current = questionId ?? null
+    setSectionIdx(targetIdx)
+    setNavigationOpen(false)
+    if (!questionId) scrollToTop()
+  }
+
+  useEffect(() => {
+    const questionId = questionToScrollRef.current
+    if (!questionId) return
+    questionToScrollRef.current = null
+    document.getElementById(`survey-q-${questionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [sectionIdx])
+
+  async function handleSaveForLater() {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
+    const result = await save('save')
+    if (result.ok) router.push('/tipps')
+  }
+
   // The app's actual scroll container is <main id="app-main"> (overflow-y-auto),
   // not necessarily window/document — on some engines a flex child with
   // overflow-y-auto doesn't get a bounded height and the window scrolls
@@ -123,50 +167,23 @@ export default function UmfragePage() {
   }
 
   async function goNext() {
-    const section = SURVEY_SECTIONS[sectionIdx]
-    if (!isSectionComplete(section, answers)) return
-    // Cancel the debounced autosave before firing our own save for this
-    // click — without this, a save() from THIS click and the pending
-    // 900ms-later debounce timer can both fire (e.g. answering the last
-    // question of a section, then clicking "Weiter" within 900ms), sending
-    // two overlapping POSTs for the same row. (saveChain above additionally
-    // guarantees that even if both still fired, they'd never race.)
-    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
-    const result = await save('save')
-    // Bug found during testing (section 7 → 8): this used to advance the
-    // section unconditionally, discarding save()'s result — a failed save
-    // (network blip, transient 5xx) silently dropped the user's answers
-    // for that section while the UI moved on as if nothing happened. Now
-    // the section only advances once the save is confirmed to have
-    // succeeded; on failure the user stays put with their answers intact
-    // and sees a retry affordance (see saveError below).
-    if (!result.ok) return
-    if (sectionIdx < SURVEY_SECTIONS.length - 1) {
-      setSectionIdx((i) => i + 1)
-      scrollToTop()
-    }
+    if (!isSectionComplete(SURVEY_SECTIONS[sectionIdx], answers)) return
+    await goToSection(sectionIdx + 1)
   }
 
-  function goBack() {
-    if (sectionIdx > 0) {
-      setSectionIdx((i) => i - 1)
-      scrollToTop()
-    }
+  async function goBack() {
+    await goToSection(sectionIdx - 1)
   }
 
   async function handleSubmit() {
-    if (!isSurveyComplete(answers)) return
+    if (!isSurveyComplete(answers)) {
+      const firstIncompleteIdx = SURVEY_SECTIONS.findIndex((section) => !isSectionComplete(section, answers))
+      if (firstIncompleteIdx >= 0) await goToSection(firstIncompleteIdx)
+      return
+    }
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     const result = await save('submit')
-    // submittedAt is already set by save() itself from the server's
-    // response — a successful `submit` always comes back with it set
-    // (the server re-validates completeness before stamping it).
-    if (result.ok && result.submitted) {
-      setJustSubmitted(true)
-    }
-    // On failure: stay on the last section with answers intact (state
-    // already reflects this — save() only ever mutates saveState, never
-    // answers), same as goNext. The error banner below covers retry.
+    if (result.ok && result.submitted) setJustSubmitted(true)
   }
 
   if (loadState === 'loading') {
@@ -192,7 +209,7 @@ export default function UmfragePage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => { setJustSubmitted(false); setSectionIdx(0) }}
+            onClick={() => { setJustSubmitted(false); setSectionIdx(0); sectionIdxRef.current = 0 }}
             className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold text-gray-700 dark:text-gray-200"
           >
             Antworten ansehen / ändern
@@ -242,18 +259,48 @@ export default function UmfragePage() {
   const visibleQuestions = visibleQuestionsForSection(section, answers)
   const sectionOk = isSectionComplete(section, answers)
   const isLast = sectionIdx === SURVEY_SECTIONS.length - 1
-  const progressPct = ((sectionIdx + 1) / SURVEY_SECTIONS.length) * 100
+  const progress = surveyProgress(answers)
+  const progressPct = progress.percent
 
   return (
     <div className="px-4 py-4 space-y-4 pb-8">
-      <div>
-        <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1.5">
-          <span>Bereich {sectionIdx + 1} von {SURVEY_SECTIONS.length} · {section.title}</span>
-          <SaveIndicator state={saveState} />
+      <div className="space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-xs text-gray-500 dark:text-gray-400">Bereich {sectionIdx + 1} von {SURVEY_SECTIONS.length}</div>
+            <h1 className="text-base font-bold text-gray-900 dark:text-gray-100">{section.title}</h1>
+          </div>
+          <div className="shrink-0 text-right">
+            <div className="text-lg font-black tabular-nums text-red-700 dark:text-red-300">{progressPct} %</div>
+            <SaveIndicator state={saveState} />
+          </div>
         </div>
-        <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
-          <div className="h-full bg-red-700 rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+        <div role="progressbar" aria-label="Beantwortete Pflichtfragen" aria-valuenow={progressPct} aria-valuemin={0} aria-valuemax={100} className="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+          <div className="h-full rounded-full bg-red-700 transition-all" style={{ width: `${progressPct}%` }} />
         </div>
+        <div className="flex justify-between gap-2 text-[11px] text-gray-500 dark:text-gray-400">
+          <span>{progress.answered} von {progress.total} Pflichtfragen beantwortet</span>
+          <button type="button" onClick={() => setNavigationOpen((open) => !open)} aria-expanded={navigationOpen} aria-controls="survey-navigation" className="font-bold text-red-700 dark:text-red-300">Bereiche & Fragen {navigationOpen ? 'schließen ▲' : 'anzeigen ▼'}</button>
+        </div>
+        {navigationOpen && (
+          <nav id="survey-navigation" aria-label="Umfrage-Navigation" className="max-h-80 overflow-y-auto rounded-xl border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-800">
+            {SURVEY_SECTIONS.map((surveySection, idx) => (
+              <div key={surveySection.id}>
+                <button type="button" onClick={() => goToSection(idx)} aria-current={idx === sectionIdx ? 'step' : undefined} className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm ${idx === sectionIdx ? 'bg-red-50 font-bold text-red-800 dark:bg-red-900/20 dark:text-red-200' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-700'}`}>
+                  <span>{idx + 1}. {surveySection.title}</span>
+                  <span className="shrink-0 text-xs">{isSectionComplete(surveySection, answers) ? '✓' : 'Offen'}</span>
+                </button>
+                {idx === sectionIdx && (
+                  <div className="ml-4 space-y-0.5 border-l-2 border-red-100 pb-1 pl-2 dark:border-red-900/30">
+                    {visibleQuestions.map((question) => (
+                      <button key={question.id} type="button" onClick={() => goToSection(idx, question.id)} className="block w-full rounded-md px-2 py-1.5 text-left text-xs text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-700">{question.text}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </nav>
+        )}
       </div>
 
       {submittedAt && (
@@ -302,24 +349,23 @@ export default function UmfragePage() {
         ) : (
           <button
             onClick={handleSubmit}
-            disabled={!isSurveyComplete(answers)}
-            className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white font-bold transition-colors"
+            className="flex-1 py-3 rounded-xl bg-green-600 hover:bg-green-700 text-white font-bold transition-colors"
           >
-            {submittedAt ? 'Änderungen absenden' : 'Absenden'}
+            {!isSurveyComplete(answers) ? 'Offene Pflichtfragen prüfen' : submittedAt ? 'Änderungen absenden' : 'Absenden'}
           </button>
         )}
       </div>
       {!sectionOk && (
         <p className="text-xs text-amber-600 dark:text-amber-400 text-center">
-          Bitte beantworte alle Pflichtfragen (*), um fortzufahren.
+          Bitte beantworte alle als „Pflicht“ markierten Fragen in diesem Bereich.
         </p>
       )}
 
       <button
-        onClick={() => save('save')}
-        className="w-full text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 py-1"
+        onClick={handleSaveForLater}
+        className="w-full rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
       >
-        Zwischenspeichern
+        Speichern & später fortsetzen
       </button>
     </div>
   )
@@ -339,7 +385,7 @@ function QuestionCard({ q, answers, value, onChange }: { q: QuestionDef; answers
       {q.dividerBefore && (
         <h3 className="text-xs font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 pt-2 -mb-1">{q.dividerBefore}</h3>
       )}
-      <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-4 py-4">
+      <div id={`survey-q-${q.id}`} className="scroll-mt-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm px-4 py-4">
         {q.infoText && (
           <div className="bg-gray-50 dark:bg-gray-700/40 border border-gray-100 dark:border-gray-700 rounded-xl px-3 py-2 mb-3 text-xs text-gray-500 dark:text-gray-400">
             {q.infoText}
@@ -347,9 +393,7 @@ function QuestionCard({ q, answers, value, onChange }: { q: QuestionDef; answers
         )}
         <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1 flex items-start gap-1.5">
           <span>{q.text}</span>
-          {required
-            ? <span className="text-red-600 flex-shrink-0">*</span>
-            : <span className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wide text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 rounded-full px-1.5 py-0.5 mt-0.5">Freiwillig</span>}
+          <span className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-full px-2 py-0.5 mt-0.5">{required ? 'Pflicht' : 'Optional'}</span>
         </div>
         {q.helpText && q.type !== 'freetext' && (
           <p className="text-[12px] text-gray-400 dark:text-gray-500 mb-2.5">{q.helpText}</p>
