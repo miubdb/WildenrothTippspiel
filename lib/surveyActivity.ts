@@ -5,7 +5,7 @@
  * resuming on another day adds a new session instead of re-counting idle days.
  */
 export const SURVEY_IDLE_AFTER_MS = 60_000
-export const SURVEY_HEARTBEAT_MS = 10_000
+export const SURVEY_HEARTBEAT_MS = 20_000
 export const SURVEY_MAX_SESSION_MS = 24 * 60 * 60 * 1_000
 
 export interface ActivityClock {
