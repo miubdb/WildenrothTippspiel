@@ -246,7 +246,7 @@ export default function UmfragePage() {
       second = requestAnimationFrame(reset)
     })
     return () => { cancelAnimationFrame(first); cancelAnimationFrame(second) }
-  }, [loadState, started, sectionIdx, pageIdx, justSubmitted])
+  }, [loadState, started, sectionIdx, pageIdx, paused, justSubmitted])
 
   function setAnswer(id: string, value: Answers[string]) {
     saveEnabled.current = true
