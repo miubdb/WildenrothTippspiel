@@ -7,4 +7,6 @@ fi
 
 cd "$CLAUDE_PROJECT_DIR"
 
-npm install
+# npm ci statt npm install: installiert exakt nach package-lock.json und verändert die Datei nie
+# (npm install hat sie bei jedem Sitzungsstart umgeschrieben und so ungewollte Änderungen erzeugt).
+npm ci --no-audit --no-fund

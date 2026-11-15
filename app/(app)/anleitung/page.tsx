@@ -248,11 +248,15 @@ export default async function AnleitungPage() {
 
       {/* 11. Verschobene Spiele */}
       <HelpAccordion title="Verschobene Spiele" emoji="🔁">
-        <p>
-          Wird ein Spiel verschoben, bleibt deine Wette grundsätzlich bestehen und kann bis zum
-          tatsächlichen Anpfiff storniert werden. Den neuen Termin bzw. die Zuordnung siehst du
-          automatisch in der App.
-        </p>
+        <p className="mb-2">Hast du schon auf ein Spiel getippt und es wird verschoben:</p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>Deine Wette bleibt gültig – mit <strong>gleicher Quote</strong> und gleichem Einsatz.</li>
+          <li>Sie zählt weiter für den <strong>Spieltag, an dem du sie abgegeben hast</strong>. Am neuen Termin belegt sie keinen deiner Wettscheine.</li>
+          <li>Abgerechnet wird, sobald das Spiel nachgeholt ist. Bis dahin bleibt sie offen.</li>
+          <li>Stornieren kannst du bis zum neuen Anpfiff – bei Kombis nur, solange noch kein Spiel der Kombi begonnen hat.</li>
+        </ul>
+        <p className="mt-2">Wurde noch nicht getippt, zählt das Spiel einfach zum neuen Spieltag.</p>
+        <p className="mt-2">Fällt ein Spiel ganz aus, wird es mit Quote 1,00 gewertet: Einzelwette = Einsatz zurück, Kombis laufen mit den übrigen Spielen weiter.</p>
       </HelpAccordion>
 
       {/* 12. Spieltags-Recap */}
