@@ -6,6 +6,7 @@ import { currentSurveyModeKey, resolveSurveyMode, currentSurveyVersion, surveyMo
 import { createAdminClient } from '@/lib/supabase/admin'
 import { grantSurveyRewardIfEligible, isRewardableSurveyVersion, SURVEY_REWARD_AMOUNT, SURVEY_REWARD_KIND, type SurveyRewardState } from '@/lib/surveyReward'
 import type { Answers } from '@/lib/survey'
+import { notifySurveyOperator, surveyAdminEvent } from '@/lib/surveyAdminNotify'
 
 // Own-survey endpoint: reads/writes the caller's own survey_responses row for
 // THIS ENVIRONMENT's own survey_version (lib/surveyMode.ts#currentSurveyVersion
@@ -166,6 +167,10 @@ export async function POST(req: Request) {
   const reward = submittedAt != null
     ? await grantSurveyRewardIfEligible(createAdminClient(), user.id, currentSurveyVersion(), submittedAt, answers)
     : null
+
+  // Admin-Push (nur Production, nur an den Betreiber, je Spieler und Ereignis einmal): Umfrage gestartet / abgeschlossen.
+  const adminEvent = surveyAdminEvent(existing ? { submitted_at: existing.submitted_at ?? null } : null, submittedAt)
+  if (adminEvent) await notifySurveyOperator(createAdminClient(), adminEvent, user.id, currentSurveyVersion())
 
   return NextResponse.json({ ok: true, submitted: submittedAt != null, submittedAt, reward })
 }

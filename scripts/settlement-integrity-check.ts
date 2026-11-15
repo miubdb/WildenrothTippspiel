@@ -17,6 +17,7 @@ import {
 import { SURVEY_VERSION_PRODUCTION, SURVEY_VERSION_PREVIEW } from '@/lib/surveyMode'
 import { ALL_QUESTIONS, isSurveyComplete, type Answers } from '@/lib/survey'
 import { readFileSync } from 'node:fs'
+import { surveyAdminEvent, SURVEY_ADMIN_URL } from '@/lib/surveyAdminNotify'
 import path from 'node:path'
 
 let total = 0, failed = 0
@@ -262,6 +263,17 @@ export async function run(): Promise<number> {
   const sql = src('supabase/survey_reward_2026.sql')
   check('SQL: Journal mit UNIQUE(user, kind, ref), RLS, nur service_role darf buchen, nur winter_2026_v2',
     /UNIQUE \(user_id, kind, ref\)/.test(sql) && /ENABLE ROW LEVEL SECURITY/.test(sql) && /GRANT EXECUTE ON FUNCTION public\.grant_survey_reward\(uuid, text\) TO service_role/.test(sql) && /'winter_2026_v2'/.test(sql))
+
+  // ───── Admin-Push bei Umfrage gestartet / abgeschlossen ─────
+  check('Admin-Push: erster Speicherstand = gestartet', surveyAdminEvent(null, null) === 'started')
+  check('Admin-Push: direkt abgeschickt ohne Vorstand = abgeschlossen', surveyAdminEvent(null, '2026-11-15T10:00:00Z') === 'submitted')
+  check('Admin-Push: Entwurf → abgeschickt = abgeschlossen', surveyAdminEvent({ submitted_at: null }, '2026-11-15T10:00:00Z') === 'submitted')
+  check('Admin-Push: weiteres Zwischenspeichern / Bearbeiten nach Abschluss = kein Push', surveyAdminEvent({ submitted_at: null }, null) === null && surveyAdminEvent({ submitted_at: '2026-11-15T10:00:00Z' }, '2026-11-15T11:00:00Z') === null)
+  const notifySrc = src('lib/surveyAdminNotify.ts')
+  check('Admin-Push: nur Production, nur Betreiber, nie eigene Aktion, dedupe je Spieler/Ereignis, Ziel Umfrage-Tab',
+    /surveyVersion !== SURVEY_VERSION_PRODUCTION/.test(notifySrc) && /SURVEY_OPERATOR_USERNAME/.test(notifySrc) && /operator\.id === actorUserId/.test(notifySrc)
+    && /survey-admin-\$\{event\}-\$\{surveyVersion\}-\$\{actorUserId\}/.test(notifySrc) && SURVEY_ADMIN_URL === '/admin?tab=umfrage')
+  check('Umfrage-API: löst den Admin-Push aus', /notifySurveyOperator\(/.test(survey))
 
   console.log(`\n${total - failed}/${total} Prüfungen bestanden`)
   return failed
