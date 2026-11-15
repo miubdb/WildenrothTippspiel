@@ -20,6 +20,7 @@ import { attachTeamStats, buildGoalscorerContext, goalscorerRowAction, goalscore
 import { currentSurveyModeKey, currentSurveyVersion, resolveSurveyMode } from '@/lib/surveyMode'
 import { SurveyInvitation } from '@/components/SurveyInvitation'
 import Link from 'next/link'
+import { HINRUNDE } from '@/lib/recap/availability'
 import { CUP_MARKET_LABEL, plainSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
 import { cappedPayout } from '@/lib/payout'
@@ -101,6 +102,8 @@ export default async function TippsPage({
   // to the dynamic computation unchanged.
   const explicitBettingOpens = parseBettingOpenOverrides(appSettings)
   const surveyMode = resolveSurveyMode(appSettings.get(currentSurveyModeKey()))
+  // Winter-Recap-Teaser: sichtbar, sobald der Admin den Hinrunden-Recap veröffentlicht hat (dieselbe Freigabe wie /recap/hinrunde).
+  const winterRecapPublished = appSettings.get(HINRUNDE.settingKey) === 'true'
   const surveyResponse = surveyMode === 'prominent' && user
     ? (await supabase.from('survey_responses').select('answers, submitted_at').eq('user_id', user.id).eq('survey_version', currentSurveyVersion()).maybeSingle()).data
     : null
@@ -1570,6 +1573,15 @@ export default async function TippsPage({
           <span>☀️</span>
           <span><strong>Sommerpause</strong> — wir kommen bald wieder!</span>
         </div>
+      )}
+
+      {winterRecapPublished && (
+        <Link href="/recap/hinrunde" className="relative block overflow-hidden rounded-2xl bg-gradient-to-br from-[#071a3d] via-[#103568] to-[#2a7fc4] px-5 py-4 text-white shadow-lg">
+          <span className="pointer-events-none absolute -right-2 -top-5 text-7xl opacity-15" aria-hidden>❄</span>
+          <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#bfe3fb]">❄ Hinrunde 2026/27</span>
+          <div className="mt-1 text-lg font-black leading-tight">Dein Winter-Recap ist da!</div>
+          <div className="mt-1 text-sm text-[#e3f1fc]">Tipper-IQ, Winter-Pokale und deine Hinrunde im Rückblick →</div>
+        </Link>
       )}
 
       {surveyMode === 'prominent' && <SurveyInvitation variant="home" response={surveyResponse} />}
