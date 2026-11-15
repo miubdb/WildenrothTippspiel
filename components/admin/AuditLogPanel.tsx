@@ -43,6 +43,7 @@ const ACTION_LABEL: Record<AuditAction, string> = {
   match_official_score_confirmed: 'Offizielle Wertung bestätigt',
   recap_publish: 'Recap-Freigabe geändert',
   survey_reward_backfill: 'Umfrage-Dankeschön nachgebucht',
+  home_mode_change: 'Startseiten-Modus geändert',
 }
 
 function fmt(v: unknown): string {

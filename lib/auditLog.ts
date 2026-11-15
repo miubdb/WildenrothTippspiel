@@ -22,7 +22,7 @@ export type AuditAction =
   | 'odds_override_set' | 'odds_override_reset' | 'betting_window_change' | 'topspiel_toggle'
   | 'settlement' | 'season_start_toggle' | 'season_reset' | 'survey_reset' | 'survey_mode_change'
   | 'survey_response_delete' | 'checklist_confirmation' | 'match_annulment' | 'match_official_score_confirmed' | 'recap_publish'
-  | 'survey_reward_backfill'
+  | 'survey_reward_backfill' | 'home_mode_change'
 
 export interface AuditLogEntry {
   actorId: string

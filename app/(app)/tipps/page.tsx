@@ -21,6 +21,9 @@ import { currentSurveyModeKey, currentSurveyVersion, resolveSurveyMode } from '@
 import { SurveyInvitation } from '@/components/SurveyInvitation'
 import Link from 'next/link'
 import { HINRUNDE } from '@/lib/recap/availability'
+import { HOME_MODE_KEY, isWinterBreakHome, resolveHomeModeSetting } from '@/lib/homeMode'
+import { HomeModeAdminToggle } from '@/components/HomeModeAdminToggle'
+import { loadCompletedMatchdays } from '@/lib/recap/loadRecap'
 import { CUP_MARKET_LABEL, plainSelectionLabel, type SpecialDisplayInfo, specialShortTitle, specialSelectionLabel } from '@/lib/betDisplay'
 import { computeStornoChamp } from '@/lib/awards'
 import { cappedPayout } from '@/lib/payout'
@@ -1566,6 +1569,82 @@ export default async function TippsPage({
     )
   }
 
+  // Pausen-Startseite (Winterpause): nur wenn /tipps OHNE ?matchday aufgerufen
+  // wird. Die normale Spieltags-Ansicht darunter bleibt unverändert und ist
+  // über die Links hier (/tipps?matchday=N) weiter erreichbar. Steuerung und
+  // Rückschaltung: lib/homeMode.ts.
+  const homeModeSetting = resolveHomeModeSetting(appSettings.get(HOME_MODE_KEY))
+  const nowTs = new Date().getTime()
+  const nextScheduledMatch = seasonMatches
+    .filter((m) => m.matchday !== 999 && m.status === 'scheduled' && new Date(m.match_date).getTime() > nowTs)
+    .sort((a, b) => new Date(a.match_date).getTime() - new Date(b.match_date).getTime())[0] ?? null
+  const nextKickoff = nextScheduledMatch ? new Date(nextScheduledMatch.match_date) : null
+  const showWinterHome = !params.matchday && isWinterBreakHome({
+    setting: homeModeSetting, seasonStarted, winterRecapPublished, nextKickoff,
+  })
+  const isAdmin = !!userProfile?.is_admin
+
+  if (showWinterHome) {
+    const completed = await loadCompletedMatchdays().catch(() => [] as number[])
+    const lastRecapMd = completed.length > 0 ? Math.max(...completed) : null
+    const nextMd = nextScheduledMatch ? effectiveMatchdayOf(nextScheduledMatch) : null
+    const daysToGo = nextKickoff ? Math.max(0, Math.ceil((nextKickoff.getTime() - nowTs) / 86400000)) : null
+    return (
+      <div className="px-4 py-4 space-y-4">
+        {winterRecapPublished && (
+          <Link href="/recap/hinrunde" className="relative block overflow-hidden rounded-3xl bg-gradient-to-br from-[#071a3d] via-[#103568] to-[#2a7fc4] px-5 py-6 text-white shadow-lg">
+            <span className="pointer-events-none absolute -right-3 -top-6 text-8xl opacity-15" aria-hidden>❄</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#bfe3fb]">❄ Hinrunde 2026/27</span>
+            <div className="mt-2 text-2xl font-black leading-tight">Dein Winter-Recap ist da!</div>
+            <div className="mt-1.5 text-sm text-[#e3f1fc]">Tipper-IQ, Winter-Pokale und deine Hinrunde im Rückblick.</div>
+            <div className="mt-4 inline-block rounded-xl bg-[#d5efff] px-4 py-2.5 text-sm font-bold text-[#0b1f44]">Recap ansehen →</div>
+          </Link>
+        )}
+
+        {surveyMode === 'prominent' && <SurveyInvitation variant="home" response={surveyResponse} />}
+
+        {lastRecapMd != null && (
+          <Link href={`/recap/${lastRecapMd}`} className="flex items-center gap-3 rounded-2xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 px-4 py-3.5 shadow-sm">
+            <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-red-50 dark:bg-red-900/30 text-xl" aria-hidden>🏆</span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-gray-400">Letzter Spieltag</span>
+              <span className="block font-bold text-gray-900 dark:text-gray-100">{lastRecapMd}. Spieltag – Pokale & Highlights</span>
+            </span>
+            <span className="text-red-700 dark:text-red-300 font-bold" aria-hidden>→</span>
+          </Link>
+        )}
+
+        {user && bonusTips.length > 0 && (
+          <BonusTipsSection
+            tips={bonusTips}
+            myAnswers={myBonusAnswersRaw ?? []}
+            myPayouts={myBonusPayoutsRaw ?? []}
+            userId={user.id}
+          />
+        )}
+
+        <div className="rounded-2xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-4 py-4 text-center">
+          <div className="text-2xl" aria-hidden>⛄</div>
+          <div className="mt-1 font-black text-gray-900 dark:text-gray-100">Winterpause</div>
+          {nextKickoff ? (
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              Die Rückrunde startet am{' '}
+              <b className="text-gray-700 dark:text-gray-200">{nextKickoff.toLocaleDateString('de-DE', { weekday: 'long', day: '2-digit', month: '2-digit', timeZone: 'Europe/Berlin' })}</b>
+              {daysToGo != null && daysToGo > 0 ? ` – noch ${daysToGo} Tage.` : '.'}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Die Termine der Rückrunde folgen.</p>
+          )}
+          <Link href={`/tipps?matchday=${nextMd ?? currentMatchday}`} className="mt-3 inline-block text-sm font-bold text-red-700 dark:text-red-300">
+            Spielplan & Spieltage ansehen →
+          </Link>
+        </div>
+
+        {isAdmin && <HomeModeAdminToggle current={homeModeSetting} active="winter" />}
+      </div>
+    )
+  }
+
   return (
     <div className="px-4 py-4 space-y-4">
       {!seasonStarted && (
@@ -1800,6 +1879,8 @@ export default async function TippsPage({
           (eigener Hauptnavigationspunkt) — hier nicht mehr doppelt anzeigen.
           userSingles/userCombos bleiben oben für die Normal/Risky-Zähler
           im Header nötig, siehe deren Berechnung. */}
+
+      {isAdmin && !params.matchday && <HomeModeAdminToggle current={homeModeSetting} active="normal" />}
 
       <BetSlip />
     </div>
